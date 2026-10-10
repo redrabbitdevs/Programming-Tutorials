@@ -1,0 +1,154 @@
+---
+language: python
+level: beginner
+module: Getting started
+order: 5
+title: Python values and types
+description: Name Python's basic types, check them with type and isinstance, and convert between them on purpose.
+minVersion: "3.8"
+objectives:
+  - Identify int, float, str, bool and None values
+  - Inspect a value with type() and isinstance()
+  - Convert between types with int(), float(), str() and bool()
+estimatedMinutes: 25
+fundamentals: ["fundamentals/beginner/03-values-and-types"]
+---
+
+Every value in a Python program has a type, and the type decides what you can do with it. You can add two numbers, repeat a string, but not subtract one string from another.
+
+The general ideas of types, and the difference between static and dynamic typing, are in the fundamentals lesson. This lesson is the Python version: which types you get and how to inspect them.
+
+## The five basic types
+
+| Type | Example | Holds |
+|---|---|---|
+| `int` | `42`, `-7` | Whole numbers of any size |
+| `float` | `3.14`, `2.0` | Numbers with a fractional part |
+| `str` | `"hello"`, `'hi'` | Text |
+| `bool` | `True`, `False` | Yes or no |
+| `NoneType` | `None` | "No value" |
+
+`None` is Python's way to say "nothing here". It is the only value of its own type, and you compare it with `is None`, covered in a later lesson.
+
+## type() and isinstance()
+
+`type(value)` tells you the exact type. `isinstance(value, type)` asks whether a value is of a given type, which is usually the better question.
+
+```python title="types_tour.py"
+print(type(42).__name__)
+print(type(3.14).__name__)
+print(type("hello").__name__)
+print(type(True).__name__)
+print(type(None).__name__)
+
+print(isinstance(42, int))
+print(isinstance(True, int))
+print(isinstance(3, float))
+print(isinstance(3, (int, float)))
+
+print(int("42") + 1)
+print(float("2.5") * 2)
+print(str(7) + "!")
+print(bool(0), bool("0"))
+```
+
+```text
+int
+float
+str
+bool
+NoneType
+True
+True
+False
+True
+43
+5.0
+7!
+False True
+```
+
+Reading the output:
+
+- `type(...).__name__` gives just the short name. Without `.__name__`, `print(type(42))` shows `<class 'int'>`.
+- `isinstance(True, int)` is `True`. In Python, `bool` is a special kind of `int`, where `True` behaves like 1 and `False` like 0. This surprises people, so remember it.
+- `isinstance(3, (int, float))` takes a tuple of types and asks whether the value matches any one of them.
+
+## Conversion
+
+You convert between types by calling the type like a function: `int("42")`, `float("2.5")`, `str(7)`, `bool(0)`.
+
+Notice `bool(0)` is `False` but `bool("0")` is `True`: any non-empty string counts as true, even the string `"0"`. A later lesson covers truthiness in full.
+
+Conversion is explicit. Python will not guess for you, as the next section shows.
+
+## Dynamic and strong typing
+
+Python is **dynamically typed**: a name can be bound to a value of any type, and types are checked while the program runs, not before. It is also **strongly typed**: it does not quietly turn one type into another to make an operation work.
+
+```python title="strong_typing.py"
+print("3" + "4")
+print(3 + 4)
+print(int("3") + 4)
+print("3" * 3)
+```
+
+```text
+34
+7
+7
+333
+```
+
+The same `+` joins strings and adds numbers, depending on the types. What it will not do is mix them. Running `print("3" + 4)` stops the program:
+
+```text
+TypeError: can only concatenate str (not "int") to str
+```
+
+That error is useful. It tells you that a number and some text met, and you must decide which one to convert.
+
+## Common pitfalls
+
+- **Comparing types with `==`.** Write `isinstance(x, int)`, not `type(x) == int`. It handles subclasses, such as `bool`, correctly. Remember that `isinstance(True, int)` is `True`, so check for `bool` first if the difference matters.
+- **Assuming `int()` rounds.** `int(3.9)` is `3`. It drops the fractional part.
+- **Treating `input()` results as numbers.** They are always `str`.
+- **Dividing and expecting an int.** `7 / 2` is `3.5`, a `float`. Use `7 // 2` for whole-number division.
+
+<Exercise title="Type detective">
+
+Predict what each line prints, then run the file to check.
+
+```python title="type_detective.py"
+print(type(7 / 2).__name__)
+print(type(7 // 2).__name__)
+print(type("7").__name__)
+print(type(7 > 2).__name__)
+print(type(int("7")).__name__)
+print(type(str(7.0)).__name__)
+```
+
+<Solution>
+
+```text
+float
+int
+str
+bool
+int
+str
+```
+
+`/` always gives a float and `//` of two ints gives an int. A comparison produces a `bool`. `int("7")` is an int, and `str(7.0)` is the text `"7.0"`, so it is a `str`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- The core types are `int`, `float`, `str`, `bool` and `None`.
+- Use `type()` to look and `isinstance()` to test. Convert explicitly with `int()`, `float()`, `str()`, `bool()`.
+- Python is dynamically but strongly typed: it will not silently mix text and numbers.
+
+Next: what a variable actually is in Python.

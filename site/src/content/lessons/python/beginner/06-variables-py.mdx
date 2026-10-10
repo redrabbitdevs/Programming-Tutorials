@@ -1,0 +1,159 @@
+---
+language: python
+level: beginner
+module: Getting started
+order: 6
+title: Variables and names
+description: Understand that a Python variable is a name bound to an object, and use assignment, swapping and constants correctly.
+minVersion: "3.8"
+objectives:
+  - Explain assignment as binding a name to an object
+  - Use multiple assignment and tuple swapping
+  - Avoid shadowing built-in names
+estimatedMinutes: 25
+fundamentals: ["fundamentals/beginner/04-variables-and-assignment"]
+---
+
+In many languages a variable is a labelled box that holds a value. In Python it is closer to a name tag that you stick on an object. That difference explains several behaviours that otherwise look odd.
+
+The fundamentals lesson on variables covers assignment and scope in general. Here we focus on how Python does it.
+
+## Assignment binds a name
+
+`name = value` does not copy the value into a box. It makes `name` refer to the value, and a later assignment simply moves the tag.
+
+```python title="names_and_objects.py"
+count = 10
+count = count + 1
+print(count)
+
+x = y = 0
+width, height = 4, 5
+print(x, y, width, height)
+
+width, height = height, width
+print(width, height)
+
+first = "spam"
+second = first
+print(first is second)
+second = second + "!"
+print(first, second)
+print(first is second)
+
+MAX_RETRIES = 3
+print(MAX_RETRIES)
+```
+
+```text
+11
+0 0 4 5
+5 4
+True
+spam spam!
+False
+3
+```
+
+Going through it:
+
+- `count = count + 1` first works out the right side (11), then binds the name `count` to that new value.
+- `x = y = 0` binds two names to the same value. `width, height = 4, 5` binds two names at once.
+- `width, height = height, width` swaps without a temporary variable. Python builds a pair from the right side first, then unpacks it. Tuples get their own lesson later.
+- `first is second` asks whether two names refer to the exact same object. After `second = first` the answer is `True`: one object, two names. The line `second = second + "!"` creates a new string and moves the `second` tag to it, so `first` keeps the original.
+
+## Why it matters: shared objects
+
+Strings and numbers cannot be changed after they are made, so sharing them is harmless. Lists can be changed, and there a shared name shows up as a surprise. This is a preview, and the lists lesson returns to it.
+
+```python title="shared_list.py"
+a = [1, 2, 3]
+b = a
+b.append(4)
+print(a)
+print(a is b)
+
+c = list(a)
+c.append(5)
+print(a)
+print(c)
+```
+
+```text
+[1, 2, 3, 4]
+True
+[1, 2, 3, 4]
+[1, 2, 3, 4, 5]
+```
+
+`b = a` does not copy the list. Both names point at the same one, so growing it through `b` changes what `a` sees. `list(a)` makes a real copy, which is why `c` can change without affecting `a`.
+
+If you keep one rule from this lesson, keep this one: **assignment never copies an object.**
+
+## Choosing names
+
+A name may contain letters, digits and underscores, cannot start with a digit, and is case-sensitive, so `Total` and `total` are different. Names must not be Python's reserved words such as `if`, `for` or `class`.
+
+Python has no constants. `MAX_RETRIES = 3` is only a convention: capital letters tell readers not to reassign it, and nothing stops you if you do.
+
+A few names, such as `match`, `case`, `type` and `lazy` <Since v="3.15" />, are **soft keywords**. They have special meaning only in specific places, so you can still use them as ordinary variable names, though it is usually clearer not to.
+
+## Common pitfalls
+
+The most damaging is **shadowing a built-in**. Names like `list`, `max`, `sum`, `str` and `input` are built-in functions. If you assign to one, your variable hides the function.
+
+```python title="shadowing.py"
+print(max(3, 8))
+max = 5
+print(max)
+del max
+print(max(3, 8))
+```
+
+```text
+8
+5
+8
+```
+
+After `max = 5`, calling `max(3, 8)` would raise `TypeError: 'int' object is not callable`. Here `del max` removes our variable, and the built-in becomes visible again. In real code, simply pick a different name such as `highest`.
+
+- **Using a name before it exists.** `print(total)` before any `total = ...` raises `NameError`.
+- **Typos create new names.** Writing `conut = count + 1` quietly binds a new name. Editors and linters catch many of these.
+- **Believing `b = a` copies.** See the list example above.
+
+<Exercise title="Trace the bindings">
+
+Without running it, work out what the last line prints. Then run it and compare.
+
+```python title="trace_bindings.py"
+a = 5
+b = a
+a = a + 1
+c = b
+b, c = c + 10, a
+a = "five"
+d = a
+d = d + "!"
+print(a, b, c, d)
+```
+
+<Solution>
+
+```text
+five 15 6 five!
+```
+
+Step by step: `a` and `b` are 5. Then `a` becomes 6, and `c` takes `b`'s value, 5. The pair assignment evaluates the right side first, giving `(15, 6)`, so `b` is 15 and `c` is 6. Finally `a` is rebound to `"five"`, `d` gets the same string, and `d + "!"` creates a new one.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A Python variable is a name bound to an object. Assignment never copies.
+- `a, b = b, a` swaps two names. `is` tests whether two names share one object.
+- Constants are a naming convention. Avoid names that shadow built-ins.
+
+That completes the first module. The next module covers numbers and text in depth.

@@ -5,6 +5,8 @@
 #
 # Usage: scripts/validate.sh            full run (npm ci + build)
 #        SKIP_INSTALL=1 scripts/validate.sh   reuse existing node_modules
+#        PYTHON=/path/to/python3.15 scripts/validate.sh   interpreter for examples
+# An example may have a sibling .in file, which is fed to it as stdin.
 set -u -o pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,7 +47,9 @@ if [ -d "$ROOT/examples" ]; then
     EX_RUN=$((EX_RUN + 1))
     rel="${f#"$ROOT"/}"
     expected="${f%.py}.out"
-    actual="$(cd "$(dirname "$f")" && timeout 30 python3 "$(basename "$f")" 2>/tmp/validate_stderr.$$ </dev/null)"
+    stdin_file=/dev/null
+    [ -f "${f%.py}.in" ] && stdin_file="${f%.py}.in"
+    actual="$(cd "$(dirname "$f")" && timeout 30 "${PYTHON:-python3}" "$(basename "$f")" 2>/tmp/validate_stderr.$$ <"$stdin_file")"
     code=$?
     if [ $code -ne 0 ]; then
       echo "  FAIL $rel (exit $code)"; sed 's/^/       /' /tmp/validate_stderr.$$ | head -10

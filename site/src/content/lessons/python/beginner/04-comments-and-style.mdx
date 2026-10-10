@@ -1,0 +1,174 @@
+---
+language: python
+level: beginner
+module: Getting started
+order: 4
+title: Comments, indentation and style
+description: Write readable Python with correct indentation, helpful comments and the naming conventions of PEP 8.
+minVersion: "3.8"
+objectives:
+  - Indent blocks correctly and read an IndentationError
+  - Write comments that explain why, not what
+  - Apply PEP 8 naming and spacing, and let ruff format do the rest
+estimatedMinutes: 20
+fundamentals: []
+---
+
+Python is unusual in that the shape of your code is part of its meaning. Get the layout right and the program reads like an outline. Get it wrong and Python refuses to run it.
+
+## Indentation is syntax
+
+Most languages use braces to group statements. Python uses **indentation**. A line ending in a colon opens a block, and every line in the block is indented by the same amount.
+
+```python title="style_demo.py" {7-8}
+# Check whether the guests fit around the table.
+MAX_SEATS = 4
+
+guests = 3  # people who said yes
+
+if guests <= MAX_SEATS:
+    print("Everyone fits.")
+    print(f"Spare seats: {MAX_SEATS - guests}")
+else:
+    print("Too many guests.")
+```
+
+```text
+Everyone fits.
+Spare seats: 1
+```
+
+The two highlighted lines belong to the `if` because they sit four spaces in. The `else:` returns to the left edge, so it lines up with its `if`. Conditionals have their own lesson shortly. Here, watch the layout.
+
+The standard is **four spaces per level**. Configure your editor so that the Tab key inserts four spaces, and never mix tabs and spaces in one file.
+
+If the layout breaks the rules, Python tells you:
+
+```text
+  File "bad.py", line 2
+    print("hi")
+    ^^^^^
+IndentationError: expected an indented block after 'if' statement on line 1
+```
+
+An extra indent where none belongs gives `IndentationError: unexpected indent`. Both messages point at the line to look at, and the first one even names the statement that wanted a block.
+
+## Comments
+
+A `#` starts a comment, which runs to the end of the line. Python ignores it. There is no block-comment syntax; use one `#` per line.
+
+Good comments say **why**, because the code already says what.
+
+```python
+# Weak: repeats the code.
+guests = 3  # set guests to 3
+
+# Better: explains a decision the code cannot show.
+guests = 3  # people who said yes, not counting the host
+```
+
+Do not leave dead code commented out. Version control remembers old versions for you.
+
+## Naming conventions
+
+Python's style guide, [PEP 8](https://peps.python.org/pep-0008/), asks for:
+
+- `snake_case` for variables and functions: `total_cost`, `birth_year`.
+- `UPPER_SNAKE_CASE` for constants: `MAX_SEATS`.
+- `PascalCase` for classes, which arrive in the intermediate course.
+- Names that say what they hold. `guests` beats `g`.
+
+Spacing matters too. Put one space on each side of `=` and arithmetic operators, no space before a comma, and no space just inside parentheses. PEP 8 suggests lines of at most 79 characters; ruff and black default to 88.
+
+## Let a tool do it
+
+You do not have to remember all of this. `ruff` is a popular tool that checks and reformats Python code, and `black` is another. Once installed, it fixes layout for you.
+
+```bash frame="terminal"
+ruff format messy_script.py
+ruff check messy_script.py
+```
+
+Installing tools comes in a later module. For now, it helps to know that the tidy version of a file is something a program can produce for you.
+
+## A messy script and its cleaned-up version
+
+Here is a working script that breaks nearly every convention.
+
+```python title="messy_script.py"
+Rent=900
+food =  250
+Transport= 80
+total_Cost=Rent+food+Transport
+if total_Cost>1000:
+  print( "Over budget by",total_Cost-1000 )
+else :
+  print ("Within budget")
+```
+
+```text
+Over budget by 230
+```
+
+The same program, tidied:
+
+```python title="tidy_script.py"
+BUDGET = 1000
+
+rent = 900
+food = 250
+transport = 80
+total_cost = rent + food + transport
+
+if total_cost > BUDGET:
+    print("Over budget by", total_cost - BUDGET)
+else:
+    print("Within budget")
+```
+
+```text
+Over budget by 230
+```
+
+The two programs behave identically. The tidy one names the budget instead of burying `1000` in the code, uses consistent names and spacing, and indents by four.
+
+## Common pitfalls
+
+- **Mixing tabs and spaces.** Python rejects it with a `TabError`. Use spaces only.
+- **Inconsistent indentation within a block.** Three spaces on one line and four on the next is an `IndentationError`.
+- **Comments that go stale.** If you change the code, change the comment.
+- **A colon forgotten after `if` or `else`.** The error is a `SyntaxError` pointing at the line.
+
+<Exercise title="Tidy a messy script">
+
+Take `messy_script.py` and rewrite it following PEP 8: lowercase variable names, a named constant for the budget, spaces around operators and four-space indentation. The output must stay `Over budget by 230`.
+
+<Solution>
+
+```python title="tidy_script.py"
+BUDGET = 1000
+
+rent = 900
+food = 250
+transport = 80
+total_cost = rent + food + transport
+
+if total_cost > BUDGET:
+    print("Over budget by", total_cost - BUDGET)
+else:
+    print("Within budget")
+```
+
+Changing names and whitespace never changes what the program does, only how easy it is to read.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Indentation is syntax: four spaces per block, never mixed with tabs.
+- `#` comments should explain why. `snake_case` for names and `UPPER_SNAKE_CASE` for constants.
+- A formatter such as ruff applies PEP 8 for you.
+
+Next: the built-in types behind every value.
