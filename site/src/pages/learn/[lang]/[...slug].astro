@@ -1,0 +1,166 @@
+---
+import { getCollection, render } from 'astro:content';
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import Crumbs from '../../../components/Crumbs.astro';
+import LevelBadge from '../../../components/LevelBadge.astro';
+import { mdxComponents } from '../../../components/mdx';
+import { url } from '../../../lib/url';
+import { lessonHref, lessonSlug, sortLessons, groupLessons, resolveFundamentals } from '../../../lib/lessons';
+
+export async function getStaticPaths() {
+  const all = await getCollection('lessons');
+  return all.map((entry) => ({
+    params: { lang: entry.data.language, slug: lessonSlug(entry) },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const d = entry.data;
+const { Content, headings } = await render(entry);
+
+const siblings = sortLessons(await getCollection('lessons', (l) => l.data.language === d.language));
+const idx = siblings.findIndex((l) => l.id === entry.id);
+const prev = siblings[idx - 1];
+const next = siblings[idx + 1];
+const groups = groupLessons(siblings).filter((g) => g.modules.length);
+
+const isShared = d.language === 'fundamentals';
+const langs = await getCollection('languages', (l) => l.data.slug === d.language);
+const langName = isShared ? 'Fundamentals' : (langs[0]?.data.name ?? d.language);
+const homeHref = isShared ? url('/fundamentals/') : url(`/learn/${d.language}/`);
+const builds = await resolveFundamentals(d.fundamentals);
+const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+
+<BaseLayout title={`${d.title} (${langName})`} section={isShared ? 'fundamentals' : 'languages'} description={d.description}>
+  <div class="wrap">
+    <div class="lesson-shell">
+      <div class="sidebar-wrap">
+        <details class="sidebar-toggle" id="sb-toggle">
+          <summary>Course outline</summary>
+          <nav class="sidebar" aria-label={`${langName} lessons`}>
+            <a class="sb-lang" href={homeHref}>{langName}</a>
+            {groups.map((g) => (
+              <>
+                <h2>{g.level.label}</h2>
+                {g.modules.map((m) => (
+                  <>
+                    <p class="sb-sub">{m.name}</p>
+                    <ol>
+                      {m.lessons.map((l) => (
+                        <li><a href={lessonHref(l)} aria-current={l.id === entry.id ? 'page' : undefined}>{l.data.title}</a></li>
+                      ))}
+                    </ol>
+                  </>
+                ))}
+              </>
+            ))}
+          </nav>
+        </details>
+      </div>
+
+      <article class="lesson-main">
+        <header class="lesson-head">
+          <Crumbs items={[
+            { label: langName, href: homeHref },
+            { label: d.module },
+            { label: d.title },
+          ]} />
+          <div class="lesson-badges">
+            <LevelBadge level={d.level} />
+            <span class="badge">{d.estimatedMinutes} min</span>
+            {d.minVersion && <span class="badge">{langName} {d.minVersion}+</span>}
+          </div>
+          <h1>{d.title}</h1>
+          <p class="lede">{d.description}</p>
+          {builds.length > 0 && (
+            <div class="builds-on">
+              Builds on:
+              <ul>
+                {builds.map((b) => (
+                  <li>{b.lesson ? <a href={lessonHref(b.lesson)}>{b.lesson.data.title}</a> : <span>{b.id.split('/').pop()}</span>}</li>
+                ))}
+              </ul>
+              <span> (shared fundamentals)</span>
+            </div>
+          )}
+          <section class="objectives" aria-labelledby="obj-h">
+            <h2 id="obj-h">By the end you can</h2>
+            <ul>{d.objectives.map((o) => <li>{o}</li>)}</ul>
+          </section>
+        </header>
+
+        {toc.length > 0 && (
+          <details class="toc-mobile">
+            <summary>On this page</summary>
+            <nav class="toc" aria-label="On this page">
+              <ol>{toc.map((h) => <li class={`h${h.depth}`}><a href={`#${h.slug}`}>{h.text}</a></li>)}</ol>
+            </nav>
+          </details>
+        )}
+
+        <div class="prose" id="lesson-body">
+          <Content components={mdxComponents} />
+        </div>
+
+        <nav class="pager" aria-label="Previous and next lesson">
+          {prev && (
+            <a class="prev" href={lessonHref(prev)} rel="prev">
+              <span class="dir">Previous</span>
+              <span class="ttl">{prev.data.title}</span>
+            </a>
+          )}
+          {next && (
+            <a class="next" href={lessonHref(next)} rel="next">
+              <span class="dir">Next</span>
+              <span class="ttl">{next.data.title}</span>
+            </a>
+          )}
+        </nav>
+      </article>
+
+      {toc.length > 0 && (
+        <aside class="toc-wrap">
+          <nav class="toc" aria-label="On this page">
+            <h2>On this page</h2>
+            <ol>{toc.map((h) => <li class={`h${h.depth}`}><a href={`#${h.slug}`}>{h.text}</a></li>)}</ol>
+          </nav>
+        </aside>
+      )}
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  // Open the outline by default on wide screens, keep it collapsed on phones.
+  const sb = document.getElementById('sb-toggle') as HTMLDetailsElement | null;
+  if (sb && matchMedia('(min-width: 60rem)').matches) sb.open = true;
+
+  // Heading permalinks.
+  document.querySelectorAll<HTMLElement>('#lesson-body h2[id], #lesson-body h3[id]').forEach((h) => {
+    const a = document.createElement('a');
+    a.className = 'anchor';
+    a.href = `#${h.id}`;
+    a.setAttribute('aria-label', `Link to section: ${h.textContent}`);
+    a.textContent = '#';
+    h.appendChild(a);
+  });
+
+  // Mark the current section in the right-hand TOC.
+  const links = Array.from(document.querySelectorAll<HTMLAnchorElement>('.toc-wrap .toc a'));
+  if (links.length && 'IntersectionObserver' in window) {
+    const byId = new Map(links.map((l) => [decodeURIComponent(l.hash.slice(1)), l]));
+    const heads = [...byId.keys()].map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
+    const visible = new Set<string>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) e.isIntersecting ? visible.add(e.target.id) : visible.delete(e.target.id);
+        const current = heads.find((h) => visible.has(h.id));
+        if (current) links.forEach((l) => l.setAttribute('aria-current', String(byId.get(current.id) === l)));
+      },
+      { rootMargin: '-72px 0px -65% 0px' },
+    );
+    heads.forEach((h) => io.observe(h));
+  }
+</script>

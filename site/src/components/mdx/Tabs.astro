@@ -1,0 +1,60 @@
+---
+/**
+ * <Tabs> <Tab label="macOS">...</Tab> <Tab label="Windows">...</Tab> </Tabs>
+ * Without JavaScript every panel is shown under its label. With JavaScript
+ * it becomes a WAI-ARIA tabs widget (arrow keys, Home, End).
+ */
+---
+
+<div class="tabs" data-tabs><slot /></div>
+
+<script>
+  let uid = 0;
+  document.querySelectorAll<HTMLElement>('[data-tabs]').forEach((root) => {
+    const panels = Array.from(root.querySelectorAll<HTMLElement>(':scope > .tab-panel'));
+    if (panels.length < 2) return;
+    const id = `tabs-${++uid}`;
+    const list = document.createElement('div');
+    list.setAttribute('role', 'tablist');
+    const tabs: HTMLButtonElement[] = [];
+
+    const select = (i: number, focus = false) => {
+      tabs.forEach((t, j) => {
+        const on = i === j;
+        t.setAttribute('aria-selected', String(on));
+        t.tabIndex = on ? 0 : -1;
+        panels[j].hidden = !on;
+      });
+      if (focus) tabs[i].focus();
+    };
+
+    panels.forEach((p, i) => {
+      const t = document.createElement('button');
+      t.type = 'button';
+      t.setAttribute('role', 'tab');
+      t.id = `${id}-t${i}`;
+      t.setAttribute('aria-controls', `${id}-p${i}`);
+      t.textContent = p.dataset.tabLabel ?? `Tab ${i + 1}`;
+      t.addEventListener('click', () => select(i));
+      t.addEventListener('keydown', (e) => {
+        const n = tabs.length;
+        const k = e.key;
+        if (k === 'ArrowRight') select((i + 1) % n, true);
+        else if (k === 'ArrowLeft') select((i - 1 + n) % n, true);
+        else if (k === 'Home') select(0, true);
+        else if (k === 'End') select(n - 1, true);
+        else return;
+        e.preventDefault();
+      });
+      tabs.push(t);
+      list.appendChild(t);
+      p.setAttribute('role', 'tabpanel');
+      p.id = `${id}-p${i}`;
+      p.setAttribute('aria-labelledby', t.id);
+    });
+
+    root.prepend(list);
+    root.classList.add('is-enhanced');
+    select(0);
+  });
+</script>

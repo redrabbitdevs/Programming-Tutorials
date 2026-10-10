@@ -1,0 +1,16 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { url } from '../lib/url';
+---
+
+<BaseLayout title="Page not found" description="This page does not exist.">
+  <div class="wrap nf">
+    <p class="big" aria-hidden="true">404</p>
+    <h1>There is no lesson at this address.</h1>
+    <p>The page may have been renamed when a module was reorganised, or the link has a typo.</p>
+    <div class="hero-actions">
+      <a class="btn" href={url('/languages/')}>Browse languages</a>
+      <a class="btn btn-quiet" href={url('/')}>Home</a>
+    </div>
+  </div>
+</BaseLayout>

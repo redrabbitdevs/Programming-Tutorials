@@ -1,0 +1,53 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Crumbs from '../../components/Crumbs.astro';
+import { url } from '../../lib/url';
+import { getLessonsFor, groupLessons, lessonHref } from '../../lib/lessons';
+
+const lessons = await getLessonsFor('fundamentals');
+const groups = groupLessons(lessons).filter((g) => g.modules.length);
+---
+
+<BaseLayout title="Fundamentals" section="fundamentals" description="The shared track: programming ideas that are the same in every language, taught once.">
+  <div class="page-head">
+    <div class="wrap">
+      <Crumbs items={[{ label: 'Home', href: url('/') }, { label: 'Fundamentals' }]} />
+      <h1>Fundamentals</h1>
+      <p class="lede">
+        Variables, control flow, functions, recursion, types, memory. These ideas are the same in every language, so they
+        are taught once here, without any one syntax. Language lessons link back when they build on one.
+      </p>
+    </div>
+  </div>
+
+  <div class="wrap curriculum">
+    {groups.length === 0 ? (
+      <p class="empty">The shared lessons have not been written yet. Language lessons that build on them will link here once they exist.</p>
+    ) : (
+      groups.map((g) => (
+        <section class="level-block" aria-labelledby={`lv-${g.level.id}`}>
+          <header>
+            <h2 id={`lv-${g.level.id}`}>{g.level.label}</h2>
+            <p>{g.level.blurb}</p>
+          </header>
+          {g.modules.map((m) => (
+            <div class="module">
+              <h3>{m.name}</h3>
+              <ol class="lesson-list">
+                {m.lessons.map((l) => (
+                  <li>
+                    <a href={lessonHref(l)}>
+                      <span class="t">{l.data.title}</span>
+                      <span class="m">{l.data.estimatedMinutes} min</span>
+                      <span class="d">{l.data.description}</span>
+                    </a>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ))}
+        </section>
+      ))
+    )}
+  </div>
+</BaseLayout>

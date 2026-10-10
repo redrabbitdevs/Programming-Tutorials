@@ -1,0 +1,92 @@
+---
+import { getCollection } from 'astro:content';
+import { Code } from 'astro-expressive-code/components';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { url } from '../lib/url';
+import { LEVELS, STATUS_LABEL, languageHref } from '../lib/lessons';
+
+const languages = await getCollection('languages');
+const statusRank = { complete: 0, 'in-progress': 1, planned: 2 } as const;
+const featured = languages
+  .filter((l) => l.data.tier === 1)
+  .sort((a, b) => statusRank[a.data.status] - statusRank[b.data.status] || a.data.name.localeCompare(b.data.name));
+
+const specimen = `def describe(point):
+    match point:
+        case (0, 0):
+            return "origin"
+        case (x, 0):
+            return f"on the x axis at {x}"
+        case _:
+            return "somewhere else"
+`;
+---
+
+<BaseLayout title="Programming Tutorials" description="Programming tutorials written against specific language versions, from first line to expert, with a shared track for the ideas every language has in common.">
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="eyebrow">Free, open source, versioned</p>
+        <h1>Learn a language as it is <em>today</em>, not as it was in 2014.</h1>
+        <p class="lede">
+          Every lesson names the release it was written against, marks the features that need a newer one, and is
+          rechecked when a new version ships.
+        </p>
+        <div class="hero-actions">
+          <a class="btn" href={languageHref('python')}>Start with Python</a>
+          <a class="btn btn-quiet" href={url('/languages/')}>Browse {languages.length} {languages.length === 1 ? 'language' : 'languages'}</a>
+        </div>
+      </div>
+      <figure class="specimen">
+        <Code code={specimen} lang="python" title="describe.py" mark={[2]} />
+        <figcaption>
+          A lesson sample. Structural pattern matching arrived in Python 3.10, so the lesson says so next to the code, not
+          in a changelog.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <section class="section" aria-labelledby="path-h">
+      <div class="section-head">
+        <h2 id="path-h">The path through a language</h2>
+        <p>
+          Every language follows the same four levels, so what you learn about reading one curriculum carries over to the
+          next.
+        </p>
+      </div>
+      <ol class="path">
+        {LEVELS.map((l) => (
+          <li>
+            <h3>{l.label}</h3>
+            <p>{l.blurb}</p>
+          </li>
+        ))}
+      </ol>
+      <p class="note-plain">
+        Ideas that do not belong to one language, such as variables, control flow, recursion and what a type is, are
+        taught once in the <a href={url('/fundamentals/')}>fundamentals track</a>. Each language lesson links back to the
+        ones it builds on and then teaches only what is specific to that language.
+      </p>
+    </section>
+
+    <section class="section" aria-labelledby="pick-h">
+      <div class="section-head">
+        <h2 id="pick-h">Pick a language</h2>
+        <p>The most widely used languages get the full curriculum first.</p>
+      </div>
+      <ul class="picker">
+        {featured.map((l) => (
+          <li>
+            <a href={languageHref(l.data.slug)}>
+              <span class="name">{l.data.name}</span>
+              <span class="status" data-status={l.data.status}>{STATUS_LABEL[l.data.status]}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+      <p class="note-plain"><a href={url('/languages/')}>See every language, with search and filters</a></p>
+    </section>
+  </div>
+</BaseLayout>
