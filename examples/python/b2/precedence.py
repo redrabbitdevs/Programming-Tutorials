@@ -1,0 +1,7 @@
+print(2 + 3 * 4)
+print(-2 ** 2)
+print((-2) ** 2)
+print(2 ** 3 ** 2)
+print(10 - 4 - 3)
+print(not 1 == 2)
+print(1 + 2 == 3 and 4 > 3)

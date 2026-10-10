@@ -1,0 +1,165 @@
+---
+language: python
+level: beginner
+module: Numbers and text
+order: 7
+title: Working with numbers
+description: Use Python's int and float types, the arithmetic operators, and Decimal and Fraction when you need exact results.
+minVersion: "3.8"
+objectives:
+  - Use the division, floor division, modulo and power operators correctly
+  - Explain why 0.1 + 0.2 is not 0.3 and compare floats safely
+  - Choose between float, Decimal and Fraction for a calculation
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/05-expressions-and-operators"]
+---
+
+Python is a good calculator, and it has two surprises for people coming from other languages: integers never overflow, and the `/` operator always gives a float. This lesson covers both, plus the standard-library types you reach for when ordinary floats are not accurate enough.
+
+The fundamentals lesson on expressions explains why computers cannot store most decimal fractions exactly. Here we look at what that means in Python.
+
+## int and float
+
+An `int` is a whole number of any size. Python grows it as needed, so there is no overflow to worry about. A `float` is a 64-bit floating-point number, which is fast but approximate.
+
+```python title="int_float.py"
+print(7 / 2)
+print(7 // 2)
+print(-7 // 2)
+print(7 % 2)
+print(-7 % 2)
+print(divmod(17, 5))
+print(2 ** 10)
+print(2 ** 100)
+print(1_000_000 + 1)
+print(round(2.5), round(3.5), round(2.675, 2))
+print(0.1 + 0.2)
+print(0.1 + 0.2 == 0.3)
+```
+
+```text
+3.5
+3
+-4
+1
+1
+(3, 2)
+1024
+1267650600228229401496703205376
+1000001
+2 4 2.67
+0.30000000000000004
+False
+```
+
+Reading the output:
+
+- `/` is true division and always returns a `float`, even for `6 / 3`, which gives `2.0`.
+- `//` is floor division: it rounds toward negative infinity, so `-7 // 2` is `-4`, not `-3`. `%` is the matching remainder, so `-7 % 2` is `1`. The two always satisfy `a == (a // b) * b + a % b`. `divmod(a, b)` returns both at once.
+- `**` is the power operator. `2 ** 100` is exact because `int` has no size limit.
+- Underscores in a number literal, as in `1_000_000`, are ignored. They are only there to help you read long numbers.
+- `round()` rounds halves to the nearest even number (`round(2.5)` is `2`), and `round(2.675, 2)` gives `2.67` because `2.675` is stored as a slightly smaller binary value. Both results are correct; they just are not what a school textbook would say.
+
+## The math module
+
+Functions such as square roots and trigonometry live in the `math` module. Use `math.isclose()` instead of `==` to compare floats.
+
+```python title="exact_numbers.py"
+import math
+from decimal import Decimal
+from fractions import Fraction
+
+print(math.isclose(0.1 + 0.2, 0.3))
+print(math.sqrt(16), math.floor(-2.5), math.ceil(-2.5))
+print(Decimal("0.1") + Decimal("0.2"))
+print(Decimal("0.1") + Decimal("0.2") == Decimal("0.3"))
+print(Fraction(1, 3) + Fraction(1, 6))
+print(Decimal(0.1))
+```
+
+```text
+True
+4.0 -3 -2
+0.3
+True
+1/2
+0.1000000000000000055511151231257827021181583404541015625
+```
+
+`math.isclose()` treats two floats as equal when they are within a small relative tolerance. `math.floor()` and `math.ceil()` round down and up, and `math.sqrt()` always returns a float.
+
+## Exact arithmetic: Decimal and Fraction
+
+When you add up money, floats are the wrong tool. The `decimal` module stores base-10 digits exactly, and `fractions.Fraction` stores a ratio of two integers exactly.
+
+Always build a `Decimal` from a **string**. The last line of the example shows what happens when you pass a float: you get the float's exact binary value, error included.
+
+A calculation that rounds to the cent at every step looks like this:
+
+```python title="compound_interest.py"
+from decimal import Decimal, ROUND_HALF_UP
+
+balance = Decimal("1000.00")
+rate = Decimal("0.05")
+cent = Decimal("0.01")
+
+for year in range(1, 4):
+    balance = (balance * (1 + rate)).quantize(cent, rounding=ROUND_HALF_UP)
+    print(year, balance)
+```
+
+```text
+1 1050.00
+2 1102.50
+3 1157.63
+```
+
+`quantize()` rounds to the same number of decimal places as its argument. Passing `ROUND_HALF_UP` gives the rounding most people expect from money.
+
+<Callout type="tip">
+
+Use `int` for counts, `float` for measurements and science, `Decimal` for money, and `Fraction` when you need exact ratios. A common trick for money is to store whole cents in an `int`.
+
+</Callout>
+
+## Common pitfalls
+
+- **Comparing floats with `==`.** `0.1 + 0.2 == 0.3` is `False`. Use `math.isclose()`.
+- **Expecting `/` to give an `int`.** Use `//` when you want whole-number division.
+- **Negative floor division.** `-7 // 2` is `-4`. If you need truncation toward zero, use `int(-7 / 2)`.
+- **`Decimal(0.1)`.** This copies the float's error into the Decimal. Write `Decimal("0.1")`.
+- **Mixing `Decimal` and `float`.** `Decimal("1.5") + 0.5` raises a `TypeError`. Convert deliberately.
+
+<Exercise title="Compound-interest calculator">
+
+Start with a balance of `Decimal("1000.00")` and a yearly rate of 5%. Print the balance after each of three years, rounded to the cent at every step. Compare your output with `compound_interest.py` above, then change the rate to `Decimal("0.035")` and predict the first line before running it.
+
+<Solution>
+
+With a rate of 3.5% the first line is `1 1035.00`. The program from the lesson only needs the `rate` line changed:
+
+```python title="solution.py"
+from decimal import Decimal, ROUND_HALF_UP
+
+balance = Decimal("1000.00")
+rate = Decimal("0.035")
+cent = Decimal("0.01")
+
+for year in range(1, 4):
+    balance = (balance * (1 + rate)).quantize(cent, rounding=ROUND_HALF_UP)
+    print(year, balance)
+```
+
+Every value is a `Decimal` built from a string, so no binary rounding error creeps in, and `quantize()` fixes the result at two decimal places each year.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `/` gives a float, `//` and `%` work on whole numbers, `**` is power, and `int` never overflows.
+- Floats are approximate: compare them with `math.isclose()`.
+- Use `Decimal("...")` for money and `Fraction` for exact ratios.
+
+Next: operators and precedence.
