@@ -11,6 +11,7 @@ Every version tag ("3.12+") means "available from that version onward".
 | Release date | **2026-10-09** (Friday) | [PEP 790](https://peps.python.org/pep-0790/) "3.15.0 final: Friday, 2026-10-09"; [What's New 3.15](https://docs.python.org/3/whatsnew/3.15.html) "Python 3.15 was released on 9 October 2026" |
 | Docs default | docs.python.org/3/ now serves the 3.15.0 documentation | `sources/whatsnew-315.md` |
 | Next feature release | 3.16, expected October 2027 (annual cycle, [PEP 602](https://peps.python.org/pep-0602/)) | `sources/peps-index.md` |
+| Windows installation | The **Python install manager** (Microsoft Store or python.org/downloads, MSIX) is the recommended route; it provides `python`, `py` and `pymanager`, and `py install 3.15` adds a version. The full installer and the standalone `py` launcher are deprecated since 3.14; no full installer for 3.16+. | [Using Python on Windows](https://docs.python.org/3/using/windows.html) (`sources/using-windows.md`) |
 | Teaching baseline | **Python 3.15** for examples. Mark anything newer than 3.10 with its minVersion, because many learners will have 3.12 to 3.14 installed. | Writer guidance |
 
 ## Support status (as of 2026-10-10)

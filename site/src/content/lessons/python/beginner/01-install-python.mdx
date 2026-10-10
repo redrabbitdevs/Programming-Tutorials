@@ -1,0 +1,152 @@
+---
+language: python
+level: beginner
+module: Getting started
+order: 1
+title: Installing Python
+description: Install Python 3.15, confirm it runs from a terminal, and choose between the python.org installer and uv.
+minVersion: "3.11"
+objectives:
+  - Install Python 3.15 on your computer
+  - Check which version a terminal command runs
+  - Choose between the python.org installer and uv
+estimatedMinutes: 20
+fundamentals: []
+---
+
+You cannot run a Python program until a Python interpreter is on your machine, and many computers already have an old one that you should leave alone. This lesson gets a current interpreter installed and proves it works.
+
+## Which version to install
+
+This course uses **Python 3.15**, released on 9 October 2026. Everything you meet here runs on 3.15. When a feature needs a newer release than 3.11, the lesson says so with a marker such as <Since v="3.13" />, so learners on an older install can tell what will and will not work.
+
+If you already have 3.11, 3.12, 3.13 or 3.14, you can follow most lessons without installing anything. Python 3.10 reached end of life on 1 October 2026 and no longer receives security fixes, so upgrade if that is what you have.
+
+## Install it
+
+<Tabs>
+<Tab label="Windows">
+
+On Windows, install the **Python install manager**. Get it from the Microsoft Store app (click Install), or download it from [python.org/downloads](https://www.python.org/downloads/) and double-click the file. The two versions are identical. It gives you the `python`, `py` and `pymanager` commands.
+
+The manager installs Python versions for you. Open a terminal and ask for 3.15:
+
+```powershell
+py install 3.15
+py -V:3.15 --version
+```
+
+`py -V:3.15` selects that version, which matters once you have several. Plain `python` starts the default one, the latest stable release unless you configure otherwise. The first time you install a version you may be offered a directory to add to your PATH. That is optional if you use `py`.
+
+The older full installer (with its "Add python.exe to PATH" box) and the standalone `py` launcher are deprecated since 3.14, and no full installer will be built for 3.16 or later. Use them only if you cannot install the manager.
+
+</Tab>
+<Tab label="macOS">
+
+Download the macOS installer from [python.org/downloads](https://www.python.org/downloads/) and open the package. The command is `python3`, not `python`.
+
+```bash
+python3 --version
+```
+
+</Tab>
+<Tab label="Linux">
+
+Most distributions ship Python 3 already, but often not the newest release. Check what you have first. If it is older than you want, install 3.15 from your package manager when it is available there, or use `uv` as described below. Avoid replacing the system Python: parts of your operating system depend on it.
+
+```bash
+python3 --version
+```
+
+</Tab>
+</Tabs>
+
+## Check that it worked
+
+Open a new terminal window (a window opened before the install may not see the change) and ask for the version.
+
+```bash frame="terminal"
+python3 --version
+```
+
+You should see `Python 3.15.0` or a later 3.15 release. Which command name works depends on your system:
+
+- `python3` works on macOS and Linux.
+- `python` and `py` work on Windows once the install manager is installed.
+- `python` works on some systems, inside a virtual environment for example. On others it is missing or points at a different version.
+
+If the command is not found, the usual cause is that Python is installed but its folder is not on your **PATH**, the list of folders your terminal searches for programs. On Windows, try `py` first, which does not depend on PATH, and remove or fix older Python entries on your PATH that might shadow it. Elsewhere, open a fresh terminal first.
+
+## An alternative: uv
+
+`uv` is a fast tool for installing Python versions and managing projects. It can fetch an interpreter without touching your system, which is handy on Linux.
+
+```bash frame="terminal"
+uv python install 3.15
+uv run --python 3.15 python --version
+```
+
+The python.org installer is the simplest start for a beginner. Reach for `uv` when you need several Python versions side by side. A later module covers it in full.
+
+<Callout type="note">
+
+Python also ships a **free-threaded build**, an optional variant that runs threads in parallel. Its executable has a `t` suffix, such as `python3.13t`. You do not need it for this course, and it is not the default build.
+
+</Callout>
+
+## Look inside your interpreter
+
+A program can ask Python which version is running. Save this as `check_version.py` and run it.
+
+```python title="check_version.py"
+import sys
+
+major, minor = sys.version_info[:2]
+print(f"Running Python {major}.{minor}")
+print("At least 3.11:", (major, minor) >= (3, 11))
+```
+
+On 3.15 it prints:
+
+```text
+Running Python 3.15
+At least 3.11: True
+```
+
+`sys.version_info` holds the full version. Printing it whole shows every part:
+
+```text
+sys.version_info(major=3, minor=15, micro=0, releaselevel='final', serial=0)
+```
+
+## Common pitfalls
+
+- **Two Pythons, one command.** A computer can have several. `python3 --version` tells you which one that command name reaches. Always check before you wonder why a feature is missing.
+- **An old Python shadowing the new one on Windows.** If `python` runs the wrong version, use `py -V:3.15`, and clean up old PATH entries.
+- **Changing the system Python on Linux or macOS.** Install a separate one instead.
+
+<Exercise title="Install 3.15 and print its version">
+
+Install Python 3.15, then write a one-line script that prints only the major and minor numbers from `sys.version_info`, separated by a space.
+
+<Solution>
+
+```python title="version_info.py"
+import sys
+
+print(sys.version_info.major, sys.version_info.minor)
+```
+
+On 3.15 this prints `3 15`. The fields of `sys.version_info` can be read by name, so no slicing is needed.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Install Python 3.15 from python.org, or use `uv`, and keep the system Python as it is.
+- Check the version with `python3 --version`, or `py --version` on Windows.
+- `sys.version_info` lets a program inspect its own interpreter.
+
+Next: the interactive prompt and running a saved file.

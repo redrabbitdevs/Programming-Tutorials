@@ -20,8 +20,12 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: site/package-lock.json
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
+      # setup-python's manifest can lag new releases; uv ships CPython builds the day they're out.
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Python 3.15
+        run: uv python install 3.15
       - name: Validate
-        run: scripts/validate.sh
+        run: |
+          export PYTHON="$(uv python find 3.15)"
+          "$PYTHON" --version
+          scripts/validate.sh

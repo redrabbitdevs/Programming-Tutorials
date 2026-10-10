@@ -1,0 +1,6 @@
+print(type(7 / 2).__name__)
+print(type(7 // 2).__name__)
+print(type("7").__name__)
+print(type(7 > 2).__name__)
+print(type(int("7")).__name__)
+print(type(str(7.0)).__name__)

@@ -1,0 +1,148 @@
+---
+language: python
+level: beginner
+module: Getting started
+order: 2
+title: The REPL and running scripts
+description: Try Python interactively in the REPL, then save your work in a .py file and run it from the terminal.
+minVersion: "3.13"
+objectives:
+  - Evaluate expressions and ask for help in the REPL
+  - Run a saved .py file from the terminal
+  - Explain why a script prints less than the REPL does
+estimatedMinutes: 20
+fundamentals: ["fundamentals/beginner/01-what-is-a-program"]
+---
+
+Python gives you two ways to run code: type it a line at a time and see the answer at once, or save it in a file and run the whole thing. You will use both every day, and they behave a little differently.
+
+The ideas behind interpreters and programs are shared by all languages. This lesson covers only how Python does it.
+
+## The REPL
+
+Type `python3` (or `py` on Windows) with no file name and you land in the **REPL**: a prompt that **R**eads what you type, **E**valuates it, **P**rints the result, and **L**oops back for more.
+
+```bash frame="terminal"
+python3
+```
+
+```text
+>>> 2 + 3
+5
+>>> 12 * 7
+84
+>>> "ab" * 3
+'ababab'
+```
+
+The `>>>` is the prompt. You type the part after it, and Python prints the value of each expression. If you type a variable name on its own, the REPL shows its value, and `_` always holds the last result.
+
+```text
+>>> price = 4
+>>> price * 3
+12
+>>> _ + 1
+13
+```
+
+The REPL in 3.13 and later has multi-line editing and coloured output <Since v="3.13" />. Typing `exit` on its own now leaves it, with no parentheses <Since v="3.13" />. Python 3.14 added syntax highlighting as you type <Since v="3.14" />. On older versions, leave with `exit()` or press Ctrl-D (Ctrl-Z then Enter on Windows).
+
+### Getting help
+
+`help()` shows documentation without leaving the prompt.
+
+```text
+>>> help(print)
+```
+
+Press `q` to close the help viewer. You can also ask for a single topic, such as `help(str)`.
+
+<Callout type="tip">
+
+The REPL is the fastest way to test a doubt. If you cannot remember whether `7 // 2` is `3` or `4`, type it. A five-second experiment beats a minute of guessing.
+
+</Callout>
+
+## Running a script
+
+A **script** is a text file of Python code, usually ending in `.py`. Save the following as `rectangle_area.py` using any text editor.
+
+```python title="rectangle_area.py"
+width = 12
+height = 7
+area = width * height
+print("Area:", area)
+```
+
+Open a terminal in the folder that holds the file and run it.
+
+```bash frame="terminal"
+python3 rectangle_area.py
+```
+
+```text
+Area: 84
+```
+
+Python reads the file from top to bottom, runs each statement, and exits. Nothing stays in memory afterwards, so you rerun the file whenever you change it.
+
+## Why a script is quieter
+
+In the REPL, an expression on its own line is printed. In a script it is not. The only output a script produces is what you ask for with `print`.
+
+```python title="script_vs_repl.py"
+2 + 3  # the REPL would echo 5; a script stays silent
+print(2 + 3)
+```
+
+```text
+5
+```
+
+Only the second line prints. If you copy REPL experiments into a file and the output vanishes, this is why.
+
+## Other ways to start Python
+
+The command line has two more forms that you will see in tutorials.
+
+- `python3 -c "print(2 + 3)"` runs a single line of code from the command.
+- `python3 -m module_name` runs a module from the standard library or an installed package as a program. For example, `python3 -m timeit "2 + 3"` times a snippet. Later lessons use `-m` to create virtual environments.
+
+<Callout type="warning" title="Common mistake">
+
+Typing `python3 rectangle_area.py` inside the REPL gives a `SyntaxError`. The REPL expects Python code, not terminal commands. Leave it with `exit` first, then run the file from the terminal prompt.
+
+</Callout>
+
+## Common pitfalls
+
+- **Running from the wrong folder.** If Python says `No such file or directory`, your terminal is in a different folder from the file. Use `cd` to move, or give the full path.
+- **Expecting a script to echo values.** Add `print(...)`.
+- **Saving as `.py.txt`.** Some editors on Windows hide extensions. Make sure the file really ends in `.py`.
+
+<Exercise title="From REPL to script">
+
+Open the REPL and work out the area of a 12 by 7 rectangle using two variables. Then save the same steps as `rectangle_area.py` so that running the file prints `Area: 84`.
+
+<Solution>
+
+```python title="rectangle_area.py"
+width = 12
+height = 7
+area = width * height
+print("Area:", area)
+```
+
+In the REPL you could type `area` to see the answer. In a file you must print it, which is why the last line is there.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- The REPL (`python3`) evaluates one entry at a time and echoes expression values.
+- `python3 file.py` runs a script, and only `print` produces output.
+- `help()`, `exit`, `-c` and `-m` are the tools worth remembering.
+
+Next: reading input and printing in your first real program.
