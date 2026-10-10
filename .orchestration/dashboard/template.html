@@ -1,0 +1,208 @@
+<title>Tutorials Team Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a control-room board. Status strip on top, the team diagram as the centrepiece, then three working columns (activity, queue, coverage). */
+:root{
+  --bg:#eef1f4; --panel:#ffffff; --ink:#17202b; --muted:#5d6a78; --line:#d5dbe2;
+  --accent:#d9480f; --accent-soft:#fde8dc;
+  --ok:#2b8a3e; --ok-soft:#e3f4e6; --run:#1864ab; --run-soft:#e1ecf8; --wait:#8a6d00; --wait-soft:#fbf3d0; --bad:#c92a2a;
+  --f-display:"Schibsted Grotesk",ui-sans-serif,system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#11161c; --panel:#18202a; --ink:#e6ebf0; --muted:#94a1af; --line:#2a3542;
+  --accent:#ff8a4c; --accent-soft:#3a2416;
+  --ok:#69db7c; --ok-soft:#173222; --run:#74b4f5; --run-soft:#16283c; --wait:#f2cc55; --wait-soft:#332b10; --bad:#ff8787; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11161c; --panel:#18202a; --ink:#e6ebf0; --muted:#94a1af; --line:#2a3542;
+  --accent:#ff8a4c; --accent-soft:#3a2416;
+  --ok:#69db7c; --ok-soft:#173222; --run:#74b4f5; --run-soft:#16283c; --wait:#f2cc55; --wait-soft:#332b10; --bad:#ff8787; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--f-body);padding:0 16px}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 56px;display:grid;gap:22px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px}
+h1{font:800 clamp(26px,4vw,38px)/1.05 var(--f-display);letter-spacing:-.02em;margin:0;text-wrap:balance}
+h1 span{color:var(--accent)}
+.sub{color:var(--muted);margin:6px 0 0;max-width:62ch}
+.stamp{font:12px var(--f-mono);color:var(--muted);text-align:right}
+h2{font:700 13px var(--f-display);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 12px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;min-width:0}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.stat{background:var(--panel);padding:14px 16px}
+.stat b{display:block;font:700 26px var(--f-display);font-variant-numeric:tabular-nums}
+.stat small{color:var(--muted);font-size:12.5px}
+.bar{height:4px;background:var(--line);border-radius:2px;margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+.diagram{overflow-x:auto}
+.router{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding-bottom:14px;border-bottom:1px dashed var(--line);margin-bottom:6px}
+.routes{color:var(--muted);font-size:13px}
+.lanes{display:grid;min-width:640px}
+.lane{display:grid;grid-template-columns:260px 1fr;gap:14px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.lane:first-child{border-top:0}
+.ln-dormant{opacity:.62}
+.lh{display:grid;grid-template-columns:auto 1fr auto;gap:2px 8px;align-items:baseline}
+.lh code{font:500 12px var(--f-mono);color:var(--accent)}
+.lh b{font:700 14.5px var(--f-display)}
+.lh small{grid-column:1/-1;color:var(--muted);font-size:12px}
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.arr{color:var(--muted);font-family:var(--f-mono)}
+.par{display:inline-flex;gap:6px;padding:3px;border:1px dashed var(--line);border-radius:9px}
+.node{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line);border-radius:7px;background:var(--panel);font-size:13px;white-space:nowrap}
+.node b{font:600 13px var(--f-display)}
+.node small{font:11px var(--f-mono);color:var(--muted)}
+.node.end{color:var(--muted);font:12px var(--f-mono)}
+.node .dot{background:var(--line)}
+.st-working{border-color:var(--run)} .st-working .dot{background:var(--run)}
+.st-waiting .dot{background:var(--wait)} .st-done .dot{background:var(--ok)}
+.router .node{border-color:var(--accent);background:var(--accent-soft)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:12.5px;color:var(--muted);margin-top:10px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+.cols{display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:22px}
+@media (max-width:900px){.cols{grid-template-columns:1fr}}
+ol.log{list-style:none;margin:0;padding:0;display:grid;gap:0}
+.log li{display:grid;grid-template-columns:52px 1fr;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.log li:first-child{border-top:0}
+.log time{font:12px var(--f-mono);color:var(--muted);padding-top:2px}
+.route{font:500 12px var(--f-mono);color:var(--accent)}
+.log p{margin:2px 0 0}
+.pill{display:inline-block;font:500 11.5px var(--f-mono);padding:2px 8px;border-radius:99px;white-space:nowrap}
+.p-done{background:var(--ok-soft);color:var(--ok)} .p-run{background:var(--run-soft);color:var(--run)}
+.p-wait{background:var(--wait-soft);color:var(--wait)} .p-todo{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--line)}
+ul.plain{list-style:none;margin:0;padding:0}
+.ms li{display:flex;justify-content:space-between;gap:10px;align-items:baseline;padding:7px 0;border-top:1px solid var(--line)}
+.ms li:first-child{border-top:0}
+.ms code{font:12px var(--f-mono);color:var(--muted);margin-right:6px}
+.next li{padding:7px 0 7px 18px;position:relative;border-top:1px solid var(--line)}
+.next li:first-child{border-top:0}
+.next li::before{content:"";position:absolute;left:2px;top:15px;width:7px;height:7px;border:2px solid var(--accent);border-radius:50%}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:12px var(--f-mono);padding:3px 8px;border-radius:5px;border:1px solid var(--line);color:var(--muted)}
+.chip.c-run{border-color:var(--run);color:var(--run);background:var(--run-soft)}
+.chip.c-done{border-color:var(--ok);color:var(--ok);background:var(--ok-soft)}
+.tier{font:600 12px var(--f-display);color:var(--ink);margin:14px 0 8px}
+.tier:first-of-type{margin-top:0}
+.prs a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
+.prs a:hover,.prs a:focus-visible{border-color:var(--accent)}
+.prs li{display:flex;gap:8px;align-items:baseline;padding:6px 0;border-top:1px solid var(--line);font-size:14px}
+.prs li:first-child{border-top:0}
+.esc{border-color:var(--accent);background:var(--accent-soft)}
+.models td,.models th{padding:7px 10px 7px 0;text-align:left;border-top:1px solid var(--line);vertical-align:top;font-size:14px}
+.models th{font:600 12px var(--f-display);color:var(--muted);border-top:0;text-transform:uppercase;letter-spacing:.06em}
+.tbl{overflow-x:auto}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.pulse{animation:pulse 1.6s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Programming Tutorials <span>/</span> team board</h1>
+      <p class="sub">Seven agents building a beginner-to-expert curriculum for every programming language, starting with Python. This board is generated from <code>.orchestration/state.json</code> after each merge.</p>
+    </div>
+    <div class="stamp" id="stamp"></div>
+  </header>
+
+  <section class="strip" id="strip" aria-label="Summary"></section>
+
+  <section class="panel">
+    <h2>Workflows &amp; live agent state</h2>
+    <div class="diagram" id="diagram"></div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--run)"></i>working</span>
+      <span><i class="dot" style="background:var(--wait)"></i>queued / waiting</span>
+      <span><i class="dot" style="background:var(--ok)"></i>finished last task</span>
+      <span><i class="dot" style="background:var(--line)"></i>idle (loop dormant)</span>
+      <span>dimmed lanes are dormant: their agents are not called until the trigger fires · dashed box = runs in parallel</span>
+    </div>
+  </section>
+
+  <div class="cols">
+    <section class="panel">
+      <h2>Interactions</h2>
+      <ol class="log" id="log"></ol>
+    </section>
+    <div style="display:grid;gap:22px;align-content:start;min-width:0">
+      <section class="panel" id="escPanel" hidden><h2>Needs your input</h2><ul class="plain next" id="esc"></ul></section>
+      <section class="panel"><h2>Next up</h2><ul class="plain next" id="next"></ul></section>
+      <section class="panel"><h2>Milestones</h2><ul class="plain ms" id="ms"></ul></section>
+    </div>
+    <div style="display:grid;gap:22px;align-content:start;min-width:0">
+      <section class="panel"><h2>Pull requests</h2><ul class="plain prs" id="prs"></ul></section>
+      <section class="panel"><h2>Language coverage</h2><div id="langs"></div></section>
+    </div>
+  </div>
+
+  <section class="panel">
+    <h2>Model fit</h2>
+    <div class="tbl"><table class="models" style="border-collapse:collapse;width:100%"><thead><tr><th>Agent</th><th>Model</th><th>Verdict</th></tr></thead><tbody id="models"></tbody></table></div>
+  </section>
+</div>
+
+<script>
+const S = /*__STATE__*/null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pill = st => {
+  const m = {complete:["p-done","done"],done:["p-done","done"],merged:["p-done","merged"],in_progress:["p-run","in progress"],open:["p-run","open"],waiting:["p-wait","waiting"],pending:["p-todo","pending"]};
+  const [c,l] = m[st] || ["p-todo", st];
+  return `<span class="pill ${c}">${esc(l)}</span>`;
+};
+
+$("stamp").innerHTML = `updated ${esc(S.updated)}<br>phase: ${esc(S.phase)}`;
+
+const ms = S.milestones || [];
+const msDone = ms.filter(m => m.status === "complete").length;
+const tier1 = S.language_order.tier1_full_curriculum, tier2 = S.language_order.tier2_full_curriculum;
+const ls = S.language_status || {};
+const langDone = Object.values(ls).filter(v => v === "complete").length;
+const lessons = S.lessons || {written:0, planned:0};
+const stats = [
+  ["Milestones", `${msDone}/${ms.length}`, ms.length ? msDone/ms.length : 0],
+  ["PRs merged", (S.merged_prs||[]).length, null],
+  ["Lessons written", `${lessons.written}${lessons.planned?"/"+lessons.planned:""}`, lessons.planned ? lessons.written/lessons.planned : null],
+  ["Languages complete", `${langDone}/${tier1.length + tier2.length}`, (langDone)/(tier1.length+tier2.length)],
+  ["Languages catalogued", S.catalog_count || "—", null],
+];
+$("strip").innerHTML = stats.map(([l,v,p]) => `<div class="stat"><b>${esc(v)}</b><small>${esc(l)}</small>${p!==null?`<div class="bar"><i style="width:${Math.round(p*100)}%"></i></div>`:""}</div>`).join("");
+
+/* Diagram: the Advisor routes triggers to six independent workflow lanes */
+const A = S.agents || {};
+const label = {advisor:"Advisor",researcher:"Researcher",writer:"Writer",validator:"Validator",uiux:"UI/UX",gapfinder:"Gap Finder",improver:"Improver",summarizer:"Summarizer"};
+const mdl = {researcher:"Opus",writer:"Sonnet/Opus",validator:"script+Sonnet",uiux:"Sonnet",gapfinder:"Sonnet",improver:"Opus",summarizer:"Haiku"};
+const pending = new Set((S.triggers||[]).map(t => t.wf));
+const node = id => { const st=(A[id]||{}).status||"idle"; return `<span class="node st-${st}" title="${esc((A[id]||{}).task||st)}"><i class="dot ${st==="working"?"pulse":""}"></i><b>${esc(label[id]||id)}</b><small>${esc(mdl[id]||"")}</small></span>`; };
+const lane = w => {
+  const active = w.agents.some(a => (A[a]||{}).status==="working");
+  const state = active ? "running" : pending.has(w.id) ? "triggered" : "dormant";
+  const parallel = w.id==="W4";
+  const chain = parallel ? `<span class="par">${w.agents.map(node).join("")}</span>` : w.agents.map(node).join('<span class="arr">→</span>');
+  const tail = w.id==="W4" ? '<span class="arr">→</span><span class="node end">Advisor triage</span>' : '<span class="arr">→</span><span class="node end">validate.sh</span><span class="arr">→</span><span class="node end">PR</span>';
+  return `<div class="lane ln-${state}"><div class="lh"><code>${esc(w.id)}</code><b>${esc(w.name)}</b><span class="pill ${state==="running"?"p-run":state==="triggered"?"p-wait":"p-todo"}">${state}</span><small>trigger: ${esc(w.trigger)}</small></div><div class="chain">${chain}${tail}</div></div>`;
+};
+$("diagram").innerHTML = `<div class="router">${node("advisor").replace("<small></small>","<small>Opus · router</small>")}<span class="routes">reads <code>triggers</code> → runs only the matching workflow · escalates to <b>you</b> after 2 failed rounds</span></div><div class="lanes">${(S.workflows||[]).map(lane).join("")}</div>`;
+
+/* Log */
+$("log").innerHTML = (S.log||[]).slice().reverse().map(e => `<li><time>${esc(e.t)}</time><div><span class="route">${esc(e.from)} → ${esc(e.to)}</span><p>${esc(e.msg)}</p></div></li>`).join("") || "<li><p>No activity yet.</p></li>";
+
+/* Queue */
+$("next").innerHTML = (S.next_actions||[]).map(n => `<li>${esc(n)}</li>`).join("");
+$("ms").innerHTML = ms.map(m => `<li><span><code>${esc(m.id)}</code>${esc(m.name)}</span>${pill(m.status)}</li>`).join("");
+if ((S.escalations||[]).length) { $("escPanel").hidden = false; $("escPanel").classList.add("esc"); $("esc").innerHTML = S.escalations.map(e => `<li>${esc(e)}</li>`).join(""); }
+
+const repo = "https://github.com/redrabbitdevs/Programming-Tutorials/pull/";
+const prs = [...(S.open_prs||[]).map(p => ({...p, st:"open"})), ...(S.merged_prs||[]).slice().reverse().map(p => ({...p, st:"merged"}))];
+$("prs").innerHTML = prs.map(p => `<li>${pill(p.st)}<a href="${repo}${p.n}" target="_blank" rel="noopener">#${p.n} ${esc(p.title)}</a></li>`).join("") || "<li>None yet.</li>";
+
+const chip = s => `<span class="chip ${ls[s]==="complete"?"c-done":ls[s]==="in_progress"?"c-run":""}">${esc(s)}</span>`;
+$("langs").innerHTML = `<div class="tier">Tier 1 · full curriculum</div><div class="chips">${tier1.map(chip).join("")}</div>
+  <div class="tier">Tier 2 · full curriculum</div><div class="chips">${tier2.map(chip).join("")}</div>
+  <div class="tier">Tier 3 · overview pages</div><p class="sub" style="margin:0">${S.catalog_count ? esc(S.catalog_count - tier1.length - tier2.length) + " more languages in the catalog" : "Catalog being compiled by the Researcher"}</p>`;
+
+$("models").innerHTML = (S.model_review||[]).map(r => `<tr><td><b>${esc(r.agent)}</b></td><td style="font-family:var(--f-mono);font-size:12.5px">${esc(r.model)}</td><td>${esc(r.verdict)}</td></tr>`).join("");
+</script>
