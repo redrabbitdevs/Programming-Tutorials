@@ -1,0 +1,77 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import Crumbs from '../../../components/Crumbs.astro';
+import { url } from '../../../lib/url';
+import { STATUS_LABEL, getLessonsFor, groupLessons, lessonHref } from '../../../lib/lessons';
+
+export async function getStaticPaths() {
+  const langs = await getCollection('languages');
+  return langs.map((l) => ({ params: { lang: l.data.slug }, props: { language: l } }));
+}
+
+const { language } = Astro.props;
+const d = language.data;
+const lessons = await getLessonsFor(d.slug);
+const groups = groupLessons(lessons);
+const first = lessons[0];
+const fmtDate = (x: Date) => x.toLocaleDateString('en-GB', { year: 'numeric', month: 'long', timeZone: 'UTC' });
+---
+
+<BaseLayout title={`${d.name} curriculum`} section="languages" description={d.summary}>
+  <div class="page-head">
+    <div class="wrap">
+      <Crumbs items={[{ label: 'Languages', href: url('/languages/') }, { label: d.name }]} />
+      <h1>{d.name}</h1>
+      <p class="lede">{d.summary}</p>
+      <dl class="meta-row">
+        <div><dt>Status</dt><dd><span class="status" data-status={d.status}>{STATUS_LABEL[d.status]}</span></dd></div>
+        <div><dt>Paradigm</dt><dd>{d.paradigm.join(', ')}</dd></div>
+        {d.firstAppeared && <div><dt>First appeared</dt><dd>{d.firstAppeared}</dd></div>}
+        {d.latestVersion && (
+          <div>
+            <dt>Latest version</dt>
+            <dd>{d.latestVersion}{d.latestVersionDate && <span> ({fmtDate(d.latestVersionDate)})</span>}</dd>
+          </div>
+        )}
+        <div><dt>Lessons</dt><dd>{lessons.length}</dd></div>
+      </dl>
+      {first && (
+        <div class="hero-actions">
+          <a class="btn" href={lessonHref(first)}>Start: {first.data.title}</a>
+        </div>
+      )}
+    </div>
+  </div>
+
+  <div class="wrap curriculum">
+    {groups.map((g) => (
+      <section class="level-block" aria-labelledby={`lv-${g.level.id}`}>
+        <header>
+          <h2 id={`lv-${g.level.id}`}>{g.level.label}</h2>
+          <p>{g.level.blurb}</p>
+        </header>
+        {g.modules.length === 0 ? (
+          <p class="empty">Not written yet.</p>
+        ) : (
+          g.modules.map((m) => (
+            <div class="module">
+              <h3>{m.name}</h3>
+              <ol class="lesson-list">
+                {m.lessons.map((l) => (
+                  <li>
+                    <a href={lessonHref(l)}>
+                      <span class="t">{l.data.title}</span>
+                      <span class="m">{l.data.estimatedMinutes} min{l.data.minVersion ? ` · ${d.name} ${l.data.minVersion}+` : ''}</span>
+                      <span class="d">{l.data.description}</span>
+                    </a>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ))
+        )}
+      </section>
+    ))}
+  </div>
+</BaseLayout>

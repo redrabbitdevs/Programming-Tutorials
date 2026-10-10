@@ -1,0 +1,11 @@
+---
+interface Props {
+  label?: string;
+}
+const { label = 'Show solution' } = Astro.props;
+---
+
+<details class="solution">
+  <summary>{label}</summary>
+  <div><slot /></div>
+</details>

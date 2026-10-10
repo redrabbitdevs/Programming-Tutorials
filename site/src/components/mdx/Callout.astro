@@ -1,0 +1,23 @@
+---
+interface Props {
+  type?: 'note' | 'tip' | 'warning' | 'danger';
+  title?: string;
+}
+const { type = 'note', title } = Astro.props;
+const defaults = { note: 'Note', tip: 'Tip', warning: 'Warning', danger: 'Danger' } as const;
+const label = title ?? defaults[type];
+const paths = {
+  note: 'M12 8v.01M12 11v5M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0',
+  tip: 'M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z',
+  warning: 'M12 4l9.5 16h-19L12 4zM12 10v4M12 17v.01',
+  danger: 'M8 3h8l5 5v8l-5 5H8l-5-5V8l5-5zM12 8v5M12 16v.01',
+} as const;
+---
+
+<aside class="callout" data-type={type} role="note" aria-label={label}>
+  <p class="callout-title" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={paths[type]} /></svg>
+    {label}
+  </p>
+  <div class="callout-body"><slot /></div>
+</aside>

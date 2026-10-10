@@ -1,0 +1,12 @@
+---
+/** Inline marker for version-gated features: <Since v="3.12" /> */
+interface Props {
+  v: string;
+  /** Optional last version, for removed features: <Since v="2.7" until="3.0" /> */
+  until?: string;
+}
+const { v, until } = Astro.props;
+const label = until ? `Available from version ${v} until ${until}` : `Requires version ${v} or later`;
+---
+
+<span class="since" title={label}><span aria-hidden="true">{until ? `${v}–${until}` : `${v}+`}</span><span class="visually-hidden">{label}</span></span>

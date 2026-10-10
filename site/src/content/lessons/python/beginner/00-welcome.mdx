@@ -1,0 +1,121 @@
+---
+language: python
+level: beginner
+module: Getting started
+order: 0
+title: Welcome to Python
+description: Run your first program, meet the interpreter and learn how the lessons in this course work.
+minVersion: "3.10"
+objectives:
+  - Run a Python file and an interactive session
+  - Read the version markers and callouts used throughout the course
+  - Predict what a small program prints before running it
+estimatedMinutes: 15
+fundamentals: []
+---
+
+This lesson is a sample. It exists to show every component a lesson can use, so the real lessons can copy the patterns.
+
+## Your first program
+
+Save this as `hello.py` and run it with `python3 hello.py`.
+
+```python title="hello.py"
+name = "world"
+print(f"Hello, {name}!")
+```
+
+The program prints:
+
+```text
+Hello, world!
+```
+
+## Version markers
+
+Some features only exist from a given release. A marker like <Since v="3.10" /> sits beside the heading or sentence that needs it. Structural pattern matching, for example, needs 3.10 or later.
+
+```python title="match_demo.py" {2}
+def kind(value):
+    match value:
+        case int():
+            return "integer"
+        case str():
+            return "text"
+        case _:
+            return "something else"
+
+print(kind(3))
+print(kind("three"))
+```
+
+## Callouts
+
+<Callout type="note">
+
+A note adds context that is useful but not required.
+
+</Callout>
+
+<Callout type="tip">
+
+A tip is a shortcut or habit that saves time later.
+
+</Callout>
+
+<Callout type="warning" title="Common mistake">
+
+A warning flags something that fails quietly or behaves differently from what you expect.
+
+</Callout>
+
+<Callout type="danger">
+
+Danger is reserved for data loss and security problems.
+
+</Callout>
+
+## Install and run, by platform
+
+<Tabs>
+<Tab label="macOS and Linux">
+
+```bash
+python3 --version
+python3 hello.py
+```
+
+</Tab>
+<Tab label="Windows">
+
+```powershell
+py --version
+py hello.py
+```
+
+</Tab>
+</Tabs>
+
+## Try it
+
+<Exercise title="Change the greeting">
+
+Edit `hello.py` so that it prints `Hello, Ada!` on one line and `Welcome to Python.` on the next.
+
+<Solution>
+
+```python title="hello.py"
+name = "Ada"
+print(f"Hello, {name}!")
+print("Welcome to Python.")
+```
+
+Each call to `print` ends its output with a newline, so two calls give two lines.
+
+</Solution>
+
+</Exercise>
+
+## What comes next
+
+The next lessons cover values, variables and the basic types.

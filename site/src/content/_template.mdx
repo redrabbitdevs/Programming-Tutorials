@@ -1,0 +1,74 @@
+---
+# Copy this file to:
+#   site/src/content/lessons/<language>/<level>/<NN>-<kebab-title>.mdx
+# <language> is a slug from src/content/languages/, or "fundamentals" for the shared track.
+# <level> is beginner | intermediate | advanced | expert. NN is a two-digit order in the file name.
+# Delete these comments in the copy. No imports are needed: every component below is available.
+
+language: python
+level: beginner
+module: Module name, identical on every lesson in the module
+order: 1                       # integer; lessons sort by level, then order
+title: Sentence case, under 60 characters
+description: One sentence, under 160 characters, that says what the reader will be able to do.
+minVersion: "3.10"             # optional; the oldest version every example runs on
+objectives:                    # 2 to 4 items, each starting with a verb
+  - Explain ...
+  - Write ...
+estimatedMinutes: 20
+fundamentals: []               # optional shared lessons this builds on, e.g. ["fundamentals/beginner/00-variables"]
+---
+
+Open with the problem this lesson solves in one or two sentences. Do not repeat the title.
+
+## Concept heading
+
+Teach one idea per section. Explain, then show.
+
+```python title="example.py"
+print("code blocks take a language and an optional title, which renders as a filename tab")
+```
+
+Use `title="..."` for files and `frame="terminal"` for shell sessions. Mark lines with `{2,4-5}`.
+
+## A version-gated feature <Since v="3.12" />
+
+Put `<Since v="..." />` on the heading or sentence for any feature newer than `minVersion`.
+Every version claim must cite a source in `research/<lang>/`.
+
+<Callout type="note">
+
+Types are `note`, `tip`, `warning` and `danger`. Use them sparingly: at most two per section.
+
+</Callout>
+
+<Tabs>
+<Tab label="First option">
+
+Tabs suit "same thing, different platform or tool". Leave blank lines around Markdown inside a tab.
+
+</Tab>
+<Tab label="Second option">
+
+Second panel.
+
+</Tab>
+</Tabs>
+
+<Exercise title="Short, specific task">
+
+State the task so it can be checked by running the code and comparing the output.
+
+<Solution>
+
+```python title="solution.py"
+print("The answer, followed by one sentence on why it works.")
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+Three bullets at most. Then name the next lesson.
