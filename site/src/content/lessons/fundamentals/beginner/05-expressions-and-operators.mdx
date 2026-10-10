@@ -1,0 +1,281 @@
+---
+language: fundamentals
+level: beginner
+module: Programs and data
+order: 5
+title: Expressions and operators
+description: Evaluate expressions by hand using precedence, and predict integer division, overflow and float rounding surprises.
+objectives:
+  - Evaluate arithmetic, comparison and logical expressions using precedence
+  - Predict the result of integer and float division
+  - Explain integer overflow and floating-point imprecision
+  - Use short-circuit evaluation correctly
+estimatedMinutes: 35
+fundamentals:
+  - fundamentals/beginner/03-values-and-types
+  - fundamentals/beginner/04-variables-and-assignment
+---
+
+Programs spend most of their time turning values into new values. An expression is a piece of code that produces one, and operators are the symbols that combine them. The rules are mostly familiar from school arithmetic, with a few differences that catch everyone once.
+
+## Expressions
+
+An **expression** is anything that evaluates to a value: `7`, `price * 3`, `age >= 18`. A **statement** performs an action, such as an assignment. Expressions nest, so `(price * 3) + tax` contains two smaller expressions inside it.
+
+**Operators** take operands. Most are binary (`3 + 4` has two operands); a few are unary (`-x`, `not done`).
+
+## Arithmetic operators
+
+| Operator | Meaning | Example | Result |
+|---|---|---|---|
+| `+` | add | `7 + 2` | 9 |
+| `-` | subtract | `7 - 2` | 5 |
+| `*` | multiply | `7 * 2` | 14 |
+| `/` | divide | `7 / 2` | depends on the language, see below |
+| `%` | remainder (modulo) | `7 % 3` | 1 |
+| `**` | power (Python, JavaScript) | `2 ** 3` | 8 |
+
+The remainder operator is far more useful than it first looks. `n % 2 == 0` tests for even numbers, and `i % 7` wraps an index around a week.
+
+### Integer versus float division
+
+Dividing 7 by 2 should give 3.5. Many languages give 3 instead, because both operands are integers and the answer is kept as an integer.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+print(7 / 2)    # 3.5   always a float
+print(7 // 2)   # 3     floor division
+print(-7 // 2)  # -4    rounds toward negative infinity
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+console.log(7 / 2);             // 3.5   all numbers are floats
+console.log(Math.trunc(7 / 2)); // 3
+console.log(-7 % 3);            // -1    sign follows the left operand
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+System.out.println(7 / 2);     // 3     both operands are int
+System.out.println(7 / 2.0);   // 3.5   one float operand makes it float
+System.out.println(-7 % 3);    // -1
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+printf("%d\n", 7 / 2);        /* 3 */
+printf("%f\n", 7 / 2.0);      /* 3.500000 */
+printf("%d\n", -7 % 3);       /* -1 */
+```
+
+</Tab>
+</Tabs>
+
+Notice `-7 // 2` is -4 in Python (always rounding down) while truncating languages give -3. Likewise, `-7 % 3` is 2 in Python but -1 in JavaScript, Java and C. The remainder of a negative number is where languages disagree most. If you will use it, check your language's rule.
+
+## Comparison and logical operators
+
+Comparisons produce booleans: `==` (equal), `!=` (not equal), `<`, `<=`, `>`, `>=`. Mind that `==` compares and `=` assigns.
+
+Logical operators combine booleans: **and**, **or**, **not**. Their spelling differs (`and`/`or`/`not` in Python; `&&`/`||`/`!` in C, Java and JavaScript).
+
+| `a` | `b` | `a and b` | `a or b` | `not a` |
+|---|---|---|---|---|
+| false | false | false | false | true |
+| false | true | false | true | true |
+| true | false | false | true | false |
+| true | true | true | true | false |
+
+### Short-circuit evaluation
+
+`and` and `or` stop as soon as the answer is known. For `false and X`, the result is false whatever `X` is, so `X` is never evaluated. For `true or X`, likewise.
+
+```python
+print(False and (1 / 0))
+```
+
+That prints `False` instead of crashing with a division by zero, because the right side never ran. This is useful for guards such as `list_is_not_empty and first_item > 5`, where the second check would fail on an empty list.
+
+## Precedence
+
+When an expression mixes operators, **precedence** decides which is applied first, and **associativity** decides the order among operators of equal rank. From highest to lowest, roughly:
+
+| Level | Operators |
+|---|---|
+| 1 (first) | parentheses `( )` |
+| 2 | power `**` (right to left in Python) |
+| 3 | unary minus, `not` |
+| 4 | `*`, `/`, `%` (left to right) |
+| 5 | `+`, `-` (left to right) |
+| 6 | comparisons |
+| 7 | `and` |
+| 8 (last) | `or` |
+
+Here are some expressions evaluated step by step (Python rules):
+
+```text
+2 + 3 * 4        ->  2 + 12            ->  14
+(2 + 3) * 4      ->  5 * 4             ->  20
+2 ** 3 ** 2      ->  2 ** 9            ->  512      (right to left)
+-2 ** 2          ->  -(2 ** 2)         ->  -4       (power binds tighter than the minus)
+not True or True ->  (not True) or True ->  True
+```
+
+Rather than memorise the table, use parentheses whenever the order is not obvious. Parentheses cost nothing and tell the next reader what you meant. All of the expressions above, plus more, are in `operators_demo.py`:
+
+```python title="operators_demo.py"
+print(2 + 3 * 4)
+print((2 + 3) * 4)
+print(2 ** 3 ** 2)
+print(-2 ** 2)
+print(7 / 2)
+print(7 // 2)
+print(-7 // 2)
+print(7 % 3)
+print(-7 % 3)
+print(0.1 + 0.2)
+print(0.1 + 0.2 == 0.3)
+print(abs((0.1 + 0.2) - 0.3) < 1e-9)
+print(1 < 2 < 3)
+print(not True or True)
+print(False and (1 / 0))
+print(2 ** 64)
+```
+
+```text title="output"
+14
+20
+512
+-4
+3.5
+3
+-4
+1
+2
+0.30000000000000004
+False
+True
+True
+True
+False
+18446744073709551616
+```
+
+## Two numeric traps
+
+### Overflow
+
+Computers store integers in a fixed number of bits. A 32-bit signed integer holds values up to 2,147,483,647. Add one more and the result does not fit.
+
+<Tabs>
+<Tab label="Java">
+
+```java
+System.out.println(Integer.MAX_VALUE + 1);   // -2147483648: it wraps around
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+unsigned int u = UINT_MAX;
+u = u + 1;
+printf("%u\n", u);   /* 0: unsigned values wrap */
+/* Signed overflow in C is undefined behaviour: anything may happen. */
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+print(2 ** 64)   # 18446744073709551616: Python integers grow as needed
+```
+
+</Tab>
+</Tabs>
+
+Some languages wrap around, some treat overflow as a bug, and some, like Python, simply use more memory. Know which you are in when you handle large counts, sizes or money.
+
+### Floating-point imprecision
+
+Floats store numbers in binary. Just as one third cannot be written exactly in decimal, 0.1 cannot be written exactly in binary. The error is tiny, but real.
+
+```text
+0.1 + 0.2        ->  0.30000000000000004
+0.1 + 0.2 == 0.3 ->  False
+```
+
+Every language that uses standard floats gives the same answer; this is not a Python quirk. Two consequences:
+
+1. Never compare floats with `==`. Check that the difference is smaller than a tolerance, as in `abs(a - b) < 1e-9`.
+2. Never store money in floats. Use integers of the smallest unit (cents) or a decimal type, which your language course covers.
+
+JavaScript, which has only floats, also runs out of exact integers: `2 ** 53 + 1` is `9007199254740992`, not `...993`.
+
+## Common pitfalls
+
+- **`=` instead of `==`.** One assigns; the other compares.
+- **Integer division surprise.** `1 / 2` is 0 in Java and C. Make one operand a float if you want 0.5.
+- **Trusting remainder of negatives.** It differs between languages.
+- **Comparing floats for equality.** Use a tolerance.
+- **Relying on memorised precedence.** Add parentheses when in doubt.
+- **Overflow in loops and counters.** Check the range before the arithmetic, not after.
+
+<Exercise title="Evaluate by hand">
+
+Evaluate each using Python rules, writing intermediate steps: (a) `10 - 4 - 3`, (b) `2 * 3 ** 2`, (c) `17 % 5 + 17 // 5`, (d) `not (3 > 2) or 5 == 5`, (e) `7 // 2 * 2 + 7 % 2`.
+
+<Solution>
+
+(a) Left to right: `6 - 3` = 3.
+(b) Power first: `2 * 9` = 18.
+(c) `17 % 5` is 2 and `17 // 5` is 3, so 5.
+(d) `3 > 2` is true, `not true` is false, `5 == 5` is true, so `false or true` = true.
+(e) `7 // 2` is 3, `3 * 2` is 6, `7 % 2` is 1, so 7. (This is the identity `(a // b) * b + a % b == a`.)
+
+Check these in a REPL afterwards.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Why not 0.3?">
+
+Explain in two sentences why `0.1 + 0.2 == 0.3` is false, and write a safer comparison.
+
+<Solution>
+
+0.1 and 0.2 cannot be represented exactly in binary floating point, so their sum is the closest representable value, 0.30000000000000004, which differs slightly from the closest representation of 0.3. A safer comparison is `abs((0.1 + 0.2) - 0.3) < 1e-9`, which asks whether they are close enough.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Guard with short-circuiting">
+
+A program has `items = []`. Which of these crashes, and why? (a) `len(items) > 0 and items[0] > 5` (b) `items[0] > 5 and len(items) > 0`
+
+<Solution>
+
+(b) crashes. It evaluates `items[0]` first, which fails because the list is empty. In (a) the length test is false, so `and` stops and never touches `items[0]`. Order the cheap safety check first.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Expressions produce values; precedence and associativity decide evaluation order, and parentheses make intent clear.
+- Integer division, the sign of remainders, integer overflow and float rounding all vary by language or type, so check them.
+- `and` and `or` short-circuit, and floats should be compared with a tolerance, not `==`.
+
+Next: Text, characters and encodings.

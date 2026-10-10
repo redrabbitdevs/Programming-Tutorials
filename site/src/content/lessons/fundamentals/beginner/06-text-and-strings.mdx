@@ -1,0 +1,242 @@
+---
+language: fundamentals
+level: beginner
+module: Programs and data
+order: 6
+title: Text, characters and encodings
+description: Explain how text is stored as code points and bytes, and why the length of a string depends on what you count.
+objectives:
+  - Explain strings, indexing and immutability
+  - Distinguish characters, code points and bytes
+  - Explain what UTF-8 does and why encodings matter
+  - Build text with formatting instead of repeated concatenation
+estimatedMinutes: 35
+fundamentals:
+  - fundamentals/beginner/03-values-and-types
+---
+
+Text feels like the simplest kind of data and is among the trickiest. The word "length" turns out to have three plausible meanings, and a mismatch between them has caused garbled names and broken file reads in nearly every system ever written.
+
+## Strings
+
+A **string** is a sequence of characters treated as one value. You write one with quotes. Strings have an order, so each character has a position, its **index**. Most languages count from zero.
+
+```text
+text:   h   e   l   l   o
+index:  0   1   2   3   4
+```
+
+The first character is at index 0 and the last at index length minus one. Asking for an index beyond the end is an error in most languages. Several (Python, for example) also allow negative indexes from the end: `-1` is the last character.
+
+### Immutability
+
+In most languages strings are **immutable**: you cannot change a character in place. Operations that appear to modify a string actually build a new one.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+word = "cat"
+# word[0] = "b"        # TypeError: strings do not support item assignment
+word = "b" + word[1:]  # build a new string and rebind the name
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+let word = "cat";
+word[0] = "b";   // silently ignored in sloppy mode; an error in strict mode
+word = "b" + word.slice(1);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+String word = "cat";
+word = "b" + word.substring(1);   // new String; the original is untouched
+```
+
+</Tab>
+</Tabs>
+
+C is the exception: a string is a mutable array of characters ending in a zero byte. That freedom comes with the usual dangers of writing past the end.
+
+## Characters, code points and bytes
+
+Here is the heart of the lesson. Three different units are in play:
+
+| Unit | What it is | Example |
+|---|---|---|
+| **Character** (as a reader sees it) | A symbol on the screen | `é`, `a`, an emoji |
+| **Code point** | A number assigned to a symbol by the Unicode standard | `é` is U+00E9 (233) |
+| **Byte** | Eight bits, the unit of storage and transmission | `é` takes 2 bytes in UTF-8 |
+
+**Unicode** is a catalogue that assigns every symbol, from Latin to Chinese to emoji, a unique code point. It says nothing about bytes. An **encoding** is the rule for turning code points into bytes.
+
+The dominant encoding is **UTF-8**. It uses 1 byte for the original ASCII characters (plain English letters, digits, punctuation) and 2 to 4 bytes for everything else. It is compact for English, handles every language, and is the standard for files and the web.
+
+This program compares counts for "naïve café":
+
+```python title="text_demo.py"
+word = "naïve café"
+print(len(word))
+print(len(word.encode("utf-8")))
+print([hex(ord(c)) for c in "aï"])
+print(word.encode("utf-8"))
+
+composed = "\u00e9"
+decomposed = "e\u0301"
+print(composed == decomposed, len(composed), len(decomposed))
+
+name, qty, price = "Tea", 3, 2.5
+print("Item: " + name + " x" + str(qty))
+print(f"{name:<10}{qty:>3} x {price:>6.2f} = {qty * price:>7.2f}")
+```
+
+```text title="output"
+10
+12
+['0x61', '0xef']
+b'na\xc3\xafve caf\xc3\xa9'
+False 1 2
+Item: Tea x3
+Tea         3 x   2.50 =    7.50
+```
+
+The text has 10 characters but takes 12 bytes: `ï` and `é` each need two (`\xc3\xaf` and `\xc3\xa9`). Asking for "the length" is therefore ambiguous until you say what you are counting.
+
+### How languages count
+
+The same visible text yields different numbers depending on how the language defines string length.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+print(len("naïve café"))                   # 10 code points
+print(len("naïve café".encode("utf-8")))  # 12 bytes
+print(len("😀"))                          # 1
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+console.log("naïve café".length);                          // 10
+console.log(new TextEncoder().encode("naïve café").length); // 12 bytes
+console.log("😀".length, [..."😀"].length);                 // 2 1
+```
+
+JavaScript counts UTF-16 units, so an emoji outside the basic range counts as 2. Spreading into an array iterates by code point.
+
+</Tab>
+<Tab label="Java">
+
+```java
+System.out.println("naïve café".length());      // 10
+System.out.println("😀".length());               // 2 (UTF-16 units)
+System.out.println("😀".codePointCount(0, 2));   // 1
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+printf("%zu\n", strlen("naïve café"));   /* 12: strlen counts bytes */
+printf("%zu\n", strlen("😀"));           /* 4 */
+```
+
+</Tab>
+</Tabs>
+
+So the emoji is 1 code point, 2 UTF-16 units, and 4 UTF-8 bytes. None of those is wrong; they answer different questions.
+
+One more wrinkle: what a reader sees as one character can be several code points. The "é" in `composed` above is the single code point U+00E9, while `decomposed` is "e" followed by a combining accent U+0301. They look identical, yet compare as unequal and have lengths 1 and 2. Text from different sources should be normalised to a single form before comparing, which most languages support in their standard library.
+
+## Why encodings matter
+
+A file is just bytes. To read it as text you must know the encoding it was written in. Decode UTF-8 bytes as an older encoding such as Latin-1, and `é` turns into `Ã©`. That garbling is called **mojibake**. Decode the wrong way round, and you may even hit an outright error because some byte sequences are not valid in the encoding.
+
+The practical rule: use UTF-8 for everything you write, and state the encoding explicitly whenever you read or write a file or network data rather than trusting a default.
+
+## Escaping
+
+Some characters cannot be typed directly inside quotes. A backslash begins an **escape sequence**:
+
+| Sequence | Meaning |
+|---|---|
+| `\n` | newline |
+| `\t` | tab |
+| `\"` | a double quote inside double quotes |
+| `\\` | a literal backslash |
+| `\u00e9` | the code point U+00E9 (in Python, JavaScript, Java) |
+
+Backslashes are also why Windows paths in code surprise people: `"C:\new"` contains a newline. Double the backslashes or use your language's raw-string form.
+
+## Joining and formatting
+
+Joining strings is called **concatenation**, usually with `+`. It works for a few pieces, but it gets clumsy, and in most languages you must convert numbers to strings first (`"x" + str(qty)`).
+
+**Formatting** inserts values into a template and controls layout. The last line of the example uses a Python f-string: `{name:<10}` left-aligns in 10 columns, `{price:>6.2f}` right-aligns a float in 6 columns with two decimals. Other languages offer the same through `printf`-style templates (C, Java's `String.format`) or template literals (JavaScript).
+
+Prefer formatting once you are inserting more than one value or care about alignment and decimals. If you build a very long string by adding one piece at a time in a loop, collect the pieces and join them once at the end; many languages copy the whole string at every `+`.
+
+## Common pitfalls
+
+- **Assuming one character is one byte.** True only for ASCII.
+- **Using byte length to mean display length** (or the reverse), for example when truncating a name to fit a database column.
+- **Not stating the encoding** when opening files, so code works on your machine and fails on a colleague's.
+- **Comparing visually identical strings** that use different code point sequences.
+- **Treating a string as editable** in a language where it is immutable.
+- **Forgetting to convert numbers** before concatenating.
+
+<Exercise title="Characters versus bytes">
+
+How many characters and how many UTF-8 bytes are in "naïve café"? Explain the difference without running code.
+
+<Solution>
+
+Count characters: n, a, ï, v, e, space, c, a, f, é gives 10. Every character is one byte except `ï` and `é`, which take two bytes each in UTF-8, so the byte count is 10 + 2 = 12. You can confirm with `len(word)` and `len(word.encode("utf-8"))`, as in `text_demo.py`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Build a receipt line">
+
+Using formatting rather than concatenation, produce a line in which the item name is left-aligned in 10 columns, the quantity right-aligned in 3, and the unit price and total shown with two decimals. For `Tea`, 3 and 2.5, the output should be `Tea         3 x   2.50 =    7.50`.
+
+<Solution>
+
+```python title="receipt.py"
+name, qty, price = "Tea", 3, 2.5
+print(f"{name:<10}{qty:>3} x {price:>6.2f} = {qty * price:>7.2f}")
+```
+
+The format specifications after each colon give width, alignment and decimals, so no manual padding or `str()` calls are needed.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Immutable or not?">
+
+A string `s` holds `"hello"`. Without assigning to `s`, can you make `s` hold `"jello"` by changing its first character in place in Python? What would you do instead?
+
+<Solution>
+
+No. Python strings are immutable, so `s[0] = "j"` raises a `TypeError`. Build a new string and rebind the name: `s = "j" + s[1:]`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A string is an ordered, usually immutable sequence; indexes normally start at 0.
+- Characters, code points and bytes are different units: Unicode assigns code points, and an encoding such as UTF-8 turns them into bytes.
+- Always state the encoding when reading or writing, and use formatting to assemble text.
+
+This completes the first module of the shared track. The next module covers control flow and functions.
