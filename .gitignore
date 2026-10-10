@@ -1,0 +1,6 @@
+.claude/worktrees/
+node_modules/
+site/dist/
+site/.astro/
+.orchestration/dashboard/dashboard.html
+__pycache__/
