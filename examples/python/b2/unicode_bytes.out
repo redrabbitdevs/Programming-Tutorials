@@ -1,0 +1,10 @@
+4 5
+b'caf\xc3\xa9'
+café
+[97, 233, 8364]
+é € é λ
+[104, 105]
+97 b'ab'
+b'caf\xe9'
+error: ordinal not in range(256)
+b'?'

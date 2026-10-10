@@ -1,0 +1,160 @@
+---
+language: python
+level: beginner
+module: Numbers and text
+order: 10
+title: f-strings and formatting
+description: Build formatted text with f-strings, using format specs for alignment, padding, separators, percentages and debugging output.
+minVersion: "3.12"
+objectives:
+  - Embed expressions in strings with f-strings
+  - Control width, alignment, precision and separators with format specs
+  - Use = and !r when debugging
+  - Reuse quotes and spread an f-string over lines in Python 3.12 and later
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/06-text-and-strings"]
+---
+
+Gluing strings together with `+` and `str()` gets untidy fast. An f-string lets you write the sentence you want and drop values into it, with fine control over how each value looks.
+
+This lesson needs Python 3.12 or later only for the last section. Everything before it runs on 3.8 and up.
+
+## Expressions in braces
+
+Put an `f` before the opening quote. Anything inside `{}` is evaluated as a Python expression and its result is inserted.
+
+```python title="fstring_basics.py"
+name = "Ada"
+price = 1234.5
+ratio = 0.256
+
+print(f"Hello, {name}!")
+print(f"{price:,.2f}")
+print(f"{ratio:.1%}")
+print(f"[{name:>8}] [{name:<8}] [{name:^8}]")
+print(f"[{42:05d}] [{255:x}] [{255:#b}]")
+print(f"{name!r}")
+print(f"{price=}")
+print(f"{2 + 3 = }")
+print(f"{{literal braces}}")
+```
+
+```text
+Hello, Ada!
+1,234.50
+25.6%
+[     Ada] [Ada     ] [  Ada   ]
+[00042] [ff] [0b11111111]
+'Ada'
+price=1234.5
+2 + 3 = 5
+{literal braces}
+```
+
+## The format spec
+
+After a colon comes a **format spec**, a small language for presentation. Its general shape is `[align][sign][#][0][width][,][.precision][type]`. The pieces you will use constantly:
+
+| Spec | Meaning | Example result |
+|---|---|---|
+| `>8`, `<8`, `^8` | Right, left or centre in a field 8 wide | `[     Ada]` |
+| `05d` | Integer, padded with zeros to width 5 | `00042` |
+| `,.2f` | Thousands separator, 2 decimal places | `1,234.50` |
+| `.1%` | Multiply by 100, add `%` | `25.6%` |
+| `x`, `#b` | Hexadecimal; binary with a `0b` prefix | `ff`, `0b11111111` |
+
+Numbers align right by default and text aligns left. Use `{{` and `}}` for literal braces.
+
+## Debugging with = and !r
+
+Adding `=` after an expression prints the expression text, then its value: `f"{price=}"` gives `price=1234.5`. It has worked since Python 3.8 and is the quickest way to inspect a value.
+
+`!r` applies `repr()` to the value, which shows quotes around strings and makes invisible characters visible. This is usually what you want in log messages and error text.
+
+## Quotes and line breaks <Since v="3.12" />
+
+Before Python 3.12 you could not reuse the surrounding quote character inside the braces, nor put a comment or newline in the expression. From 3.12 onwards (PEP 701) f-strings are part of the normal grammar, so all of that works.
+
+```python title="fstring_312.py"
+names = ["Ada", "Grace"]
+print(f"Hello {", ".join(names)}")
+
+width = 10
+precision = 3
+value = 3.14159265
+print(f"{value:{width}.{precision}f}|")
+
+report = f"""Total: {
+    sum([1, 2, 3])
+}"""
+print(report)
+```
+
+```text
+Hello Ada, Grace
+     3.142|
+Total: 6
+```
+
+The first line reuses the double quote inside the braces. The second **nests** replacement fields inside the format spec, so the width and precision come from variables. This nesting is not new, and it works on older versions as well. On Python 3.11 or earlier, the first and third examples would be a `SyntaxError`.
+
+<Callout type="note">
+
+Even on 3.12 and later, reusing the outer quote can make a line hard to read. Switching quote style, or computing the value on its own line first, is often clearer.
+
+</Callout>
+
+## Common pitfalls
+
+- **Forgetting the `f`.** `"Hello {name}"` prints the braces literally.
+- **Using f-strings for text you do not control.** An f-string is code in your source file, not a template you can load at run time. Use `str.format()` or a template library for that.
+- **Rounding surprises.** `f"{2.675:.2f}"` gives `2.67` for the same reason as `round()` in the numbers lesson.
+- **Formatting a string with a number spec.** `f"{'abc':d}"` raises `ValueError`. The type letter must match the value.
+
+<Exercise title="Print an aligned receipt">
+
+Given the list of `(name, quantity, unit price)` tuples below, print a table with the columns Item, Qty, Price and Total, a divider line, and a final line with the grand total. Money has two decimals, and numbers are right-aligned.
+
+```python title="receipt_start.py"
+items = [("Coffee", 2, 3.5), ("Bagel", 1, 2.25), ("Orange juice", 3, 4.0)]
+```
+
+<Solution>
+
+```python title="receipt.py"
+items = [("Coffee", 2, 3.5), ("Bagel", 1, 2.25), ("Orange juice", 3, 4.0)]
+
+print(f"{'Item':<14}{'Qty':>4}{'Price':>9}{'Total':>9}")
+print("-" * 36)
+grand = 0
+for name, qty, price in items:
+    line = qty * price
+    grand += line
+    print(f"{name:<14}{qty:>4}{price:>9.2f}{line:>9.2f}")
+print("-" * 36)
+print(f"{'Total':<27}{grand:>9.2f}")
+```
+
+```text
+Item           Qty    Price    Total
+------------------------------------
+Coffee           2     3.50     7.00
+Bagel            1     2.25     2.25
+Orange juice     3     4.00    12.00
+------------------------------------
+Total                          21.25
+```
+
+The widths 14, 4, 9 and 9 add up to the 36 dashes. The header strings are quoted with single quotes so they can sit inside a double-quoted f-string on every Python version. The `for` loop is previewed here; the control-flow module teaches it properly.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `f"...{expression:spec}..."` inserts values, and the spec controls alignment, width, precision and separators.
+- `{x=}` and `{x!r}` are debugging helpers.
+- <Since v="3.12" /> Quotes can be reused inside the braces, and expressions can span lines.
+
+Next: string methods.

@@ -1,0 +1,133 @@
+---
+language: python
+level: beginner
+module: Numbers and text
+order: 11
+title: String methods
+description: Clean, split, join, search and transform text with the most useful str methods.
+minVersion: "3.9"
+objectives:
+  - Split text into pieces and join pieces back together
+  - Strip whitespace and remove prefixes and suffixes
+  - Search and replace within a string
+  - Compare text without regard to case using casefold
+estimatedMinutes: 25
+fundamentals: ["fundamentals/beginner/06-text-and-strings"]
+---
+
+Real text is messy: stray spaces, inconsistent capitals, file extensions you want to drop. The `str` type comes with methods for nearly all of it, and learning a dozen of them saves a lot of hand-written loops.
+
+Remember that strings are immutable. Every method here returns a **new** string and leaves the original alone.
+
+## A tour of the essentials
+
+```python title="string_methods.py"
+line = "  Alice, Bob,Carol  "
+print(line.strip())
+names = [part.strip() for part in line.split(",")]
+print(names)
+print(" & ".join(names))
+
+print("report.txt".removesuffix(".txt"))
+print("https://example.com".removeprefix("https://"))
+print("hello".lstrip("he"))
+
+text = "to be or not to be"
+print(text.replace("be", "BE", 1))
+print(text.find("not"), text.find("xyz"))
+print(text.count("to"))
+print(text.startswith("to"), text.endswith("be"))
+print("hello world".title(), "Hello".swapcase())
+print("straße".lower() == "STRASSE".lower())
+print("straße".casefold() == "STRASSE".casefold())
+print("a-b-c".split("-", 1))
+print("one  two".split(), "one  two".split(" "))
+print("42".isdigit(), "4x".isdigit())
+```
+
+```text
+Alice, Bob,Carol
+['Alice', 'Bob', 'Carol']
+Alice & Bob & Carol
+report
+example.com
+llo
+to BE or not to be
+9 -1
+2
+True True
+Hello World hELLO
+False
+True
+['a', 'b-c']
+['one', 'two'] ['one', '', 'two']
+True False
+```
+
+## Split and join
+
+`split(sep)` cuts a string into a list at each separator, and `sep.join(pieces)` glues a list of strings back together. Note the odd-looking order: the *separator* is the object, and the list is the argument.
+
+Calling `split()` with no argument is special. It splits on any run of whitespace and ignores leading and trailing space, so it never produces empty pieces. `split(" ")` splits on every single space, which is why `"one  two".split(" ")` includes an empty string.
+
+An optional second argument limits the number of splits: `"a-b-c".split("-", 1)` gives `['a', 'b-c']`.
+
+## Stripping and removing
+
+`strip()` removes whitespace from both ends, and `lstrip()` and `rstrip()` work on one end. Given an argument, they remove any of *those characters*, not that exact text. That is why `"hello".lstrip("he")` gives `"llo"`.
+
+To remove an exact prefix or suffix, use `removeprefix()` and `removesuffix()` <Since v="3.9" />. They do nothing if the text is not there, so they are safe to call unconditionally.
+
+## Searching and replacing
+
+- `find(sub)` returns the index of the first match or `-1`. Its sibling `index(sub)` raises `ValueError` instead.
+- `count(sub)`, `startswith(prefix)` and `endswith(suffix)` do what their names say. For a simple membership test, `sub in text` is clearer than `find`.
+- `replace(old, new)` replaces every occurrence; a third argument limits how many.
+
+## Case and comparison
+
+`upper()`, `lower()`, `title()` and `swapcase()` change case. For comparing text without regard to case, use `casefold()`. It is a more aggressive `lower()` designed for exactly this job: the German `ß` becomes `ss`, so `"straße"` and `"STRASSE"` compare equal.
+
+## Common pitfalls
+
+- **Ignoring the return value.** `name.strip()` on its own line does nothing useful. Write `name = name.strip()`.
+- **Mixing up `strip("abc")` and `removeprefix("abc")`.** One removes a set of characters, the other an exact piece of text.
+- **Using `find()` in an `if`.** `if text.find("x"):` is false for a match at index 0 and true for "not found" (`-1`). Use `if "x" in text:`.
+- **Joining non-strings.** `",".join([1, 2])` raises `TypeError`. Convert first: `",".join(str(n) for n in numbers)`.
+
+<Exercise title="Normalise messy usernames">
+
+Turn this list into lowercase usernames with no surrounding whitespace, no repeated inner spaces, and underscores in place of spaces.
+
+```python title="normalise_start.py"
+raw = ["  Alice ", "BOB", "carol\n", "  Dave Smith", "eve  "]
+```
+
+The expected result is `['alice', 'bob', 'carol', 'dave_smith', 'eve']`.
+
+<Solution>
+
+```python title="normalise_usernames.py"
+raw = ["  Alice ", "BOB", "carol\n", "  Dave Smith", "eve  "]
+
+clean = [" ".join(name.split()).casefold().replace(" ", "_") for name in raw]
+print(clean)
+```
+
+```text
+['alice', 'bob', 'carol', 'dave_smith', 'eve']
+```
+
+`" ".join(name.split())` is a neat idiom: `split()` drops outer whitespace (including the newline) and any repeated spaces, and `join` puts single spaces back. Then `casefold()` handles case and `replace()` swaps the spaces. The square-bracket loop is a list comprehension, covered in the collections module.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Methods return new strings. `split` and `join` convert between text and lists.
+- `strip` takes a set of characters; <Since v="3.9" /> `removeprefix` and `removesuffix` take exact text.
+- Use `casefold()` for case-insensitive comparison and `in` for membership.
+
+Next: Unicode, bytes and encodings.

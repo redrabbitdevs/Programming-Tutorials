@@ -1,0 +1,143 @@
+---
+language: python
+level: beginner
+module: Numbers and text
+order: 12
+title: Unicode, bytes and encodings
+description: Convert between str and bytes safely, and read and write text files with an explicit encoding.
+minVersion: "3.11"
+objectives:
+  - Distinguish str (text) from bytes (data)
+  - Encode and decode with UTF-8 and handle encoding errors
+  - Explain why len() of a string and of its bytes can differ
+  - Read and write text files with an explicit encoding
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/06-text-and-strings"]
+---
+
+A `str` holds text. A `bytes` object holds raw numbers from 0 to 255. Files, networks and terminals only deal in bytes, so every time text goes in or out of your program something converts between the two. When that conversion is wrong, you get garbled characters.
+
+The fundamentals lesson on text explains code points and UTF-8 in general. This lesson shows the Python tools.
+
+## str and bytes
+
+A Python `str` is a sequence of Unicode code points. `encode()` turns a `str` into `bytes`, and `decode()` turns `bytes` back into a `str`. Both take an encoding name, and UTF-8 is the right choice almost everywhere.
+
+```python title="unicode_bytes.py"
+word = "café"
+data = word.encode("utf-8")
+print(len(word), len(data))
+print(data)
+print(data.decode("utf-8"))
+print([ord(ch) for ch in "aé€"])
+print(chr(233), chr(0x20AC), "é", "\N{GREEK SMALL LETTER LAMDA}")
+print(list("hi".encode("utf-8")))
+print(b"abc"[0], b"abc"[:2])
+print(word.encode("latin-1"))
+try:
+    "€".encode("latin-1")
+except UnicodeEncodeError as error:
+    print("error:", error.reason)
+print("€".encode("latin-1", errors="replace"))
+```
+
+```text
+4 5
+b'caf\xc3\xa9'
+café
+[97, 233, 8364]
+é € é λ
+[104, 105]
+97 b'ab'
+b'caf\xe9'
+error: ordinal not in range(256)
+b'?'
+```
+
+What the output shows:
+
+- `"café"` has 4 characters but 5 bytes in UTF-8, because `é` takes two bytes (`\xc3\xa9`). "Length" depends on what you count.
+- `ord()` gives a character's code point, and `chr()` goes the other way. You can write a character in source with `é`, or by name with `\N{...}`.
+- Indexing a `bytes` object gives an `int`, not a one-character string. Slicing gives `bytes`.
+- Encoding with a different codec produces different bytes. Latin-1 stores `é` in one byte, but it cannot represent `€` at all. By default that raises `UnicodeEncodeError`. The `errors="replace"` option substitutes `?` instead, which loses information, so use it only when you accept that.
+
+## Mojibake: decoding with the wrong codec
+
+Decoding bytes with a different encoding than the one that wrote them produces **mojibake**, text such as `Ã©` where `é` should be. The damage is often reversible, as long as no step lost data.
+
+```python title="mojibake.py"
+original = "naïve café"
+data = original.encode("utf-8")
+wrong = data.decode("latin-1")
+print(wrong)
+fixed = wrong.encode("latin-1").decode("utf-8")
+print(fixed == original)
+print(len(original), len(data))
+```
+
+```text
+naÃ¯ve cafÃ©
+True
+10 12
+```
+
+Latin-1 maps every byte to a character, so it never fails, which is exactly why it hides mistakes. Encoding the wrong text back with Latin-1 recovers the original bytes, and decoding those as UTF-8 repairs it. The better fix is to decode correctly in the first place.
+
+## Files and the default encoding
+
+When you open a text file, Python decodes the bytes for you, and it needs to know the encoding. Always say so with `encoding="utf-8"`.
+
+```python title="file_encoding.py"
+from pathlib import Path
+import tempfile
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "note.txt"
+    path.write_text("naïve café\n", encoding="utf-8")
+    print(path.read_text(encoding="utf-8").strip())
+    print(path.stat().st_size)
+```
+
+```text
+naïve café
+13
+```
+
+The file holds 13 bytes for 11 characters including the newline: two characters, `ï` and `é`, use two bytes each.
+
+<Callout type="note">
+
+<Since v="3.15" /> UTF-8 is now the default encoding. In Python 3.15 and later, `open()` with no `encoding=` argument uses UTF-8 on every platform (PEP 686). On earlier versions the default came from the operating system and often differed, notably on Windows. You can still restore the old behaviour with `PYTHONUTF8=0` or `-X utf8=0`.
+
+Keep writing `encoding="utf-8"` anyway. It makes your intent visible, and your code keeps working on 3.11 to 3.14.
+
+</Callout>
+
+## Common pitfalls
+
+- **Mixing `str` and `bytes`.** `"abc" + b"def"` raises `TypeError`. Decide which one you have and convert at the boundary.
+- **Omitting `encoding=` when opening files.** Code that works on your machine may fail or garble text on another, unless it runs on 3.15 or later.
+- **Counting bytes when you meant characters.** Use `len(text)` for characters and `len(text.encode("utf-8"))` for bytes.
+- **Silencing errors.** `errors="ignore"` and `errors="replace"` hide problems. Prefer fixing the encoding.
+- **Believing one character is one code point.** Some visible characters, such as certain accented letters and emoji sequences, are several code points. Counting code points with `len()` is usually good enough for beginners.
+
+<Exercise title="Characters versus bytes, and a mojibake fix">
+
+1. For the text `"naïve café"`, print its number of characters and its number of UTF-8 bytes.
+2. Decode its UTF-8 bytes as Latin-1 to create the garbled text, then repair it back to the original.
+
+<Solution>
+
+`mojibake.py` above does both. The character count is 10 and the byte count is 12, because `ï` and `é` take two bytes each. The garbled text prints as `naÃ¯ve cafÃ©`. The repair is `wrong.encode("latin-1").decode("utf-8")`, and comparing it with the original prints `True`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `str` is text, `bytes` is data. `encode()` and `decode()` convert, and UTF-8 is the default choice.
+- Wrong-codec decoding gives mojibake. Pass `encoding="utf-8"` whenever you open or write a text file.
+- <Since v="3.15" /> `open()` defaults to UTF-8 everywhere, but explicit is still better.
+
+That completes the module on numbers and text. Next comes control flow, starting with booleans and truthiness.
