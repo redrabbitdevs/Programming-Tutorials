@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s https://docs.python.org/*)",
+      "Bash(curl -sL https://docs.python.org/*)",
+      "Bash(curl -s https://peps.python.org/*)",
+      "Bash(curl -sL https://peps.python.org/*)",
+      "Bash(curl -s https://www.python.org/*)",
+      "Bash(curl -sL https://www.python.org/*)",
+      "Bash(curl -s https://en.wikipedia.org/*)",
+      "Bash(curl -sL https://en.wikipedia.org/*)"
+    ]
+  }
+}
