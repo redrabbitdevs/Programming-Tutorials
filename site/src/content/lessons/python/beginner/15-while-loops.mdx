@@ -1,0 +1,150 @@
+---
+language: python
+level: beginner
+module: Control flow
+order: 15
+title: while loops
+description: Repeat code while a condition holds, read input until a sentinel appears, and stop loops that would never end.
+minVersion: "3.8"
+objectives:
+  - Write a while loop that runs while a condition is true
+  - Build a sentinel loop that reads input until the user quits
+  - Use break and continue inside a while loop
+  - Spot and fix an infinite loop
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/08-loops"]
+---
+
+A loop repeats a block of code. The fundamentals lesson on repetition explains when to choose a loop that counts and when to choose one that waits for a condition. Python's `while` is the second kind: it keeps going **while** its condition is truthy.
+
+## The basic loop
+
+```python title="countdown.py"
+n = 3
+while n > 0:
+    print(n)
+    n -= 1
+print("Liftoff")
+
+total = 0
+count = 0
+for text in ["10", "20", "", "99"]:
+    if text == "":
+        break
+    total += int(text)
+    count += 1
+print(total, count)
+```
+
+```text
+3
+2
+1
+Liftoff
+30 2
+```
+
+The first loop follows the same shape as `if`: a condition, a colon, and an indented block. Python checks the condition **before** every pass, including the first. If it is false from the start, the body never runs. The block must change something that the condition depends on, here `n -= 1`, or the loop never ends.
+
+The second loop uses a `for`, which the next lesson introduces. Read it as "for each text in this list". It shows `break`, which leaves the loop immediately: as soon as it meets the empty string, it stops, so `99` is never added.
+
+## Sentinel loops
+
+Often you do not know how many times to repeat. You keep asking until the user types a special **sentinel** value, such as `q`. The usual Python shape is `while True` with a `break`:
+
+```python title="guessing_game.py"
+secret = 42
+attempts = 0
+
+while True:
+    text = input("Guess a number from 1 to 100 (q to quit): ")
+    if text == "q":
+        print("Bye.")
+        break
+    if not text.isdigit():
+        print("Please type a whole number.")
+        continue
+    attempts += 1
+    guess = int(text)
+    if guess < secret:
+        print("Too low.")
+    elif guess > secret:
+        print("Too high.")
+    else:
+        print(f"Correct, after {attempts} attempts.")
+        break
+```
+
+Run with the typed answers `50`, `hello`, `25` and `42`, it prints the following. Your terminal shows your own typing after each prompt; here the answers come from a file, so only the prompts appear.
+
+```text
+Guess a number from 1 to 100 (q to quit): Too high.
+Guess a number from 1 to 100 (q to quit): Please type a whole number.
+Guess a number from 1 to 100 (q to quit): Too low.
+Guess a number from 1 to 100 (q to quit): Correct, after 3 attempts.
+```
+
+`while True` looks alarming, but it is deliberate: the loop has several exit points in the middle of the body, and each one is a `break`. Writing the `input()` call once, inside the loop, avoids repeating it before the loop to prime the condition.
+
+`continue` is the other control word. It skips the rest of the current pass and jumps back to the condition. Here it rejects non-numeric input without counting an attempt. Notice that `"hello"` did not count: the attempts total is 3, not 4.
+
+## Common pitfalls
+
+- **Forgetting to update the loop variable.** `while n > 0:` with no `n -= 1` runs forever. Stop a runaway program in the terminal with Ctrl+C.
+- **Off-by-one conditions.** `while n > 0` counts 3, 2, 1. `while n >= 0` would also print 0. Trace through a small case by hand.
+- **Changing the wrong variable.** If you update `count` but the condition tests `total`, nothing converges.
+- **`continue` that skips the update.** If the step `n += 1` comes after a `continue`, the loop can stick on the same value forever. Update before you `continue`, or use a `for` loop.
+- **Comparing floats for equality.** `while x != 1.0` with `x += 0.1` may never hit exactly 1.0. Use `<` or `<=`.
+
+<Exercise title="Number-guessing game">
+
+Extend the example. Count how many guesses the player makes, and stop with a message after 7 wrong guesses, revealing the secret.
+
+<Solution>
+
+```python title="guessing_limit.py"
+secret = 42
+max_attempts = 7
+attempts = 0
+
+while attempts < max_attempts:
+    text = input("Guess: ")
+    if not text.isdigit():
+        print("Please type a whole number.")
+        continue
+    attempts += 1
+    guess = int(text)
+    if guess == secret:
+        print(f"Correct, after {attempts} attempts.")
+        break
+    print("Too low." if guess < secret else "Too high.")
+else:
+    print(f"Out of guesses. The number was {secret}.")
+```
+
+With the answers `10`, `99`, `abc`, `41`, `43`, `50`, `5` and `60` fed in from a file, the output is:
+
+```text
+Guess: Too low.
+Guess: Too high.
+Guess: Please type a whole number.
+Guess: Too low.
+Guess: Too high.
+Guess: Too high.
+Guess: Too low.
+Guess: Too high.
+Out of guesses. The number was 42.
+```
+
+The loop condition now enforces the limit, so no `while True` is needed. The `else` on a loop runs only when the loop ends without a `break`, which here means the player ran out of guesses. The lesson on loop control explains it fully.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `while condition:` repeats its block as long as the condition is truthy, testing before each pass.
+- `while True` plus `break` is the standard shape for sentinel loops and loops with several exits.
+- `break` leaves the loop; `continue` skips to the next pass. Make sure something in the body moves the loop towards its end.
+
+Next: for loops and range.

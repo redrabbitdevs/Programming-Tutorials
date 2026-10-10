@@ -1,0 +1,16 @@
+> look
+You see a dusty room.
+> go north
+You walk north.
+> go up
+You cannot go that way.
+> take lamp
+You pick up the lamp.
+> take a b
+One thing at a time: a, b.
+> 
+Say something.
+> dance
+I don't understand 'dance'.
+> quit
+Goodbye.

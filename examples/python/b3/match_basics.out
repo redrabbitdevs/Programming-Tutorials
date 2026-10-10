@@ -1,0 +1,5 @@
+200 ok
+302 redirect
+404 not found
+503 server error 503
+418 other
