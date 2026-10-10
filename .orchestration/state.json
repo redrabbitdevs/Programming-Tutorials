@@ -1,6 +1,6 @@
 {
  "updated": "2026-10-10",
- "pr_counter": 2,
+ "pr_counter": 3,
  "phase": "foundation",
  "decisions": {
   "stack": "Astro + MDX, custom design (no stock docs theme), deployed to GitHub Pages",
@@ -70,12 +70,12 @@
   {
    "id": "M0b",
    "name": "Event-triggered workflows + progress board",
-   "status": "in_progress"
+   "status": "complete"
   },
   {
    "id": "M1",
    "name": "Site scaffold, design system, validate.sh",
-   "status": "pending"
+   "status": "in_progress"
   },
   {
    "id": "M2",
@@ -124,15 +124,19 @@
   {
    "n": 1,
    "title": "Add team orchestration framework and resumable state"
+  },
+  {
+   "n": 2,
+   "title": "Split workflow into six event-triggered workflows and add progress board"
   }
  ],
  "next_actions": [
-  "W3 / M1: UI/UX scaffolds the site, the design system and validate.sh",
-  "W1 / M2\u2013M3: Researcher, once network access is open",
-  "W2 / M4: shared fundamentals track"
+  "W3 / M1 running: UI/UX scaffold",
+  "W1 / M2\u2013M3: Researcher, as soon as python.org and wikipedia.org are allowed",
+  "W2 / M4: shared fundamentals track (after M1)"
  ],
  "escalations": [
-  "Network access: docs.python.org, peps.python.org and en.wikipedia.org are still denied (checked 15:35). The Researcher (W1) is waiting on this."
+  "Network access: docs.python.org, peps.python.org and en.wikipedia.org are still denied (design sites are now reachable). W1 (Researcher) needs these hosts in Allowed domains."
  ],
  "workflows": [
   {
@@ -189,27 +193,29 @@
  ],
  "triggers": [
   {
-   "wf": "W3",
-   "item": "M1: scaffold the Astro site, design system and scripts/validate.sh"
-  },
-  {
    "wf": "W1",
    "item": "M2+M3: language catalog, then Python facts and outline (blocked: needs network access to primary sources)"
   }
  ],
- "workflow_runs": [],
+ "workflow_runs": [
+  {
+   "wf": "W3",
+   "item": "M1 scaffold",
+   "status": "running"
+  }
+ ],
  "agents": {
   "advisor": {
-   "status": "working",
-   "task": "Revising workflows; building board"
+   "status": "waiting",
+   "task": "Routing; waiting on W3"
   },
   "researcher": {
    "status": "waiting",
    "task": "Blocked: network policy denies python.org and wikipedia.org"
   },
   "uiux": {
-   "status": "waiting",
-   "task": "Queued: M1 scaffold (W3)"
+   "status": "working",
+   "task": "W3/M1: site scaffold, design system, validate.sh"
   },
   "writer": {
    "status": "idle"
@@ -288,6 +294,18 @@
    "from": "advisor",
    "to": "repo",
    "msg": "Revised into W1\u2013W6 event-triggered workflows; added the Haiku summarizer and scripted validation."
+  },
+  {
+   "t": "15:50",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PR 2 merged: six workflows and the progress board."
+  },
+  {
+   "t": "15:52",
+   "from": "advisor",
+   "to": "uiux",
+   "msg": "W3 run: scaffold plus validate.sh. Most reference design sites are now reachable."
   }
  ],
  "model_review": [
