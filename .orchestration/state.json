@@ -1,6 +1,6 @@
 {
  "updated": "2026-10-10",
- "pr_counter": 8,
+ "pr_counter": 12,
  "phase": "content",
  "decisions": {
   "stack": "Astro + MDX, custom design (no stock docs theme), deployed to GitHub Pages",
@@ -143,12 +143,32 @@
   {
    "n": 6,
    "title": "Add Python fact sheet and curriculum outline"
+  },
+  {
+   "n": 7,
+   "title": "Record W1 completion and content phase start in state"
+  },
+  {
+   "n": 8,
+   "title": "Add fundamentals module 1: Programs and data"
+  },
+  {
+   "n": 9,
+   "title": "Allow agents to fetch primary sources with curl"
+  },
+  {
+   "n": 10,
+   "title": "Generate language catalog pages and add tier-3 summaries batch 1"
+  },
+  {
+   "n": 11,
+   "title": "Add Python beginner module B1: Getting started"
   }
  ],
  "next_actions": [
-  "Running: W2 Python B1, W2 fundamentals module 1, W5 catalog batch 1",
-  "Then: W2 Python B2\u2013B5 and fundamentals modules 2+, then W4 audit after the beginner level",
-  "W5 batches 2\u201315 (about 40 languages each)"
+  "Running: W2 Python B2, W2 fundamentals module 2, W5 batch 2",
+  "Then: Python B3\u2013B5 and fundamentals modules 3+; W4 level audit (Gap Finder + Improver) after B5",
+  "W5 batches 3\u201315"
  ],
  "escalations": [],
  "workflows": [
@@ -219,23 +239,38 @@
   {
    "wf": "W2",
    "item": "Python B1",
-   "status": "running"
+   "status": "complete"
   },
   {
    "wf": "W2",
-   "item": "Fundamentals module 1",
-   "status": "running"
+   "item": "Fundamentals F1",
+   "status": "complete"
   },
   {
    "wf": "W5",
    "item": "Catalog batch 1",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python B2",
+   "status": "running"
+  },
+  {
+   "wf": "W2",
+   "item": "Fundamentals F2",
+   "status": "running"
+  },
+  {
+   "wf": "W5",
+   "item": "Catalog batch 2",
    "status": "running"
   }
  ],
  "agents": {
   "advisor": {
    "status": "waiting",
-   "task": "Routing; waiting on W2 \u00d72 and W5"
+   "task": "Routing; waiting on round 2"
   },
   "researcher": {
    "status": "done",
@@ -247,10 +282,11 @@
   },
   "writer": {
    "status": "working",
-   "task": "W2 \u00d72: Python B1 'Getting started' and fundamentals module 1"
+   "task": "W2 \u00d72: Python B2 'Numbers and text' and fundamentals module 2"
   },
   "validator": {
-   "status": "idle"
+   "status": "done",
+   "task": "B1: FAIL (outdated Windows installer), then PASS after the fix"
   },
   "gapfinder": {
    "status": "idle"
@@ -260,11 +296,11 @@
   },
   "summarizer": {
    "status": "working",
-   "task": "W5 batch 1: catalog page generator + 40 tier-3 summaries"
+   "task": "W5 batch 2 (tier-3 entries 41\u201380)"
   }
  },
  "lessons": {
-  "written": 0,
+  "written": 12,
   "planned": 135
  },
  "language_status": {
@@ -396,6 +432,60 @@
    "from": "advisor",
    "to": "writer, writer, summarizer",
    "msg": "Dispatched in parallel: Python B1, fundamentals module 1, catalog batch 1 (Haiku). Python 3.15.0 installed for running examples."
+  },
+  {
+   "t": "17:10",
+   "from": "writer",
+   "to": "advisor",
+   "msg": "Fundamentals module 1 done (6 lessons, Python/JS/Java/C tabs)."
+  },
+  {
+   "t": "17:12",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PR 8 merged (fundamentals module 1)."
+  },
+  {
+   "t": "17:14",
+   "from": "validator",
+   "to": "advisor",
+   "msg": "B1 FAIL: Windows tab teaches the full installer, which has been deprecated since 3.14; the Python install manager is now recommended."
+  },
+  {
+   "t": "17:15",
+   "from": "writer",
+   "to": "advisor",
+   "msg": "Blocked: curl to docs.python.org denied by the permission check."
+  },
+  {
+   "t": "17:16",
+   "from": "advisor",
+   "to": "user",
+   "msg": "Escalated: how should agents fetch the Python docs? The user allowed curl."
+  },
+  {
+   "t": "17:20",
+   "from": "summarizer",
+   "to": "advisor",
+   "msg": "Catalog pages for all 644 languages; 40 tier-3 summaries (6 null)."
+  },
+  {
+   "t": "17:22",
+   "from": "writer",
+   "to": "advisor",
+   "msg": "B1 fixed: the Windows section now leads with the install manager; source cached."
+  },
+  {
+   "t": "17:25",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PRs 9, 10, 11 merged. CI moved to uv for Python 3.15 (setup-python manifest lags)."
+  },
+  {
+   "t": "17:27",
+   "from": "advisor",
+   "to": "writer, writer, summarizer",
+   "msg": "Round 2 dispatched: Python B2, fundamentals module 2, catalog batch 2."
   }
  ],
  "model_review": [
@@ -440,5 +530,18 @@
    "verdict": "Added. Writes tier-3 language summaries in batches of about 40."
   }
  ],
- "board_url": "https://claude.ai/artifact/TqB2ni7EugVvy8cGDNBYiM"
+ "board_url": "https://claude.ai/artifact/TqB2ni7EugVvy8cGDNBYiM",
+ "catalog_progress": {
+  "tier3_summarized": 40,
+  "tier3_total": 601,
+  "next_batch": 3
+ },
+ "modules_done": {
+  "python": [
+   "B1"
+  ],
+  "fundamentals": [
+   "F1"
+  ]
+ }
 }
