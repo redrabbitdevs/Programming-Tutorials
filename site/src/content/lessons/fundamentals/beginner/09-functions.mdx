@@ -1,0 +1,344 @@
+---
+language: fundamentals
+level: beginner
+module: Control flow and functions
+order: 9
+title: Functions
+description: Break a problem into named, reusable pieces with clear inputs and outputs, and see how calls stack up while a program runs.
+objectives:
+  - Define and call a function with parameters and a return value
+  - Distinguish parameters from arguments, and returning a value from printing it
+  - Explain side effects and recognise a pure function
+  - Describe the call stack and what happens when functions call each other
+estimatedMinutes: 40
+fundamentals:
+  - fundamentals/beginner/04-variables-and-assignment
+  - fundamentals/beginner/07-conditionals
+  - fundamentals/beginner/08-loops
+---
+
+Suppose you convert a temperature in one place, and a week later you need the same conversion somewhere else. Copying the formula works until you find a mistake in it and have to fix it in six places. A **function** is a named block of code you write once and use as often as you like. It is the main tool for breaking a large problem into small pieces that you can understand, test and reuse one at a time.
+
+## Anatomy of a function
+
+A function has a **name**, a list of **parameters** (the inputs it expects), a **body**, and usually a **return value** (its output).
+
+- A **parameter** is the placeholder name in the definition: `celsius` in `to_fahrenheit(celsius)`.
+- An **argument** is the actual value you supply in a call: the `100` in `to_fahrenheit(100)`.
+
+When you call a function, the arguments are matched to the parameters, the body runs, and the call expression is replaced by the returned value. That last point is why you can write `print(to_fahrenheit(100))` or `to_fahrenheit(c) + 1`: a call is an expression.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+def to_fahrenheit(celsius):
+    return celsius * 9 / 5 + 32
+
+
+for c in [100, 37, -40]:
+    print(f"{c} C = {to_fahrenheit(c):.1f} F")
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+function toFahrenheit(celsius) {
+  return celsius * 9 / 5 + 32;
+}
+
+for (const c of [100, 37, -40]) {
+  console.log(`${c} C = ${toFahrenheit(c).toFixed(1)} F`);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+public class FunctionsBasic {
+    static double toFahrenheit(double celsius) {
+        return celsius * 9 / 5 + 32;
+    }
+
+    public static void main(String[] args) {
+        int[] temps = {100, 37, -40};
+        for (int c : temps) {
+            System.out.printf("%d C = %.1f F%n", c, toFahrenheit(c));
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+#include <stdio.h>
+
+double to_fahrenheit(double celsius) {
+    return celsius * 9 / 5 + 32;
+}
+
+int main(void) {
+    int temps[] = {100, 37, -40};
+    for (int i = 0; i < 3; i++) {
+        printf("%d C = %.1f F\n", temps[i], to_fahrenheit(temps[i]));
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+100 C = 212.0 F
+37 C = 98.6 F
+-40 C = -40.0 F
+```
+
+Python and JavaScript need no type declarations. Java and C name the type of every parameter and of the return value (`double` here), and C requires a function to be defined (or declared) before the code that calls it. In Java and C, the `main` function is where the program starts. See [values and types](/Programming-Tutorials/learn/fundamentals/beginner/values-and-types/) for why those declarations exist.
+
+## Return versus print
+
+New programmers often mix these up. `print` sends text to the screen for a human to read, and the program cannot use it afterwards. `return` hands a value back to the calling code, which can store it, compute with it or print it. A function that computes should normally **return**, and the caller decides what to do with the result. That makes the function reusable: the same `to_fahrenheit` works in a program that prints, one that draws a chart and one that writes a file.
+
+A function with no `return` statement gives back a special empty value (`None` in Python, `undefined` in JavaScript). Java and C have a `void` return type for this case.
+
+## Side effects and pure functions
+
+A **side effect** is any change a function makes beyond returning a value: printing, modifying a global variable, writing a file, changing an argument that was passed in. A **pure function** has none, and its result depends only on its arguments. Call it twice with the same arguments and you get the same answer.
+
+```python
+# A pure function: the result depends only on the arguments, nothing else changes.
+def add(a, b):
+    return a + b
+
+
+# An impure function: it changes something outside itself.
+log = []
+
+
+def add_and_log(a, b):
+    log.append(f"adding {a} and {b}")
+    return a + b
+
+
+print(add(2, 3), add(2, 3))
+print(add_and_log(2, 3))
+print(add_and_log(2, 3))
+print(log)
+
+
+# The call stack: each call waits for the one above it to finish.
+def outer():
+    print("outer starts")
+    middle()
+    print("outer ends")
+
+
+def middle():
+    print("  middle starts")
+    inner()
+    print("  middle ends")
+
+
+def inner():
+    print("    inner runs")
+
+
+outer()
+
+
+# A function with no return statement gives back None.
+def shout(text):
+    print(text.upper())
+
+
+result = shout("hi")
+print(result)
+```
+
+Output:
+
+```text
+5 5
+5
+5
+['adding 2 and 3', 'adding 2 and 3']
+outer starts
+  middle starts
+    inner runs
+  middle ends
+outer ends
+HI
+None
+```
+
+`add` is pure. `add_and_log` returns the same number but also changes `log`, so calling it has a visible effect elsewhere. Neither is wrong; programs need side effects, since printing is one. But pure functions are far easier to test and to reason about, so a good habit is to keep the calculating parts pure and push the printing and file-writing to the edges.
+
+## The call stack
+
+When a function calls another, the first must wait for the second to finish. The computer tracks this with the **call stack**: a pile of **frames**, one per active call, each holding that call's parameters and local variables. A new call pushes a frame on top; a return pops it off and execution resumes in the frame below.
+
+For the `outer`, `middle`, `inner` example in the file above:
+
+```text
+ (1)         (2)         (3)         (4)         (5)
+                         inner
+             middle      middle      middle
+ outer       outer       outer       outer       outer
+ main        main        main        main        main
+```
+
+Read each column from the bottom up. In (1) `main` has called `outer`. In (2) `outer` has called `middle`, and in (3) `middle` has called `inner`, the deepest point. When `inner` returns, its frame is removed (4), then `middle`'s (5), and `outer` carries on. This explains the order of the output (`outer starts`, `middle starts`, `inner runs`, `middle ends`, `outer ends`) and, later, what a stack trace in an error message is showing you: the pile of frames at the moment something went wrong.
+
+## Designing good functions
+
+- **Do one thing.** If you struggle to name it without using "and", split it.
+- **Name it for what it does:** `to_fahrenheit`, not `convert` or `func1`.
+- **Keep the inputs explicit.** Pass in what the function needs rather than having it reach for global variables.
+- **Prefer returning to printing,** as described above.
+- **Keep it short enough to read at a glance.** There is no magic number, but if you must scroll, look for a piece to extract.
+
+## Common pitfalls
+
+- **Printing instead of returning,** then trying to use the result and finding it empty (`None`).
+- **Forgetting the parentheses.** `to_fahrenheit` refers to the function; `to_fahrenheit(100)` calls it.
+- **Mismatched argument counts or order.** `report("Ana", scores)` and `report(scores, "Ana")` are different calls.
+- **Expecting a function to change your variable.** In most languages numbers and strings passed in are copies; reassigning the parameter inside does not affect the caller. (More on this in the memory lesson later in the track.)
+- **Code after `return` that never runs.** `return` ends the function immediately.
+- **Hidden dependencies.** A function that quietly reads a global behaves differently depending on something not visible in its call.
+
+<Exercise title="Refactor a script into functions">
+
+This script computes an average and a letter grade for three students. The same block of code appears three times. Rewrite it using three functions, `average`, `letter_grade` and `report`, so that each rule appears once.
+
+```python
+a = (80 + 90 + 70) / 3
+if a >= 85:
+    ga = "A"
+elif a >= 70:
+    ga = "B"
+else:
+    ga = "C"
+print("Ana", f"{a:.1f}", ga)
+
+b = (60 + 65 + 90) / 3
+if b >= 85:
+    gb = "A"
+elif b >= 70:
+    gb = "B"
+else:
+    gb = "C"
+print("Ben", f"{b:.1f}", gb)
+
+c = (95 + 92 + 98) / 3
+if c >= 85:
+    gc = "A"
+elif c >= 70:
+    gc = "B"
+else:
+    gc = "C"
+print("Chi", f"{c:.1f}", gc)
+```
+
+<Solution>
+
+Each function does one job. `average` and `letter_grade` are pure; only `report` prints.
+
+```python title="functions_refactored.py"
+def average(scores):
+    return sum(scores) / len(scores)
+
+
+def letter_grade(avg):
+    if avg >= 85:
+        return "A"
+    if avg >= 70:
+        return "B"
+    return "C"
+
+
+def report(name, scores):
+    avg = average(scores)
+    print(name, f"{avg:.1f}", letter_grade(avg))
+
+
+report("Ana", [80, 90, 70])
+report("Ben", [60, 65, 90])
+report("Chi", [95, 92, 98])
+```
+
+Both versions print the same thing, which is the test that a refactoring has changed the structure but not the behaviour:
+
+```text
+Ana 80.0 B
+Ben 71.7 B
+Chi 95.0 A
+```
+
+If you now want to change the grade boundary from 85 to 90, there is exactly one place to edit instead of three.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Return or print?">
+
+What does `result` hold after this code runs, and why?
+
+```python
+def double(n):
+    print(n * 2)
+
+result = double(4)
+```
+
+<Solution>
+
+`result` is `None`. The function prints 8 but never returns anything, so the call expression has no value to store. Replace `print(n * 2)` with `return n * 2` to get 8 into `result`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Draw the stack">
+
+Draw the call stack at the deepest point of this program, and say what it prints.
+
+```python
+def c():
+    print("c")
+
+def b():
+    c()
+    print("b")
+
+def a():
+    b()
+    print("a")
+
+a()
+```
+
+<Solution>
+
+At the deepest point the stack holds, from bottom to top: the main program, `a`, `b`, `c`. Then `c` prints and returns, then `b` prints and returns, then `a` prints and returns. The output is `c`, `b`, `a`, on separate lines: the innermost call finishes first.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A function is a named, reusable block with parameters (placeholders) that receive arguments (actual values).
+- Return a value from a computing function and let the caller decide whether to print it.
+- Side effects are changes beyond the return value; pure functions have none and are easiest to test.
+- Calls form a stack of frames: the most recent call finishes first.
+
+Next: [Scope and lifetime](/Programming-Tutorials/learn/fundamentals/beginner/scope-and-lifetime/), which answers which variables a function can see.

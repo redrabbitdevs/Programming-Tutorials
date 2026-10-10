@@ -1,0 +1,397 @@
+---
+language: fundamentals
+level: beginner
+module: Control flow and functions
+order: 10
+title: Scope and lifetime
+description: Predict which variable a name refers to, understand shadowing, and see when a variable is created and destroyed.
+objectives:
+  - Distinguish local, global and block scope
+  - Predict which variable a name resolves to when names are reused (shadowing)
+  - Explain a variable's lifetime and how it differs from its scope
+  - Describe in outline how a closure keeps a variable alive
+estimatedMinutes: 40
+fundamentals:
+  - fundamentals/beginner/04-variables-and-assignment
+  - fundamentals/beginner/09-functions
+---
+
+In the last lesson a function used its own parameters and variables. But what if two functions both use a variable called `total`? Do they share it? **Scope** is the set of rules that decides which parts of a program can see a given name. Getting it right is what lets a thousand-line program reuse short names like `i` and `result` without chaos.
+
+## Scope: where a name is visible
+
+A name is **in scope** in the region of code where it can be used.
+
+- **Local scope** (function scope): names created inside a function exist only inside it. When the function ends they are gone.
+- **Global scope**: names created at the top level of the file are visible everywhere in it, including inside functions (for reading, at least).
+- **Block scope**: in some languages, a name created inside a pair of braces, such as an `if` body or a loop body, is visible only within those braces.
+
+When a name is used, the language looks for it in the innermost scope first, then moves outward one level at a time until it finds a match. If nothing matches, you get an error such as `NameError` or "cannot find symbol".
+
+### Shadowing
+
+If an inner scope creates a variable with the same name as one outside, the inner one **shadows** the outer: inside the function, the name means the local variable, and the outer one is unreachable by that name. Crucially, the outer variable is not changed. They are two different variables that happen to share a label.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+x = "global"
+
+
+def show():
+    x = "local"  # a new variable that shadows the outer x
+    print("inside:", x)
+
+
+show()
+print("outside:", x)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+let x = "global";
+
+function show() {
+  let x = "local"; // a new variable that shadows the outer x
+  console.log("inside:", x);
+}
+
+show();
+console.log("outside:", x);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+public class ScopeBasic {
+    static String x = "global";
+
+    static void show() {
+        String x = "local"; // a new variable that shadows the field
+        System.out.println("inside: " + x);
+    }
+
+    public static void main(String[] args) {
+        show();
+        System.out.println("outside: " + x);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+#include <stdio.h>
+
+const char *x = "global";
+
+void show(void) {
+    const char *x = "local"; /* a new variable that shadows the global */
+    printf("inside: %s\n", x);
+}
+
+int main(void) {
+    show();
+    printf("outside: %s\n", x);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+inside: local
+outside: global
+```
+
+(Java has no free-standing global variables; the closest equivalent is a `static` field of the class, which is what `x` is here.)
+
+Shadowing is legal but easy to misread. Prefer distinct names unless the reuse is deliberate.
+
+## Block scope: languages disagree
+
+Python has only function scope. A variable created inside an `if` or a loop is still there afterwards. In JavaScript's `let`, Java and C, the variable dies at the closing brace.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+if True:
+    inner = 42
+print(inner)  # 42: Python has no block scope, only function scope
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+if (true) {
+  let inner = 42;
+}
+console.log(typeof inner); // "undefined": let is confined to its block
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+public class ScopeBlock {
+    public static void main(String[] args) {
+        if (true) {
+            int inner = 42;
+            System.out.println(inner);
+        }
+        // System.out.println(inner);  // would not compile: inner is out of scope
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+#include <stdio.h>
+
+int main(void) {
+    if (1) {
+        int inner = 42;
+        printf("%d\n", inner);
+    }
+    /* printf("%d\n", inner);  would not compile: inner is out of scope */
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+Python prints `42` and JavaScript prints `undefined` (looking up a name that does not exist with `typeof` is the one safe way to ask). In Java and C the only legal use of `inner` is inside its block, so those programs print `42` from within it, and the commented-out line shows what the compiler would reject.
+
+JavaScript has a historical oddity: the older `var` keyword is function-scoped, not block-scoped, like Python. Modern code uses `let` and `const`, which are block-scoped.
+
+## Assigning to a global from inside a function
+
+Reading a global from a function is fine. Assigning is different: in Python, an assignment inside a function creates a new local variable unless you say otherwise.
+
+```python
+counter = 0
+
+
+def increment():
+    global counter  # without this line, "counter += 1" raises UnboundLocalError
+    counter += 1
+
+
+increment()
+increment()
+print(counter)
+```
+
+Without the `global` line, `counter += 1` would fail, since Python sees that the function assigns to `counter`, decides it is local, and finds it has no value yet. Output:
+
+```text
+2
+```
+
+Even when a language allows it, modifying globals from inside functions makes code hard to follow, because any function might change them at any time. Prefer passing values in as arguments and returning results.
+
+## Lifetime: when a variable exists
+
+**Scope** is about *where in the source code* a name can be used. **Lifetime** is about *when, while the program runs*, the variable's storage exists.
+
+Usually they line up. A local variable is created when the function is called (its frame is pushed on the call stack) and destroyed when the function returns (the frame is popped). Two calls to the same function get two separate sets of locals, which is also what makes [recursion](/Programming-Tutorials/learn/fundamentals/beginner/recursion/) work.
+
+They can come apart. A global variable lives for the whole program. And a variable can outlive its function's execution if something still refers to it, as in the next section.
+
+## Closures (a first look)
+
+A function defined inside another can use the outer function's variables. When the inner function is returned or stored, it takes those variables with it. That bundle, a function plus the variables it captured, is a **closure**.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+def make_counter():
+    count = 0
+
+    def next_value():
+        nonlocal count
+        count += 1
+        return count
+
+    return next_value
+
+
+a = make_counter()
+b = make_counter()
+print(a(), a(), a())  # 1 2 3
+print(b())            # 1: each counter has its own count
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+function makeCounter() {
+  let count = 0;
+  return function () {
+    count += 1;
+    return count;
+  };
+}
+
+const a = makeCounter();
+const b = makeCounter();
+console.log(a(), a(), a()); // 1 2 3
+console.log(b());           // 1: each counter has its own count
+```
+
+</Tab>
+</Tabs>
+
+Both print:
+
+```text
+1 2 3
+1
+```
+
+`count` is local to `make_counter`, and `make_counter` has long since returned, yet `a` still increments it. The captured variable lives as long as some function can still reach it, so scope and lifetime are not the same thing. Each call to `make_counter` creates a fresh `count`, which is why `b` starts from 1. (Python's `nonlocal` plays the role for the enclosing function that `global` plays for the top level.) Java and C do not have this kind of closure over mutable locals in the same way; Java lambdas can capture only variables that never change after being set.
+
+## Common pitfalls
+
+- **Assuming an assignment inside a function changes the outer variable.** It creates a new local one (shadowing).
+- **Using a variable outside the block that created it,** in a language with block scope.
+- **Using a variable before it is set.** Python raises `UnboundLocalError`; C silently reads garbage from uninitialised locals.
+- **Reusing a loop variable name** like `i` in a nested loop and clobbering the outer one.
+- **Relying on globals** for communication between functions.
+- **Assuming a local still exists after the call.** Returning a pointer to a local in C is a classic bug, since the frame is gone.
+
+<Exercise title="Six scope puzzles">
+
+Predict what each of these six puzzles prints, then run the file to check. (Puzzle 4 uses `try` and `except`, covered in the errors lesson: if the `try` block fails, the `except` block runs instead.)
+
+```python
+# Puzzle 1
+x = 1
+
+
+def f1():
+    x = 2
+
+
+f1()
+print(x)
+
+# Puzzle 2
+y = 1
+
+
+def f2():
+    print(y)
+
+
+f2()
+
+# Puzzle 3
+z = 1
+
+
+def f3():
+    global z
+    z = 2
+
+
+f3()
+print(z)
+
+
+# Puzzle 4
+def f4():
+    secret = 5
+
+
+f4()
+try:
+    print(secret)
+except NameError:
+    print("NameError")
+
+# Puzzle 5
+for i in range(3):
+    pass
+print(i)
+
+# Puzzle 6
+name = "a"
+
+
+def outer():
+    name = "b"
+
+    def inner():
+        print(name)
+
+    inner()
+
+
+outer()
+```
+
+<Solution>
+
+The output is, in order: `1`, `1`, `2`, `NameError`, `2`, `b`.
+
+1. `f1` assigns to `x`, which creates a local. The global is untouched, so `print(x)` prints 1.
+2. `f2` only reads `y`. There is no local `y`, so the lookup moves out to the global and finds 1.
+3. `f3` declares `z` as global, so the assignment changes the global to 2.
+4. `secret` exists only while `f4` runs. Outside it, the name is unknown, and the `except` branch prints `NameError`.
+5. Python has no block scope: after the loop, `i` still exists and holds its last value, 2.
+6. `inner` looks up `name`, finds none locally, and checks the enclosing function next, where it finds `"b"`, before it would reach the global `"a"`.
+
+```text
+1
+1
+2
+NameError
+2
+b
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict the JavaScript">
+
+What does this print, and what would change if `let` were replaced by `var`?
+
+```javascript
+for (let i = 0; i < 3; i++) {}
+console.log(typeof i);
+```
+
+<Solution>
+
+It prints `undefined`, because `let` confines `i` to the loop. With `var`, the variable belongs to the whole enclosing function, so it would print `number`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Scope decides where a name can be used: local to a function, global to the file, or (in most languages) local to a block.
+- A name is looked up from the innermost scope outward; an inner variable with the same name shadows the outer one without changing it.
+- Lifetime is about when the variable exists; usually it ends with its scope, but a closure can keep a variable alive longer.
+- Keep scopes small, pass data through parameters and return values, and avoid assigning to globals.
+
+Next: [Recursion](/Programming-Tutorials/learn/fundamentals/beginner/recursion/), where a function calls itself.

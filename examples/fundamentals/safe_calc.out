@@ -1,0 +1,6 @@
+'6 / 3' -> 2.0
+'4 / 0' -> error: division by zero
+'abc + 1' -> error: operands must be numbers
+'5 *' -> error: expected 'number operator number'
+'2 ^ 3' -> error: unknown operator '^'
+'1.5 * 4' -> 6.0

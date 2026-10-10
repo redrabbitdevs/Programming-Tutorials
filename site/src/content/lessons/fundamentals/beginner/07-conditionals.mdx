@@ -1,0 +1,335 @@
+---
+language: fundamentals
+level: beginner
+module: Control flow and functions
+order: 7
+title: Making decisions
+description: Write branching logic with if, else if and else, combine conditions with boolean operators, and use guard clauses to keep decisions readable.
+objectives:
+  - Write if, else-if and else chains that cover every case exactly once
+  - Combine conditions with and, or and not, and check them with a truth table
+  - Use short-circuiting to guard risky checks
+  - Flatten nested decisions with guard clauses
+estimatedMinutes: 40
+fundamentals:
+  - fundamentals/beginner/03-values-and-types
+  - fundamentals/beginner/05-expressions-and-operators
+---
+
+Until now every program you have seen runs its lines top to bottom, once. Real programs have to react: charge a child a different price from an adult, refuse a negative number, stop when the file ends. The tool for that is the **conditional**, a piece of code that runs only if some boolean expression is true.
+
+## The shape of a decision
+
+A conditional has a **condition** (any expression that produces a boolean, as in the [expressions lesson](/Programming-Tutorials/learn/fundamentals/beginner/expressions-and-operators/)) and a **block** of code that runs when the condition is true. Add `else` for the other case:
+
+```text
+if it is raining
+    take an umbrella
+else
+    wear sunglasses
+```
+
+Chains handle more than two cases. The computer tests the conditions from the top and runs the block of the **first** one that is true; everything below is skipped. If none is true, the final `else` runs.
+
+The example below picks a ticket type from an age. The order of the tests matters: because `age < 18` is only reached when `age < 5` was false, we never need to write `age >= 5 and age < 18`.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+age = 15
+
+if age < 0:
+    ticket = "invalid age"
+elif age < 5:
+    ticket = "free"
+elif age < 18:
+    ticket = "child"
+elif age < 65:
+    ticket = "adult"
+else:
+    ticket = "senior"
+
+print(f"Age {age}: {ticket}")
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+const age = 15;
+let ticket;
+
+if (age < 0) {
+  ticket = "invalid age";
+} else if (age < 5) {
+  ticket = "free";
+} else if (age < 18) {
+  ticket = "child";
+} else if (age < 65) {
+  ticket = "adult";
+} else {
+  ticket = "senior";
+}
+
+console.log(`Age ${age}: ${ticket}`);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+public class Tickets {
+    public static void main(String[] args) {
+        int age = 15;
+        String ticket;
+
+        if (age < 0) {
+            ticket = "invalid age";
+        } else if (age < 5) {
+            ticket = "free";
+        } else if (age < 18) {
+            ticket = "child";
+        } else if (age < 65) {
+            ticket = "adult";
+        } else {
+            ticket = "senior";
+        }
+
+        System.out.println("Age " + age + ": " + ticket);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+#include <stdio.h>
+
+int main(void) {
+    int age = 15;
+    const char *ticket;
+
+    if (age < 0) {
+        ticket = "invalid age";
+    } else if (age < 5) {
+        ticket = "free";
+    } else if (age < 18) {
+        ticket = "child";
+    } else if (age < 65) {
+        ticket = "adult";
+    } else {
+        ticket = "senior";
+    }
+
+    printf("Age %d: %s\n", age, ticket);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+Age 15: child
+```
+
+Notice what differs: Python marks blocks with a colon and indentation, the others use braces and put the condition in parentheses; Python writes `elif`, the others write `else if`. The logic is identical. Change `age` and run it again to see each branch.
+
+## Combining conditions
+
+Often one test is not enough. The boolean operators from the expressions lesson join conditions together: `and` (both must hold), `or` (at least one), `not` (flip it). Python spells them out; JavaScript, Java and C use `&&`, `||` and `!`.
+
+A **truth table** lists every combination of inputs, and it is the most reliable way to check you have written the logic you meant. For "a person may enter if they are an adult **or** they are accompanied", with `adult` and `with_adult` as the inputs:
+
+| `adult` | `with_adult` | `adult or with_adult` |
+|---|---|---|
+| false | false | false |
+| false | true | true |
+| true | false | true |
+| true | true | true |
+
+Two rules save a lot of bugs. First, `not (a and b)` is the same as `(not a) or (not b)`, and `not (a or b)` is the same as `(not a) and (not b)`. These are **De Morgan's laws**, and they let you untangle a condition that has become hard to read. Second, never compare a boolean to `true`: write `if is_ready`, not `if is_ready == true`.
+
+### Short-circuiting
+
+As you saw in the expressions lesson, `and` and `or` stop evaluating as soon as the answer is known. That turns the order of a condition into a safety feature:
+
+```python
+# Short-circuiting guards a risky check.
+items = []
+if items and items[0] > 5:
+    print("big first item")
+else:
+    print("no big first item")
+
+
+# Guard clauses: reject the odd cases first, then write the main path flat.
+# (Functions are the subject of lesson 9; read "def" as "name a reusable block".)
+def describe_average(total, count):
+    if count == 0:
+        return "no data"
+    return f"average {total / count}"
+
+
+print(describe_average(10, 4))
+print(describe_average(0, 0))
+
+# A conditional expression picks one of two values.
+n = 7
+parity = "even" if n % 2 == 0 else "odd"
+print(n, "is", parity)
+```
+
+The check `items and items[0] > 5` never touches `items[0]` when the list is empty, because an empty list is already false and `and` stops. Written the other way round, the same condition would crash. Put the cheap safety check on the left.
+
+The last lines show a **conditional expression**, a compact form that chooses between two values (`a if test else b` in Python, `test ? a : b` in JavaScript, Java and C). Use it for simple picks; use a full `if` when either branch does more than produce a value.
+
+Running that file prints:
+
+```text
+no big first item
+average 2.5
+no data
+7 is odd
+```
+
+## Guard clauses
+
+Deeply nested ifs are hard to read. A **guard clause** deals with the unusual case first and leaves the function early, so the main logic stays at the left margin. Compare the two shapes in pseudocode:
+
+```text
+nested                              guarded
+------                              -------
+if count is not zero                if count is zero
+    compute and return average          return "no data"
+else                                compute and return average
+    return "no data"
+```
+
+The function `describe_average` in the file above uses a guard. (Functions get their own lesson shortly; for now read `def` as "give this block a name so it can be reused".) With one guard the difference is small; with four checks it is the difference between a staircase and a flat list.
+
+## Common pitfalls
+
+- **`=` where `==` belongs.** In C, `if (x = 5)` assigns 5 and is always true. Python and Java refuse it in most cases, but the habit is worth breaking early.
+- **Overlapping or reordered branches.** In an `else if` chain, a broad test placed too early swallows the cases below it. Put the most specific test first.
+- **Forgetting the boundary.** Is a 65-year-old a senior? `age < 65` and `age <= 65` differ at exactly one value. Test the edges.
+- **Comparing floats with `==`.** `0.1 + 0.2 == 0.3` is false, as the expressions lesson showed.
+- **Dangling else in brace-optional languages.** In C, Java and JavaScript you may omit braces around a single statement, and then a later line you add is silently outside the `if`. Always use braces.
+- **Repeating a test.** If you write the same condition in two places, one will eventually be updated without the other. Store the result in a named boolean.
+
+<Exercise title="FizzBuzz">
+
+Print the numbers 1 to 15. For multiples of 3 print `Fizz` instead, for multiples of 5 print `Buzz`, and for multiples of both print `FizzBuzz`. (The `for` line repeats the body fifteen times; the next lesson explains it. Focus on the if-chain.)
+
+<Solution>
+
+The multiple-of-both case must be tested first. If `n % 3 == 0` came first, 15 would print `Fizz` and never reach the others.
+
+```python title="fizzbuzz.py"
+# The loop arrives in lesson 8; here it just repeats the if-chain for 1..15.
+for n in range(1, 16):
+    if n % 15 == 0:
+        print("FizzBuzz")
+    elif n % 3 == 0:
+        print("Fizz")
+    elif n % 5 == 0:
+        print("Buzz")
+    else:
+        print(n)
+```
+
+Output:
+
+```text
+1
+2
+Fizz
+4
+Buzz
+Fizz
+7
+8
+Fizz
+Buzz
+11
+Fizz
+13
+14
+FizzBuzz
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Leap-year checker with tests">
+
+A year is a leap year if it is divisible by 4, except years divisible by 100 are not, except years divisible by 400 are. Write a checker and run it on 2000, 1900, 2024, 2023 and 2100, comparing each result with the expected answer.
+
+<Solution>
+
+Guard clauses express the exceptions from most to least specific:
+
+```python title="leap_year.py"
+def is_leap(year):
+    if year % 400 == 0:
+        return True
+    if year % 100 == 0:
+        return False
+    return year % 4 == 0
+
+
+tests = [(2000, True), (1900, False), (2024, True), (2023, False), (2100, False)]
+for year, expected in tests:
+    result = is_leap(year)
+    status = "ok" if result == expected else "WRONG"
+    print(year, result, status)
+```
+
+Output:
+
+```text
+2000 True ok
+1900 False ok
+2024 True ok
+2023 False ok
+2100 False ok
+```
+
+Every year in the list is correct. The tests deliberately include the century years 1900, 2000 and 2100, which are where most first attempts fail.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Truth table">
+
+Fill in the truth table for `not (a and b)` and show that it matches `(not a) or (not b)` on every row.
+
+<Solution>
+
+| `a` | `b` | `a and b` | `not (a and b)` | `(not a) or (not b)` |
+|---|---|---|---|---|
+| false | false | false | true | true |
+| false | true | false | true | true |
+| true | false | false | true | true |
+| true | true | true | false | false |
+
+The last two columns agree on all four rows, which is De Morgan's law in action.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A conditional runs a block only when its boolean condition is true; a chain runs the first matching block and skips the rest.
+- Combine conditions with and, or and not; a truth table or De Morgan's laws will check or simplify them.
+- Short-circuiting lets an earlier test protect a later one.
+- Guard clauses handle odd cases first and keep the main path flat.
+
+Next: [Repetition](/Programming-Tutorials/learn/fundamentals/beginner/loops/), where you make code run many times.

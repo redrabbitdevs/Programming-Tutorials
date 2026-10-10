@@ -1,0 +1,299 @@
+---
+language: fundamentals
+level: beginner
+module: Control flow and functions
+order: 11
+title: Recursion
+description: Write and trace functions that call themselves, using a base case, a recursive case and an understanding of the call stack.
+objectives:
+  - Identify the base case and recursive case of a recursive function
+  - Trace a recursive call stack by hand
+  - Explain what causes a stack overflow and how a base case prevents it
+  - Choose between recursion and iteration for a given problem
+estimatedMinutes: 45
+fundamentals:
+  - fundamentals/beginner/08-loops
+  - fundamentals/beginner/09-functions
+  - fundamentals/beginner/10-scope-and-lifetime
+---
+
+A function is allowed to call itself. That sounds like a recipe for going in circles, and it would be, except that each call is given a slightly smaller problem, and eventually the problem becomes so small the answer is obvious. This technique is **recursion**, and it is the natural way to solve problems that contain smaller copies of themselves: a folder holding folders, a sentence made of smaller sentences, a puzzle that shrinks by one piece each move.
+
+## The two parts
+
+Every correct recursive function has:
+
+1. A **base case**: an input small enough to answer directly, without another recursive call. It is the stopping condition.
+2. A **recursive case**: for any larger input, solve it by calling the function on a *smaller* input and combining the result.
+
+The factorial of `n`, written `n!`, is `n × (n-1) × ... × 1`. Notice that `5! = 5 × 4!`. That is the recursive case in one line. The base case is `1! = 1`.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+def factorial(n):
+    if n <= 1:
+        return 1                 # base case
+    return n * factorial(n - 1)  # recursive case
+
+
+print("5! =", factorial(5))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+function factorial(n) {
+  if (n <= 1) {
+    return 1;                  // base case
+  }
+  return n * factorial(n - 1); // recursive case
+}
+
+console.log("5! =", factorial(5));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+public class Factorial {
+    static long factorial(int n) {
+        if (n <= 1) {
+            return 1;                  // base case
+        }
+        return n * factorial(n - 1);   // recursive case
+    }
+
+    public static void main(String[] args) {
+        System.out.println("5! = " + factorial(5));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+#include <stdio.h>
+
+long factorial(int n) {
+    if (n <= 1) {
+        return 1;                  /* base case */
+    }
+    return n * factorial(n - 1);   /* recursive case */
+}
+
+int main(void) {
+    printf("5! = %ld\n", factorial(5));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+5! = 120
+```
+
+Two checks to make about any recursive function: does every call move *toward* the base case (here `n - 1` gets closer to 1), and does the base case really catch every input that gets there?
+
+## Tracing the stack
+
+The [call stack](/Programming-Tutorials/learn/fundamentals/beginner/functions/) from the functions lesson is what makes recursion work. Each call gets its own frame with its own copy of `n`, so `factorial(3)` and the `factorial(2)` it calls do not interfere. The calls pile up on the way down, then answers flow back on the way up. This version prints indented lines to show it.
+
+```python
+# Tracing the stack: indentation shows how deep each call is.
+def factorial(n, depth=0):
+    pad = "  " * depth
+    print(f"{pad}call factorial({n})")
+    if n <= 1:
+        print(f"{pad}return 1")
+        return 1
+    result = n * factorial(n - 1, depth + 1)
+    print(f"{pad}return {result}")
+    return result
+
+
+factorial(3)
+
+
+# No base case: the stack fills up and Python stops it.
+def forever(n):
+    return forever(n + 1)
+
+
+try:
+    forever(0)
+except RecursionError:
+    print("RecursionError: the stack ran out of room")
+
+# Recursion over nested data: a folder is a dict, a file is its size.
+tree = {
+    "readme.txt": 5,
+    "logo.png": 40,
+    "src": {
+        "main.py": 20,
+        "util.py": 12,
+        "tests": {"test_main.py": 8},
+    },
+}
+
+
+def total_size(node):
+    if isinstance(node, int):  # base case: a file
+        return node
+    return sum(total_size(child) for child in node.values())  # a folder
+
+
+print("total size:", total_size(tree))
+
+
+# The same factorial as a loop.
+def factorial_loop(n):
+    result = 1
+    for k in range(2, n + 1):
+        result *= k
+    return result
+
+
+print(factorial_loop(5))
+```
+
+Output:
+
+```text
+call factorial(3)
+  call factorial(2)
+    call factorial(1)
+    return 1
+  return 2
+return 6
+RecursionError: the stack ran out of room
+total size: 85
+120
+```
+
+Follow the first part: `factorial(3)` calls `factorial(2)`, which calls `factorial(1)`. That one hits the base case and returns 1. Then `factorial(2)` finishes its multiplication (2 × 1 = 2) and returns, and `factorial(3)` computes 3 × 2 = 6. The work is done on the way back up.
+
+A good way to trace by hand is to write the pending calls as a stack, and replace each one with its result as it completes:
+
+```text
+factorial(3)
+3 * factorial(2)
+3 * (2 * factorial(1))
+3 * (2 * 1)
+3 * 2
+6
+```
+
+## Stack overflow
+
+Each active call holds a frame, and the stack has a fixed size. If recursion never reaches a base case, or the input is simply too big, the frames use up all the room and the program fails with a **stack overflow** (in Python, a `RecursionError`; in Java, `StackOverflowError`; in C, usually a crash). The second part of the file above shows it: `forever` has no base case, so Python gives up and reports an error instead of running forever. The default limit in Python is about a thousand frames, which is why a recursive function over a million items may need a loop instead.
+
+## Recursion over nested data
+
+Recursion shines when the data itself is nested. Take a folder tree where a folder is a dictionary of names to contents, and a file is just its size. The size of a folder is the sum of the sizes of everything inside, and each of those might be a folder in turn.
+
+The base case is a file (a number); the recursive case is a folder, handled by asking about each child. The code in `total_size` above does exactly this and reports 85 for the sample tree. Writing the same thing with a loop is possible but needs you to keep your own stack of folders still to visit. Here, recursion lets the shape of the code match the shape of the data.
+
+## Recursion or iteration?
+
+Anything you can do with recursion you can do with a loop, and vice versa. The last function in the file computes factorial with a loop and gets 120 again. Choose on clarity:
+
+- Prefer **recursion** for nested or branching structures (trees, folders, "try each choice and recurse") and for problems defined in terms of smaller versions of themselves.
+- Prefer **iteration** for simple repetition (summing a list, counting), where a loop is shorter, uses less memory and cannot overflow.
+
+Beware naive recursion that repeats work. Computing Fibonacci numbers as `fib(n-1) + fib(n-2)` recomputes the same values exponentially many times; you will meet techniques such as memoisation later in the track that fix this.
+
+## Common pitfalls
+
+- **Missing or unreachable base case,** which leads to a stack overflow.
+- **Not moving toward the base case,** for example calling `factorial(n)` instead of `factorial(n - 1)`.
+- **A base case that misses an input,** such as only handling `n == 1` and then calling `factorial(0)`, which recurses past it into negative numbers. Using `n <= 1` is safer.
+- **Forgetting to return the recursive result.** Writing `factorial(n - 1)` without `return` throws the answer away.
+- **Recursing on huge inputs** where a loop would be safer.
+- **Overflowing the number type.** `factorial(25)` exceeds a 64-bit integer in Java and C. Python integers grow as needed.
+
+<Exercise title="Factorial, then trace it">
+
+Write `factorial(n)` recursively, then write out by hand the stack of pending multiplications for `factorial(4)`.
+
+<Solution>
+
+The function is the one shown above. For `factorial(4)`:
+
+```text
+factorial(4)
+4 * factorial(3)
+4 * (3 * factorial(2))
+4 * (3 * (2 * factorial(1)))
+4 * (3 * (2 * 1))
+4 * (3 * 2)
+4 * 6
+24
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Directory size">
+
+A folder is a dictionary; a file is a number (its size). Write a recursive `total_size` and use it on this tree: `{"a.txt": 10, "docs": {"b.txt": 20, "old": {"c.txt": 5}}}`.
+
+<Solution>
+
+The base case is a file, the recursive case is a folder:
+
+```python title="tree_size.py"
+def total_size(node):
+    if isinstance(node, int):
+        return node
+    return sum(total_size(child) for child in node.values())
+
+
+tree = {"a.txt": 10, "docs": {"b.txt": 20, "old": {"c.txt": 5}}}
+print(total_size(tree))
+```
+
+It prints `35` (10 + 20 + 5):
+
+```text
+35
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Find the bug">
+
+This function should add up the numbers from 1 to `n`, but it never stops. What is wrong, and how do you fix it?
+
+```python
+def total_to(n):
+    return n + total_to(n - 1)
+```
+
+<Solution>
+
+There is no base case, so the calls continue through 0, -1, -2 and so on until the stack overflows. Add a base case: `if n <= 0: return 0`. Now `total_to(3)` is `3 + 2 + 1 + 0 = 6`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A recursive function solves a problem by calling itself on a smaller one, with a base case that stops the process.
+- Each call has its own frame on the call stack; answers are combined as the calls return.
+- Missing the base case, or going too deep, causes a stack overflow.
+- Use recursion for nested structures and loops for simple repetition.
+
+Next: [When things go wrong](/Programming-Tutorials/learn/fundamentals/beginner/errors-and-exceptions/), on error kinds and handling them deliberately.
