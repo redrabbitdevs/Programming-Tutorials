@@ -1,0 +1,203 @@
+---
+language: fundamentals
+level: beginner
+module: Programs and data
+order: 2
+title: Editors, terminals and running code
+description: Use a terminal, a text editor and a run command to execute a program, change it and run it again.
+objectives:
+  - Navigate directories and build file paths in a terminal
+  - Distinguish an editor from an IDE and choose one to start with
+  - Explain standard output, standard error and exit codes
+  - Run a program, edit it and run it again
+estimatedMinutes: 30
+fundamentals:
+  - fundamentals/beginner/01-what-is-a-program
+---
+
+Writing a program is only half the job. The other half is a loop you will repeat thousands of times: edit a file, run it, read what happened, edit again. This lesson sets up that loop.
+
+## The terminal and the shell
+
+A **terminal** is a window where you type commands as text. The **shell** is the program inside it that reads each line, finds the program you named and runs it. Common shells are bash and zsh (Linux and macOS) and PowerShell (Windows). The commands below work in the first two; PowerShell has equivalents, noted in the table.
+
+Every shell session has a **working directory**: the folder it is currently "in". Relative paths and most programs are interpreted from there.
+
+| Task | bash / zsh | PowerShell |
+|---|---|---|
+| Show the working directory | `pwd` | `pwd` |
+| List files | `ls` | `ls` (or `dir`) |
+| Move into a folder | `cd projects` | `cd projects` |
+| Move up one level | `cd ..` | `cd ..` |
+| Make a folder | `mkdir hello` | `mkdir hello` |
+| Show a file's contents | `cat notes.txt` | `cat notes.txt` |
+
+A session might look like this. Lines starting with `$` are what you type; the rest is output.
+
+```text frame="terminal"
+$ pwd
+/home/sam
+$ mkdir hello
+$ cd hello
+$ pwd
+/home/sam/hello
+$ ls
+$
+```
+
+`ls` prints nothing because the new folder is empty.
+
+### Paths
+
+A **path** says where a file lives. An **absolute path** starts from the root of the file system (`/home/sam/hello/notes.txt`, or `C:\Users\sam\hello\notes.txt` on Windows). A **relative path** starts from the working directory: `notes.txt` means "in this folder", `../notes.txt` means "in the parent folder". A single dot, `.`, means the current folder itself.
+
+Most "file not found" errors have the same cause: the file exists, but not relative to where you are standing. Check `pwd` and `ls` first.
+
+## Editors and IDEs
+
+You write source code in a **text editor**: a program that edits plain text without hidden formatting. A word processor is the wrong tool, because it stores fonts and styles that a compiler cannot read.
+
+An **IDE** (integrated development environment) is an editor with more built in: running and debugging at the click of a button, project management, refactoring tools, and live error hints. The line between the two is fuzzy; many popular editors become IDE-like with extensions.
+
+| | Plain editor | IDE |
+|---|---|---|
+| Start-up and weight | Light, quick | Heavier |
+| Setup | Little | Often a project to configure |
+| Helps you see | Exactly what you typed | Errors as you type, run buttons |
+| Good for | Learning the basics, small scripts | Large projects in one language |
+
+For this course, pick whichever editor you will actually open each day. What matters: it shows line numbers, uses a monospaced font, and saves files as plain text in UTF-8.
+
+## Running a file
+
+Running a program from a file is nearly always the same shape: the name of the program that runs it, then the file.
+
+<Tabs>
+<Tab label="Python">
+
+```text frame="terminal"
+$ python3 hello.py
+Hello, world!
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```text frame="terminal"
+$ node hello.js
+Hello, world!
+```
+
+</Tab>
+<Tab label="C">
+
+```text frame="terminal"
+$ gcc hello.c -o hello
+$ ./hello
+Hello, world!
+```
+
+</Tab>
+</Tabs>
+
+Python and JavaScript are run directly by an interpreter. C has an extra step, because a compiler first produces an executable named `hello`, which you then run. The `./` means "the file in the current folder"; without it, the shell searches only a fixed list of system folders and will not find your program.
+
+On Windows, the Python launcher is often `py` or `python` rather than `python3`. Use whichever your installation answers to.
+
+## Output, errors and exit codes
+
+Every program starts with three channels already open:
+
+| Channel | Name | Default destination |
+|---|---|---|
+| 0 | standard input (stdin) | your keyboard |
+| 1 | standard output (stdout) | the terminal |
+| 2 | standard error (stderr) | the terminal |
+
+Normal results go to stdout. Diagnostics, warnings and errors go to stderr. Both appear in your terminal, so they look the same, but they are separate streams. That is useful because you can redirect one and keep the other: `>` sends stdout to a file.
+
+This Python program writes to both:
+
+```python title="streams.py"
+import sys
+
+print("result: 42")
+print("warning: using default settings", file=sys.stderr)
+```
+
+```text frame="terminal"
+$ python3 streams.py > out.txt
+warning: using default settings
+$ cat out.txt
+result: 42
+```
+
+The warning still reached the screen because only stdout was redirected. This is why well-behaved programs keep their real output clean: another program or a file can then consume it without warnings mixed in.
+
+### Exit codes
+
+When a program ends it hands back a small integer, the **exit code**. By convention `0` means success and anything else means failure. Shells let you read the code of the last command (`echo $?` in bash and zsh, `$LASTEXITCODE` in PowerShell). Scripts, build tools and CI systems rely on this number, not on what the program printed, to decide whether a step worked.
+
+```text frame="terminal"
+$ python3 streams.py
+result: 42
+warning: using default settings
+$ echo $?
+0
+```
+
+## Changing and rerunning
+
+The working loop is: edit, save, run, read, repeat. Save before you run; an unsaved editor buffer is the most common reason that a change appears to do nothing. Try it: create `hello.py` containing `print("Hello, world!")`, run it, change the text, save, and run it again. The output should change each time.
+
+## Common pitfalls
+
+- **Running from the wrong folder.** If `python3 hello.py` says the file does not exist, run `pwd` and `ls`.
+- **Forgetting to save.** The terminal runs the file on disk, not what is on your screen.
+- **Editing the wrong copy.** Two files with similar names in different folders is an easy way to lose an hour.
+- **Treating stderr as noise.** Warnings go to stderr so they do not pollute results. They still matter.
+- **Pasting commands with the leading `$`.** The dollar sign is the prompt, not part of the command.
+
+<Exercise title="Predict the redirect">
+
+A program prints `A` to stdout, `B` to stderr, then `C` to stdout. You run it as `prog > log.txt`. What appears on the screen, and what is in `log.txt`?
+
+<Solution>
+
+The screen shows `B`. The file `log.txt` contains `A` and `C`, each on its own line. The `>` operator redirects only stdout (channel 1); stderr still goes to the terminal.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Read the path">
+
+You are in `/home/sam/projects/app`. Write the absolute path that the relative path `../notes/todo.txt` refers to.
+
+<Solution>
+
+`..` goes up from `app` to `/home/sam/projects`, then the path descends into `notes/todo.txt`, giving `/home/sam/projects/notes/todo.txt`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="The edit-run loop">
+
+Create a file that prints your name, run it from a terminal, then change it to print your name twice and run it again. Write down the exact command you used and the folder you ran it from.
+
+<Solution>
+
+For Python, the file `hello.py` could hold `print("Sam")`, later changed to two `print` lines. The command is `python3 hello.py` run from the folder that contains the file. If you ran it from another folder, you would have used a path such as `python3 ../hello.py`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- The terminal runs commands from a working directory; relative paths depend on where you stand.
+- Programs have separate stdout and stderr streams, and finish with an exit code where 0 means success.
+- Your daily rhythm is edit, save, run, read, repeat.
+
+Next: Values and types.

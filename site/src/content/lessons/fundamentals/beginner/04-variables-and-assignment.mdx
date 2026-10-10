@@ -1,0 +1,261 @@
+---
+language: fundamentals
+level: beginner
+module: Programs and data
+order: 4
+title: Variables and assignment
+description: Explain names, binding and mutation, and trace how a program's variables change as it runs.
+objectives:
+  - Explain a variable as a name bound to a value
+  - Trace assignments and reassignments in a variable table
+  - Distinguish rebinding a name from mutating a value
+  - Choose clear names and use constants for fixed values
+estimatedMinutes: 30
+fundamentals:
+  - fundamentals/beginner/03-values-and-types
+---
+
+A program that could only handle values written directly into its code would be a calculator with a fixed answer. Variables let a program hold on to results, give them meaningful names, and use them later.
+
+## Names and values
+
+A **variable** is a name that refers to a value. **Assignment** is the act of attaching a name to a value, and the symbol for it is usually `=`.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+score = 10
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+let score = 10;
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+int score = 10;
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+int score = 10;
+```
+
+</Tab>
+</Tabs>
+
+Despite the symbol, `=` does not mean "equals" as in mathematics. It means "evaluate the right side, then store the result under the name on the left". That is why this is legal and meaningful:
+
+```text
+score = score + 1
+```
+
+Read it as: take the current value of `score`, add one, store the answer back in `score`. As algebra it would be nonsense; as an instruction it is one of the most common lines in programming.
+
+Two parts of the picture to keep apart:
+
+- The **name** (`score`) is a label.
+- The **value** (`10`) is the data, with a type.
+
+In statically typed languages such as Java and C, the name also carries a declared type (`int`). In Python and JavaScript, only the value has a type, and the name can later point at a different kind of value.
+
+## Reassignment and tracing
+
+Assigning to a name that already exists **rebinds** it. The old value is forgotten (if nothing else refers to it). A variable table records this:
+
+```text
+price = 20
+quantity = 3
+total = price * quantity
+quantity = quantity + 1
+```
+
+| After line | `price` | `quantity` | `total` |
+|---|---|---|---|
+| 1 | 20 | - | - |
+| 2 | 20 | 3 | - |
+| 3 | 20 | 3 | 60 |
+| 4 | 20 | 4 | 60 |
+
+Note that `total` stays 60 on line 4. It was computed once, from the values at that moment. It does not track `quantity`. Beginners often expect a variable to behave like a spreadsheet formula; it does not.
+
+## Swapping two variables
+
+The classic puzzle: exchange the values of `a` and `b`. You cannot just write `a = b` then `b = a`, because the first line destroys the original `a`. Three working approaches:
+
+```python title="variables_demo.py"
+# Three ways to swap two variables
+a, b = 1, 2
+temp = a
+a = b
+b = temp
+print("temp:", a, b)
+
+a, b = 1, 2
+a, b = b, a
+print("tuple:", a, b)
+
+a, b = 1, 2
+a = a + b
+b = a - b
+a = a - b
+print("arithmetic:", a, b)
+
+# Binding versus copying
+x = [1, 2]
+y = x
+y.append(3)
+print(x, y, x is y)
+```
+
+```text title="output"
+temp: 2 1
+tuple: 2 1
+arithmetic: 2 1
+[1, 2, 3] [1, 2, 3] True
+```
+
+- The **temporary variable** is the universal method and works in every language.
+- **Simultaneous assignment** (`a, b = b, a`) evaluates the whole right side before storing anything. Python and JavaScript (`[a, b] = [b, a]`) support it.
+- The **arithmetic trick** uses no spare variable but only works for numbers, and can overflow in languages with fixed-size integers. Treat it as a curiosity.
+
+## Rebinding versus mutating
+
+The last four lines of that example show something that trips up almost everyone. After `y = x`, both names refer to the same list. Appending through `y` changes the thing both names point at, so `x` changes too. The `x is y` check confirms they are one object.
+
+- **Rebinding**: `y = something_else` points the name `y` at a different value. Other names are unaffected.
+- **Mutation**: changing the contents of the value itself. Every name pointing at it sees the change.
+
+Simple values like numbers and strings are typically immutable (they cannot be changed in place), so the issue arises with collections and objects. The lesson on memory and references covers this properly; for now, remember that `=` between variables does not always copy.
+
+## Constants and naming
+
+A **constant** is a name that should not change after it is set.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+MAX_ATTEMPTS = 3   # capital letters by convention; Python will not stop you reassigning
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+const MAX_ATTEMPTS = 3;   // reassigning is an error
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+final int MAX_ATTEMPTS = 3;   // reassigning is a compile error
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+const int MAX_ATTEMPTS = 3;   /* reassigning is a compile error */
+```
+
+</Tab>
+</Tabs>
+
+Some languages enforce this and some rely on convention. Either way, giving a fixed number a name such as `MAX_ATTEMPTS` beats scattering a bare `3` through your code: the name says what it means, and you change it in one place.
+
+For naming in general:
+
+- Pick names that say what the value is: `elapsed_seconds` rather than `x` or `data2`.
+- Follow your language's convention. Python and C favour `snake_case`; JavaScript and Java favour `camelCase`. Constants are usually `UPPER_SNAKE_CASE`.
+- Names are case-sensitive in nearly every language: `total` and `Total` are different.
+- Names usually cannot start with a digit or contain spaces, and cannot reuse reserved words such as `if` or `while`.
+
+## Common pitfalls
+
+- **Using a variable before it has a value.** Most languages report this as an error; C may silently give you garbage.
+- **Expecting `=` to link values.** Changing `quantity` does not update an earlier `total`.
+- **Typos in names.** In a dynamic language, misspelling a name on assignment can silently create a new variable instead of updating the old one.
+- **Reusing one name for unrelated purposes.** A variable that is a count on line 5 and a filename on line 20 invites bugs.
+- **Assuming assignment copies.** For collections it often shares.
+
+<Exercise title="Trace a variable table">
+
+Trace this program and give the final values of `a`, `b` and `c`.
+
+```text
+a = 5
+b = a * 2
+a = a + b
+c = a - b
+b = c
+```
+
+<Solution>
+
+| After line | `a` | `b` | `c` |
+|---|---|---|---|
+| 1 | 5 | - | - |
+| 2 | 5 | 10 | - |
+| 3 | 15 | 10 | - |
+| 4 | 15 | 10 | 5 |
+| 5 | 15 | 5 | 5 |
+
+Final values: `a` is 15, `b` is 5, `c` is 5. Line 5 copies the value of `c` into `b`; it does not tie them together afterwards.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Spot the broken swap">
+
+Why does this fail to swap `a` and `b`? Trace it with `a = 1` and `b = 2`.
+
+```text
+a = b
+b = a
+```
+
+<Solution>
+
+After `a = b`, both `a` and `b` hold 2, and the original 1 is gone. Then `b = a` copies 2 into `b`, which is already 2. The result is `a = 2, b = 2`. A swap must save one value first (the temporary variable) or use simultaneous assignment.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Two names, one list">
+
+After this runs, what do `x` and `y` contain? Explain why.
+
+```text
+x = [1, 2]
+y = x
+y.append(3)
+x = [9]
+```
+
+<Solution>
+
+`y` is `[1, 2, 3]` and `x` is `[9]`. The `append` mutates the one shared list, which is why both names would have shown `[1, 2, 3]` at that point. The last line rebinds `x` to a brand-new list, which leaves `y` still pointing at the old one.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A variable is a name bound to a value; `=` stores the result of the right side under the left name.
+- Reassignment rebinds a name, while mutation changes a shared value; the difference explains many surprising bugs.
+- Prefer clear names, follow your language's conventions, and name fixed values as constants.
+
+Next: Expressions and operators.

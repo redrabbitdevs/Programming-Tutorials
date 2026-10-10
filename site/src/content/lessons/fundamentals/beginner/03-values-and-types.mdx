@@ -1,0 +1,236 @@
+---
+language: fundamentals
+level: beginner
+module: Programs and data
+order: 3
+title: Values and types
+description: Classify values by type, predict which mixed operations fail, and tell static from dynamic and strong from weak typing.
+objectives:
+  - Classify a value as an integer, float, string, boolean or null
+  - Predict whether an operation on mixed types works, fails or silently converts
+  - Distinguish static from dynamic typing and strong from weak typing
+estimatedMinutes: 30
+fundamentals:
+  - fundamentals/beginner/01-what-is-a-program
+---
+
+Everything a program works with is a value, and every value has a type that decides what you can do with it. You can add two numbers but not two photographs, and you can capitalise a word but not a temperature. Types are how a language remembers which is which.
+
+## Values
+
+A **value** is a piece of data: `42`, `3.14`, `"hello"`, `true`. Written directly in code, it is a **literal**. A **type** is the kind of value, which determines how it is stored and which operations apply.
+
+## The basic types
+
+| Type | What it holds | Literals | Notes |
+|---|---|---|---|
+| Integer | Whole numbers | `0`, `42`, `-7` | Exact. Some languages limit the size. |
+| Float | Numbers with a fractional part | `3.14`, `-0.5`, `2e3` | Approximate; see the lesson on operators. |
+| String | Text | `"hello"`, `"42"` | `"42"` is text, not a number. |
+| Boolean | True or false | `true`, `false` | Spelled `True`/`False` in Python. |
+| Null | The absence of a value | `None`, `null`, `NULL` | A value that means "nothing here". |
+
+The string `"42"` and the integer `42` look alike on screen and behave nothing alike. One is two characters, the other is a quantity. Keeping them apart is the single most useful habit in this lesson.
+
+Null deserves a note. It marks "no value": a lookup that found nothing, an optional field left blank. It is not zero, and it is not an empty string. Its inventor, Tony Hoare, later called it a billion-dollar mistake because programs forget to check for it, so treat any value that might be null with suspicion.
+
+### Seeing a value's type
+
+Every language lets you ask. This Python program prints the type of several values, then tries four mixed operations:
+
+```python title="types_demo.py"
+literals = [42, 3.14, "42", True, None, [1, 2], 2**100]
+for value in literals:
+    print(f"{value!r:>34}  {type(value).__name__}")
+
+for label, make in [
+    ('"5" + 3', lambda: "5" + 3),
+    ('"5" * 3', lambda: "5" * 3),
+    ("5 + 3.0", lambda: 5 + 3.0),
+    ("True + 1", lambda: True + 1),
+]:
+    try:
+        print(label, "->", repr(make()))
+    except TypeError as error:
+        print(label, "-> TypeError:", error)
+```
+
+```text title="output"
+                                42  int
+                              3.14  float
+                              '42'  str
+                              True  bool
+                              None  NoneType
+                            [1, 2]  list
+   1267650600228229401496703205376  int
+"5" + 3 -> TypeError: can only concatenate str (not "int") to str
+"5" * 3 -> '555'
+5 + 3.0 -> 8.0
+True + 1 -> 2
+```
+
+Two details worth noticing. `2**100` is an `int` in Python however large; in many languages it would overflow (the lesson on operators covers this). And `"5" * 3` is allowed: repeating a string is a defined operation, so what looks like arithmetic is really "repeat this text three times".
+
+## Mixing types
+
+What happens when you combine different types depends on the language. Here is the same idea, the text `"5"` combined with the number `3`, in four languages.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+print("5" + 3)
+```
+
+Raises `TypeError: can only concatenate str (not "int") to str`. Python refuses to guess.
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+console.log("5" + 3);   // 53
+console.log("5" * 3);   // 15
+```
+
+JavaScript converts silently. With `+` it treats the 3 as text and joins them; with `*` it treats the "5" as a number and multiplies.
+
+</Tab>
+<Tab label="Java">
+
+```java
+System.out.println("5" + 3);   // 53
+// int n = "5";                // compile error: String cannot be converted to int
+```
+
+Java accepts the `+` because joining text and a number is a defined operation, but it will not assign a string to an integer variable, and reports that before the program runs.
+
+</Tab>
+<Tab label="C">
+
+```c
+#include <stdio.h>
+
+int main(void) {
+    printf("%d\n", '5' + 3);   // 56
+    return 0;
+}
+```
+
+C has no built-in string type. A character such as `'5'` is a small integer holding its character code (53), so adding 3 gives 56, not 8 and not "53". The language converts freely between character and integer types and does not object.
+
+</Tab>
+</Tabs>
+
+## Static and dynamic typing
+
+The question "when is the type checked?" splits languages in two.
+
+| | Static typing | Dynamic typing |
+|---|---|---|
+| Types belong to | Variables and expressions | Values |
+| Checked | Before the program runs (compile time) | While it runs |
+| Declared in code | Usually yes (`int count = 3;`), sometimes inferred | No (`count = 3`) |
+| Wrong-type bug | Reported before you run the program | Reported only when that line executes |
+| Examples | Java, C, Rust, Go | Python, JavaScript, Ruby |
+
+```text
+static:   int count = "three";     -> rejected before anything runs
+dynamic:  count = "three"          -> fine; later, count + 1 fails at that moment
+```
+
+Neither is better in general. Static typing catches whole classes of mistakes early and helps tools; dynamic typing is quicker to write and more flexible. Several dynamic languages now support optional type annotations that external tools check, a middle path you will see in the language courses.
+
+## Strong and weak typing
+
+This is a separate question: how readily does the language convert between types behind your back?
+
+- **Strong typing**: few implicit conversions. Python rejects `"5" + 3`.
+- **Weak typing**: many implicit conversions. JavaScript turns `"5" + 3` into `"53"` and `"5" * 3` into `15`.
+
+The two axes are independent. Python is dynamic and strong. JavaScript is dynamic and weak. Java is static and strong. C is static, but weaker than Java because it converts freely between many numeric types and pointers.
+
+| | Strong | Weaker |
+|---|---|---|
+| Static | Java, Rust | C |
+| Dynamic | Python, Ruby | JavaScript |
+
+## Converting on purpose
+
+When you want a conversion, ask for it explicitly. That is called **casting** or **conversion**. Reading a number from a user always gives you a string first, so you will convert constantly.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+age = int("42")      # 42
+text = str(42)       # "42"
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+const age = Number("42");   // 42
+const text = String(42);    // "42"
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+int age = Integer.parseInt("42");   // 42
+String text = String.valueOf(42);   // "42"
+```
+
+</Tab>
+</Tabs>
+
+A conversion can fail: `int("forty")` has no sensible answer. That is an error you must plan for, covered in the lesson on errors.
+
+## Common pitfalls
+
+- **Numbers that are really strings.** Input from a keyboard, file or web form arrives as text. Sorting `"10"` and `"9"` as text puts `"10"` first.
+- **Assuming silent conversion is harmless.** `"5" + 3` giving `"53"` is not a bug in JavaScript; it is a bug in your expectation.
+- **Using null as a number or string.** Calling a method on a null value is among the most common runtime failures in every language.
+- **Confusing strong with static.** Python has no declared types and is still strongly typed.
+
+<Exercise title="Sort the literals">
+
+Give the type of each literal: `7`, `7.0`, `"7"`, `"true"`, `true`, `-0.25`, `""`, `null`, `1e3`, `"3.14"`, `0`, `False`, `'x'`, `100000000000`, `"None"`.
+
+<Solution>
+
+- Integer: `7`, `0`, `100000000000`
+- Float: `7.0`, `-0.25`, `1e3` (the exponent form makes it a float)
+- String: `"7"`, `"true"`, `""` (an empty string is still a string), `"3.14"`, `'x'`, `"None"` (quotes make it text)
+- Boolean: `true`, `False`
+- Null: `null`
+
+Anything inside quotes is a string, whatever it looks like.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Will it fail?">
+
+For each, say whether Python raises an error, and what JavaScript would do: (a) `"10" - 4`, (b) `"10" + 4`, (c) `10 + 4.5`, (d) `"ab" * 2`.
+
+<Solution>
+
+(a) Python: `TypeError`, since subtraction is not defined for strings. JavaScript: `6`, because `-` forces a numeric conversion.
+(b) Python: `TypeError`. JavaScript: `"104"`, joining as text.
+(c) Both give `14.5`. Mixing an integer and a float is a safe, widely allowed widening.
+(d) Python gives `"abab"` (repetition is defined). JavaScript gives `NaN`, "not a number", because `"ab"` cannot become a number.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Every value has a type, and `"42"` (text) differs from `42` (number).
+- Static typing checks before running and dynamic typing checks while running; strong typing refuses implicit conversions and weak typing performs them.
+- Convert explicitly, and expect conversions to fail sometimes.
+
+Next: Variables and assignment.

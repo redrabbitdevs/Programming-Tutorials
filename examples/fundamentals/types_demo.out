@@ -1,0 +1,11 @@
+                                42  int
+                              3.14  float
+                              '42'  str
+                              True  bool
+                              None  NoneType
+                            [1, 2]  list
+   1267650600228229401496703205376  int
+"5" + 3 -> TypeError: can only concatenate str (not "int") to str
+"5" * 3 -> '555'
+5 + 3.0 -> 8.0
+True + 1 -> 2
