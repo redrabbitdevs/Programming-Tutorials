@@ -1,0 +1,9 @@
+---
+slug: "xotcl"
+name: "XOTcl"
+tier: 3
+paradigm: ["multi-paradigm", "object-oriented", "functional", "imperative", "event-driven"]
+firstAppeared: 2000
+summary: "XOTcl is a multi-paradigm language first appeared in 2000."
+status: planned
+---

@@ -1,0 +1,8 @@
+---
+slug: "opal"
+name: "Opal"
+tier: 3
+paradigm: ["unclassified"]
+summary: "Opal is a programming language."
+status: planned
+---
