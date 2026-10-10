@@ -1,0 +1,8 @@
+[1, 2, 3, 4]
+[1, 2, 3, 4, 5]
+odd and at most 7: 1
+odd and at most 7: 3
+odd and at most 7: 5
+odd and at most 7: 7
+halvings until 1: 6
+first number whose square exceeds 50: 8

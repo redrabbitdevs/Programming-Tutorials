@@ -1,0 +1,277 @@
+---
+language: fundamentals
+level: beginner
+module: Control flow and functions
+order: 8
+title: Repetition
+description: Repeat work with while and for loops, choose between counted and conditional loops, and avoid off-by-one errors and infinite loops.
+objectives:
+  - Choose between a counted loop and a conditional loop
+  - Write while and for loops that start, stop and step correctly
+  - Use break and continue, and say when each is clearer than a condition
+  - Reason about a loop with an invariant to avoid off-by-one errors
+estimatedMinutes: 40
+fundamentals:
+  - fundamentals/beginner/04-variables-and-assignment
+  - fundamentals/beginner/07-conditionals
+---
+
+Computers are good at doing the same thing a million times without getting bored. A **loop** repeats a block of code; each run through the block is an **iteration**. Almost every useful program has one, whether it is summing a column, reading lines from a file or waiting for a button press.
+
+## Two kinds of loop
+
+**A conditional loop** repeats *while a condition is true*. You may not know in advance how many times that will be: keep asking until the password is right, keep halving until the number is small.
+
+**A counted loop** repeats a known number of times, or once for every item in some collection: do this ten times, do this for each name in the list.
+
+Every language has the conditional kind (`while`). Counted loops are usually a separate `for`, and its spelling is where the languages differ most. Python and modern JavaScript loop over a *range* or a *collection* directly. C, Java and older JavaScript use the three-part form `for (start; test; step)`.
+
+A conditional loop is the more general tool: any counted loop can be written as a `while` with a counter variable. The `for` form exists because it puts the start, the stopping test and the step in one place where you can check them at a glance.
+
+## A first loop
+
+This program uses both kinds. The `for` adds the numbers 1 to 5; the `while` counts down from 3.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+total = 0
+for n in range(1, 6):
+    total += n
+print("sum 1..5 =", total)
+
+count = 3
+while count > 0:
+    print("countdown", count)
+    count -= 1
+print("liftoff")
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+let total = 0;
+for (let n = 1; n <= 5; n++) {
+  total += n;
+}
+console.log("sum 1..5 =", total);
+
+let count = 3;
+while (count > 0) {
+  console.log("countdown", count);
+  count -= 1;
+}
+console.log("liftoff");
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+public class LoopsSum {
+    public static void main(String[] args) {
+        int total = 0;
+        for (int n = 1; n <= 5; n++) {
+            total += n;
+        }
+        System.out.println("sum 1..5 = " + total);
+
+        int count = 3;
+        while (count > 0) {
+            System.out.println("countdown " + count);
+            count -= 1;
+        }
+        System.out.println("liftoff");
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+#include <stdio.h>
+
+int main(void) {
+    int total = 0;
+    for (int n = 1; n <= 5; n++) {
+        total += n;
+    }
+    printf("sum 1..5 = %d\n", total);
+
+    int count = 3;
+    while (count > 0) {
+        printf("countdown %d\n", count);
+        count -= 1;
+    }
+    printf("liftoff\n");
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+Each prints:
+
+```text
+sum 1..5 = 15
+countdown 3
+countdown 2
+countdown 1
+liftoff
+```
+
+In the three-part `for`, `int n = 1` runs once at the start, `n <= 5` is tested before every iteration, and `n++` (add one to `n`) runs after each. Python's `range(1, 6)` produces 1, 2, 3, 4, 5 and does all of that bookkeeping for you.
+
+The `while` loop has a pattern worth memorising. Three things must be true for it to behave: the counter starts at a sensible value (`count = 3`), the condition tests it (`count > 0`), and the body changes it (`count -= 1`). Leave out the last one and you have an infinite loop.
+
+## Controlling a loop from inside
+
+Two keywords change the flow within the body. `continue` abandons the current iteration and jumps to the next. `break` ends the loop altogether.
+
+```python
+# range(start, stop) stops BEFORE stop: the classic off-by-one trap.
+print(list(range(1, 5)))   # 1 to 4, not 1 to 5
+print(list(range(1, 6)))   # 1 to 5
+
+# continue skips to the next pass; break leaves the loop entirely.
+for n in range(1, 10):
+    if n % 2 == 0:
+        continue
+    if n > 7:
+        break
+    print("odd and at most 7:", n)
+
+# A conditional loop whose number of passes is not known in advance.
+number = 100
+steps = 0
+while number > 1:
+    number = number // 2
+    steps += 1
+print("halvings until 1:", steps)
+
+# while True with break: loop until a condition inside the body says stop.
+guess = 1
+while True:
+    if guess * guess > 50:
+        break
+    guess += 1
+print("first number whose square exceeds 50:", guess)
+```
+
+Output:
+
+```text
+[1, 2, 3, 4]
+[1, 2, 3, 4, 5]
+odd and at most 7: 1
+odd and at most 7: 3
+odd and at most 7: 5
+odd and at most 7: 7
+halvings until 1: 6
+first number whose square exceeds 50: 8
+```
+
+Use them for exceptional cases, not as the main structure. If a loop has three `break`s scattered through it, a clearer condition at the top is usually better. The last example, `while True` with a `break`, is the honest exception: when the natural place to decide is the middle of the body, an explicit exit is easier to read than contorting the condition.
+
+## Off-by-one errors and invariants
+
+The most common loop bug has a name: the **off-by-one error**. You loop one time too many or too few. In the output above, `range(1, 5)` gave 1 to 4, because in Python (and in most languages' ranges) the start is included and the stop is **excluded**. Writing `n <= 5` versus `n < 5` is the same decision in the three-part form.
+
+A habit that prevents these: state the loop's **invariant**, a sentence that is true before the loop starts and after every iteration. In the `for` loop that sums 1 to 5, the invariant is "`total` is the sum of the numbers handled so far". Before the loop it holds trivially (nothing handled, total 0). Each iteration keeps it true. When the loop ends, "handled so far" means "all of them", so the invariant becomes the answer. If you cannot state an invariant, you probably do not yet know what the loop is for.
+
+A second habit: test the smallest cases. What does the loop do for zero iterations? For exactly one?
+
+## Infinite loops
+
+If the condition never becomes false, the program never ends. Sometimes this is intended (a server waits for requests forever). Usually it is a bug: the counter was never updated, or it moves away from the stopping value. If a program is stuck in the terminal you met in [tools of the trade](/Programming-Tutorials/learn/fundamentals/beginner/tools-of-the-trade/), press `Ctrl+C` to interrupt it.
+
+## Common pitfalls
+
+- **Off by one.** Is the stop value included? Check against the smallest case.
+- **Forgetting to update the loop variable** in a `while`, which never ends.
+- **Changing a collection while looping over it.** Adding or removing items mid-loop skips elements or loops forever. Build a new collection instead.
+- **Using a floating-point counter.** A step of `0.1` accumulates rounding error, so `x == 1.0` may never be true. Count with integers and divide.
+- **Declaring the accumulator inside the loop.** `total = 0` inside the body resets it every time, and you are left with only the last value.
+- **Reaching for `break` too early,** when a better loop condition would say the same thing in one line.
+
+<Exercise title="Sum the digits">
+
+Given a positive whole number such as 4821, compute the sum of its digits (4 + 8 + 2 + 1 = 15) without converting it to text. Hint: `n % 10` is the last digit, and `n // 10` (integer division) removes it.
+
+<Solution>
+
+We do not know in advance how many digits there are, so a conditional loop fits.
+
+```python title="digit_sum.py"
+number = 4821
+total = 0
+while number > 0:
+    total += number % 10   # the last digit
+    number = number // 10  # drop the last digit
+print(total)
+```
+
+The invariant: `total` holds the sum of the digits already removed from `number`. The loop stops when no digits remain. It prints:
+
+```text
+15
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Draw a triangle">
+
+Print a right-angled triangle of stars with 4 rows: one star in the first row, two in the second, and so on.
+
+<Solution>
+
+The number of rows is known, so use a counted loop. The row number doubles as the number of stars. In Python, `"*" * row` repeats the string.
+
+```python title="triangle.py"
+rows = 4
+for row in range(1, rows + 1):
+    print("*" * row)
+```
+
+Output:
+
+```text
+*
+**
+***
+****
+```
+
+In a language without string repetition, put a second counted loop inside the first, printing one star per pass and a newline at the end of each row.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Spot the off-by-one">
+
+A program is meant to print the numbers 1 to 10 but prints only 1 to 9: `for n in range(1, 10): print(n)`. Fix it, then explain why 10 was missing.
+
+<Solution>
+
+Use `range(1, 11)`. The stop value is excluded, so `range(1, 10)` ends at 9. A quick check on a smaller case helps: `range(1, 3)` gives 1 and 2, so to include `k` you must stop at `k + 1`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A loop repeats a block; each run is an iteration.
+- Use a counted loop when you know the number of passes or have a collection to walk through, and a conditional loop when you do not.
+- A `while` loop needs a sensible start, a test and a change that moves towards stopping.
+- `break` leaves a loop and `continue` skips to the next iteration; use them sparingly.
+- Stating the loop invariant and testing zero and one iterations catches most off-by-one errors.
+
+Next: [Functions](/Programming-Tutorials/learn/fundamentals/beginner/functions/), where you give a block of code a name and reuse it.

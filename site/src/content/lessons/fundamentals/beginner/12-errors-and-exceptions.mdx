@@ -1,0 +1,295 @@
+---
+language: fundamentals
+level: beginner
+module: Control flow and functions
+order: 12
+title: When things go wrong
+description: Tell syntax, runtime and logic errors apart, choose between exceptions and error values, and handle bad input deliberately.
+objectives:
+  - Tell syntax errors, runtime errors and logic errors apart
+  - Explain the difference between exceptions and error values
+  - Handle an exception with try and catch, and know when not to
+  - Validate input at the boundary and fail fast with a clear message
+estimatedMinutes: 45
+fundamentals:
+  - fundamentals/beginner/03-values-and-types
+  - fundamentals/beginner/07-conditionals
+  - fundamentals/beginner/09-functions
+---
+
+Every program meets trouble sooner or later: a file that is missing, a user who types "forty-two" where a number belongs, a division by zero, a plain mistake in your own logic. Programs that handle trouble well are not ones that never fail. They fail in a way that is clear, safe and recoverable. This lesson covers the kinds of error, the two main ways languages report them, and how to respond.
+
+## Three kinds of error
+
+**Syntax errors** break the grammar of the language: a missing bracket, a misspelt keyword. The program is rejected before it runs (a compile error, or an error when an interpreter first reads the file). They are the easiest to fix because the message points at the line.
+
+**Runtime errors** happen while the program runs, even though the code is grammatical: dividing by zero, opening a file that does not exist, reading past the end of a list, converting "abc" to a number. The program stops (or you handle the error).
+
+**Logic errors** are the dangerous ones. The program runs without complaint and gives the wrong answer, because you told it to do the wrong thing. No message appears. Only testing, and thinking, will find them.
+
+```python
+# Syntax error: the program cannot even be read. compile() lets us catch one safely.
+try:
+    compile("print(", "<example>", "exec")
+except SyntaxError:
+    print("syntax error caught")
+
+# Runtime error: valid code that fails while running.
+try:
+    print(10 / 0)
+except ZeroDivisionError as err:
+    print("runtime error caught:", err)
+
+
+# Logic error: runs fine, answers wrongly. No exception will ever tell you.
+def average(a, b):
+    return a + b / 2   # bug: should be (a + b) / 2
+
+
+print(average(10, 20), "but the average of 10 and 20 is 15")
+
+
+# Fail fast: refuse bad input at the door with a clear message.
+def set_age(age):
+    if age < 0 or age > 150:
+        raise ValueError(f"age must be between 0 and 150, got {age}")
+    return age
+
+
+try:
+    set_age(-3)
+except ValueError as err:
+    print("rejected:", err)
+
+
+# Error values instead of exceptions: return None when there is no answer.
+def find_index(items, wanted):
+    for i, item in enumerate(items):
+        if item == wanted:
+            return i
+    return None
+
+
+print(find_index(["a", "b", "c"], "b"))
+print(find_index(["a", "b", "c"], "z"))
+```
+
+Output:
+
+```text
+syntax error caught
+runtime error caught: division by zero
+20.0 but the average of 10 and 20 is 15
+rejected: age must be between 0 and 150, got -3
+1
+None
+```
+
+The `average` function above is a logic error: the precedence mistake `a + b / 2` is valid code that quietly returns 20.0 for the average of 10 and 20. (Python's `compile` function lets us trigger a syntax error safely inside a running program; normally one would stop the whole file.)
+
+## Two ways to report a problem
+
+When a function cannot do what it was asked, it has to tell its caller somehow. There are two main styles.
+
+**Error values.** The function returns a special value meaning "that did not work": `None`, `-1`, `NaN`, a null pointer, or a result object that records success or failure. C usually works this way. The caller must remember to check, and nothing forces it to. `find_index` in the file above returns `None` for "not found".
+
+**Exceptions.** The function **raises** (throws) an exception, an object describing the problem. Normal execution stops at once and the runtime unwinds the call stack, frame by frame, looking for code that has said it can **catch** that kind of exception. If none does, the program ends with an error message and a stack trace. Python, Java and JavaScript all have exceptions.
+
+Exceptions have a big advantage: an error can't be silently ignored, because an uncaught one stops the program. They also let the code that detects the problem be far away from the code that knows what to do about it. Error values are simple and visible in the code, but forgetting to check one leads to subtle bugs.
+
+Here is the same task in four languages: convert text to a whole number and cope with bad input. Notice that each language uses a different mechanism.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+for text in ["42", "forty-two"]:
+    try:
+        n = int(text)
+    except ValueError:
+        print(f"{text!r} is not a number")
+    else:
+        print(f"{text!r} -> {n}")
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+for (const text of ["42", "forty-two"]) {
+  const n = Number(text); // no exception: bad input gives the error value NaN
+  if (Number.isNaN(n)) {
+    console.log(`'${text}' is not a number`);
+  } else {
+    console.log(`'${text}' -> ${n}`);
+  }
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+public class ErrParse {
+    public static void main(String[] args) {
+        String[] inputs = {"42", "forty-two"};
+        for (String text : inputs) {
+            try {
+                int n = Integer.parseInt(text);
+                System.out.println("'" + text + "' -> " + n);
+            } catch (NumberFormatException e) {
+                System.out.println("'" + text + "' is not a number");
+            }
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    const char *inputs[] = {"42", "forty-two"};
+    for (int i = 0; i < 2; i++) {
+        char *end;
+        long n = strtol(inputs[i], &end, 10); /* end points at the first unread character */
+        if (end == inputs[i] || *end != '\0') {
+            printf("'%s' is not a number\n", inputs[i]);
+        } else {
+            printf("'%s' -> %ld\n", inputs[i], n);
+        }
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+'42' -> 42
+'forty-two' is not a number
+```
+
+- Python and Java use **exceptions**: `int(text)` and `Integer.parseInt(text)` raise `ValueError` and `NumberFormatException`, and the `try`/`except` (Java: `try`/`catch`) block responds.
+- JavaScript's `Number("forty-two")` does not throw. It returns the **error value** `NaN` ("not a number"), so the code tests for it. (Other JavaScript operations, such as `JSON.parse` on bad text, do throw.)
+- C's `strtol` returns a value and reports problems through the pointer `end`: if no digits were read, or something is left over, the input was not a clean number.
+
+In the `try` form, code in the `try` block runs normally. If it raises an exception matching the `except` clause, the rest of that block is skipped and the handler runs. Python's optional `else` block runs only when nothing was raised.
+
+## Handling errors deliberately
+
+Having a way to catch errors does not mean you should catch everything. Some guidelines:
+
+- **Catch specific errors,** not "anything at all". A handler that swallows every exception hides bugs along with the problem you expected.
+- **Only catch what you can do something about:** ask the user to retry, use a default, skip a bad record, or add context and let it continue upward. If you can't recover, let it propagate.
+- **Never write an empty handler.** An error that disappears without a trace is the hardest kind to debug. At minimum, log it.
+- **Clean up** resources (files, connections) whatever happens. Languages offer a `finally` block or a `with`/try-with-resources form for this.
+- **Don't use exceptions for ordinary control flow** when a simple `if` test would do.
+
+## Validate input and fail fast
+
+Treat anything coming from outside your program (user typing, files, network, other programs) as untrusted. **Validate** it at the boundary, where it enters, and reject bad data immediately with a clear message. **Fail fast** means detecting a problem as close as possible to where it begins, rather than letting wrong data travel through ten functions and explode far from its source. The `set_age` function above does this: it states what is allowed and refuses anything else, with a message that includes the offending value.
+
+Good error messages say what happened, what was expected and, if possible, what to do about it. "age must be between 0 and 150, got -3" is far more useful than "invalid input".
+
+## Common pitfalls
+
+- **Catching everything** (`except:` or `catch (Exception e)`) and carrying on as if nothing happened.
+- **Empty handlers** that silently discard the error.
+- **Forgetting to check an error value,** such as using the result of `strtol` or a `None` without testing it.
+- **Validating late,** so that bad data has already been stored or used before anyone checks.
+- **Vague messages** that say something failed but not what, where or why.
+- **Treating a logic error as a runtime one.** Wrapping buggy arithmetic in `try` does not make the answer correct.
+
+<Exercise title="Classify the errors">
+
+Say whether each is a syntax error, runtime error or logic error: (a) `print("hi"` with no closing bracket; (b) `total = a - b` where you meant to add; (c) opening `data.txt` when no such file exists; (d) `limit = 10 / n` where `n` is 0.
+
+<Solution>
+
+(a) Syntax error: the grammar is broken and the program won't start. (b) Logic error: valid code, wrong answer, no message. (c) Runtime error: the code is fine, but the environment doesn't match, so an exception is raised. (d) Runtime error: division by zero is detected only when that line runs.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A robust calculator">
+
+Write `calculate(text)` for input like `"6 / 3"` (number, operator, number). It must return the result for good input and a clear error message (not a crash) for each of these bad inputs: a divisor of zero, non-numeric operands, an unknown operator, and the wrong number of parts. Try it on `6 / 3`, `4 / 0`, `abc + 1`, `5 *`, `2 ^ 3` and `1.5 * 4`.
+
+<Solution>
+
+The function validates the shape first, converts the numbers inside a `try`, and checks for the one runtime failure we can predict (zero) with an ordinary `if`. Each failure returns a specific message.
+
+```python title="safe_calc.py"
+def calculate(text):
+    parts = text.split()
+    if len(parts) != 3:
+        return "error: expected 'number operator number'"
+    left, op, right = parts
+    try:
+        a = float(left)
+        b = float(right)
+    except ValueError:
+        return "error: operands must be numbers"
+    if op == "+":
+        return a + b
+    if op == "-":
+        return a - b
+    if op == "*":
+        return a * b
+    if op == "/":
+        if b == 0:
+            return "error: division by zero"
+        return a / b
+    return f"error: unknown operator {op!r}"
+
+
+for line in ["6 / 3", "4 / 0", "abc + 1", "5 *", "2 ^ 3", "1.5 * 4"]:
+    print(f"{line!r} -> {calculate(line)}")
+```
+
+Output:
+
+```text
+'6 / 3' -> 2.0
+'4 / 0' -> error: division by zero
+'abc + 1' -> error: operands must be numbers
+'5 *' -> error: expected 'number operator number'
+'2 ^ 3' -> error: unknown operator '^'
+'1.5 * 4' -> 6.0
+```
+
+Returning message strings keeps the example short; in a larger program you would more likely raise a `ValueError` for bad input and catch it at the place that talks to the user.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Exceptions or error values?">
+
+A function `find_user(id)` looks up a user in a database. A missing user is a normal, expected outcome. A broken database connection is not. How would you report each?
+
+<Solution>
+
+For the missing user, an ordinary return value (such as `None` or an empty result) works well, since callers expect it and checking it is routine. For the broken connection, raise an exception: it's unexpected, the caller of `find_user` probably can't fix it, and it must not be silently ignored.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Syntax errors stop a program from starting, runtime errors stop it mid-run, and logic errors give wrong answers silently.
+- Errors are reported either as special return values (which must be checked) or as exceptions (which propagate until caught).
+- Catch specific exceptions you can handle, never leave handlers empty, and clean up resources.
+- Validate input at the boundary and fail fast with a message that says what went wrong.
+
+That completes the second module of the shared track. The next module covers data structures, beginning with arrays and lists.
