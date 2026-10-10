@@ -1,0 +1,9 @@
+---
+slug: "zpl"
+name: "ZPL"
+tier: 3
+paradigm: ["array"]
+firstAppeared: 1993
+summary: "ZPL is an array language first appeared in 1993."
+status: planned
+---

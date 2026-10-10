@@ -1,0 +1,9 @@
+---
+slug: "pharo"
+name: "Pharo"
+tier: 3
+paradigm: ["object-oriented"]
+firstAppeared: 2008
+summary: "Pharo is an object-oriented language first appeared in 2008."
+status: planned
+---

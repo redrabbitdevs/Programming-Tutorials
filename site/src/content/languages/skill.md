@@ -1,0 +1,9 @@
+---
+slug: "skill"
+name: "SKILL"
+tier: 3
+paradigm: ["functional", "object-oriented"]
+firstAppeared: 1990
+summary: "SKILL is a functional language first appeared in 1990."
+status: planned
+---

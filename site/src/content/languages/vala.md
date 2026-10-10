@@ -1,0 +1,9 @@
+---
+slug: "vala"
+name: "Vala"
+tier: 3
+paradigm: ["multi-paradigm", "imperative", "structured", "object-oriented"]
+firstAppeared: 2006
+summary: "Vala is a multi-paradigm language first appeared in 2006."
+status: planned
+---
