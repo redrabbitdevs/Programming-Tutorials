@@ -1345,7 +1345,7 @@
   "paradigm": [],
   "firstAppeared": null,
   "aliases": [],
-  "wikipedia": "https://en.wikipedia.org/wiki/GEC_4000_series"
+  "wikipedia": null
  },
  {
   "slug": "ballerina",
@@ -1600,7 +1600,7 @@
   "aliases": [
    "Lennart Augustsson"
   ],
-  "wikipedia": "https://en.wikipedia.org/wiki/Lennart_Augustsson"
+  "wikipedia": null
  },
  {
   "slug": "cecil",
@@ -1667,7 +1667,7 @@
    "High Level Shader Language",
    "HLSL"
   ],
-  "wikipedia": "https://en.wikipedia.org/wiki/High-Level_Shader_Language"
+  "wikipedia": null
  },
  {
   "slug": "ch",
