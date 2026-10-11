@@ -1253,7 +1253,9 @@
   "slug": "autohotkey",
   "name": "AutoHotkey",
   "tier": 3,
-  "paradigm": [],
+  "paradigm": [
+   "scripting"
+  ],
   "firstAppeared": 2003,
   "aliases": [],
   "wikipedia": "https://en.wikipedia.org/wiki/AutoHotkey"
@@ -1293,7 +1295,9 @@
   "slug": "averest",
   "name": "Averest",
   "tier": 3,
-  "paradigm": [],
+  "paradigm": [
+   "synchronous"
+  ],
   "firstAppeared": null,
   "aliases": [],
   "wikipedia": "https://en.wikipedia.org/wiki/Averest"
@@ -1315,7 +1319,10 @@
   "slug": "axum",
   "name": "Axum",
   "tier": 3,
-  "paradigm": [],
+  "paradigm": [
+   "object-oriented",
+   "concurrent"
+  ],
   "firstAppeared": 2009,
   "aliases": [],
   "wikipedia": "https://en.wikipedia.org/wiki/Axum_(programming_language)"
@@ -1324,7 +1331,9 @@
   "slug": "b",
   "name": "B",
   "tier": 3,
-  "paradigm": [],
+  "paradigm": [
+   "procedural"
+  ],
   "firstAppeared": 1969,
   "aliases": [],
   "wikipedia": "https://en.wikipedia.org/wiki/B_(programming_language)"
