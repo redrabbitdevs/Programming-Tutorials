@@ -1,0 +1,4 @@
+usage: cli --stats NUMBER...
+loaded: ['asyncio', 'statistics', 'zipfile']
+mean: 3.0
+loaded: ['asyncio', 'statistics', 'zipfile']

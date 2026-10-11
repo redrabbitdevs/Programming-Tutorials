@@ -1,0 +1,6 @@
+['hello', 'world', 'hello']
+[('the', 4), ('cat', 2)]
+the  4
+cat  2
+and  2
+textkit textkit.formats.table textkit.formats

@@ -1,0 +1,296 @@
+---
+language: python
+level: intermediate
+module: Modules, packages and tooling
+order: 14
+title: Lazy imports
+description: Defer the cost of importing a module until the first time you use it, using the lazy keyword from PEP 810, and measure the effect with -X importtime.
+minVersion: "3.15"
+objectives:
+  - Write lazy import and lazy from statements and say when the module actually loads
+  - Name the places where lazy is not allowed
+  - Measure what a program's imports cost with python -X importtime
+  - Get the same effect on older Pythons with __lazy_modules__
+estimatedMinutes: 30
+fundamentals: []
+---
+
+Every `import` at the top of a file runs that module, and the modules it imports, before your program does anything. A command-line tool that imports a dozen large libraries can take a noticeable fraction of a second to print its `--help`, even though a typical run uses two of them. <Since v="3.15" /> Python 3.15 adds **explicit lazy imports** ([PEP 810](https://peps.python.org/pep-0810/)): a way to say "bind this name now, but do the work of importing when I first use it."
+
+Everything in this lesson needs Python 3.15 or later, with one exception that is labelled. On 3.14 and earlier, `lazy import` is a `SyntaxError`.
+
+## The lazy keyword
+
+Put `lazy` in front of an import statement. It works with both forms:
+
+```python title="lazy_basics.py"
+import sys
+import types
+
+lazy import statistics
+
+print("statistics" in sys.modules)
+print(type(globals()["statistics"]) is types.LazyImportType)
+```
+
+```text
+False
+True
+```
+
+The program has passed the import line, yet `statistics` is not in `sys.modules`. The name `statistics` exists, but it is bound to a lightweight placeholder of type `types.LazyImportType`. (Reading the name through `globals()` lets us look at the placeholder without triggering it. An ordinary use of the name triggers it, as the next step shows.)
+
+Using the name is what loads the module:
+
+```python title="lazy_basics.py (continued)"
+print(statistics.mean([2, 4, 9]))
+
+print("statistics" in sys.modules)
+print(type(globals()["statistics"]) is types.LazyImportType)
+```
+
+```text
+5
+True
+False
+```
+
+On first use Python imports the real module and replaces the placeholder, so later uses cost nothing extra. From then on the name behaves exactly like a normal import.
+
+`lazy from pathlib import Path` works the same way: `Path` is bound when the first reference to it happens. The convention that imports live together at the top of the file is preserved, which is the whole appeal. The alternative used until now was to move an `import` inside the one function that needs it, scattering imports through the file.
+
+## Seeing the savings
+
+Here is a small command-line program that only needs `statistics` when given `--stats`. First the eager version, with ordinary imports. The `loaded()` function reports which of three heavy modules are present:
+
+```python title="cli_eager.py"
+import asyncio
+import statistics
+import sys
+import zipfile
+
+HEAVY = ["asyncio", "statistics", "zipfile"]
+
+
+def loaded():
+    return [name for name in HEAVY if name in sys.modules]
+
+
+def main(args):
+    if args[:1] == ["--stats"]:
+        print("mean:", statistics.mean(float(x) for x in args[1:]))
+    else:
+        print("usage: cli --stats NUMBER...")
+    print("loaded:", loaded())
+
+
+main(["--help"])
+main(["--stats", "1", "2", "6"])
+```
+
+```text
+usage: cli --stats NUMBER...
+loaded: ['asyncio', 'statistics', 'zipfile']
+mean: 3.0
+loaded: ['asyncio', 'statistics', 'zipfile']
+```
+
+All three were loaded even for the `--help` run, which used none of them. Now the same program with the three imports marked `lazy`, and nothing else changed (the `sys` import stays ordinary, because the program needs it immediately):
+
+```python title="cli_lazy.py"
+import sys
+
+lazy import asyncio
+lazy import statistics
+lazy import zipfile
+
+HEAVY = ["asyncio", "statistics", "zipfile"]
+
+
+def loaded():
+    return [name for name in HEAVY if name in sys.modules]
+
+
+def main(args):
+    if args[:1] == ["--stats"]:
+        print("mean:", statistics.mean(float(x) for x in args[1:]))
+    else:
+        print("usage: cli --stats NUMBER...")
+    print("loaded:", loaded())
+
+
+main(["--help"])
+main(["--stats", "1", "2", "6"])
+```
+
+```text
+usage: cli --stats NUMBER...
+loaded: []
+mean: 3.0
+loaded: ['statistics']
+```
+
+The help run loaded nothing. The `--stats` run loaded only `statistics`, the one module it used. `asyncio` and `zipfile` were never imported.
+
+To put numbers on it, ask Python to time every import with `-X importtime`. It prints one line per module to standard error, with the time in microseconds, so redirect or filter it:
+
+```console
+$ python -X importtime cli_eager.py 2>&1 | grep -E " (asyncio|statistics|zipfile)$"
+import time:       400 |      47289 | asyncio
+import time:       743 |       6854 | statistics
+import time:       917 |       5540 | zipfile
+```
+
+```console
+$ python -X importtime cli_lazy.py 2>&1 | grep -E " (asyncio|statistics|zipfile)$"
+import time:      1308 |      16439 | statistics
+```
+
+The first column is the module's own time and the second is cumulative, including everything it imported in turn. Your numbers will differ from these, and will vary from run to run, so compare orders of magnitude and repeat the measurement. In the lazy run only `statistics` appears, and only because the second call used it.
+
+<Callout type="note">
+
+The output of `-X importtime` goes to standard error. A plain `>` redirect misses it, which is why the commands above use `2>&1`.
+
+</Callout>
+
+## Where lazy is not allowed
+
+The point of laziness is that the import happens at some unknown later moment, which is only safe where Python can treat it as a module-level name. So the rules are strict:
+
+- `lazy import` is allowed only at module scope. Inside a function, a class body or a `try` block, it is a `SyntaxError`.
+- `lazy from module import *` is a `SyntaxError`, and so is a lazy `__future__` import.
+
+```python title="in_function.py"
+def f():
+    lazy import json
+    return json
+```
+
+```text
+  File "in_function.py", line 2
+    lazy import json
+    ^^^^^^^^^^^^^^^^
+SyntaxError: lazy import not allowed inside functions
+```
+
+Two behaviours deserve care. First, errors move. A normal import of a missing module fails when the program starts. A lazy one fails at the first use, possibly deep inside a run. The traceback shows both the original `lazy import` line and the use, so it can be traced:
+
+```python title="late_failure.py"
+lazy import no_such_module_anywhere
+
+print("start")
+no_such_module_anywhere.run()
+```
+
+```text
+start
+Traceback (most recent call last):
+  File "late_failure.py", line 1, in <module>
+    lazy import no_such_module_anywhere
+ImportError: lazy import of 'no_such_module_anywhere' raised an exception during resolution
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "late_failure.py", line 4, in <module>
+    no_such_module_anywhere.run()
+    ^^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'no_such_module_anywhere'
+```
+
+Second, a module's own top-level code runs later too. If importing a module registers a plugin or prints a banner, that now happens at first use. Do not make a module lazy when something else relies on its side effects at start-up.
+
+## Older Pythons and global switches
+
+A file that contains `lazy import` cannot even be parsed by 3.14, so a project that supports both needs another route. A module can list names in `__lazy_modules__`, and ordinary `import` statements for those modules become lazy on 3.15. On older versions the list is just an unused variable, and the imports are eager but correct. <Since v="3.15" />
+
+```python title="lazy_compat.py"
+import sys
+
+__lazy_modules__ = ["statistics"]
+
+import os
+import statistics
+
+print("os loaded:", "os" in sys.modules)
+print(statistics.mean([2, 4]))
+print("statistics loaded:", "statistics" in sys.modules)
+```
+
+```text
+os loaded: True
+3
+statistics loaded: True
+```
+
+The output is the same on every version, because the last line comes after the first use. What differs is whether `statistics` was loaded before that point. The file parses and runs on older versions too; it was checked here on 3.13 as well as 3.15.
+
+There are also global controls, for experimenting without editing source. `python -X lazy_imports=all` (or the environment variable `PYTHON_LAZY_IMPORTS`) makes every import lazy where the rules allow it, and `normal`, the default, honours only the `lazy` keyword. The functions `sys.set_lazy_imports()` and `sys.set_lazy_imports_filter()` change that behaviour from inside a program. These are for application authors who want to try a whole program lazily. Libraries should not change them.
+
+<Exercise title="Predict the output">
+
+Without running it, say what this prints under Python 3.15. Then run it.
+
+```python title="predict.py"
+import sys
+
+lazy import csv
+lazy import json
+
+print("json" in sys.modules)
+json.dumps({})
+print("json" in sys.modules, "csv" in sys.modules)
+```
+
+<Solution>
+
+```text
+False
+True False
+```
+
+Neither module has loaded at the first `print`. `json.dumps({})` uses `json`, which loads it. `csv` is never used, so it stays unloaded, and the second line reports `True False`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Which lines are errors?">
+
+For each statement, say whether it is allowed in Python 3.15, assuming it is at the top of a file unless stated otherwise: `lazy import os`, `lazy from os import path`, `lazy from os import *`, `lazy import json` inside a function, `import lazy`.
+
+<Solution>
+
+- `lazy import os`: allowed.
+- `lazy from os import path`: allowed.
+- `lazy from os import *`: `SyntaxError`, since star imports cannot be lazy.
+- `lazy import json` inside a function: `SyntaxError`, since lazy imports are only allowed at module scope.
+- `import lazy`: allowed as syntax, though it would fail unless a module called `lazy` exists. `lazy` is a *soft* keyword, meaning it only acts as a keyword at the start of an import statement, so it remains usable as an ordinary name elsewhere.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Measure a CLI before and after">
+
+Take a command-line script of your own (the word counter will do) that imports at least three standard library modules at the top. Measure it with `python -X importtime script.py 2>&1`, note the slowest cumulative import, then mark the imports that are not needed on every run as `lazy` and measure again. Report which modules disappear from the output on a run that does not need them, and by how much the sum of the top-level import lines changed.
+
+<Solution>
+
+There is no single right answer, but the method is:
+
+```console
+$ python -X importtime script.py 2>&1 | sort -t'|' -k2 -n | tail -5
+```
+
+That lists the five largest cumulative times. Pick the large modules that only some code paths use, such as `argparse` subcommands, `zipfile`, `asyncio`, `statistics` or `decimal`, and change `import x` to `lazy import x` for those. Run again on a path that does not need them: those modules should no longer appear in the output, and the total of the cumulative column for top-level imports should drop by roughly their former cost. Repeat each measurement several times, since a single run varies.
+
+If a module you made lazy still appears at start-up, something else imports it eagerly. A different module in your program or one of your dependencies is the usual cause. Lazy imports only defer your own import statements.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- <Since v="3.15" /> `lazy import x` and `lazy from x import y` bind a placeholder and load the module on first use. They are allowed only at module scope.
+- `python -X importtime` shows what each import costs. Lazy imports help most in programs that import much more than any one run uses.
+- Errors and import side effects move to the first use. `__lazy_modules__` gives older Pythons code that is still valid, although eager.

@@ -1,0 +1,4 @@
+['copy.txt', 'notes.txt']
+backup.zip
+['backup.zip', 'notes.txt', 'renamed.txt']
+False

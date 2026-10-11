@@ -1,0 +1,4 @@
+usage: cli --stats NUMBER...
+loaded: []
+mean: 3.0
+loaded: ['statistics']

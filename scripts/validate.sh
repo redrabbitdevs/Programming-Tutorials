@@ -44,6 +44,9 @@ step "examples: run every examples/**/*.py"
 EX_RUN=0; EX_BAD=0; EX_CMP=0
 if [ -d "$ROOT/examples" ]; then
   while IFS= read -r -d '' f; do
+    # Files inside a package (their folder has __init__.py) may use relative
+    # imports and cannot run as scripts. The entry script that imports them runs.
+    [ -f "$(dirname "$f")/__init__.py" ] && continue
     EX_RUN=$((EX_RUN + 1))
     rel="${f#"$ROOT"/}"
     expected="${f%.py}.out"

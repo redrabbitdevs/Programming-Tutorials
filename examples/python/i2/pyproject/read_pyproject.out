@@ -1,0 +1,6 @@
+textkit 0.1.0
+needs Python >=3.11
+dependencies: []
+commands: ['textkit']
+build backend: hatchling.build
+dev group: ['pytest']
