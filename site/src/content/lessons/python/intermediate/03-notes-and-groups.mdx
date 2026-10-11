@@ -1,0 +1,317 @@
+---
+language: python
+level: intermediate
+module: Errors and files
+order: 3
+title: Notes and exception groups
+description: Attach context to an exception with add_note, and raise and handle several unrelated errors at once with ExceptionGroup and except*.
+minVersion: "3.11"
+objectives:
+  - Attach extra context to an exception with add_note and read it from __notes__
+  - Bundle several errors into one ExceptionGroup and explain when that is useful
+  - Handle the members of a group with except* and see what happens to the ones you did not handle
+  - Split a group by type with split
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/12-errors-and-exceptions"]
+---
+
+The last lesson changed one error into another. Two other situations call for something different. Sometimes the error is right and only needs extra information, such as which line of a file it came from. And sometimes several things go wrong at once, and reporting only the first would send the user through the same fix-and-rerun loop several times.
+
+## Adding a note <Since v="3.11" />
+
+`add_note` attaches a string to an exception without changing its type or message ([PEP 678](https://peps.python.org/pep-0678/)). The notes are stored in a list called `__notes__`.
+
+```python title="add_note.py"
+lines = ["10", "20", "x3"]
+total = 0
+try:
+    for number, line in enumerate(lines, start=1):
+        try:
+            total += int(line)
+        except ValueError as error:
+            error.add_note(f"on line {number}: {line!r}")
+            raise
+except ValueError as error:
+    print(error)
+    print(error.__notes__)
+```
+
+```text
+invalid literal for int() with base 10: 'x3'
+["on line 3: 'x3'"]
+```
+
+The inner handler knows the line number; the code that finally deals with the error may not. It adds the fact and re-raises with a bare `raise`, as you saw in the last lesson. Notice that `print(error)` shows only the original message. The notes are separate.
+
+If nobody catches the error, the traceback prints the notes after the message, which is where you want them:
+
+```text
+Traceback (most recent call last):
+  File "note.py", line 5, in <module>
+    total += int(line)
+             ~~~^^^^^^
+ValueError: invalid literal for int() with base 10: 'x3'
+on line 3: 'x3'
+```
+
+Compare this with chaining. `raise NewError from error` gives you a second exception and a longer traceback. A note keeps the one exception and adds a line to it, which is lighter when the original message is already fine. Only strings are accepted: `error.add_note(5)` raises `TypeError`.
+
+## Several errors at once <Since v="3.11" />
+
+Here is a form with two problems. A function that raises on the first one hides the second. An **exception group** carries both. `ExceptionGroup` takes a message and a non-empty list of exceptions:
+
+```python title="group_basic.py"
+problems = [ValueError("name is empty"), TypeError("age must be a number")]
+group = ExceptionGroup("invalid form", problems)
+
+print(group)
+print(len(group.exceptions))
+for problem in group.exceptions:
+    print(" -", repr(problem))
+```
+
+```text
+invalid form (2 sub-exceptions)
+2
+ - ValueError('name is empty')
+ - TypeError('age must be a number')
+```
+
+The members live in the `exceptions` tuple. Groups are ordinary exceptions, so you raise them with `raise` and can put them in `try` blocks. They are defined by [PEP 654](https://peps.python.org/pep-0654/). You will meet them most often from library code that runs several tasks together, such as `asyncio.TaskGroup`, where more than one task can fail in the same moment. You can also raise them yourself, to report everything that was wrong with some input.
+
+## Handling members with except* <Since v="3.11" />
+
+A plain `except ValueError:` does not catch a group that contains a `ValueError`. The group is the exception, and it is not a `ValueError`. To handle the members, use `except*` (read "except star"). Each `except*` clause receives a new group holding the members that match its type:
+
+```python title="except_star.py"
+def check(form):
+    problems = []
+    if not form.get("name"):
+        problems.append(ValueError("name is empty"))
+    if not isinstance(form.get("age"), int):
+        problems.append(TypeError("age must be a whole number"))
+    if problems:
+        raise ExceptionGroup("invalid form", problems)
+
+
+try:
+    check({"name": "", "age": "x"})
+except* ValueError as group:
+    print("value problems:", [str(e) for e in group.exceptions])
+except* TypeError as group:
+    print("type problems:", [str(e) for e in group.exceptions])
+```
+
+```text
+value problems: ['name is empty']
+type problems: ['age must be a whole number']
+```
+
+This is the key difference from `except`. A normal `try` runs at most one handler. With `except*`, every clause that has a matching member runs, so both lines printed above. The name after `as` is always a group, even when only one member matched.
+
+### What is not handled carries on
+
+Members that no clause matches are not lost. Python collects them into a new group and raises it again after the handlers finish:
+
+```python title="except_star_partial.py"
+try:
+    try:
+        raise ExceptionGroup("batch", [ValueError("a"), KeyError("b")])
+    except* ValueError as group:
+        print("inner handled:", [str(e) for e in group.exceptions])
+except ExceptionGroup as rest:
+    print("outer got:", rest)
+    print([repr(e) for e in rest.exceptions])
+```
+
+```text
+inner handled: ['a']
+outer got: batch (1 sub-exception)
+["KeyError('b')"]
+```
+
+The inner `except*` took the `ValueError` and left the `KeyError`, which escaped as a smaller group.
+
+### A single error is wrapped too
+
+If a plain exception, not a group, arrives at an `except*`, Python wraps it in a group first. That way the code in the handler works the same either way:
+
+```python title="except_star_single.py"
+try:
+    raise ValueError("lonely")
+except* ValueError as group:
+    print(type(group).__name__, [str(e) for e in group.exceptions])
+```
+
+```text
+ExceptionGroup ['lonely']
+```
+
+Three rules to remember: one `try` cannot mix `except` and `except*`; an `except*` block cannot contain `return`, `break` or `continue`; and `except*` always needs a type, so there is no bare version.
+
+## Splitting a group by hand
+
+Sometimes you want to sort members without a `try`. The `split` method returns two groups, the members that match and the rest:
+
+```python title="group_split.py"
+group = ExceptionGroup("batch", [ValueError("a"), KeyError("b"), ValueError("c")])
+matched, rest = group.split(ValueError)
+
+print(matched)
+print([str(e) for e in matched.exceptions])
+print(rest)
+```
+
+```text
+batch (2 sub-exceptions)
+['a', 'c']
+batch (1 sub-exception)
+```
+
+Both parts keep the original message, and either one is `None` when it would be empty.
+
+## Putting it together: report every bad input
+
+Notes and groups work well as a pair. This function collects every failure, tags each one with the input that caused it, and raises them together:
+
+```python title="collect_errors.py"
+def parse_all(texts):
+    numbers = []
+    errors = []
+    for text in texts:
+        try:
+            numbers.append(int(text))
+        except ValueError as error:
+            error.add_note(f"input: {text!r}")
+            errors.append(error)
+    if errors:
+        raise ExceptionGroup("some inputs were invalid", errors)
+    return numbers
+
+
+try:
+    parse_all(["1", "two", "3", "four"])
+except* ValueError as group:
+    for error in group.exceptions:
+        print(error, error.__notes__)
+```
+
+```text
+invalid literal for int() with base 10: 'two' ["input: 'two'"]
+invalid literal for int() with base 10: 'four' ["input: 'four'"]
+```
+
+One run reports both bad inputs, in the order they appeared.
+
+## Common pitfalls
+
+- **Catching a group with `except ValueError`.** It will not match, and the group escapes. Use `except*`, or catch `ExceptionGroup` itself.
+- **Treating the `except*` name as a single exception.** `group.args` or `str(group)` describes the group, not a member. Loop over `group.exceptions`.
+- **Expecting `str(error)` to include notes.** It does not. Read `__notes__`, or let the traceback print them.
+- **Raising a group for one error.** A group is for reporting several. A function that finds one problem should raise that problem.
+
+<Exercise title="Tag the error with its field">
+Write `read_age(text)`. It returns `int(text)`, but if that fails it adds the note `while reading the age field` to the error and re-raises it. Call `read_age("abc")` inside a `try`, and print the error and its notes. Expected output:
+
+```text
+invalid literal for int() with base 10: 'abc'
+['while reading the age field']
+```
+
+<Solution>
+
+```python title="note_warmup.py"
+def read_age(text):
+    try:
+        return int(text)
+    except ValueError as error:
+        error.add_note("while reading the age field")
+        raise
+
+
+try:
+    read_age("abc")
+except ValueError as error:
+    print(error)
+    print(error.__notes__)
+```
+
+```text
+invalid literal for int() with base 10: 'abc'
+['while reading the age field']
+```
+
+`add_note` changes the exception in place, and the bare `raise` sends that same, now annotated, object on to the caller.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Check every value, report every problem">
+Write `check_all(values)`. For each item, if it is not an `int`, collect `TypeError(f"not an int: {value!r}")`. Otherwise, if it is negative, collect `ValueError(f"negative: {value}")`. After the loop, if anything was collected, raise an `ExceptionGroup` named `"bad values"`. Call it with `[3, -5, "x", -1, 8.5]` and handle the result with `except*`, printing the messages for each type. Expected output:
+
+```text
+negative: ['negative: -5', 'negative: -1']
+not int: ["not an int: 'x'", 'not an int: 8.5']
+```
+
+<Solution>
+
+```python title="check_all.py"
+def check_all(values):
+    problems = []
+    for value in values:
+        if not isinstance(value, int):
+            problems.append(TypeError(f"not an int: {value!r}"))
+        elif value < 0:
+            problems.append(ValueError(f"negative: {value}"))
+    if problems:
+        raise ExceptionGroup("bad values", problems)
+
+
+try:
+    check_all([3, -5, "x", -1, 8.5])
+except* ValueError as group:
+    print("negative:", [str(e) for e in group.exceptions])
+except* TypeError as group:
+    print("not int:", [str(e) for e in group.exceptions])
+```
+
+```text
+negative: ['negative: -5', 'negative: -1']
+not int: ["not an int: 'x'", 'not an int: 8.5']
+```
+
+The type test comes first because `"x" < 0` would itself raise `TypeError`. Both handlers run because members of both types were present. Within each group the members keep their original order. `3` passes silently, while `8.5` is reported because it is a `float`, not an `int`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the handlers">
+Which lines does this print, and in what order? Write them down before you run it.
+
+```python title="predict_group.py"
+try:
+    raise ExceptionGroup("g", [ValueError(1), TypeError(2), ValueError(3)])
+except* TypeError as group:
+    print("T", len(group.exceptions))
+except* ValueError as group:
+    print("V", len(group.exceptions))
+```
+
+<Solution>
+
+```text
+T 1
+V 2
+```
+
+The clauses run in the order they are written, and each gets only its own members: one `TypeError`, then two `ValueError`s. No member is left over, so nothing is re-raised.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- <Since v="3.11" /> `error.add_note("...")` attaches a string to an exception. Read the list from `__notes__`. Tracebacks print the notes under the message.
+- <Since v="3.11" /> `ExceptionGroup(message, errors)` bundles several exceptions. The members are in `.exceptions`, and `split` sorts them by type.
+- <Since v="3.11" /> `except*` handles members by type. Every matching clause runs, the name is always a group, and unhandled members are raised again as a smaller group.

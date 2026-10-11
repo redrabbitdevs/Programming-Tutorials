@@ -1,0 +1,2 @@
+invalid literal for int() with base 10: 'two' ["input: 'two'"]
+invalid literal for int() with base 10: 'four' ["input: 'four'"]

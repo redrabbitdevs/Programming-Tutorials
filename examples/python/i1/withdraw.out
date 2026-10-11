@@ -1,0 +1,3 @@
+new balance: 70
+refused: amount must be positive
+refused: insufficient funds: balance 100, requested 500

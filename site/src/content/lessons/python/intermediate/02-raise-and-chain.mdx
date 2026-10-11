@@ -1,0 +1,347 @@
+---
+language: python
+level: intermediate
+module: Errors and files
+order: 2
+title: Raising and chaining exceptions
+description: Raise exceptions with clear messages, re-raise them after logging, and chain one error to another with raise from so the cause is never lost.
+minVersion: "3.8"
+objectives:
+  - Raise a built-in exception with a message that names the bad value
+  - Choose between ValueError and TypeError for invalid arguments
+  - Re-raise the current exception with a bare raise
+  - Chain exceptions with raise ... from, and explain __cause__ and __context__
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/12-errors-and-exceptions"]
+---
+
+Until now, Python raised every exception for you. A function you write can do the same: when it receives something it cannot work with, it should say so loudly, close to the mistake, instead of returning a wrong answer.
+
+<Callout type="note">
+
+Python also lets you define your own exception types, with a `class` statement. Classes are taught in the object-oriented module later in this level, so this module uses the built-in types only. They cover most real situations, and the lesson on classes will come back to custom exceptions.
+
+</Callout>
+
+## Raising an exception
+
+The `raise` statement takes an exception object. You build one by calling the type like a function, and whatever you pass becomes its message.
+
+```python title="raise_basic.py"
+def set_age(age):
+    if age < 0:
+        raise ValueError(f"age cannot be negative: {age}")
+    return age
+
+
+try:
+    set_age(-3)
+except ValueError as error:
+    print("Caught:", error)
+    print(error.args)
+```
+
+```text
+Caught: age cannot be negative: -3
+('age cannot be negative: -3',)
+```
+
+`raise` stops the function at that line, exactly as a failing `int()` would. The arguments you passed are kept in a tuple called `args`, and `print(error)` shows the first one.
+
+### Which type to raise
+
+Pick the type that tells the caller what kind of mistake it was. Two cover most input checks:
+
+- `ValueError`: the argument has the right type, but its value is unacceptable. A negative age, an empty name, a month number of 13.
+- `TypeError`: the argument is the wrong kind of thing altogether, such as text where a number was needed.
+
+```python title="raise_types.py"
+def double(n):
+    if not isinstance(n, int):
+        raise TypeError(f"expected an int, got {type(n).__name__}")
+    return n * 2
+
+
+for value in [4, "4", 4.5]:
+    try:
+        print(double(value))
+    except TypeError as error:
+        print("TypeError:", error)
+```
+
+```text
+8
+TypeError: expected an int, got str
+TypeError: expected an int, got float
+```
+
+### Write the message for the person who reads it
+
+The message is what appears in a traceback at two in the morning, so make it carry its weight. A good message says what was wrong, shows the offending value, and, if it helps, says what was expected. Compare `"bad age"` with `f"age cannot be negative: {age}"`. The second one lets the reader fix the problem without opening your code. `!r` in an f-string (as in `{text!r}` below) shows a value with its quotes, which makes empty strings and stray spaces visible.
+
+## Re-raising with a bare raise
+
+Sometimes a function wants to look at an error, perhaps to log it, and then let it carry on. A `raise` with nothing after it, inside an `except` block, raises the exception that is currently being handled:
+
+```python title="reraise.py"
+def read_port(text):
+    try:
+        return int(text)
+    except ValueError:
+        print("log: bad port text", repr(text))
+        raise
+
+
+try:
+    read_port("80a")
+except ValueError as error:
+    print("caller saw:", error)
+```
+
+```text
+log: bad port text '80a'
+caller saw: invalid literal for int() with base 10: '80a'
+```
+
+The caller receives the original exception, untouched, with its original traceback. Use a bare `raise` for this, not `raise error`: it is shorter and it cannot go wrong. Outside an `except` block there is nothing to re-raise, and a bare `raise` fails with `RuntimeError: No active exception to reraise`.
+
+## Chaining: keeping the cause
+
+Often the low-level error is correct but unhelpful. `int("80a")` fails with "invalid literal for int() with base 10", which says nothing about which setting was wrong. You want to raise a better error and still keep the original one for debugging. That is **exception chaining**, and `raise ... from` does it:
+
+```python title="load_port.py"
+def load_port(text):
+    try:
+        return int(text)
+    except ValueError as error:
+        raise ValueError(f"invalid port setting: {text!r}") from error
+
+
+load_port("80a")
+```
+
+Run uncaught, Python prints both exceptions, with a sentence between them:
+
+```text
+Traceback (most recent call last):
+  File "load_port.py", line 3, in load_port
+    return int(text)
+ValueError: invalid literal for int() with base 10: '80a'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "load_port.py", line 8, in <module>
+    load_port("80a")
+    ~~~~~~~~~^^^^^^^
+  File "load_port.py", line 5, in load_port
+    raise ValueError(f"invalid port setting: {text!r}") from error
+ValueError: invalid port setting: '80a'
+```
+
+The last line is the error the caller should deal with. The part above it is the history. In code, the original is available as `__cause__`:
+
+```python title="chain_from.py"
+def load_port(text):
+    try:
+        return int(text)
+    except ValueError as error:
+        raise ValueError(f"invalid port setting: {text!r}") from error
+
+
+try:
+    load_port("80a")
+except ValueError as error:
+    print("error: ", error)
+    print("cause: ", repr(error.__cause__))
+    print("hidden:", error.__suppress_context__)
+```
+
+```text
+error:  invalid port setting: '80a'
+cause:  ValueError("invalid literal for int() with base 10: '80a'")
+hidden: True
+```
+
+### Context: chaining you did not ask for
+
+If a new exception happens while an `except` block is running, Python links the two automatically, even without `from`. The older error is stored as `__context__`, and `__cause__` stays empty:
+
+```python title="chain_context.py"
+def convert(text):
+    try:
+        return int(text)
+    except ValueError:
+        return 1 / 0
+
+
+try:
+    convert("x")
+except ZeroDivisionError as error:
+    print("error:  ", error)
+    print("cause:  ", error.__cause__)
+    print("context:", repr(error.__context__))
+```
+
+```text
+error:   division by zero
+cause:   None
+context: ValueError("invalid literal for int() with base 10: 'x'")
+```
+
+In a traceback this version reads "During handling of the above exception, another exception occurred", instead of "was the direct cause". The wording matters. "Direct cause" says you converted the error on purpose. "During handling" says something went wrong inside your error handler, which is usually a bug. Use `from error` whenever the conversion is deliberate.
+
+### Hiding the original with from None
+
+Occasionally the original error is only noise, because the new message already says everything. `from None` removes the history from the traceback:
+
+```python title="chain_none.py"
+def load_port(text):
+    try:
+        return int(text)
+    except ValueError:
+        raise ValueError(f"invalid port setting: {text!r}") from None
+
+
+try:
+    load_port("80a")
+except ValueError as error:
+    print("error:  ", error)
+    print("cause:  ", error.__cause__)
+    print("context:", repr(error.__context__))
+    print("hidden: ", error.__suppress_context__)
+```
+
+```text
+error:   invalid port setting: '80a'
+cause:   None
+context: ValueError("invalid literal for int() with base 10: '80a'")
+hidden:  True
+```
+
+The context is still stored, only the traceback display skips it. Reach for `from None` sparingly. The hidden error is often exactly what a developer needs.
+
+## Common pitfalls
+
+- **Raising a vague type.** `raise Exception("bad")` forces callers to catch `Exception`, which also catches bugs. Raise the most specific built-in type that fits.
+- **Raising a new error and forgetting `from`.** The result is the "during handling" wording, which looks like a bug in your handler. Say `from error` when the conversion is on purpose.
+- **Logging and re-raising at every level.** If each layer prints the error and raises it again, one failure appears in the log five times. Handle an error at the layer that can do something about it.
+- **Putting `raise` in a function and expecting the caller to know.** Nothing in the signature says a function can raise. Mention it in a comment or docstring, as you would a return value.
+
+<Exercise title="Refuse bad withdrawals">
+Write `withdraw(balance, amount)`. It returns the new balance, but raises `ValueError("amount must be positive")` when `amount` is zero or less, and `ValueError` with the message `insufficient funds: balance 100, requested 500` (using the real numbers) when `amount` is more than `balance`. Call it with a balance of 100 and amounts 30, 0 and 500, catching the error each time. Expected output:
+
+```text
+new balance: 70
+refused: amount must be positive
+refused: insufficient funds: balance 100, requested 500
+```
+
+<Solution>
+
+```python title="withdraw.py"
+def withdraw(balance, amount):
+    if amount <= 0:
+        raise ValueError("amount must be positive")
+    if amount > balance:
+        raise ValueError(f"insufficient funds: balance {balance}, requested {amount}")
+    return balance - amount
+
+
+for amount in [30, 0, 500]:
+    try:
+        print("new balance:", withdraw(100, amount))
+    except ValueError as error:
+        print("refused:", error)
+```
+
+```text
+new balance: 70
+refused: amount must be positive
+refused: insufficient funds: balance 100, requested 500
+```
+
+Each check raises as soon as it finds a problem, so the arithmetic on the last line only runs for valid amounts. The order of the two checks matters: a zero amount is reported as "must be positive" and never reaches the funds test.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Parse a setting, keep the cause">
+Write `parse_setting(line)` for lines like `port=80`. It returns a tuple `(name, number)`. If the line has no `=`, it raises `ValueError` with the message `no '=' in line: 'oops'` (using the real line). If the part after `=` is not a whole number, it raises a `ValueError` saying `setting 'port' needs a whole number`, chained from the original error. Hint: `line.split("=", 1)` splits at the first `=` only. For the lines `"port=80"`, `"oops"` and `"port=x"`, print the result, or `"error:", error, "| cause:", error.__cause__`. Expected output:
+
+```text
+('port', 80)
+error: no '=' in line: 'oops' | cause: None
+error: setting 'port' needs a whole number | cause: invalid literal for int() with base 10: 'x'
+```
+
+<Solution>
+
+```python title="parse_setting.py"
+def parse_setting(line):
+    if "=" not in line:
+        raise ValueError(f"no '=' in line: {line!r}")
+    name, value = line.split("=", 1)
+    try:
+        return name, int(value)
+    except ValueError as error:
+        raise ValueError(f"setting {name!r} needs a whole number") from error
+
+
+for line in ["port=80", "oops", "port=x"]:
+    try:
+        print(parse_setting(line))
+    except ValueError as error:
+        print("error:", error, "| cause:", error.__cause__)
+```
+
+```text
+('port', 80)
+error: no '=' in line: 'oops' | cause: None
+error: setting 'port' needs a whole number | cause: invalid literal for int() with base 10: 'x'
+```
+
+The first error has no cause because it is raised directly, not inside an `except`. The second is raised inside the `except` block with `from error`, so `__cause__` holds the `int` failure.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the order">
+What does this print? Write all three lines before you run it, and say where `finally` fits.
+
+```python title="predict_reraise.py"
+def risky():
+    try:
+        raise ValueError("first")
+    except ValueError:
+        print("handling")
+        raise
+    finally:
+        print("cleanup")
+
+
+try:
+    risky()
+except ValueError as error:
+    print("outer got", error)
+```
+
+<Solution>
+
+```text
+handling
+cleanup
+outer got first
+```
+
+The `except` block prints `handling` and re-raises. Before that exception leaves the function, the `finally` block runs and prints `cleanup`. Only then does the exception reach the outer `except`, which prints `outer got first`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `raise ValueError("message")` stops the function with an exception you built. Use `ValueError` for a bad value and `TypeError` for a bad kind of value, and put the offending value in the message.
+- A bare `raise` inside `except` re-raises the current exception unchanged.
+- `raise NewError(...) from error` records the original as `__cause__`. Without `from`, Python still records it as `__context__`, and the traceback blames your handler. `from None` hides it from the traceback.
+- Custom exception classes wait for the object-oriented module.

@@ -1,0 +1,3 @@
+{"name": "Ada", "langs": ["Python", "C"], "active": true, "spouse": null, "pair": [1, 2]}
+str
+{'name': 'Ada', 'langs': ['Python', 'C'], 'active': True, 'spouse': None, 'pair': [1, 2]}

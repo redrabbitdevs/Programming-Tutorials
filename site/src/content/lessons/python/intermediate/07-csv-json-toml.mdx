@@ -1,0 +1,499 @@
+---
+language: python
+level: intermediate
+module: Errors and files
+order: 7
+title: CSV, JSON and TOML
+description: Read and write tables with csv, exchange nested data with json, and load configuration files with tomllib, all from the standard library.
+minVersion: "3.11"
+objectives:
+  - Read a CSV file into rows or dictionaries and write one back with the csv module
+  - Convert between Python values and JSON text, and explain which types survive the trip
+  - Read a TOML configuration file with tomllib
+  - Choose between CSV, JSON and TOML for a given job
+estimatedMinutes: 45
+fundamentals: []
+---
+
+Programs rarely invent their own file formats. They read what spreadsheets export, what web services send, and what people write to configure tools. Python's standard library can read all three of the common ones, so you do not need to install anything. Each format has a habit that catches beginners, and each section below names it.
+
+## CSV: a table in text
+
+A CSV ("comma-separated values") file has one record per line, with fields divided by commas. It is tempting to read one with `line.split(",")`, and it works until a field contains a comma. CSV handles that by wrapping the field in quotes, and the `csv` module understands the rules. In the file below, the second book has a comma in its title:
+
+```python title="csv_reader.py"
+import csv
+import tempfile
+from pathlib import Path
+
+SAMPLE = """title,author,year
+Dune,Frank Herbert,1965
+"Good Omens, a novel",Pratchett & Gaiman,1990
+"""
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "books.csv"
+    path.write_text(SAMPLE, encoding="utf-8")
+
+    with open(path, encoding="utf-8", newline="") as file:
+        for row in csv.reader(file):
+            print(row)
+```
+
+```text
+['title', 'author', 'year']
+['Dune', 'Frank Herbert', '1965']
+['Good Omens, a novel', 'Pratchett & Gaiman', '1990']
+```
+
+`csv.reader` wraps an open file and gives you one list of strings per line. Two things to notice. The quoted comma stayed inside its field. And `1965` is the *text* `'1965'`: CSV has no types, so every field is a string and you convert the ones you need.
+
+Open the file with `newline=""`, as in the [text and bytes lesson](../text-and-binary/). The `csv` module deals with line endings itself, including line breaks inside quoted fields, and Python's newline translation would interfere.
+
+### Rows as dictionaries
+
+The first row is usually a header. `csv.DictReader` uses it for the keys, so you can refer to columns by name instead of by position:
+
+```python title="csv_dictreader.py"
+import csv
+import tempfile
+from pathlib import Path
+
+SAMPLE = """title,author,year
+Dune,Frank Herbert,1965
+"Good Omens, a novel",Pratchett & Gaiman,1990
+"""
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "books.csv"
+    path.write_text(SAMPLE, encoding="utf-8")
+
+    with open(path, encoding="utf-8", newline="") as file:
+        rows = list(csv.DictReader(file))
+
+print(rows[0])
+print(rows[1]["title"])
+print(sum(int(row["year"]) for row in rows) / len(rows))
+```
+
+```text
+{'title': 'Dune', 'author': 'Frank Herbert', 'year': '1965'}
+Good Omens, a novel
+1977.5
+```
+
+The rows are read while the file is open, which is why `list(...)` sits inside the `with`. The year had to go through `int` before the arithmetic. Reordering columns in the file does not break this code, which is the big advantage over positions.
+
+### Writing CSV
+
+`csv.DictWriter` is the mirror image. You give it the column names, write the header, and then write rows:
+
+```python title="csv_writer.py"
+import csv
+import tempfile
+from pathlib import Path
+
+books = [
+    {"title": "Dune", "year": 1965},
+    {"title": "Good Omens, a novel", "year": 1990},
+]
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "out.csv"
+    with open(path, "w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=["title", "year"])
+        writer.writeheader()
+        writer.writerows(books)
+
+    print(path.read_bytes().splitlines())
+```
+
+```text
+[b'title,year', b'Dune,1965', b'"Good Omens, a novel",1990']
+```
+
+Printing the bytes shows what was really stored. The writer added quotes around the title with the comma, and turned the number `1965` into text for you. By default it ends rows with `\r\n`, as the CSV standard asks, which is another reason for `newline=""` on writing. Plain `csv.reader` and `csv.writer` work with lists in the same way. For files that use another separator, such as semicolons, pass `delimiter=";"`.
+
+## JSON: nested data
+
+JSON is the format of web services and many configuration files. It can nest lists and objects inside each other, which a CSV table cannot. The `json` module converts between JSON *text* and Python values:
+
+| JSON | Python |
+|---|---|
+| object | `dict` (keys are always text) |
+| array | `list` |
+| string, number | `str`, `int` or `float` |
+| `true`, `false` | `True`, `False` |
+| `null` | `None` |
+
+`json.dumps` ("dump to string") turns a Python value into JSON text, and `json.loads` ("load from string") does the reverse:
+
+```python title="json_basics.py"
+import json
+
+data = {"name": "Ada", "langs": ["Python", "C"], "active": True, "spouse": None, "pair": (1, 2)}
+
+text = json.dumps(data)
+print(text)
+print(type(text).__name__)
+
+back = json.loads(text)
+print(back)
+```
+
+```text
+{"name": "Ada", "langs": ["Python", "C"], "active": true, "spouse": null, "pair": [1, 2]}
+str
+{'name': 'Ada', 'langs': ['Python', 'C'], 'active': True, 'spouse': None, 'pair': [1, 2]}
+```
+
+`True` became `true`, `None` became `null`, and the tuple became an array. JSON has no tuples, so coming back it is a `list`. The round trip does not always return what you put in.
+
+### Readable output
+
+By default the text is one line. Three options make it pleasant for people:
+
+```python title="json_pretty.py"
+import json
+
+data = {"city": "Zürich", "b": 1, "a": [2, 3]}
+
+print(json.dumps(data))
+print(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False))
+```
+
+```text
+{"city": "Zürich", "b": 1, "a": [2, 3]}
+{
+  "a": [
+    2,
+    3
+  ],
+  "b": 1,
+  "city": "Zürich"
+}
+```
+
+`indent=2` spreads the text over lines, `sort_keys=True` orders the keys so that two runs give identical text, and `ensure_ascii=False` keeps `ü` as itself instead of the escape `ü`. Both forms are valid JSON.
+
+### JSON files
+
+`json.dump` and `json.load` (no `s`) work on open files. JSON text is meant to be UTF-8, so say so when you open the file:
+
+```python title="json_file.py"
+import json
+import tempfile
+from pathlib import Path
+
+settings = {"theme": "dark", "sizes": [10, 12], "font": "Café"}
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "settings.json"
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(settings, file, indent=2, ensure_ascii=False)
+
+    with open(path, encoding="utf-8") as file:
+        loaded = json.load(file)
+
+print(loaded == settings)
+```
+
+```text
+True
+```
+
+### When JSON refuses
+
+Two errors are worth knowing. Bad text raises `json.JSONDecodeError`, a child of `ValueError`, which says where the problem is. A value JSON cannot represent raises `TypeError`, and the `default` argument lets you supply a conversion:
+
+```python title="json_errors.py"
+import json
+
+try:
+    json.loads("{'a': 1}")
+except json.JSONDecodeError as error:
+    print(error.msg, "| line", error.lineno, "column", error.colno)
+
+try:
+    json.dumps({"tags": {"x", "y"}})
+except TypeError as error:
+    print(error)
+
+print(json.dumps({"tags": {"x", "y"}}, default=sorted))
+```
+
+```text
+Expecting property name enclosed in double quotes | line 1 column 2
+Object of type set is not JSON serializable
+{"tags": ["x", "y"]}
+```
+
+JSON requires double quotes, so the single-quoted text from the first call fails at column 2. A set has no JSON form, but `default=sorted` is called for any value `json` cannot handle, and turns the set into a sorted list.
+
+## TOML: configuration people edit
+
+TOML is designed for configuration files. It is easy to read and write by hand, allows comments, and has real types for numbers, booleans, dates and lists. Python <Since v="3.11" /> reads it with `tomllib` ([PEP 680](https://peps.python.org/pep-0680/)). `tomllib.loads` parses text and `tomllib.load` parses a file:
+
+```python title="toml_demo.py"
+import tempfile
+import tomllib
+from pathlib import Path
+
+TEXT = """
+title = "Demo"
+
+[server]
+port = 8080
+hosts = ["a", "b"]
+"""
+
+print(tomllib.loads(TEXT))
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "config.toml"
+    path.write_text(TEXT, encoding="utf-8")
+    with open(path, "rb") as file:
+        config = tomllib.load(file)
+
+print(config["server"]["port"])
+```
+
+```text
+{'title': 'Demo', 'server': {'port': 8080, 'hosts': ['a', 'b']}}
+8080
+```
+
+A `[server]` heading in the file becomes a nested dictionary. Unlike every other file in this lesson, `tomllib.load` needs a file opened in **binary** mode (`"rb"`). It decodes the UTF-8 itself, so the encoding can never be chosen wrongly. Passing a text-mode file raises a `TypeError` that says the file must be opened in binary mode.
+
+A TOML file with a mistake raises `tomllib.TOMLDecodeError`, whose message gives the line and column:
+
+```python title="toml_errors.py"
+import tomllib
+
+try:
+    tomllib.loads("port = 80 81")
+except tomllib.TOMLDecodeError as error:
+    print("bad TOML:", type(error).__name__)
+```
+
+```text
+bad TOML: TOMLDecodeError
+```
+
+The standard library only *reads* TOML. To write it you need a third-party package, or you produce the few lines yourself.
+
+## Choosing a format
+
+| Use | When |
+|---|---|
+| CSV | Flat tables that people open in a spreadsheet. |
+| JSON | Nested data, and data exchanged with other programs or web services. |
+| TOML | Settings that a person edits and a program reads. |
+
+## Common pitfalls
+
+- **Doing arithmetic on CSV fields.** `row["a"] + row["b"]` joins the two texts: `"10" + "20"` is `"1020"`. Convert with `int` or `float` first, and expect `ValueError` on bad cells.
+- **Forgetting `newline=""` on CSV files.** On Windows this can add blank lines between rows, and quoted fields that contain line breaks can be corrupted.
+- **Mixing up `dump` and `dumps`.** `json.dump(data, file)` writes to a file and returns `None`. `json.dumps(data)` returns a string. Writing `file.write(json.dump(data))` is a common slip.
+- **Trusting loaded data.** JSON and TOML can contain any shape of data. After loading, check that the keys and types you need are there, with the tools from the [exceptions lessons](../raise-and-chain/).
+
+<Exercise title="Total the stock">
+Parse the text `'{"apples": 3, "pears": 5, "plums": 2}'` with `json.loads`. Print the total number of items and the name of the fruit with the most. Expected output:
+
+```text
+Total: 10
+Most: pears
+```
+
+<Solution>
+
+```python title="json_sum.py"
+import json
+
+text = '{"apples": 3, "pears": 5, "plums": 2}'
+stock = json.loads(text)
+
+print("Total:", sum(stock.values()))
+print("Most:", max(stock, key=stock.get))
+```
+
+```text
+Total: 10
+Most: pears
+```
+
+`json.loads` returns an ordinary `dict`. `max(stock, key=stock.get)` loops over the keys and picks the one whose value is largest, as in the [lambdas and higher-order functions lesson](../../beginner/lambdas-higher-order/).
+
+</Solution>
+</Exercise>
+
+<Exercise title="Read settings from TOML">
+Parse this text with `tomllib.loads`:
+
+```toml
+debug = true
+
+[server]
+host = "0.0.0.0"
+port = 8080
+```
+
+Print the address as `Listening on 0.0.0.0:8080`, and then `Debug mode: on` if `debug` is true, or `Debug mode: off` if not. Expected output:
+
+```text
+Listening on 0.0.0.0:8080
+Debug mode: on
+```
+
+<Solution>
+
+```python title="toml_settings.py"
+import tomllib
+
+TEXT = """
+debug = true
+
+[server]
+host = "0.0.0.0"
+port = 8080
+"""
+
+config = tomllib.loads(TEXT)
+server = config["server"]
+print(f"Listening on {server['host']}:{server['port']}")
+print("Debug mode:", "on" if config["debug"] else "off")
+```
+
+```text
+Listening on 0.0.0.0:8080
+Debug mode: on
+```
+
+The `[server]` table is a dictionary inside the result, and `true` arrives as the Python `True`. The f-string uses single quotes inside because the outer quotes are double, which every Python version accepts.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Convert a CSV of books to JSON">
+The script below writes a small `books.csv` to a scratch folder. Read it with `csv.DictReader`, turn `year` into an `int` and `price` into a `float` in every row, and write the list of rows to `books.json` with `indent=2`. Finish by printing the JSON file's text. Expected output:
+
+```text
+[
+  {
+    "title": "Dune",
+    "author": "Frank Herbert",
+    "year": 1965,
+    "price": 9.99
+  },
+  {
+    "title": "Good Omens, a novel",
+    "author": "Pratchett & Gaiman",
+    "year": 1990,
+    "price": 7.5
+  }
+]
+```
+
+```python title="books_to_json.py"
+import csv
+import json
+import tempfile
+from pathlib import Path
+
+SAMPLE = """title,author,year,price
+Dune,Frank Herbert,1965,9.99
+"Good Omens, a novel",Pratchett & Gaiman,1990,7.5
+"""
+
+with tempfile.TemporaryDirectory() as folder:
+    source = Path(folder) / "books.csv"
+    target = Path(folder) / "books.json"
+    source.write_text(SAMPLE, encoding="utf-8")
+
+    # your code here
+```
+
+<Solution>
+
+```python title="books_to_json.py"
+import csv
+import json
+import tempfile
+from pathlib import Path
+
+SAMPLE = """title,author,year,price
+Dune,Frank Herbert,1965,9.99
+"Good Omens, a novel",Pratchett & Gaiman,1990,7.5
+"""
+
+with tempfile.TemporaryDirectory() as folder:
+    source = Path(folder) / "books.csv"
+    target = Path(folder) / "books.json"
+    source.write_text(SAMPLE, encoding="utf-8")
+
+    with open(source, encoding="utf-8", newline="") as file:
+        books = list(csv.DictReader(file))
+    for book in books:
+        book["year"] = int(book["year"])
+        book["price"] = float(book["price"])
+
+    with open(target, "w", encoding="utf-8") as file:
+        json.dump(books, file, indent=2)
+
+    print(target.read_text(encoding="utf-8"))
+```
+
+```text
+[
+  {
+    "title": "Dune",
+    "author": "Frank Herbert",
+    "year": 1965,
+    "price": 9.99
+  },
+  {
+    "title": "Good Omens, a novel",
+    "author": "Pratchett & Gaiman",
+    "year": 1990,
+    "price": 7.5
+  }
+]
+```
+
+Each row from `DictReader` is a dictionary, so the loop can replace the text values with numbers in place. Without the conversion, JSON would show `"1965"` in quotes. The keys keep the order of the header row, because `DictReader` and `json.dump` both preserve order.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the round trip">
+What does this print? Write the three answers down first.
+
+```python title="predict_json.py"
+import json
+
+data = {1: "one", "pair": (2, 3), "ok": True}
+back = json.loads(json.dumps(data))
+
+print(back)
+print(back == data)
+print(back["pair"] == (2, 3))
+```
+
+<Solution>
+
+```text
+{'1': 'one', 'pair': [2, 3], 'ok': True}
+False
+False
+```
+
+JSON object keys are always text, so the integer key `1` came back as the string `'1'`. The tuple became a list, and a list never equals a tuple, even with the same items. `True` survived. If you need exact types after loading, convert them yourself.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `csv.reader` and `csv.DictReader` read rows as lists or dictionaries of strings; `DictWriter` writes them. Open CSV files with `newline=""` and convert the fields you need.
+- `json.dumps` and `json.loads` convert text, `json.dump` and `json.load` work on files. Keys become text, tuples become lists, and sets need a `default` function.
+- <Since v="3.11" /> `tomllib` reads TOML from a string or from a file opened with `"rb"`. It cannot write.

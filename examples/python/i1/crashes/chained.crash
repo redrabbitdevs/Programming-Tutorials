@@ -1,0 +1,8 @@
+def load_port(text):
+    try:
+        return int(text)
+    except ValueError as error:
+        raise ValueError(f"invalid port setting: {text!r}") from error
+
+
+load_port("80a")

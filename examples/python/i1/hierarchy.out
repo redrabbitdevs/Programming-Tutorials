@@ -1,0 +1,5 @@
+KeyError
+LookupError
+Exception
+BaseException
+object

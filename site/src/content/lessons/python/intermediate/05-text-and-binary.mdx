@@ -1,0 +1,418 @@
+---
+language: python
+level: intermediate
+module: Errors and files
+order: 5
+title: Text, bytes and newlines
+description: Read and write files as raw bytes, process large files in chunks, recover from decoding errors, and control newline handling.
+minVersion: "3.8"
+objectives:
+  - Explain the difference between a text file and a binary file in Python
+  - Open files in binary mode and use read, seek and tell
+  - Copy a large file in fixed-size chunks
+  - Handle UnicodeDecodeError and choose the right newline setting
+estimatedMinutes: 40
+fundamentals: []
+---
+
+Every file on a disk is a row of bytes. A *text file* is a file whose bytes you have agreed to read as characters, using an encoding such as UTF-8. Everything else, such as images, archives and spreadsheets, is *binary*. The [files lesson](../../beginner/files-first-look/) covered text. This lesson covers the layer underneath it, and the situations where that layer shows through.
+
+## One file, two views
+
+`Path.write_text` turns characters into bytes before they reach the disk, and `Path.read_bytes` shows you the bytes as they are stored:
+
+```python title="bytes_vs_text.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "greeting.txt"
+    path.write_text("café\n", encoding="utf-8")
+
+    raw = path.read_bytes()
+    print(raw)
+    print(len(raw))
+    print(repr(raw.decode("utf-8")))
+```
+
+```text
+b'caf\xc3\xa9\n'
+6
+'café\n'
+```
+
+The `b` in front marks a `bytes` value, as in the [Unicode and bytes lesson](../../beginner/unicode-bytes/). The `é` takes the two bytes `\xc3\xa9`, so five characters occupy six bytes. `decode` goes the other way. `write_bytes` is the counterpart of `read_bytes`.
+
+## Binary mode
+
+To work with a file as bytes, add `b` to the mode. Reading then gives `bytes` and writing needs `bytes`:
+
+```python title="binary_modes.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "data.bin"
+    with open(path, "wb") as file:
+        file.write(bytes([137, 80, 78, 71]))
+        file.write(b"\r\n")
+
+    with open(path, "rb") as file:
+        header = file.read(4)
+    print(header, list(header), header == b"\x89PNG")
+```
+
+```text
+b'\x89PNG' [137, 80, 78, 71] True
+```
+
+`bytes([137, 80, 78, 71])` builds four bytes from their numbers. Reading shows them as the characters they would be if printable, and as `\x89` otherwise. `list(header)` shows that a `bytes` value is a sequence of integers from 0 to 255. Four bytes starting `\x89PNG` are how every PNG image begins, which is why programs can recognise a file type by its first bytes.
+
+`file.read(4)` reads at most four bytes. In text mode the same call would read four *characters*. A binary file has no encoding, so passing one is an error:
+
+```python title="binary_encoding_error.py"
+try:
+    open("whatever.bin", "rb", encoding="utf-8")
+except ValueError as error:
+    print(error)
+```
+
+```text
+binary mode doesn't take an encoding argument
+```
+
+Here is the complete set of mode letters. You combine one of `r`, `w`, `a` or `x` with an optional `b`:
+
+| Mode | Meaning |
+|---|---|
+| `"r"` | Read. The file must exist. |
+| `"w"` | Write. Creates the file or erases it. |
+| `"a"` | Append to the end, creating the file if needed. |
+| `"x"` | Create a new file for writing. Fails with `FileExistsError` if it already exists. |
+| `"b"` | Add to any of the above for binary. Without it, the mode is text. |
+
+### Never overwrite by accident
+
+Mode `"x"` is the safe version of `"w"`. It refuses to touch a file that is already there:
+
+```python title="exclusive_mode.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "report.txt"
+    with open(path, "x", encoding="utf-8") as file:
+        file.write("version 1\n")
+
+    try:
+        open(path, "x", encoding="utf-8")
+    except FileExistsError:
+        print("refused to overwrite")
+    print(path.read_text(encoding="utf-8").strip())
+```
+
+```text
+refused to overwrite
+version 1
+```
+
+## Moving around a file
+
+An open file has a current position. `read(n)` takes the next `n` bytes and moves the position forward. `tell()` reports the position and `seek(offset)` jumps to a new one:
+
+```python title="seek_tell.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "digits.bin"
+    path.write_bytes(b"0123456789")
+
+    with open(path, "rb") as file:
+        print(file.read(3), file.tell())
+        file.seek(7)
+        print(file.read(), file.tell())
+        file.seek(0)
+        print(file.read(2))
+```
+
+```text
+b'012' 3
+b'789' 10
+b'01'
+```
+
+`read()` with no number reads to the end. This is also why a second `read()` on a text file returns an empty string, the pitfall from the files lesson: the position is already at the end. In text mode, only `seek(0)` and positions that `tell()` gave you are safe, because characters and bytes do not line up one to one.
+
+## Big files in chunks
+
+`read()` with no argument loads the whole file into memory. For a large video or archive that is a bad idea. Instead, read a fixed-size piece at a time. When `read` returns an empty `bytes` value, you have reached the end:
+
+```python title="chunks.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    source_path = Path(folder) / "source.bin"
+    target_path = Path(folder) / "copy.bin"
+    source_path.write_bytes(bytes(range(10)))
+
+    with open(source_path, "rb") as source:
+        with open(target_path, "wb") as target:
+            while True:
+                chunk = source.read(4)
+                if not chunk:
+                    break
+                print("chunk of", len(chunk), "bytes")
+                target.write(chunk)
+
+    print(target_path.read_bytes() == source_path.read_bytes())
+```
+
+```text
+chunk of 4 bytes
+chunk of 4 bytes
+chunk of 2 bytes
+True
+```
+
+Ten bytes in chunks of four gives 4, 4 and 2. A real program would use a chunk size of tens of kilobytes or more. The empty `bytes` value is falsy, so `if not chunk` ends the loop, as in the [booleans lesson](../../beginner/booleans-truthiness/). Notice the two nested `with` blocks. The [next lesson](../context-managers/) shows how to write them as one.
+
+## When the encoding is wrong
+
+Reading a text file with the wrong encoding either produces nonsense or raises `UnicodeDecodeError`, a child of `ValueError` in the [exception family](../exception-hierarchy/). Imagine a file saved by an old program in Latin-1, not UTF-8:
+
+```python title="decode_errors.py"
+data = "café au lait".encode("latin-1")
+print(data)
+
+try:
+    data.decode("utf-8")
+except UnicodeDecodeError as error:
+    print("failed:", error.reason, "at byte", error.start)
+
+print(data.decode("utf-8", errors="replace"))
+print(data.decode("latin-1"))
+```
+
+```text
+b'caf\xe9 au lait'
+failed: invalid continuation byte at byte 3
+caf� au lait
+café au lait
+```
+
+In Latin-1, `é` is the single byte `\xe9`. UTF-8 reads that byte as the start of a longer character, finds no valid continuation, and gives up at byte 3. The exception object tells you what and where. You have three choices:
+
+- **Fix the cause.** If you know the real encoding, name it: `open(path, encoding="latin-1")`. This is the right answer.
+- **Replace.** `errors="replace"` swaps each undecodable byte for the replacement character `�` (the fourth line above) and keeps going. It works on `open` too. It is good for logs you only read, and bad for data you will write back.
+- **Ignore.** `errors="ignore"` drops the bytes silently. Avoid it: it hides damage.
+
+A related surprise comes from spreadsheet programs, which sometimes put a three-byte marker called a *byte order mark* at the start of a UTF-8 file. Plain `utf-8` keeps it as an invisible character; the `utf-8-sig` encoding removes it:
+
+```python title="utf8_sig.py"
+raw = b"\xef\xbb\xbfname,age\n"
+
+print(repr(raw.decode("utf-8")))
+print(repr(raw.decode("utf-8-sig")))
+```
+
+```text
+'﻿name,age\n'
+'name,age\n'
+```
+
+If the first column name of a CSV file mysteriously fails to match, a hidden `﻿` is the first thing to check.
+
+## Newlines
+
+Operating systems end lines differently: Windows uses the two characters `\r\n`, Linux and macOS use `\n`. Python hides this in text mode with *universal newlines*. When reading, every kind of line ending becomes `\n`. When writing, `\n` becomes whatever the platform uses. The `newline` argument of `open` controls it:
+
+```python title="newlines.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "lines.txt"
+    path.write_bytes(b"one\r\ntwo\r\n")
+
+    print(repr(path.read_text(encoding="utf-8")))
+    with open(path, encoding="utf-8", newline="") as file:
+        print(repr(file.read()))
+
+    with open(path, "w", encoding="utf-8", newline="\n") as file:
+        file.write("a\nb\n")
+    print(path.read_bytes())
+```
+
+```text
+'one\ntwo\n'
+'one\r\ntwo\r\n'
+b'a\nb\n'
+```
+
+The default translates the file to `'one\ntwo\n'`. `newline=""` turns translation off, so the `\r\n` survives. That is what you want when the program, rather than Python, must see the real line endings, and it is required by the `csv` module in the lesson after next. `newline="\n"` on writing means "always write `\n`", even on Windows, so a file looks identical on every machine.
+
+## Common pitfalls
+
+- **Mixing `str` and `bytes`.** Writing text to a binary file gives `TypeError: a bytes-like object is required, not 'str'`, and writing bytes to a text file gives `TypeError: write() argument must be str, not bytes`. The fix is `encode` or `decode`, or the right mode.
+- **Opening a binary file in text mode.** Reading an image with `open(path)` either fails to decode or, worse, silently translates newline bytes and corrupts the data. Use `"rb"` for anything that is not text.
+- **Guessing the encoding.** A file does not record its encoding. If you did not choose it, find out from whoever made the file, and avoid `errors="ignore"` as a way of not finding out.
+
+<Exercise title="Recognise a PNG">
+A PNG file starts with the eight bytes `\x89PNG\r\n\x1a\n`. Write `is_png(path)` that opens the file in binary mode, reads the first eight bytes and returns whether they equal that signature. The code below creates two files in a scratch folder. Add your function and the two print lines. Expected output:
+
+```text
+image.png True
+fake.png False
+```
+
+```python title="is_png.py"
+import tempfile
+from pathlib import Path
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+# your function here
+
+with tempfile.TemporaryDirectory() as folder:
+    image = Path(folder) / "image.png"
+    fake = Path(folder) / "fake.png"
+    image.write_bytes(PNG_SIGNATURE + b"...rest of the image...")
+    fake.write_bytes(b"hello")
+    # your two print lines here
+```
+
+<Solution>
+
+```python title="is_png.py"
+import tempfile
+from pathlib import Path
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def is_png(path):
+    with open(path, "rb") as file:
+        return file.read(8) == PNG_SIGNATURE
+
+
+with tempfile.TemporaryDirectory() as folder:
+    image = Path(folder) / "image.png"
+    fake = Path(folder) / "fake.png"
+    image.write_bytes(PNG_SIGNATURE + b"...rest of the image...")
+    fake.write_bytes(b"hello")
+    print(image.name, is_png(image))
+    print(fake.name, is_png(fake))
+```
+
+```text
+image.png True
+fake.png False
+```
+
+`read(8)` returns at most eight bytes, so for the five-byte `fake.png` it returns `b"hello"`, which is not equal to the signature. The file name says "png" for both files, but only the contents decide.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Copy in chunks and count them">
+Write `copy_in_chunks(source_path, target_path, size)` that copies a file in binary mode, `size` bytes at a time, and returns how many chunks it needed. Test it on a file holding the ten bytes 0 to 9, with `size` 4. Print the number of bytes in the copy and whether it matches the original. Expected output:
+
+```text
+copied 10 bytes in 3 chunks
+identical: True
+```
+
+<Solution>
+
+```python title="copy_chunks.py"
+import tempfile
+from pathlib import Path
+
+
+def copy_in_chunks(source_path, target_path, size):
+    chunks = 0
+    with open(source_path, "rb") as source:
+        with open(target_path, "wb") as target:
+            while True:
+                chunk = source.read(size)
+                if not chunk:
+                    break
+                target.write(chunk)
+                chunks += 1
+    return chunks
+
+
+with tempfile.TemporaryDirectory() as folder:
+    original = Path(folder) / "original.bin"
+    duplicate = Path(folder) / "duplicate.bin"
+    original.write_bytes(bytes(range(10)))
+    chunks = copy_in_chunks(original, duplicate, 4)
+    print("copied", duplicate.stat().st_size, "bytes in", chunks, "chunks")
+    print("identical:", original.read_bytes() == duplicate.read_bytes())
+```
+
+```text
+copied 10 bytes in 3 chunks
+identical: True
+```
+
+The counter goes up only after a non-empty chunk has been written, so the final empty read is not counted. Ten bytes in chunks of four make 4 + 4 + 2, which is three chunks.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix the crash on an old file">
+A file `name.txt` was saved in Latin-1 and contains `Zoë`. This line crashes with `UnicodeDecodeError`:
+
+```python
+text = path.read_text(encoding="utf-8")
+```
+
+Write `read_text_either(path)` that reads the bytes, tries UTF-8, and falls back to Latin-1 if that fails. Check it on one file saved as Latin-1 and one saved as UTF-8, both containing `Zoë`. Expected output:
+
+```text
+Zoë
+Zoë
+```
+
+<Solution>
+
+```python title="read_either.py"
+import tempfile
+from pathlib import Path
+
+
+def read_text_either(path):
+    raw = path.read_bytes()
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
+
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "name.txt"
+    path.write_bytes("Zoë\n".encode("latin-1"))
+    print(read_text_either(path).strip())
+    path.write_bytes("Zoë\n".encode("utf-8"))
+    print(read_text_either(path).strip())
+```
+
+```text
+Zoë
+Zoë
+```
+
+UTF-8 is strict, so a Latin-1 file almost always fails it, and Latin-1 accepts any byte, so it makes a safe last resort. Try UTF-8 first, because a UTF-8 file would also "succeed" as Latin-1, with the wrong characters. This is a rescue for files you cannot control. For files you create, choose UTF-8 and stick to it.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Files hold bytes. Text mode decodes them with an encoding and translates newlines; binary mode (`"rb"`, `"wb"`) gives you the raw `bytes` and takes no `encoding`.
+- `read(n)`, `tell()` and `seek()` work with the file position. Read big files in chunks until `read` returns an empty value.
+- A `UnicodeDecodeError` means the encoding is wrong. Name the right one, or use `errors="replace"` for data you only read. Use `utf-8-sig` for files with a byte order mark.
+- `newline=""` keeps line endings as they are. Mode `"x"` refuses to overwrite an existing file.

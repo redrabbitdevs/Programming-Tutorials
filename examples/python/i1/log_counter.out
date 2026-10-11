@@ -1,0 +1,4 @@
+app.log: 3
+db.log: 2
+old/web.log: 4
+Total: 9

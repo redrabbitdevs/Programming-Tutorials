@@ -1,0 +1,14 @@
+[
+  {
+    "title": "Dune",
+    "author": "Frank Herbert",
+    "year": 1965,
+    "price": 9.99
+  },
+  {
+    "title": "Good Omens, a novel",
+    "author": "Pratchett & Gaiman",
+    "year": 1990,
+    "price": 7.5
+  }
+]
