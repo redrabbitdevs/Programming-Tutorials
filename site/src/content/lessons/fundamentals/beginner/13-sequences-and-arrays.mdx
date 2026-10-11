@@ -1,0 +1,315 @@
+---
+language: fundamentals
+level: beginner
+module: Data structures
+order: 13
+title: Arrays and lists
+description: Store many values in order, reach any of them by position, and change, slice and loop over them safely.
+objectives:
+  - Explain how an index identifies a position in an indexed collection
+  - Tell fixed-size arrays from dynamic arrays (lists)
+  - Read, change, slice and loop over a sequence
+  - Predict which operations change a sequence in place and which build a new one
+estimatedMinutes: 45
+fundamentals:
+  - fundamentals/beginner/04-variables-and-assignment
+  - fundamentals/beginner/08-loops
+---
+
+Until now every variable has held one value. Real programs hold many: the scores in a game, the lines of a file, the pixels in an image. You could not write `score1`, `score2`, `score3` forever, so languages give you a **sequence**: one name that stands for an ordered collection of values, with each value reachable by its position.
+
+## Index: a number for each position
+
+In a sequence every element has an **index**, its distance from the start. Counting starts at **0**, so a sequence of four elements has indexes 0, 1, 2 and 3. The reason is arithmetic rather than whim: the index is an offset from the first element, and the first element is zero steps away.
+
+```text
+index:     0    1    2    3
+value:   [10 | 20 | 30 | 40]
+```
+
+The **length** is the number of elements (4), and the last valid index is always `length - 1`. Asking for index 4 here is an error, or worse (see the pitfalls). This is the same off-by-one care you took in the [loops lesson](../loops/).
+
+<Tabs>
+<Tab label="Python">
+
+```python title="seq_scores.py"
+scores = [10, 20, 30, 40]
+
+print("first:", scores[0])
+print("last:", scores[len(scores) - 1])
+print("length:", len(scores))
+
+scores[1] = 99
+print("after change:", scores)
+
+print("slice [1:3]:", scores[1:3])
+
+total = 0
+for s in scores:
+    total += s
+print("total:", total)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="scores.js"
+const scores = [10, 20, 30, 40];
+
+console.log("first:", scores[0]);
+console.log("last:", scores[scores.length - 1]);
+console.log("length:", scores.length);
+
+scores[1] = 99;
+console.log("after change:", `[${scores.join(", ")}]`);
+
+console.log("slice [1:3]:", `[${scores.slice(1, 3).join(", ")}]`);
+
+let total = 0;
+for (const s of scores) {
+  total += s;
+}
+console.log("total:", total);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="Scores.java"
+import java.util.Arrays;
+
+public class Scores {
+    public static void main(String[] args) {
+        int[] scores = {10, 20, 30, 40};
+
+        System.out.println("first: " + scores[0]);
+        System.out.println("last: " + scores[scores.length - 1]);
+        System.out.println("length: " + scores.length);
+
+        scores[1] = 99;
+        System.out.println("after change: " + Arrays.toString(scores));
+
+        int[] part = Arrays.copyOfRange(scores, 1, 3); // end index is exclusive
+        System.out.println("slice [1:3]: " + Arrays.toString(part));
+
+        int total = 0;
+        for (int s : scores) {
+            total += s;
+        }
+        System.out.println("total: " + total);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="scores.c"
+#include <stdio.h>
+
+int main(void) {
+    int scores[] = {10, 20, 30, 40};
+    int length = sizeof scores / sizeof scores[0];
+
+    printf("first: %d\n", scores[0]);
+    printf("last: %d\n", scores[length - 1]);
+    printf("length: %d\n", length);
+
+    scores[1] = 99;
+    printf("after change: [%d, %d, %d, %d]\n", scores[0], scores[1], scores[2], scores[3]);
+
+    printf("slice [1:3]: [%d, %d]\n", scores[1], scores[2]);
+
+    int total = 0;
+    for (int i = 0; i < length; i++) {
+        total += scores[i];
+    }
+    printf("total: %d\n", total);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+first: 10
+last: 40
+length: 4
+after change: [10, 99, 30, 40]
+slice [1:3]: [99, 30]
+total: 179
+```
+
+Notes on the differences:
+
+- A **slice** takes a range of positions. In all these languages the start is included and the end is excluded, so `[1:3]` means indexes 1 and 2. C has no slice operation; you work with the same elements directly (or copy them with `memcpy`).
+- C does not remember an array's length, so the program computes it once (`sizeof scores / sizeof scores[0]` is total bytes divided by bytes per element). Python, JavaScript and Java arrays know their own length.
+- Java and C arrays hold one type only (`int` here). Python and JavaScript lists can mix types, though keeping them uniform is a good habit.
+
+## Arrays and dynamic arrays
+
+A true **array** is a block of memory big enough for a fixed number of elements, all side by side. Because every element has the same size, the computer finds element `i` by simple arithmetic (start address plus `i` times the element size), which makes reading by index fast whatever the length. The price is that the size is fixed when the array is created. Java's `int[]` and C's `int[]` are arrays in this sense.
+
+Most of the time you do not know in advance how many items you will have. A **dynamic array** (a *list* in Python, an *array* in JavaScript, `ArrayList` in Java) solves this by keeping a true array inside and replacing it with a bigger one, copying the elements across, when it fills up. You get the convenience of "add to the end" and still have fast access by index. Python and JavaScript use dynamic arrays as their everyday sequence, so you will rarely meet a fixed-size array there.
+
+The common operations, and their usual cost:
+
+| Operation | Python | Cost |
+|---|---|---|
+| Read or write by index | `a[i]`, `a[i] = x` | fast, independent of length |
+| Add to the end | `a.append(x)` | fast on average |
+| Insert or remove in the middle or at the front | `a.insert(i, x)`, `a.pop(i)` | slower: later elements must shift |
+| Search for a value | `x in a` | looks at elements one by one |
+
+A later lesson on Big-O makes "fast" and "slower" precise. For now, remember that shifting elements is the expensive part.
+
+## Mutation: in place or a new sequence?
+
+A sequence is usually **mutable**: you can change it after creating it. The important question for every operation is whether it changes the sequence **in place** or returns a **new** one. Mixing the two up causes some of the most common beginner bugs.
+
+```python title="seq_demo.py"
+nums = [3, 1, 2]
+
+nums.append(4)           # in place: nums is now [3, 1, 2, 4]
+nums.sort()              # in place: returns None, not the list
+print(nums)
+
+ordered = sorted([3, 1, 2])  # builds a new list; the original is untouched
+print(ordered)
+
+wrong = nums.sort()      # a classic mistake: sort() returns None
+print(wrong)
+
+# Slicing copies. The copy and the original are separate lists.
+original = [1, 2, 3, 4, 5]
+middle = original[1:4]
+middle[0] = 99
+print(original, middle)
+
+# Negative indexes count from the end in Python.
+print(original[-1], original[-2])
+
+# Looping with the position as well as the value.
+for i, value in enumerate(["a", "b", "c"]):
+    print(i, value)
+```
+
+Output:
+
+```text
+[1, 2, 3, 4]
+[1, 2, 3]
+None
+[1, 2, 3, 4, 5] [99, 3, 4]
+5 4
+0 a
+1 b
+2 c
+```
+
+`sort()` changes the list and returns nothing useful, while `sorted()` leaves the list alone and gives back a new one. Slicing builds a new list, so changing `middle` did not touch `original`. (Python also allows negative indexes: `-1` is the last element. JavaScript and Java do not, apart from the JavaScript `.at(-1)` method.)
+
+## Common pitfalls
+
+- **Off-by-one errors.** The valid indexes are `0` to `length - 1`. Looping `for i in range(len(a) + 1)` goes one too far.
+- **Out-of-range access.** Python raises `IndexError`, Java raises `ArrayIndexOutOfBoundsException`, JavaScript quietly gives `undefined`, and C reads or writes whatever memory happens to be there. The C behaviour is undefined, can corrupt other data, and is a classic source of security bugs.
+- **Changing a list while looping over it.** Removing items during iteration makes the loop skip elements. Build a new list instead.
+- **Assuming `sort()` returns the sorted list.** In Python it returns `None`.
+- **Thinking a copy is a copy.** `b = a` does not copy the list; both names refer to the same one. This gets a full lesson in [memory and references](../memory-and-references/).
+
+<Exercise title="Reverse in place">
+
+Write `reverse_in_place(items)` that reverses a list without building a second list. Hint: swap the first and last elements, then the second and second-to-last, and stop in the middle. Test it on `[1, 2, 3, 4, 5]` and `[1, 2, 3, 4]`.
+
+<Solution>
+
+Walk an index `i` from the start and swap `items[i]` with its mirror `items[n - 1 - i]`. Only the first half needs visiting: swapping the second half would undo the work.
+
+```python title="seq_reverse.py"
+def reverse_in_place(items):
+    n = len(items)
+    for i in range(n // 2):
+        items[i], items[n - 1 - i] = items[n - 1 - i], items[i]
+
+
+nums = [1, 2, 3, 4, 5]
+reverse_in_place(nums)
+print(nums)
+
+evens = [1, 2, 3, 4]
+reverse_in_place(evens)
+print(evens)
+```
+
+It prints:
+
+```text
+[5, 4, 3, 2, 1]
+[4, 3, 2, 1]
+```
+
+With an odd length the middle element stays where it is, which is correct.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Rotate by k">
+
+Write `rotate(items, k)` that returns a new list with every element moved `k` places to the left, the elements that fall off the front wrapping around to the back. `rotate([1, 2, 3, 4, 5], 2)` gives `[3, 4, 5, 1, 2]`. Make it work when `k` is larger than the length.
+
+<Solution>
+
+Slicing does it in one line: take everything from position `k`, then everything before it. Using `k % n` handles a `k` larger than the length (and an empty list needs a guard so we never divide by zero).
+
+```python title="seq_rotate.py"
+def rotate(items, k):
+    if not items:
+        return []
+    k = k % len(items)
+    return items[k:] + items[:k]
+
+
+print(rotate([1, 2, 3, 4, 5], 2))
+print(rotate([1, 2, 3, 4, 5], 7))
+```
+
+Output:
+
+```text
+[3, 4, 5, 1, 2]
+[3, 4, 5, 1, 2]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Find the bug">
+
+This should print every element of `names`. What goes wrong, in each of Python, Java and C?
+
+```python
+names = ["Ada", "Grace", "Linus"]
+for i in range(len(names) + 1):
+    print(names[i])
+```
+
+<Solution>
+
+The loop runs for `i` = 0, 1, 2 and 3, but the last valid index is 2. In Python the fourth pass raises `IndexError: list index out of range`. In Java the same loop raises `ArrayIndexOutOfBoundsException`. In C it silently reads memory past the end of the array and prints garbage or crashes. Fix it by looping to `len(names)` exactly, or better, loop over the elements directly with `for name in names`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A sequence stores values in order; an index from 0 to `length - 1` picks one out.
+- Arrays have a fixed size and fast access by index. Dynamic arrays (lists) grow as needed.
+- Know whether each operation changes a sequence in place or returns a new one.
+
+Next: [Maps and sets](../maps-and-sets/), for when you want to look things up by name or by content rather than by position.

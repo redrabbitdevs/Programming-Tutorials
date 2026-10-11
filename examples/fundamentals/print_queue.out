@@ -1,0 +1,9 @@
+queued: report.pdf
+queued: photo.png
+queued: notes.txt
+waiting: ['report.pdf', 'photo.png', 'notes.txt']
+printing: report.pdf
+printing: photo.png
+printing: notes.txt
+undo: type b
+undo: type a

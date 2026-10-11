@@ -1,0 +1,714 @@
+---
+language: fundamentals
+level: beginner
+module: Data structures
+order: 17
+title: Trees and graphs
+description: Represent hierarchies and networks with nodes and links, search a binary search tree, and find the shortest route through a graph.
+objectives:
+  - Use the vocabulary of trees (root, parent, child, leaf, height) correctly
+  - Explain how a binary search tree keeps values ordered and why that makes searching fast
+  - Represent a graph as an adjacency list
+  - Use breadth-first search to find a shortest path, and describe depth-first search
+estimatedMinutes: 60
+fundamentals:
+  - fundamentals/beginner/11-recursion
+  - fundamentals/beginner/14-maps-and-sets
+  - fundamentals/beginner/16-stacks-queues-linked
+---
+
+A linked list gives each node one successor. Let a node point to several others and you can describe far more: folders inside folders, a family's ancestors, the road network of a country, the friendships on a social site. The two shapes you will meet are **trees**, which have a clear top and no loops, and **graphs**, which are the general case.
+
+## Trees
+
+A **tree** is a set of nodes connected so that there is exactly one path between any two. One node is the **root**, at the top. Every other node has exactly one **parent** (the node above it) and may have any number of **children** (the nodes directly below). A node with no children is a **leaf**. The **height** is the number of levels from the root down to the deepest leaf.
+
+```text
+        5            root: 5
+       / \           5 has children 3 and 8
+      3   8          1, 4, 7, 9 are leaves
+     / \ / \         height: 3 levels
+    1  4 7  9
+```
+
+Trees are everywhere: a file system, the structure of an HTML page, the grammar of a program, the decisions in a game. Because each subtree is itself a tree, [recursion](../recursion/) is the natural way to process them: handle the node, then recurse into each child.
+
+### Binary search trees
+
+A **binary tree** gives each node at most two children, called left and right. A **binary search tree** (BST) adds one rule that makes searching quick: for every node, everything in its left subtree is smaller, and everything in its right subtree is larger.
+
+To find a value, compare it with the current node. If it is smaller go left, if larger go right, and if equal you have found it. Each step discards a whole subtree. In a reasonably balanced tree of a million values, you need about twenty comparisons rather than a million.
+
+Reading the tree in **in-order** (left subtree, then the node, then the right subtree) produces the values in sorted order, which is a handy way to check you got the rule right.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="bst.py"
+class Node:
+    def __init__(self, value):
+        self.value = value
+        self.left = None
+        self.right = None
+
+
+def insert(node, value):
+    if node is None:
+        return Node(value)
+    if value < node.value:
+        node.left = insert(node.left, value)
+    elif value > node.value:
+        node.right = insert(node.right, value)
+    return node                        # equal values are ignored
+
+
+def contains(node, value):
+    if node is None:
+        return False
+    if value == node.value:
+        return True
+    return contains(node.left if value < node.value else node.right, value)
+
+
+def in_order(node, out):
+    if node is not None:
+        in_order(node.left, out)       # left subtree
+        out.append(node.value)         # the node itself
+        in_order(node.right, out)      # right subtree
+
+
+def height(node):
+    if node is None:
+        return 0
+    return 1 + max(height(node.left), height(node.right))
+
+
+root = None
+for v in [5, 3, 8, 1, 4, 7, 9]:
+    root = insert(root, v)
+
+values = []
+in_order(root, values)
+print("in order:", " ".join(map(str, values)))
+print("contains 4:", "yes" if contains(root, 4) else "no")
+print("contains 6:", "yes" if contains(root, 6) else "no")
+print("height:", height(root))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="bst.js"
+class Node {
+  constructor(value) {
+    this.value = value;
+    this.left = null;
+    this.right = null;
+  }
+}
+
+function insert(node, value) {
+  if (node === null) return new Node(value);
+  if (value < node.value) node.left = insert(node.left, value);
+  else if (value > node.value) node.right = insert(node.right, value);
+  return node; // equal values are ignored
+}
+
+function contains(node, value) {
+  if (node === null) return false;
+  if (value === node.value) return true;
+  return contains(value < node.value ? node.left : node.right, value);
+}
+
+function inOrder(node, out) {
+  if (node !== null) {
+    inOrder(node.left, out);  // left subtree
+    out.push(node.value);     // the node itself
+    inOrder(node.right, out); // right subtree
+  }
+}
+
+function height(node) {
+  if (node === null) return 0;
+  return 1 + Math.max(height(node.left), height(node.right));
+}
+
+let root = null;
+for (const v of [5, 3, 8, 1, 4, 7, 9]) {
+  root = insert(root, v);
+}
+
+const values = [];
+inOrder(root, values);
+console.log("in order:", values.join(" "));
+console.log("contains 4:", contains(root, 4) ? "yes" : "no");
+console.log("contains 6:", contains(root, 6) ? "yes" : "no");
+console.log("height:", height(root));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="Bst.java"
+import java.util.ArrayList;
+import java.util.List;
+
+public class Bst {
+    static class Node {
+        int value;
+        Node left, right;
+
+        Node(int value) {
+            this.value = value;
+        }
+    }
+
+    static Node insert(Node node, int value) {
+        if (node == null) return new Node(value);
+        if (value < node.value) node.left = insert(node.left, value);
+        else if (value > node.value) node.right = insert(node.right, value);
+        return node; // equal values are ignored
+    }
+
+    static boolean contains(Node node, int value) {
+        if (node == null) return false;
+        if (value == node.value) return true;
+        return contains(value < node.value ? node.left : node.right, value);
+    }
+
+    static void inOrder(Node node, List<Integer> out) {
+        if (node != null) {
+            inOrder(node.left, out);   // left subtree
+            out.add(node.value);       // the node itself
+            inOrder(node.right, out);  // right subtree
+        }
+    }
+
+    static int height(Node node) {
+        if (node == null) return 0;
+        return 1 + Math.max(height(node.left), height(node.right));
+    }
+
+    public static void main(String[] args) {
+        Node root = null;
+        for (int v : new int[] {5, 3, 8, 1, 4, 7, 9}) {
+            root = insert(root, v);
+        }
+
+        List<Integer> values = new ArrayList<>();
+        inOrder(root, values);
+        StringBuilder sb = new StringBuilder();
+        for (int v : values) {
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(v);
+        }
+        System.out.println("in order: " + sb);
+        System.out.println("contains 4: " + (contains(root, 4) ? "yes" : "no"));
+        System.out.println("contains 6: " + (contains(root, 6) ? "yes" : "no"));
+        System.out.println("height: " + height(root));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="bst.c"
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct Node {
+    int value;
+    struct Node *left;
+    struct Node *right;
+} Node;
+
+Node *insert(Node *node, int value) {
+    if (node == NULL) {
+        Node *n = calloc(1, sizeof *n);   /* zeroed, so left and right start as NULL */
+        n->value = value;
+        return n;
+    }
+    if (value < node->value) node->left = insert(node->left, value);
+    else if (value > node->value) node->right = insert(node->right, value);
+    return node;                          /* equal values are ignored */
+}
+
+int contains(const Node *node, int value) {
+    if (node == NULL) return 0;
+    if (value == node->value) return 1;
+    return contains(value < node->value ? node->left : node->right, value);
+}
+
+void in_order(const Node *node) {
+    if (node != NULL) {
+        in_order(node->left);             /* left subtree */
+        printf(" %d", node->value);       /* the node itself */
+        in_order(node->right);            /* right subtree */
+    }
+}
+
+int height(const Node *node) {
+    if (node == NULL) return 0;
+    int l = height(node->left), r = height(node->right);
+    return 1 + (l > r ? l : r);
+}
+
+void free_tree(Node *node) {
+    if (node != NULL) {
+        free_tree(node->left);
+        free_tree(node->right);
+        free(node);
+    }
+}
+
+int main(void) {
+    int input[] = {5, 3, 8, 1, 4, 7, 9};
+    Node *root = NULL;
+    for (int i = 0; i < 7; i++) {
+        root = insert(root, input[i]);
+    }
+
+    printf("in order:");
+    in_order(root);
+    printf("\n");
+    printf("contains 4: %s\n", contains(root, 4) ? "yes" : "no");
+    printf("contains 6: %s\n", contains(root, 6) ? "yes" : "no");
+    printf("height: %d\n", height(root));
+
+    free_tree(root);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+in order: 1 3 4 5 7 8 9
+contains 4: yes
+contains 6: no
+height: 3
+```
+
+Every function has the recursive shape from the earlier lesson: a base case (the empty tree, `None`/`null`) and a recursive case on a smaller tree.
+
+A BST is quick only while it stays reasonably balanced. If you insert already-sorted values (1, 2, 3, 4, ...) every node goes to the right and the "tree" degenerates into a linked list, with searches as slow as one. Real libraries use self-balancing variants to prevent this.
+
+## Graphs
+
+A **graph** is a set of **nodes** (also called *vertices*) joined by **edges**. Unlike a tree, a graph may have loops, several routes between two nodes, and no root. If an edge can be followed only one way (a one-way street) the graph is **directed**; if it works both ways (a friendship) it is **undirected**. Maps, networks, dependency lists and game boards are all graphs.
+
+The most common way to store one is an **adjacency list**: a map from each node to the list of its neighbours.
+
+```text
+A --- B
+|     |
+C --- D --- E
+
+A: [B, C]
+B: [A, D]
+C: [A, D]
+D: [B, C, E]
+E: [D]
+```
+
+Because the graph is undirected, each edge is written twice, once in each direction. For a dense graph, an alternative is an adjacency **matrix** (a grid saying whether node *i* connects to node *j*), which wastes space when most pairs are not connected.
+
+## Searching a graph
+
+Two basic strategies, differing only in the structure they use to remember where to go next:
+
+- **Breadth-first search (BFS)** explores outward in rings: all nodes one step from the start, then all nodes two steps away, and so on. It uses a **queue**. Because it reaches nodes in order of distance, the first time it reaches the goal is along a **shortest path** (fewest edges).
+- **Depth-first search (DFS)** goes as deep as it can along one route before backing up and trying another. It uses a **stack**, or equivalently recursion. It is natural for questions like "can I reach this node?", "is there a cycle?" and "explore every possibility".
+
+Both must remember which nodes they have **visited**. In a graph with loops, without that record the search would circle forever.
+
+Here is BFS finding the shortest path from A to E in the graph above. Alongside the queue it keeps a `parents` record: for each node reached, the node we came from. Once we reach the goal, we follow parents backwards to rebuild the route.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="graph_bfs.py"
+from collections import deque
+
+graph = {
+    "A": ["B", "C"],
+    "B": ["A", "D"],
+    "C": ["A", "D"],
+    "D": ["B", "C", "E"],
+    "E": ["D"],
+}
+
+
+def shortest_path(graph, start, goal):
+    parents = {start: None}            # also serves as the visited set
+    queue = deque([start])
+    while queue:
+        node = queue.popleft()
+        if node == goal:
+            break
+        for neighbour in graph[node]:
+            if neighbour not in parents:
+                parents[neighbour] = node
+                queue.append(neighbour)
+    if goal not in parents:
+        return None                    # unreachable
+    path = []
+    node = goal
+    while node is not None:            # walk back to the start
+        path.append(node)
+        node = parents[node]
+    return path[::-1]
+
+
+path = shortest_path(graph, "A", "E")
+print("shortest path:", " -> ".join(path))
+print("steps:", len(path) - 1)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="graph_bfs.js"
+const graph = {
+  A: ["B", "C"],
+  B: ["A", "D"],
+  C: ["A", "D"],
+  D: ["B", "C", "E"],
+  E: ["D"],
+};
+
+function shortestPath(graph, start, goal) {
+  const parents = new Map([[start, null]]); // also serves as the visited set
+  const queue = [start];
+  while (queue.length > 0) {
+    const node = queue.shift();
+    if (node === goal) break;
+    for (const neighbour of graph[node]) {
+      if (!parents.has(neighbour)) {
+        parents.set(neighbour, node);
+        queue.push(neighbour);
+      }
+    }
+  }
+  if (!parents.has(goal)) return null; // unreachable
+  const path = [];
+  for (let node = goal; node !== null; node = parents.get(node)) { // walk back
+    path.push(node);
+  }
+  return path.reverse();
+}
+
+const path = shortestPath(graph, "A", "E");
+console.log("shortest path:", path.join(" -> "));
+console.log("steps:", path.length - 1);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="GraphBfs.java"
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+
+public class GraphBfs {
+    static List<String> shortestPath(Map<String, List<String>> graph, String start, String goal) {
+        Map<String, String> parents = new HashMap<>();   // also serves as the visited set
+        parents.put(start, null);
+        Deque<String> queue = new ArrayDeque<>();
+        queue.add(start);
+        while (!queue.isEmpty()) {
+            String node = queue.poll();
+            if (node.equals(goal)) break;
+            for (String neighbour : graph.get(node)) {
+                if (!parents.containsKey(neighbour)) {
+                    parents.put(neighbour, node);
+                    queue.add(neighbour);
+                }
+            }
+        }
+        if (!parents.containsKey(goal)) return null;     // unreachable
+        LinkedList<String> path = new LinkedList<>();
+        for (String node = goal; node != null; node = parents.get(node)) {  // walk back
+            path.addFirst(node);
+        }
+        return path;
+    }
+
+    public static void main(String[] args) {
+        Map<String, List<String>> graph = Map.of(
+            "A", List.of("B", "C"),
+            "B", List.of("A", "D"),
+            "C", List.of("A", "D"),
+            "D", List.of("B", "C", "E"),
+            "E", List.of("D"));
+
+        List<String> path = shortestPath(graph, "A", "E");
+        System.out.println("shortest path: " + String.join(" -> ", path));
+        System.out.println("steps: " + (path.size() - 1));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="graph_bfs.c"
+#include <stdio.h>
+
+#define N 5
+
+int main(void) {
+    /* Adjacency matrix: adj[i][j] is 1 when nodes i and j are joined.
+       Nodes 0..4 stand for A..E. */
+    int adj[N][N] = {
+        {0, 1, 1, 0, 0},   /* A: B, C    */
+        {1, 0, 0, 1, 0},   /* B: A, D    */
+        {1, 0, 0, 1, 0},   /* C: A, D    */
+        {0, 1, 1, 0, 1},   /* D: B, C, E */
+        {0, 0, 0, 1, 0},   /* E: D       */
+    };
+    int start = 0, goal = 4;
+
+    int parent[N];
+    int visited[N] = {0};
+    int queue[N], head = 0, tail = 0;
+
+    for (int i = 0; i < N; i++) parent[i] = -1;
+    visited[start] = 1;
+    queue[tail++] = start;
+
+    while (head < tail) {
+        int node = queue[head++];
+        if (node == goal) break;
+        for (int next = 0; next < N; next++) {
+            if (adj[node][next] && !visited[next]) {
+                visited[next] = 1;
+                parent[next] = node;
+                queue[tail++] = next;
+            }
+        }
+    }
+
+    if (!visited[goal]) {
+        printf("unreachable\n");
+        return 0;
+    }
+
+    int path[N], length = 0;
+    for (int node = goal; node != -1; node = parent[node]) {   /* walk back */
+        path[length++] = node;
+    }
+
+    printf("shortest path: ");
+    for (int i = length - 1; i >= 0; i--) {
+        printf("%c%s", 'A' + path[i], i > 0 ? " -> " : "\n");
+    }
+    printf("steps: %d\n", length - 1);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+shortest path: A -> B -> D -> E
+steps: 3
+```
+
+A -> C -> D -> E is just as short; BFS reports whichever it found first, which depends on the order of the neighbour lists. What it guarantees is the **number** of steps. (Java's `Map.of` and `List.of` build fixed collections, which is all this program needs.)
+
+The next file shows the other pieces: depth-first search written recursively on the same graph, a family tree stored as a nested map, and why the visited record matters.
+
+```python title="graph_extras.py"
+graph = {
+    "A": ["B", "C"],
+    "B": ["A", "D"],
+    "C": ["A", "D"],
+    "D": ["B", "C", "E"],
+    "E": ["D"],
+}
+
+
+def dfs(node, visited, order):
+    visited.add(node)
+    order.append(node)
+    for neighbour in graph[node]:
+        if neighbour not in visited:   # without this check, A and B would bounce forever
+            dfs(neighbour, visited, order)
+
+
+order = []
+dfs("A", set(), order)
+print("DFS order:", order)
+
+# A tree is a graph where each node has one parent: nest the children.
+family = {
+    "Rosa": {
+        "Mark": {"Ivy": {}, "Joel": {}},
+        "Nina": {"Omar": {}},
+    }
+}
+
+
+def show(tree, depth=0):
+    for name, children in tree.items():
+        print("  " * depth + name)
+        show(children, depth + 1)
+
+
+show(family)
+```
+
+Output:
+
+```text
+DFS order: ['A', 'B', 'D', 'C', 'E']
+Rosa
+  Mark
+    Ivy
+    Joel
+  Nina
+    Omar
+```
+
+Compare the DFS order with BFS. DFS went A, B, D and then on to C before E: it follows one branch to its end before returning.
+
+## Common pitfalls
+
+- **No visited record in a graph search.** If the graph has a loop, the search never ends. Trees cannot loop, so tree traversals do not need one.
+- **Confusing the two searches.** BFS uses a queue and finds shortest paths in unweighted graphs; DFS uses a stack or recursion and does not.
+- **Forgetting both directions** when building an undirected adjacency list, which leaves some nodes unreachable.
+- **Assuming a BST is always fast.** Inserting sorted data into a plain BST produces a lopsided tree with list-like speed.
+- **Forgetting the empty case.** Every tree function needs a base case for an empty (null) tree.
+- **Shortest in steps is not shortest in distance.** BFS counts edges. If edges have lengths (kilometres), you need other algorithms.
+
+<Exercise title="Family tree">
+
+Store the family tree from the lesson as a nested map and write a function `count_people(tree)` that returns how many names it contains, and `depth(tree)` that returns the number of generations. For the tree above the answers are 6 and 3.
+
+<Solution>
+
+Both are recursive: handle each child, then combine the answers.
+
+```python title="family_tree.py"
+family = {
+    "Rosa": {
+        "Mark": {"Ivy": {}, "Joel": {}},
+        "Nina": {"Omar": {}},
+    }
+}
+
+
+def count_people(tree):
+    return sum(1 + count_people(children) for children in tree.values())
+
+
+def depth(tree):
+    if not tree:
+        return 0
+    return 1 + max(depth(children) for children in tree.values())
+
+
+print(count_people(family), depth(family))
+```
+
+Output:
+
+```text
+6 3
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Shortest path through a maze">
+
+A maze is a grid where `#` is a wall, `.` is open floor, `S` is the start and `E` is the exit. Moves go up, down, left or right. Print the least number of moves from `S` to `E`. The maze is:
+
+```text
+S.#.....
+.##.###.
+...#...E
+.#...#..
+```
+
+<Solution>
+
+Treat each open cell as a graph node whose neighbours are the open cells next to it, and run BFS from the start, remembering each cell's distance. The first time BFS reaches `E`, that distance is the shortest.
+
+```python title="maze_bfs.py"
+from collections import deque
+
+maze = [
+    "S.#.....",
+    ".##.###.",
+    "...#...E",
+    ".#...#..",
+]
+
+rows, cols = len(maze), len(maze[0])
+for r in range(rows):
+    for c in range(cols):
+        if maze[r][c] == "S":
+            start = (r, c)
+
+distance = {start: 0}
+queue = deque([start])
+answer = None
+while queue:
+    r, c = queue.popleft()
+    if maze[r][c] == "E":
+        answer = distance[(r, c)]
+        break
+    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < rows and 0 <= nc < cols and maze[nr][nc] != "#" and (nr, nc) not in distance:
+            distance[(nr, nc)] = distance[(r, c)] + 1
+            queue.append((nr, nc))
+
+print("moves:", answer)
+```
+
+Output:
+
+```text
+moves: 11
+```
+
+One shortest route goes down two cells, right two, down one, right two, up one, and right three to the exit. If `answer` stayed `None`, the exit would be unreachable.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Tree or graph?">
+
+For each, say whether a tree is enough or you need a general graph: (a) the folders on your disk; (b) flights between airports; (c) the chain of managers in a company.
+
+<Solution>
+
+(a) A tree: every folder has exactly one parent folder. (b) A graph: airports have many routes and loops, and there is no single top. (c) A tree, as long as everyone has exactly one manager. If people can report to several managers (a matrix organisation) it becomes a graph.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A tree has a root, parents, children and leaves; a binary search tree keeps smaller values left and larger right, so a search discards half the remaining tree at each step.
+- A graph is nodes plus edges, usually stored as an adjacency list.
+- BFS (a queue) explores by distance and finds shortest paths; DFS (a stack or recursion) follows one route to its end. Both need a visited record when loops are possible.
+
+Next: [Memory, values and references](../memory-and-references/), which explains what all these pointers actually are.

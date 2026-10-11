@@ -1,0 +1,458 @@
+---
+language: fundamentals
+level: beginner
+module: Data structures
+order: 15
+title: "Grouping data: records and objects"
+description: Bundle related values into one named thing, attach behaviour to it, and tell apart two things that are equal from one thing with two names.
+objectives:
+  - Model a real-world thing as a record with named fields
+  - Add methods to turn a record into an object that carries its own behaviour
+  - Explain encapsulation and why a type protects its own data
+  - Distinguish identity (the same object) from equality (the same contents)
+estimatedMinutes: 50
+fundamentals:
+  - fundamentals/beginner/09-functions
+  - fundamentals/beginner/13-sequences-and-arrays
+  - fundamentals/beginner/14-maps-and-sets
+---
+
+A library book has a title, an author, a year and a flag saying whether it is on the shelf. You could keep those in four parallel lists and hope the positions always line up, or in a map with string keys and hope nobody misspells one. Neither is a good fit. What you want is a single value that groups the pieces, gives each a name, and has a recognisable shape. That is a **record**.
+
+## Records: named fields
+
+A **record** (also called a *struct*, or a *data class*) is a value made of several **fields**, each with a name and often its own type. You make one by filling in all the fields, and you read or change a field by its name, usually with a dot: `book.title`.
+
+Unlike a list, whose elements normally share one meaning ("a score, another score"), a record's fields are different things that belong together: a title, a year, a flag. Unlike a map, a record's fields are fixed in advance, so a typo in a field name is caught early instead of silently creating a new key.
+
+## From records to objects
+
+A record only holds data. Sooner or later you write functions that work on that data: describe a book, lend it out. The step from record to **object** is to keep those functions with the data they operate on, as **methods**. You call a method on a particular object: `book.lend()`. Inside, the method has access to that object's fields (Python calls it `self`, JavaScript and Java call it `this`; in C there are no methods, so you pass a pointer to the struct as the first parameter instead).
+
+A **class** (or, in C, a struct type plus its functions) is the blueprint: it says which fields every book has and which methods it supports. Each book you create from it is an **instance**.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="book_demo.py"
+from dataclasses import dataclass
+
+
+@dataclass
+class Book:
+    title: str
+    author: str
+    year: int
+    available: bool = True
+
+    def describe(self):
+        status = "available" if self.available else "on loan"
+        return f"{self.title} by {self.author} ({self.year}) - {status}"
+
+    def lend(self):
+        self.available = False
+
+
+dune = Book("Dune", "Frank Herbert", 1965)
+print(dune.describe())
+dune.lend()
+print(dune.describe())
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="book_demo.js"
+class Book {
+  constructor(title, author, year) {
+    this.title = title;
+    this.author = author;
+    this.year = year;
+    this.available = true;
+  }
+
+  describe() {
+    const status = this.available ? "available" : "on loan";
+    return `${this.title} by ${this.author} (${this.year}) - ${status}`;
+  }
+
+  lend() {
+    this.available = false;
+  }
+}
+
+const dune = new Book("Dune", "Frank Herbert", 1965);
+console.log(dune.describe());
+dune.lend();
+console.log(dune.describe());
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="BookDemo.java"
+class Book {
+    String title;
+    String author;
+    int year;
+    boolean available = true;
+
+    Book(String title, String author, int year) {
+        this.title = title;
+        this.author = author;
+        this.year = year;
+    }
+
+    String describe() {
+        String status = available ? "available" : "on loan";
+        return title + " by " + author + " (" + year + ") - " + status;
+    }
+
+    void lend() {
+        available = false;
+    }
+}
+
+public class BookDemo {
+    public static void main(String[] args) {
+        Book dune = new Book("Dune", "Frank Herbert", 1965);
+        System.out.println(dune.describe());
+        dune.lend();
+        System.out.println(dune.describe());
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="book_demo.c"
+#include <stdio.h>
+
+typedef struct {
+    char title[32];
+    char author[32];
+    int year;
+    int available;
+} Book;
+
+/* No methods in C: functions take a pointer to the struct instead. */
+void book_describe(const Book *b) {
+    printf("%s by %s (%d) - %s\n", b->title, b->author, b->year,
+           b->available ? "available" : "on loan");
+}
+
+void book_lend(Book *b) {
+    b->available = 0;
+}
+
+int main(void) {
+    Book dune = {"Dune", "Frank Herbert", 1965, 1};
+    book_describe(&dune);
+    book_lend(&dune);
+    book_describe(&dune);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+Dune by Frank Herbert (1965) - available
+Dune by Frank Herbert (1965) - on loan
+```
+
+A few things to notice:
+
+- The Python version is a `dataclass`, a shortcut that writes the constructor for you from the field list. JavaScript and Java spell the constructor out.
+- Java and C declare the type of every field. Python's annotations (`title: str`) document the type; JavaScript has none at all.
+- The C function receives a pointer (`b->title` is the field of the struct `b` points at). It needs a `Book *`, not a `Book`, so that `book_lend` changes the original instead of a copy. Pointers are covered in [memory and references](../memory-and-references/).
+
+## Encapsulation: protecting the data
+
+If any code anywhere may set any field, then any code anywhere may break your rules. A library member, for instance, may borrow at most two books at once. If other code can simply append to the member's list of books, that rule will be broken sooner or later.
+
+**Encapsulation** means a type keeps its fields private and offers a small set of methods as the only way to change them. The methods enforce the rules. Callers then depend on what the object *does*, not on how it stores things, so you are free to change the inside later.
+
+Languages support this differently. Java has `private` fields. JavaScript has `#name` private fields. Python has no enforcement, only a convention: a leading underscore (`_borrowed`) means "internal, please leave alone". C can hide a struct's layout by keeping its definition out of the header file. The idea is the same everywhere.
+
+```python title="encapsulation_demo.py"
+class Member:
+    MAX_BOOKS = 2
+
+    def __init__(self, name):
+        self.name = name
+        self._borrowed = []          # internal: use borrow() and give_back()
+
+    def borrow(self, title):
+        if len(self._borrowed) >= self.MAX_BOOKS:
+            raise ValueError(f"{self.name} already has {self.MAX_BOOKS} books")
+        self._borrowed.append(title)
+
+    def give_back(self, title):
+        self._borrowed.remove(title)
+
+    def books(self):
+        return list(self._borrowed)  # a copy, so callers cannot change ours
+
+
+ada = Member("Ada")
+ada.borrow("Dune")
+ada.borrow("Emma")
+try:
+    ada.borrow("Ulysses")
+except ValueError as err:
+    print("refused:", err)
+
+ada.give_back("Dune")
+ada.borrow("Ulysses")
+print(ada.books())
+```
+
+Output:
+
+```text
+refused: Ada already has 2 books
+['Emma', 'Ulysses']
+```
+
+The rule lives in one place, `borrow`. Returning a copy from `books()` stops callers from reaching in and changing the internal list.
+
+## Identity versus equality
+
+Two questions that sound alike are different:
+
+- **Equality**: do these two things hold the same contents?
+- **Identity**: are these two names for the very same object in memory?
+
+Two copies of the same paperback are equal in contents, but they are two separate objects. Lend one and the other stays on the shelf. If instead two variables name one object, lending through either changes what both see.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="identity_demo.py"
+from dataclasses import dataclass
+
+
+@dataclass
+class Book:
+    title: str
+    year: int
+
+
+a = Book("Dune", 1965)
+b = Book("Dune", 1965)
+c = a
+
+print("equal contents:", "yes" if a == b else "no")
+print("same object (a, b):", "yes" if a is b else "no")
+print("same object (a, c):", "yes" if a is c else "no")
+
+c.year = 1966
+print("a.year after changing c:", a.year)
+print("b.year:", b.year)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="identity_demo.js"
+class Book {
+  constructor(title, year) {
+    this.title = title;
+    this.year = year;
+  }
+
+  // JavaScript does not compare contents for us, so we say what "equal" means.
+  equals(other) {
+    return this.title === other.title && this.year === other.year;
+  }
+}
+
+const a = new Book("Dune", 1965);
+const b = new Book("Dune", 1965);
+const c = a;
+
+console.log("equal contents:", a.equals(b) ? "yes" : "no");
+console.log("same object (a, b):", a === b ? "yes" : "no");
+console.log("same object (a, c):", a === c ? "yes" : "no");
+
+c.year = 1966;
+console.log("a.year after changing c:", a.year);
+console.log("b.year:", b.year);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="IdentityDemo.java"
+class Book {
+    String title;
+    int year;
+
+    Book(String title, int year) {
+        this.title = title;
+        this.year = year;
+    }
+
+    // Without this, equals() would fall back to identity.
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof Book other && title.equals(other.title) && year == other.year;
+    }
+
+    @Override
+    public int hashCode() {
+        return java.util.Objects.hash(title, year);
+    }
+}
+
+public class IdentityDemo {
+    public static void main(String[] args) {
+        Book a = new Book("Dune", 1965);
+        Book b = new Book("Dune", 1965);
+        Book c = a;
+
+        System.out.println("equal contents: " + (a.equals(b) ? "yes" : "no"));
+        System.out.println("same object (a, b): " + (a == b ? "yes" : "no"));
+        System.out.println("same object (a, c): " + (a == c ? "yes" : "no"));
+
+        c.year = 1966;
+        System.out.println("a.year after changing c: " + a.year);
+        System.out.println("b.year: " + b.year);
+    }
+}
+```
+
+</Tab>
+</Tabs>
+
+Each prints:
+
+```text
+equal contents: yes
+same object (a, b): no
+same object (a, c): yes
+a.year after changing c: 1966
+b.year: 1965
+```
+
+`c = a` did not make a new book. It gave the same book a second name, so changing the year through `c` is visible through `a`, while `b`, a separate object, is untouched. Python's `is`, JavaScript's `===` on objects and Java's `==` on objects all test identity. For equality, Python's dataclass writes `==` for you, while JavaScript and Java need a method you define yourself (and Java's `hashCode` must agree with `equals`, so maps and sets that use it keep working).
+
+C structs are plain values, copied byte by byte on assignment, so `c = a` makes a true copy there and there is no built-in `==` for structs at all. You compare field by field.
+
+## Common pitfalls
+
+- **Parallel lists** (`titles[i]`, `authors[i]`) that drift out of step. Use one record per item and a single list of records.
+- **Public fields everywhere,** so any code can put an object into an invalid state. Funnel changes through methods.
+- **Confusing `==` with identity.** In Java, `a == b` on two objects asks "same object?", not "same contents?". Use `equals`.
+- **Aliasing surprises.** After `c = a`, a change through `c` shows up in `a`. Copy deliberately when you need independence.
+- **Putting everything in one giant object** that does ten unrelated jobs. A good type has one clear purpose.
+
+<Exercise title="A library book and a member">
+
+Model a `Book` (title, author, `available` flag) and a `Member` (name, list of borrowed books). A member borrows a book with `member.borrow(book)`. It must fail with a clear error if the book is already on loan or the member already holds two books. Returning a book makes it available again. Demonstrate each case.
+
+<Solution>
+
+The member checks both rules before changing anything, so a refused request leaves everything as it was.
+
+```python title="library.py"
+class Book:
+    def __init__(self, title, author):
+        self.title = title
+        self.author = author
+        self.available = True
+
+    def __repr__(self):
+        return f"Book({self.title!r})"
+
+
+class Member:
+    MAX_BOOKS = 2
+
+    def __init__(self, name):
+        self.name = name
+        self._borrowed = []
+
+    def borrow(self, book):
+        if not book.available:
+            raise ValueError(f"{book.title!r} is already on loan")
+        if len(self._borrowed) >= self.MAX_BOOKS:
+            raise ValueError(f"{self.name} already has {self.MAX_BOOKS} books")
+        book.available = False
+        self._borrowed.append(book)
+
+    def give_back(self, book):
+        self._borrowed.remove(book)
+        book.available = True
+
+    def books(self):
+        return list(self._borrowed)
+
+
+dune = Book("Dune", "Frank Herbert")
+emma = Book("Emma", "Jane Austen")
+ulysses = Book("Ulysses", "James Joyce")
+ada = Member("Ada")
+grace = Member("Grace")
+
+ada.borrow(dune)
+ada.borrow(emma)
+for member, book in [(ada, ulysses), (grace, dune)]:
+    try:
+        member.borrow(book)
+    except ValueError as err:
+        print("refused:", err)
+
+ada.give_back(dune)
+grace.borrow(dune)
+print(ada.books(), grace.books())
+```
+
+Output:
+
+```text
+refused: Ada already has 2 books
+refused: 'Dune' is already on loan
+[Book('Emma')] [Book('Dune')]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Same or equal?">
+
+In Python, with `a = [1, 2]`, `b = [1, 2]` and `c = a`, say what `a == b`, `a is b` and `a is c` give, and what `a` looks like after `c.append(3)`.
+
+<Solution>
+
+`a == b` is `True` (same contents), `a is b` is `False` (two separate lists) and `a is c` is `True` (one list with two names). After `c.append(3)`, `a` is `[1, 2, 3]`, because `a` and `c` are the same list; `b` is still `[1, 2]`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Spot the design problem">
+
+A `Temperature` object stores `celsius` as a public field. Another part of the program sets `t.celsius = -500`. What is wrong, and how would you fix the design?
+
+<Solution>
+
+Nothing stops an impossible value: nothing can be colder than absolute zero (about -273.15 degrees Celsius). Make the field private and offer a `set_celsius` method (or a property in Python) that checks the value and raises an error when it is out of range. Then the object can never be in an invalid state, whichever code uses it.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A record groups named fields into one value; methods turn it into an object that carries its own behaviour.
+- Encapsulation keeps fields private and enforces rules in one place.
+- Equality asks whether contents match; identity asks whether two names refer to the same object.
+
+Next: [Stacks, queues and linked lists](../stacks-queues-linked/), the classic ways of ordering a collection by when things arrive.

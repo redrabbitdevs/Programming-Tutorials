@@ -1,0 +1,6 @@
+first: 10
+last: 40
+length: 4
+after change: [10, 99, 30, 40]
+slice [1:3]: [99, 30]
+total: 179

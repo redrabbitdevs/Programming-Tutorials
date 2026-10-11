@@ -1,0 +1,4 @@
+in order: 1 3 4 5 7 8 9
+contains 4: yes
+contains 6: no
+height: 3

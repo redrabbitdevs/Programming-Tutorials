@@ -1,0 +1,5 @@
+union: [1, 2, 3, 4, 5]
+intersection: [3, 4]
+difference: [1, 2]
+3 in a: yes
+unique count: 3
