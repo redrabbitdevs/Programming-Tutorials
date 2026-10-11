@@ -1,0 +1,190 @@
+---
+language: python
+level: beginner
+module: Control flow
+order: 14
+title: if, elif, else
+description: Write branching logic with if, elif and else, pick values with the conditional expression, and flatten nesting with guard clauses.
+minVersion: "3.8"
+objectives:
+  - Write if, elif and else statements with correct indentation
+  - Order the branches of an elif chain so the right one runs
+  - Choose between two values with a conditional expression
+  - Flatten nested logic with guard clauses
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/07-conditionals"]
+---
+
+A program that always does the same thing is not much use. Branching lets it react to its data. The fundamentals lesson on making decisions covers the logic: chains of tests, boolean conditions and guard clauses. This lesson shows the Python spelling.
+
+## The shape of an if statement
+
+```python title="if_basics.py"
+temperature = 28
+
+if temperature > 30:
+    print("Hot")
+elif temperature > 20:
+    print("Warm")
+else:
+    print("Cool")
+
+basket = []
+if basket:
+    print("Items:", basket)
+else:
+    print("The basket is empty")
+
+# Guard clauses: handle the bad cases first and return early.
+def describe_age(age):
+    if age < 0:
+        return "invalid"
+    if age < 13:
+        return "child"
+    if age < 20:
+        return "teenager"
+    return "adult"
+
+
+for age in [-1, 8, 15, 40]:
+    print(age, describe_age(age))
+
+# The conditional expression picks one of two values.
+count = 1
+print(f"{count} item" if count == 1 else f"{count} items")
+```
+
+```text
+Warm
+The basket is empty
+-1 invalid
+8 child
+15 teenager
+40 adult
+1 item
+```
+
+Functions get their own module later. For now, read `def` as "name this recipe" and `return` as "hand back this answer and stop".
+
+Three Python details to notice:
+
+1. **The colon and the indent.** Each condition ends with `:`, and the block under it is indented. Four spaces is the standard. There are no braces, so the indentation *is* the structure. Mixing tabs and spaces in one block is an error.
+2. **No parentheses needed.** Write `if temperature > 30:`, not `if (temperature > 30):`.
+3. **Any object can be the condition.** `if basket:` uses the truthiness rules from the previous lesson.
+
+## How an elif chain runs
+
+Python tests the conditions from top to bottom and runs the **first** block whose condition is truthy. Then it skips the rest of the chain. `else` has no condition and catches whatever remains. Both `elif` and `else` are optional, and you can have as many `elif` branches as you like.
+
+Because only the first match runs, the order matters. With `temperature = 28`, the test `> 20` is true, but the stricter `> 30` is not, so "Warm" prints. If you wrote the `> 20` test first, 35 degrees would also print "Warm". Put the strictest test first, as the grade calculator in the exercises does.
+
+Separate `if` statements are different. Each one is tested independently, so several can run.
+
+## The conditional expression
+
+When you only need to choose between two **values**, a one-line form is neater than four lines of `if`:
+
+```python
+age = 20
+label = "adult" if age >= 18 else "minor"
+print(label)
+```
+
+It reads as "the value is `adult` if the condition holds, otherwise `minor`". It is an expression, so it can sit inside an f-string or an argument. Keep it for simple choices. Once you need a third case, switch back to `if`/`elif`.
+
+## Guard clauses
+
+The `describe_age` function in the example could have been written with an `if` nested inside an `if` nested inside an `else`, each level pushing the code further right. Instead, it handles each unusual case at the top and returns immediately, so the normal path runs straight down the page with no extra indentation. Prefer this shape whenever a function has early exits.
+
+## Common pitfalls
+
+- **Using `=` instead of `==`.** `if x = 5:` is a syntax error. Assignment uses `=`; comparison uses `==`.
+- **Forgetting the colon.** The error message points at the end of the line.
+- **Chains that cannot reach later branches.** If you test `score >= 60` before `score >= 90`, an A is reported as a D. Go from strictest to loosest.
+- **Comparing against several values the long way.** `if x == 1 or x == 2 or x == 3` works, but `if x in (1, 2, 3)` is clearer.
+- **A redundant `else` after `return`.** If the `if` block ends in `return`, the `else` adds nothing: the code after the `if` only runs when the condition was false. Dropping the `else` removes a level of indentation.
+
+<Exercise title="Leap-year checker">
+
+A year is a leap year if it is divisible by 4, except that years divisible by 100 are not, unless they are also divisible by 400. Write `is_leap(year)` and test it on 1900, 2000, 2023, 2024 and 2100.
+
+<Solution>
+
+```python title="leap_year.py"
+def is_leap(year):
+    if year % 400 == 0:
+        return True
+    if year % 100 == 0:
+        return False
+    return year % 4 == 0
+
+
+for year in [1900, 2000, 2023, 2024, 2100]:
+    print(year, is_leap(year))
+```
+
+```text
+1900 False
+2000 True
+2023 False
+2024 True
+2100 False
+```
+
+The exceptions come first as guard clauses, with the rarest rule (400) at the top. Whatever survives them is decided by the plain divisible-by-4 rule.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Grade calculator">
+
+Write `letter(score)` that returns `"A"` for 90 and above, `"B"` for 80 and above, `"C"` for 70, `"D"` for 60, `"F"` below 60, and `"invalid"` for scores outside 0 to 100. Try 95, 90, 89.5, 70, 59 and 101.
+
+<Solution>
+
+```python title="grade.py"
+def letter(score):
+    if score < 0 or score > 100:
+        return "invalid"
+    if score >= 90:
+        return "A"
+    elif score >= 80:
+        return "B"
+    elif score >= 70:
+        return "C"
+    elif score >= 60:
+        return "D"
+    else:
+        return "F"
+
+
+for score in [95, 90, 89.5, 70, 59, 101]:
+    print(score, letter(score))
+
+age = 17
+status = "adult" if age >= 18 else "minor"
+print(status)
+```
+
+```text
+95 A
+90 A
+89.5 B
+70 C
+59 F
+101 invalid
+minor
+```
+
+The invalid check is a guard clause. After it, the chain runs from the highest threshold down, so each `elif` only needs a lower bound.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `if`, `elif` and `else` end with a colon and use an indented block. The first truthy branch wins.
+- `a if condition else b` chooses between two values in one expression.
+- Guard clauses handle exceptional cases early and keep the main path flat.
+
+Next: while loops.
