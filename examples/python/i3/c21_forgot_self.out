@@ -1,0 +1,3 @@
+opened
+closed
+AttributeError: 'NoneType' object has no attribute 'read'

@@ -1,0 +1,4 @@
+ok, balance 70
+cannot withdraw 500, balance is 70 | short by 430
+ok, balance 0
+AccountClosedError: account is closed

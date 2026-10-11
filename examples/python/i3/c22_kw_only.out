@@ -1,0 +1,2 @@
+Connection(host='db.example', port=5432, use_tls=False)
+TypeError: positional arguments are not accepted

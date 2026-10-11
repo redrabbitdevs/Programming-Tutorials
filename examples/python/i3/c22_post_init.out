@@ -1,0 +1,2 @@
+Item(name='pen', price=1.5, quantity=0)
+ValueError: price cannot be negative: -1

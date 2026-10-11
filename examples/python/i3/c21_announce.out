@@ -1,0 +1,7 @@
+enter
+working
+exit: no error
+---
+enter
+exit: ValueError - boom
+the error carried on

@@ -1,0 +1,2 @@
+Basket(owner='Asha', items=['apple'])
+Basket(owner='Ben', items=[])

@@ -1,0 +1,6 @@
+[load]
+reading
+[/load]
+[parse]
+[/parse failed: ValueError]
+handled

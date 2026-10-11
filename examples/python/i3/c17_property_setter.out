@@ -1,0 +1,4 @@
+100 212.0
+0 32.0
+ValueError: below absolute zero: -300
+ValueError: below absolute zero: -500

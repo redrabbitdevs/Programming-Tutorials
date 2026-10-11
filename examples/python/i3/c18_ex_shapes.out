@@ -1,0 +1,4 @@
+rectangle: area 12.00
+circle: area 3.14
+square: area 4.00
+total: 19.14
