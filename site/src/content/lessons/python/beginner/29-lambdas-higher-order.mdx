@@ -1,0 +1,301 @@
+---
+language: python
+level: beginner
+module: Functions
+order: 29
+title: Lambdas and higher-order functions
+description: Pass functions as values, write small lambda expressions, and sort by several keys with key=.
+minVersion: "3.8"
+objectives:
+  - Store functions in variables and pass them to other functions
+  - Write a lambda and decide when def is the better choice
+  - Sort, min and max with key=, including sorts by several keys
+  - Choose between map/filter and a comprehension
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/09-functions"]
+---
+
+Sorting a list of names is easy. Sorting a list of records by team, then by age descending, then by name needs a way to tell `sorted` *how* to compare. In Python you do that by handing it a function. Functions are ordinary values, and this lesson shows what that makes possible.
+
+## Functions are values
+
+A `def` creates a function object and binds it to a name, exactly like `x = 5` binds a number. You can assign it to another name, put it in a list or dict, pass it as an argument, return it from another function, or check it with `callable`.
+
+```python title="first_class.py"
+def shout(text):
+    return text.upper() + "!"
+
+
+def whisper(text):
+    return text.lower() + "..."
+
+
+speak = shout
+print(speak("hello"))
+
+styles = {"shout": shout, "whisper": whisper}
+for name, style in styles.items():
+    print(name, style("Hello"))
+
+
+def apply_twice(func, value):
+    return func(func(value))
+
+
+print(apply_twice(shout, "hi"))
+print(apply_twice(lambda n: n * 2, 5))
+
+
+def make_multiplier(factor):
+    def multiply(n):
+        return n * factor
+
+    return multiply
+
+
+triple = make_multiplier(3)
+print(triple(14))
+print(callable(triple), callable(42))
+```
+
+```text
+HELLO!
+shout HELLO!
+whisper hello...
+HI!!
+20
+42
+True False
+```
+
+Notice that `speak = shout` has no parentheses: it copies a reference to the function, it does not call it. The dict turns a name chosen at run time into behaviour, a pattern that often replaces a long `if`/`elif` chain. A function that takes or returns another function is called a **higher-order function**. `apply_twice` takes one, and `make_multiplier` returns one: the inner `multiply` remembers `factor` through the closure you met in the scope lesson.
+
+## lambda
+
+A **lambda** is a small anonymous function written as a single expression: `lambda parameters: expression`. The expression's value is what the function returns. There is no `return` keyword and no room for statements.
+
+```python title="lambda_key.py"
+words = ["banana", "kiwi", "Apple", "cherry"]
+
+print(sorted(words))
+print(sorted(words, key=len))
+print(sorted(words, key=str.lower))
+print(sorted(words, key=lambda w: w[-1]))
+print(max(words, key=len))
+print(min(words, key=lambda w: w.lower()))
+
+add = lambda a, b: a + b
+print(add(2, 3))
+print(add.__name__)
+
+
+def add_def(a, b):
+    return a + b
+
+
+print(add_def.__name__)
+```
+
+```text
+['Apple', 'banana', 'cherry', 'kiwi']
+['kiwi', 'Apple', 'banana', 'cherry']
+['Apple', 'banana', 'cherry', 'kiwi']
+['banana', 'Apple', 'kiwi', 'cherry']
+banana
+Apple
+5
+<lambda>
+add_def
+```
+
+The plain `sorted(words)` puts `"Apple"` first because uppercase letters sort before lowercase. The `key=` argument fixes that, and it is the most common home for a lambda. `sorted`, `min`, `max` and `list.sort` all call the key function once per item and compare the results instead of the items.
+
+- `key=len` sorts by length. `banana` and `cherry` tie at six letters and keep their original order, because Python's sort is **stable**.
+- `key=str.lower` passes an existing method, with no lambda needed. Reach for a lambda only when no ready-made function does the job.
+- `key=lambda w: w[-1]` sorts by the last letter.
+
+The last lines show why assigning a lambda to a name is discouraged (PEP 8): the function's name is the unhelpful `<lambda>`, which appears in tracebacks. If a function deserves a name, use `def`.
+
+## map, filter and comprehensions
+
+`map(func, items)` applies a function to every item; `filter(func, items)` keeps the items for which the function returns a true value. Both return lazy iterators, so wrap them in `list` to see the results.
+
+```python title="map_filter.py"
+numbers = [1, 2, 3, 4, 5, 6]
+
+print(list(map(lambda n: n * n, numbers)))
+print(list(filter(lambda n: n % 2 == 0, numbers)))
+
+print([n * n for n in numbers])
+print([n for n in numbers if n % 2 == 0])
+
+print(list(map(str.upper, ["a", "b"])))
+print(list(map(int, ["1", "2", "3"])))
+
+lazy = map(str, numbers)
+print(next(lazy))
+print(list(lazy))
+print(list(lazy))
+```
+
+```text
+[1, 4, 9, 16, 25, 36]
+[2, 4, 6]
+[1, 4, 9, 16, 25, 36]
+[2, 4, 6]
+['A', 'B']
+[1, 2, 3]
+1
+['2', '3', '4', '5', '6']
+[]
+```
+
+The two list comprehensions in the middle do the same work as `map` and `filter` with a lambda, and most Python programmers find them easier to read. Prefer a comprehension when you would otherwise write a lambda inside `map` or `filter`. Use `map` when you already have a named function, as in `map(int, strings)`.
+
+The final three lines show the catch with lazy iterators: after `next(lazy)` took the first item and `list(lazy)` took the rest, the iterator is used up, so a second `list(lazy)` is empty.
+
+## Sorting by several keys
+
+Because `key=` may return a tuple, and tuples compare item by item, one lambda can express a multi-level sort. Negating a number reverses its order within the tuple.
+
+```python title="sort_records.py"
+from operator import itemgetter
+
+people = [
+    {"name": "Ada", "team": "math", "age": 36},
+    {"name": "Grace", "team": "navy", "age": 85},
+    {"name": "Alan", "team": "math", "age": 41},
+    {"name": "Katherine", "team": "nasa", "age": 101},
+    {"name": "Barbara", "team": "math", "age": 36},
+]
+
+# team A to Z, then oldest first, then name A to Z
+ordered = sorted(people, key=lambda p: (p["team"], -p["age"], p["name"]))
+for person in ordered:
+    print(person["team"], person["age"], person["name"])
+
+print("--")
+
+# the same result with stable sorts, least important key first
+second = sorted(people, key=itemgetter("name"))
+second = sorted(second, key=itemgetter("age"), reverse=True)
+second = sorted(second, key=itemgetter("team"))
+print(second == ordered)
+```
+
+```text
+math 41 Alan
+math 36 Ada
+math 36 Barbara
+nasa 101 Katherine
+navy 85 Grace
+--
+True
+```
+
+The tuple trick works when you can negate the field (numbers). For text you cannot negate, use the second approach: sort several times, least important key first, and rely on stability so earlier orderings survive within ties. `operator.itemgetter("age")` is a ready-made function equivalent to `lambda p: p["age"]`.
+
+## Common pitfalls
+
+- **Late binding in lambdas.** A lambda created in a loop looks up the loop variable when it is *called*, not when it is created. See the example below.
+- **Cramming logic into a lambda.** If it needs a conditional chain or more than a short expression, write a `def` with a name and a docstring.
+- **Calling when you meant to pass.** `sorted(words, key=len())` fails; the key is the function `len` itself. Parentheses call it.
+- **Forgetting that `map` and `filter` are lazy.** Printing one shows an object, not results. Wrap it in `list(...)`, and remember it can be used only once.
+- **Assigning the result of `list.sort()`.** `items = items.sort()` sets `items` to `None`, because `list.sort()` sorts in place and returns nothing. `sorted(items)` returns a new list.
+
+```python title="late_binding.py"
+funcs = [lambda: i for i in range(3)]
+print([f() for f in funcs])
+
+funcs = [lambda i=i: i for i in range(3)]
+print([f() for f in funcs])
+```
+
+```text
+[2, 2, 2]
+[0, 1, 2]
+```
+
+All three lambdas share one `i`, and by the time they run the loop has finished with `i` equal to 2. Giving the lambda a parameter with a default, `i=i`, captures the current value at creation time.
+
+<Exercise title="Sort records by several keys">
+
+Given the list of people from the lesson, print them sorted by age descending, with ties broken by name. Then print only the names of those on the `math` team, in alphabetical order.
+
+<Solution>
+
+```python title="sort_people.py"
+people = [
+    {"name": "Ada", "team": "math", "age": 36},
+    {"name": "Grace", "team": "navy", "age": 85},
+    {"name": "Alan", "team": "math", "age": 41},
+    {"name": "Katherine", "team": "nasa", "age": 101},
+    {"name": "Barbara", "team": "math", "age": 36},
+]
+
+by_age = sorted(people, key=lambda p: (-p["age"], p["name"]))
+for person in by_age:
+    print(person["age"], person["name"])
+
+math_names = sorted(p["name"] for p in people if p["team"] == "math")
+print(math_names)
+```
+
+```text
+101 Katherine
+85 Grace
+41 Alan
+36 Ada
+36 Barbara
+['Ada', 'Alan', 'Barbara']
+```
+
+The key returns `(-age, name)`, so the biggest ages come first and equal ages fall back to alphabetical order. The second part is a generator expression with a filter, which needs no lambda at all.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Replace an if-chain with a dict of functions">
+
+Write `calculate(op, a, b)` that supports `"add"`, `"sub"` and `"mul"` by looking the operation up in a dict of functions. An unknown operation should return `None`.
+
+<Solution>
+
+```python title="calculate.py"
+OPERATIONS = {
+    "add": lambda a, b: a + b,
+    "sub": lambda a, b: a - b,
+    "mul": lambda a, b: a * b,
+}
+
+
+def calculate(op, a, b):
+    func = OPERATIONS.get(op)
+    if func is None:
+        return None
+    return func(a, b)
+
+
+print(calculate("add", 2, 3))
+print(calculate("mul", 4, 5))
+print(calculate("pow", 2, 3))
+```
+
+```text
+5
+20
+None
+```
+
+Functions are values, so a dict can map names to behaviour. `get` returns `None` for an unknown key, which keeps the error case in one place.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A function is a value: assign it, store it, pass it to or return it from other functions.
+- `lambda args: expression` makes a small anonymous function. It shines as a `key=` and is a poor fit for anything with a name or several steps.
+- `key=` can return a tuple for multi-level sorts, and a comprehension is usually clearer than `map` or `filter` with a lambda.
+
+Next: recursion in Python, and the limits Python puts on it.

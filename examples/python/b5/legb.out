@@ -1,0 +1,4 @@
+inner sees: local x
+outer sees: enclosing x
+module sees: global x
+local w | enclosing z | global y | 3

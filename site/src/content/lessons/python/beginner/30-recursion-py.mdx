@@ -1,0 +1,339 @@
+---
+language: python
+level: beginner
+module: Functions
+order: 30
+title: Recursion in Python
+description: Write recursive functions in Python, and know the recursion limit, RecursionError and when to use a loop instead.
+minVersion: "3.8"
+objectives:
+  - Write a recursive function with a base case and a recursive case
+  - Explain Python's recursion limit and what RecursionError means
+  - Use recursion on nested data and on a folder tree
+  - Decide when a loop or caching is the better tool
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/11-recursion"]
+---
+
+Some data repeats its own shape: a list that contains lists, a folder that contains folders. A function that calls itself matches that shape neatly. The [recursion lesson in the fundamentals track](../../../fundamentals/beginner/recursion/) explains base cases, recursive cases and tracing the call stack. Here you will write recursive functions in Python and meet the limits Python imposes.
+
+## A recursive function
+
+```python title="factorial.py"
+def factorial(n):
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)
+
+
+print(factorial(5))
+print(factorial(20))
+print(factorial(30))
+
+
+def count_down(n):
+    if n == 0:
+        print("liftoff")
+        return
+    print(n)
+    count_down(n - 1)
+
+
+count_down(3)
+```
+
+```text
+120
+2432902008176640000
+265252859812191058636308480000000
+3
+2
+1
+liftoff
+```
+
+Both functions have the two required parts. The **base case** (`n <= 1`, `n == 0`) returns without calling again. The **recursive case** calls the function on a smaller problem. Python's integers never overflow, so `factorial(30)` is exact, which is not true in many other languages.
+
+Each call gets its own local `n`, so the calls do not interfere with each other. The scope lesson's rule applies: every call runs in a fresh local scope.
+
+## The recursion limit
+
+Every call that has not yet returned takes up space on the call stack. Python protects itself with a limit on that depth, 1000 by default. Exceed it and you get a `RecursionError`.
+
+```python title="recursion_limit.py"
+import sys
+
+print(sys.getrecursionlimit())
+
+
+def count_down_forever(n):
+    return count_down_forever(n - 1)
+
+
+try:
+    count_down_forever(10)
+except RecursionError as error:
+    print("RecursionError:", error)
+
+
+def total_to(n):
+    if n == 0:
+        return 0
+    return n + total_to(n - 1)
+
+
+print(total_to(500))
+try:
+    print(total_to(5000))
+except RecursionError:
+    print("5000 levels is too deep")
+
+print(sum(range(5001)))
+
+sys.setrecursionlimit(10_000)
+print(total_to(5000))
+```
+
+```text
+1000
+RecursionError: maximum recursion depth exceeded
+125250
+5000 levels is too deep
+12502500
+12502500
+```
+
+`count_down_forever` has no base case, so it recurses until the limit and Python raises `RecursionError` instead of crashing. That is the Python version of the stack overflow described in the fundamentals lesson. A missing or unreachable base case is by far the most common cause.
+
+`total_to(5000)` is different. It is a correct function that simply goes deeper than 1000 calls. You can see the fix two ways: use a loop or `sum(range(5001))`, which needs no depth at all, or raise the limit with `sys.setrecursionlimit`.
+
+<Callout type="warning">
+
+Raising the limit is a last resort, not a fix. A very large value can crash the interpreter outright because the real stack runs out before the counter notices. If your problem naturally goes thousands of levels deep, rewrite it as a loop.
+
+</Callout>
+
+Python also does **not** optimise tail calls. Some languages turn a recursive call in the last position into a jump, so it uses no extra stack. Python never does, so a "tail-recursive" function uses just as much depth as any other. In Python, a loop is the way to repeat something many thousands of times.
+
+## Recursion over nested data
+
+Recursion earns its place when the data is nested to an unknown depth. The rule is: handle a plain item directly, and for a nested item call yourself.
+
+```python title="nested_sum.py"
+def nested_sum(items):
+    total = 0
+    for item in items:
+        if isinstance(item, list):
+            total += nested_sum(item)
+        else:
+            total += item
+    return total
+
+
+print(nested_sum([1, [2, 3], [4, [5, [6]]], []]))
+print(nested_sum([]))
+print(nested_sum([[[[10]]]]))
+```
+
+```text
+21
+0
+10
+```
+
+The base case is hidden but present: an empty list has no items, so the loop never calls again. A `for` loop would need to know in advance how many levels to handle; recursion does not.
+
+## Walking a folder tree
+
+A folder tree is nested data of the same sort: a folder holds files and other folders.
+
+```python title="walk_dir.py"
+import tempfile
+from pathlib import Path
+
+
+def walk(folder, depth=0):
+    """Print a folder tree and return the number of files in it."""
+    count = 0
+    for entry in sorted(folder.iterdir(), key=lambda p: p.name.lower()):
+        suffix = "/" if entry.is_dir() else ""
+        print("  " * depth + entry.name + suffix)
+        if entry.is_dir():
+            count += walk(entry, depth + 1)
+        else:
+            count += 1
+    return count
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp) / "project"
+    (root / "src" / "pkg").mkdir(parents=True)
+    (root / "docs").mkdir()
+    for name in ["README.md", "src/main.py", "src/pkg/util.py", "docs/index.md"]:
+        (root / name).write_text("x", encoding="utf-8")
+
+    print(root.name + "/")
+    files = walk(root, 1)
+    print("files:", files)
+```
+
+```text
+project/
+  docs/
+    index.md
+  README.md
+  src/
+    main.py
+    pkg/
+      util.py
+files: 4
+```
+
+The example builds its own small tree in a temporary folder so the output is the same everywhere. `walk` prints each entry, indented by depth, and recurses into folders. The base case is a folder with nothing left to visit. In practice the standard library already walks trees for you, with `os.walk`, but writing it once by hand shows how it works.
+
+## When recursion is the wrong tool
+
+Naive recursion can repeat work. The Fibonacci function calls itself twice, and the two calls recompute the same values over and over.
+
+```python title="fib_calls.py"
+from functools import lru_cache
+
+calls = 0
+
+
+def fib(n):
+    global calls
+    calls += 1
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+
+print(fib(20), calls)
+
+calls = 0
+
+
+@lru_cache(maxsize=None)
+def fib_cached(n):
+    global calls
+    calls += 1
+    if n < 2:
+        return n
+    return fib_cached(n - 1) + fib_cached(n - 2)
+
+
+print(fib_cached(20), calls)
+print(fib_cached(90))
+```
+
+```text
+6765 21891
+6765 21
+2880067194370816120
+```
+
+Computing `fib(20)` takes 21,891 calls. With `@lru_cache`, which remembers results by argument, the body runs only 21 times, once per distinct value. The decorator syntax `@lru_cache` is a way of wrapping a function; you do not need to understand how yet.
+
+A good rule: use recursion for nested or branching data, and a loop for plain repetition.
+
+## Common pitfalls
+
+- **No base case, or one that is never reached.** `factorial(-1)` is fine here because of `n <= 1`, but `n == 1` alone would recurse forever for 0 or negatives.
+- **Not shrinking the problem.** Calling `f(n)` from `f(n)` never ends. Each call must move toward the base case.
+- **Recursing a long way on a simple count.** Depth above about a thousand raises `RecursionError`. Use a loop.
+- **Forgetting to return the recursive result.** Writing `factorial(n - 1)` without `return` or without multiplying gives `None` or a wrong answer.
+- **Mutable default arguments in a recursive helper.** An accumulator like `result=[]` is shared across calls, as the parameters lesson warned.
+- **Assuming tail calls are optimised.** Python never does.
+
+<Exercise title="Recursive nested-list sum">
+
+Write `deep_count(items)` that returns how many non-list items appear in a nested list, at any depth. Then write `flatten(items)` that returns them all in a single flat list, keeping order.
+
+<Solution>
+
+```python title="deep_count.py"
+def deep_count(items):
+    count = 0
+    for item in items:
+        if isinstance(item, list):
+            count += deep_count(item)
+        else:
+            count += 1
+    return count
+
+
+def flatten(items):
+    flat = []
+    for item in items:
+        if isinstance(item, list):
+            flat.extend(flatten(item))
+        else:
+            flat.append(item)
+    return flat
+
+
+data = [1, [2, 3], [4, [5, [6]]], []]
+print(deep_count(data))
+print(flatten(data))
+```
+
+```text
+6
+[1, 2, 3, 4, 5, 6]
+```
+
+Both follow the shape of `nested_sum`: loop over the items, recurse on lists, handle the rest directly. `flatten` builds a fresh list inside the function rather than using a default argument.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Directory walker">
+
+Using `walk_dir.py` as a starting point, write `count_by_extension(folder)` that returns a dict such as `{".py": 2, ".md": 2}` for a folder tree. Use the same temporary tree.
+
+<Solution>
+
+```python title="count_extensions.py"
+import tempfile
+from pathlib import Path
+
+
+def count_by_extension(folder, counts=None):
+    if counts is None:
+        counts = {}
+    for entry in folder.iterdir():
+        if entry.is_dir():
+            count_by_extension(entry, counts)
+        else:
+            counts[entry.suffix] = counts.get(entry.suffix, 0) + 1
+    return counts
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp) / "project"
+    (root / "src" / "pkg").mkdir(parents=True)
+    (root / "docs").mkdir()
+    for name in ["README.md", "src/main.py", "src/pkg/util.py", "docs/index.md"]:
+        (root / name).write_text("x", encoding="utf-8")
+
+    result = count_by_extension(root)
+    print(dict(sorted(result.items())))
+```
+
+```text
+{'.md': 2, '.py': 2}
+```
+
+The `None` default and the shared `counts` dict let every recursive call add to the same tally. The result is sorted before printing because the order in which a folder lists its entries is not guaranteed.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A recursive function needs a base case and a recursive case that moves toward it.
+- Python limits recursion depth (1000 by default) and raises `RecursionError`; it does not optimise tail calls, so use loops for long repetition.
+- Recursion suits nested data such as lists of lists and folder trees; `functools.lru_cache` removes repeated work.
+
+Next: type hints, which document what your functions expect and return.

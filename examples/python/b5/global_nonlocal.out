@@ -1,0 +1,4 @@
+UnboundLocalError: cannot access local variable 'counter' where it is not associated with a value
+2
+1 2 3
+1
