@@ -1,3 +1,4 @@
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -15,13 +16,15 @@ def walk(folder, depth=0):
     return count
 
 
-with tempfile.TemporaryDirectory() as tmp:
-    root = Path(tmp) / "project"
-    (root / "src" / "pkg").mkdir(parents=True)
-    (root / "docs").mkdir()
-    for name in ["README.md", "src/main.py", "src/pkg/util.py", "docs/index.md"]:
-        (root / name).write_text("x", encoding="utf-8")
+tmp = tempfile.mkdtemp()
+root = Path(tmp) / "project"
+(root / "src" / "pkg").mkdir(parents=True)
+(root / "docs").mkdir()
+for name in ["README.md", "src/main.py", "src/pkg/util.py", "docs/index.md"]:
+    (root / name).write_text("x", encoding="utf-8")
 
-    print(root.name + "/")
-    files = walk(root, 1)
-    print("files:", files)
+print(root.name + "/")
+files = walk(root, 1)
+print("files:", files)
+
+shutil.rmtree(tmp)

@@ -9,7 +9,7 @@ minVersion: "3.8"
 objectives:
   - Control output with the sep and end arguments of print
   - Read a line of text with input
-  - Convert text to a number with int
+  - Convert text to a number with int and float
 estimatedMinutes: 25
 fundamentals: ["fundamentals/beginner/02-tools-of-the-trade"]
 ---
@@ -22,9 +22,31 @@ If running a file from a terminal is still new, the fundamentals lesson on tools
 
 `print` writes its arguments to the screen, separated by spaces, and finishes with a newline.
 
-```python title="print_options.py"
+```python title="print_basic.py"
 print("a", "b", "c")
+print("second line")
+```
+
+```text
+a b c
+second line
+```
+
+Two **keyword arguments** change that behaviour. You write them by name, after the values to print. The first is `sep`, which is what goes between items. The default is a single space.
+
+```python title="print_sep.py"
 print("a", "b", "c", sep="-")
+print("2030", "06", "01", sep="/")
+```
+
+```text
+a-b-c
+2030/06/01
+```
+
+The second is `end`, which is what goes after the last item. The default is a newline, which is why each `print` starts on a new line. Setting `end="..."` keeps the next output on the same line.
+
+```python title="print_end.py"
 print("loading", end="...")
 print("done")
 print()
@@ -32,23 +54,16 @@ print("after a blank line")
 ```
 
 ```text
-a b c
-a-b-c
 loading...done
 
 after a blank line
 ```
 
-Two **keyword arguments** change the behaviour. You write them by name, after the values to print.
-
-- `sep` is what goes between items. The default is a single space.
-- `end` is what goes after the last item. The default is a newline, which is why each `print` starts on a new line. Setting `end="..."` keeps the next output on the same line.
-
 `print()` with nothing inside prints an empty line.
 
 ## input
 
-`input(prompt)` shows the prompt, waits for the user to type a line and press Enter, then returns what they typed.
+`input(prompt)` shows the prompt, waits for the user to type a line and press Enter, then returns what they typed. To keep that answer, store it under a name with `=`, as in `name = input(...)`. Lesson 6 explains what a name really is. For now, read `name = ...` as "remember this as `name`".
 
 ```python title="greeting.py"
 TARGET_YEAR = 2030
@@ -57,55 +72,63 @@ name = input("What is your name? ")
 birth_year = int(input("Which year were you born? "))
 
 age = TARGET_YEAR - birth_year
-print(f"Hello, {name}!")
-print(f"In {TARGET_YEAR} you will be {age}.")
+print("Hello,", name)
+print("In", TARGET_YEAR, "you will be", age)
 ```
 
-Run it and type your answers:
+{/* stdin: Ada|1990 */}
 
-```bash frame="terminal"
-python3 greeting.py
-```
+Run it with `python3 greeting.py` and type your answers. Here is a session where the user typed `Ada` and `1990`:
 
 ```text
 What is your name? Ada
 Which year were you born? 1990
-Hello, Ada!
-In 2030 you will be 40.
+Hello, Ada
+In 2030 you will be 40
 ```
 
 A few things to notice:
 
 - The text in quotes before `input` is the prompt. Put a trailing space in it so the answer does not touch the question.
-- `f"Hello, {name}!"` is an **f-string**: a string where `{...}` is replaced by the value inside. A later lesson covers f-strings fully.
+- `int(...)` around the second `input` turns the typed text into a whole number. The next section explains why that is needed.
 - `TARGET_YEAR` is in capitals because it is a constant by convention: a value that does not change while the program runs.
 
 ## input always returns text
 
-This is the single most common beginner error. Whatever the user types, `input` gives you a `str`, even if it looks like a number. Arithmetic on the wrong type either fails or does something surprising.
+This is the single most common beginner error. Whatever the user types, `input` gives you a `str`, even if it looks like a number. Here the text `"1990"` stands in for what `input` would hand back:
 
 ```python title="input_is_text.py"
-text = "1990"  # what input() would hand back
-print(type(text))
+text = "1990"
 print(int(text) + 1)
 print(text + "1")
 ```
 
 ```text
-<class 'str'>
 1991
 19901
 ```
 
-`int(text)` converts the text to a whole number, so adding 1 works as arithmetic. Adding `"1"` to text just glues the characters together. And mixing the two directly, like `"1990" + 1`, raises a `TypeError`.
+`int(text)` converts the text to a whole number, so adding 1 works as arithmetic. Adding `"1"` to text just glues the characters together. Mixing the two directly stops the program:
 
-If the text cannot be a number, `int` raises a `ValueError`:
+```python
+print("1990" + 1)
+```
+
+```text
+TypeError: can only concatenate str (not "int") to str
+```
+
+For a number with a decimal point, such as `3.5`, use `float(...)` instead of `int(...)`. And if the text cannot be a number at all, the conversion fails:
+
+```python
+print(int("abc"))
+```
 
 ```text
 ValueError: invalid literal for int() with base 10: 'abc'
 ```
 
-Handling that gracefully needs `try` and `except`, which come in the intermediate course. For now, type sensible answers when you test. For `3.5`, use `float(...)` instead of `int(...)`.
+Python has a way to catch an error like this and carry on, and you will see how to handle it later in the course. For now, type sensible answers when you test your programs.
 
 ## Common pitfalls
 
@@ -115,7 +138,9 @@ Handling that gracefully needs `try` and `except`, which come in the intermediat
 
 <Exercise title="A greeting with a birth year">
 
-Write a program that asks for a name and a birth year, then prints a greeting and the age the person will reach in 2030. Use the structure of `greeting.py`, but print the greeting and age on one line, separated by a dash, with `sep`.
+Write a program that asks for a name and a birth year, then prints one line with the word `Hello`, the name and the age the person will reach in 2030, separated by ` - ` with `sep`. Use the structure of `greeting.py`.
+
+Input: `Ada`, then `1990`. Expected output: `Hello - Ada - 40`.
 
 <Solution>
 
@@ -125,10 +150,54 @@ TARGET_YEAR = 2030
 name = input("What is your name? ")
 birth_year = int(input("Which year were you born? "))
 
-print(f"Hello, {name}!", TARGET_YEAR - birth_year, sep=" - ")
+print("Hello", name, TARGET_YEAR - birth_year, sep=" - ")
 ```
 
-For the input `Ada` and `1990` the last line prints `Hello, Ada! - 40`. `print` converts the number to text itself, so no `str()` call is needed.
+{/* stdin: Ada|1990 */}
+
+```text
+What is your name? Ada
+Which year were you born? 1990
+Hello - Ada - 40
+```
+
+`print` converts the number to text itself, so no `str()` call is needed.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fix the age program">
+
+This program should ask for an age and print the age next year. With the input `30` it should print `Next year: 31`, but it crashes. Find the bug and fix it.
+
+```python
+age = input("Age? ")
+print("Next year:", age + 1)
+```
+
+{/* stdin: 30 */}
+
+```text
+Age? 30
+TypeError: can only concatenate str (not "int") to str
+```
+
+<Solution>
+
+```python title="next_year_fixed.py"
+age = int(input("Age? "))
+print("Next year:", age + 1)
+```
+
+{/* stdin: 30 */}
+
+```text
+Age? 30
+Next year: 31
+```
+
+`input` returned the text `"30"`, and text cannot be added to a number. Wrapping the call in `int()` converts it first.
 
 </Solution>
 

@@ -1,23 +1,13 @@
-def handle(command):
-    match command.split():
+for line in "look;go north;go up;dance;quit".split(";"):
+    print(">", line)
+    match line.split():
         case ["quit"]:
-            return "Goodbye."
+            print("Goodbye.")
         case ["look"]:
-            return "You see a dusty room."
+            print("You see a dusty room.")
         case ["go", ("north" | "south" | "east" | "west") as direction]:
-            return f"You walk {direction}."
+            print("You walk", direction + ".")
         case ["go", _]:
-            return "You cannot go that way."
-        case ["take", item]:
-            return f"You pick up the {item}."
-        case ["take", *items] if items:
-            return f"One thing at a time: {', '.join(items)}."
-        case []:
-            return "Say something."
+            print("You cannot go that way.")
         case _:
-            return f"I don't understand {command!r}."
-
-
-for line in ["look", "go north", "go up", "take lamp", "take a b", "", "dance", "quit"]:
-    print(f"> {line}")
-    print(handle(line))
+            print("I don't understand", repr(line) + ".")

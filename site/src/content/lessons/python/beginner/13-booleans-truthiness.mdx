@@ -23,58 +23,78 @@ The fundamentals lessons on values and on making decisions cover booleans and bo
 
 `True` and `False` are the two values of the type `bool`. Comparisons such as `3 < 5` produce them, and `bool` is a subclass of `int`, so `True` behaves like `1` and `False` like `0` in arithmetic. You saw `and`, `or` and their short-circuit behaviour in the operators lesson.
 
+```python title="bool_basics.py"
+print(3 < 5, 3 > 5)
+print(True + True)
+print(int(False))
+```
+
+```text
+True False
+2
+0
+```
+
 ## Truthiness
 
 When Python needs a yes or no from something that is not a `bool`, it uses the object's **truth value**. The rule is short:
 
-- These are **falsy**: `False`, `None`, zero of any numeric type (`0`, `0.0`), and any empty collection or string (`""`, `[]`, `{}`).
+- These are **falsy**: `False`, `None`, zero of any numeric type (`0`, `0.0`), and any empty string or collection.
 - Everything else is **truthy**.
 
-`bool(x)` shows you the answer for any object.
+`bool(x)` shows you the answer for any object. Numbers first:
 
-```python title="truthiness.py"
-values = [0, 1, -3, 0.0, "", "0", " ", [], [0], {}, None, False]
-
-for value in values:
-    print(f"{value!r:>6} -> {bool(value)}")
-
-zero = 0
-print(zero is None, zero == False)
-
-name = None
-if name is None:
-    print("no name yet")
-
-print(not [], not [1])
-print(int(True) + int(True))
+```python title="truthy_numbers.py"
+print(bool(0), bool(0.0))
+print(bool(1), bool(-3))
 ```
 
 ```text
-     0 -> False
-     1 -> True
-    -3 -> True
-   0.0 -> False
-    '' -> False
-   '0' -> True
-   ' ' -> True
-    [] -> False
-   [0] -> True
-    {} -> False
-  None -> False
- False -> False
-False True
-no name yet
-True False
-2
+False False
+True True
 ```
 
-Notice that `"0"` and `" "` are truthy: they are non-empty strings, whatever they contain. A list holding a falsy item, such as `[0]`, is still non-empty and therefore truthy.
+Now strings. Notice that `"0"` and `" "` are truthy: they are non-empty strings, whatever they contain.
 
-Truthiness lets you write the natural thing. `if items:` reads as "if there is anything in the list", and `if not text:` as "if the string is empty".
+```python title="truthy_strings.py"
+print(bool(""))
+print(bool("0"), bool(" "), bool("False"))
+```
+
+```text
+False
+True True True
+```
+
+And `None`, which always counts as false:
+
+```python title="truthy_none.py"
+print(bool(None), bool(False))
+```
+
+```text
+False False
+```
+
+Empty collections are falsy too, while collections with anything inside are truthy. Lists, tuples and dicts arrive in the collections module, so treat this as a preview: `[]`, `()` and `{}` are an empty list, tuple and dict.
+
+```python title="truthy_collections.py"
+print(bool([]), bool(()), bool({}))
+print(bool([0]), bool([[]]))
+```
+
+```text
+False False False
+True True
+```
+
+A list holding a falsy item, such as `[0]`, is still non-empty and therefore truthy. Emptiness of the container itself is what counts.
+
+Truthiness lets you write the natural thing. Once you meet `if`, the test `if items:` will read as "if there is anything in the list", and `if not text:` as "if the string is empty".
 
 ## == versus is
 
-`==` asks whether two objects have **equal values**. `is` asks whether they are **the very same object** in memory.
+`==` asks whether two objects have **equal values**. `is` asks whether they are **the very same object** in memory. Equal-looking lists show the difference. Lists are a preview again: read the brackets as "a collection of three numbers".
 
 ```python title="is_vs_equals.py"
 a = [1, 2, 3]
@@ -84,81 +104,125 @@ c = a
 print(a == b)
 print(a is b)
 print(a is c)
-
-result = {}
-print(result == None, result is None)
-print(not result)
 ```
 
 ```text
 True
 False
 True
-False False
-True
 ```
 
 `a` and `b` hold equal lists but are two separate objects. `c` is a second name for the object `a` already points at, which is the name-and-object model from the variables lesson.
 
-Use `is` for exactly one everyday job: comparing with `None`. There is only ever one `None`, so `x is None` is precise, fast, and cannot be fooled by an object with an unusual `==`. The last two lines show why it matters: an empty dict is falsy, but it is not `None`. If a function may return either "nothing" or "an empty result", `if not result:` treats them alike, while `if result is None:` tells them apart.
+Use `is` for exactly one everyday job: comparing with `None`. There is only ever one `None`, so `x is None` is precise, fast, and cannot be fooled by an object with an unusual `==`.
+
+```python title="is_none.py"
+name = None
+print(name is None)
+print(name is not None)
+```
+
+```text
+True
+False
+```
+
+The difference between "nothing" and "empty" matters. An empty string is falsy, but it is not `None`:
+
+```python title="missing_vs_empty.py"
+result = ""
+print(result == None, result is None)
+print(not result)
+```
+
+```text
+False False
+True
+```
+
+If something may be "nothing" or "an empty result", `not result` treats them alike, while `result is None` tells them apart.
 
 ## Negation: not
 
-`not x` gives `True` when `x` is falsy and `False` otherwise, and it always returns a real `bool`. Prefer it to anything cleverer. In particular, do not use the bitwise operator `~` on booleans: `~True` is `-2`, not `False`, because `True` is the integer 1. Applying `~` to a `bool` has been deprecated since Python 3.12 and is scheduled for removal in 3.16, so write `not x`.
+`not x` gives `True` when `x` is falsy and `False` otherwise, and it always returns a real `bool`.
+
+```python title="not_operator.py"
+print(not 0, not "hi")
+print(not None)
+```
+
+```text
+True False
+True
+```
+
+Prefer `not` to anything cleverer. In particular, do not use the bitwise operator `~` on booleans: `~True` is `-2`, not `False`, because `True` is the integer 1. Applying `~` to a `bool` has been deprecated since Python 3.12 and is scheduled for removal in 3.16, so write `not x`.
 
 ## Common pitfalls
 
 - **Treating `"0"` or `"False"` as false.** Any non-empty string is truthy. Convert the text first, for example `text == "0"`, or `int(text)`.
-- **Using `if x:` when `0` is a valid value.** If `count = 0` is a real answer, `if not count:` will wrongly treat it as "missing". Test `if count is None:` instead.
-- **Comparing with `== True`.** `if flag == True:` is noise, and it is false for `2`, which is truthy. Write `if flag:`.
+- **Using truthiness when `0` is a valid value.** If `count = 0` is a real answer, `not count` will wrongly treat it as "missing". Test `count is None` instead.
+- **Comparing with `== True`.** A test such as `flag == True` is noise, and it is false for `2`, which is truthy. Use `flag` on its own.
 - **Using `is` with numbers and strings.** `x is 5` may happen to work, but it checks identity, not value, and recent Pythons warn about it with a `SyntaxWarning`. Use `==`.
 - **Writing `== None`.** It usually works but is less reliable than `is None`.
 
 <Exercise title="Truthiness table">
 
-Without running anything, write down `bool(x)` for each of these 12 values: `0`, `0.0`, `-1`, `""`, `"False"`, `[]`, `[[]]`, `{}`, `{"a": 0}`, `None`, `" "`, `()`. Then check yourself in code.
+Without running anything, write down `bool(x)` for each of these seven values: `0`, `0.0`, `-1`, `""`, `"False"`, `None`, `" "`. Then check yourself with a single `print`.
+
+Input: none. Expected output: one line of seven words.
 
 <Solution>
 
 ```python title="truthiness_check.py"
-values = [0, 0.0, -1, "", "False", [], [[]], {}, {"a": 0}, None, " ", ()]
-for value in values:
-    print(repr(value), bool(value))
+print(bool(0), bool(0.0), bool(-1), bool(""), bool("False"), bool(None), bool(" "))
 ```
 
-Falsy: `0`, `0.0`, `""`, `[]`, `{}`, `None`, `()`. Truthy: `-1`, `"False"`, `[[]]` (a list with one item, even though that item is empty), `{"a": 0}`, `" "`. Emptiness of the container itself is what counts, not the contents.
+```text
+False False True False True False True
+```
+
+Falsy: `0`, `0.0`, `""` and `None`. Truthy: `-1` (any non-zero number), `"False"` and `" "` (non-empty strings, whatever they say).
 
 </Solution>
+
 </Exercise>
 
 <Exercise title="Missing versus empty">
 
-A dictionary `POSTS` maps post names to lists of tags, and looking up a missing post with `.get()` gives `None`. Write the `if` statements that print "no such post" for `None`, "no tags" for an empty list, and the tags otherwise.
+For each of the three values `None`, `""` and `"ok"`, print one line with two answers: whether the value `is None`, and whether it is falsy (`not value`).
+
+Input: none. Expected output:
+
+```text
+True True
+False True
+False False
+```
 
 <Solution>
 
-```python title="missing_vs_empty.py"
-POSTS = {"intro": ["python", "basics"], "draft": []}
+```python title="none_vs_falsy.py"
+value = None
+print(value is None, not value)
 
-for post in ["intro", "draft", "ghost"]:
-    tags = POSTS.get(post)
-    if tags is None:
-        print(post, "-> no such post")
-    elif not tags:
-        print(post, "-> no tags")
-    else:
-        print(post, "->", ", ".join(tags))
+value = ""
+print(value is None, not value)
+
+value = "ok"
+print(value is None, not value)
 ```
 
 ```text
-intro -> python, basics
-draft -> no tags
-ghost -> no such post
+True True
+False True
+False False
 ```
 
-Here `POSTS.get(post)` stands in for `find_tags`: it returns `None` for a missing key. Check `is None` first, because `not tags` would also be true for `None`. The next lesson covers `elif` fully.
+The empty string is falsy but not `None`, so only the first line says `True` twice. That is why `is None` is the right test when "nothing" must be told apart from "empty".
 
 </Solution>
+
 </Exercise>
 
 ## Summary

@@ -4,13 +4,13 @@ level: beginner
 module: Control flow
 order: 15
 title: while loops
-description: Repeat code while a condition holds, read input until a sentinel appears, and stop loops that would never end.
+description: Repeat code while a condition holds, read input until a sentinel appears, find bugs in a loop with print debugging, and stop loops that would never end.
 minVersion: "3.8"
 objectives:
   - Write a while loop that runs while a condition is true
   - Build a sentinel loop that reads input until the user quits
   - Use break and continue inside a while loop
-  - Spot and fix an infinite loop
+  - Trace a loop with print debugging, and spot and fix an infinite loop
 estimatedMinutes: 30
 fundamentals: ["fundamentals/beginner/08-loops"]
 ---
@@ -25,15 +25,6 @@ while n > 0:
     print(n)
     n -= 1
 print("Liftoff")
-
-total = 0
-count = 0
-for text in ["10", "20", "", "99"]:
-    if text == "":
-        break
-    total += int(text)
-    count += 1
-print(total, count)
 ```
 
 ```text
@@ -41,16 +32,46 @@ print(total, count)
 2
 1
 Liftoff
-30 2
 ```
 
-The first loop follows the same shape as `if`: a condition, a colon, and an indented block. Python checks the condition **before** every pass, including the first. If it is false from the start, the body never runs. The block must change something that the condition depends on, here `n -= 1`, or the loop never ends.
-
-The second loop uses a `for`, which the next lesson introduces. Read it as "for each text in this list". It shows `break`, which leaves the loop immediately: as soon as it meets the empty string, it stops, so `99` is never added.
+The loop follows the same shape as `if`: a condition, a colon, and an indented block. Python checks the condition **before** every pass, including the first. If it is false from the start, the body never runs. `n -= 1` is shorthand for `n = n - 1`, and the block must change something that the condition depends on, or the loop never ends.
 
 ## Sentinel loops
 
-Often you do not know how many times to repeat. You keep asking until the user types a special **sentinel** value, such as `q`. The usual Python shape is `while True` with a `break`:
+Often you do not know how many times to repeat. You keep asking until the user types a special **sentinel** value. The usual Python shape is `while True` with a `break`. `break` leaves the loop immediately.
+
+This program adds up numbers until the user types nothing and presses Enter:
+
+```python title="sum_until_blank.py"
+total = 0
+count = 0
+
+while True:
+    text = input("Number (blank to stop): ")
+    if text == "":
+        break
+    total += int(text)
+    count += 1
+
+print("Total:", total, "from", count, "numbers")
+```
+
+{/* stdin: 10|20| */}
+
+Here the user typed `10`, `20` and then just pressed Enter:
+
+```text
+Number (blank to stop): 10
+Number (blank to stop): 20
+Number (blank to stop): 
+Total: 30 from 2 numbers
+```
+
+`while True` looks alarming, but it is deliberate: the loop has an exit point in the middle of the body, and it is a `break`. Writing the `input()` call once, inside the loop, avoids repeating it before the loop to prime the condition.
+
+## continue
+
+`continue` is the other control word. It skips the rest of the current pass and jumps back to the condition. A guessing game uses it to reject non-numeric input without counting an attempt:
 
 ```python title="guessing_game.py"
 secret = 42
@@ -75,30 +96,129 @@ while True:
         break
 ```
 
-Run with the typed answers `50`, `hello`, `25` and `42`, it prints the following. Your terminal shows your own typing after each prompt; here the answers come from a file, so only the prompts appear.
+{/* stdin: 50|hello|25|42 */}
+
+Here the typed answers were `50`, `hello`, `25` and `42`:
 
 ```text
-Guess a number from 1 to 100 (q to quit): Too high.
-Guess a number from 1 to 100 (q to quit): Please type a whole number.
-Guess a number from 1 to 100 (q to quit): Too low.
-Guess a number from 1 to 100 (q to quit): Correct, after 3 attempts.
+Guess a number from 1 to 100 (q to quit): 50
+Too high.
+Guess a number from 1 to 100 (q to quit): hello
+Please type a whole number.
+Guess a number from 1 to 100 (q to quit): 25
+Too low.
+Guess a number from 1 to 100 (q to quit): 42
+Correct, after 3 attempts.
 ```
 
-`while True` looks alarming, but it is deliberate: the loop has several exit points in the middle of the body, and each one is a `break`. Writing the `input()` call once, inside the loop, avoids repeating it before the loop to prime the condition.
+Notice that `"hello"` did not count: the attempts total is 3, not 4. The program has two `break` exits, one for quitting and one for winning.
 
-`continue` is the other control word. It skips the rest of the current pass and jumps back to the condition. Here it rejects non-numeric input without counting an attempt. Notice that `"hello"` did not count: the attempts total is 3, not 4.
+## Debugging a loop with print
+
+When a loop does something you did not expect, the quickest tool is to print the variables that change on every pass. The `=` form of an f-string, from the f-strings lesson, prints the name next to the value:
+
+```python title="trace_loop.py"
+n = 6
+while n != 1:
+    print(f"{n=}")
+    if n % 2 == 0:
+        n = n // 2
+    else:
+        n = 3 * n + 1
+print("reached", n)
+```
+
+```text
+n=6
+n=3
+n=10
+n=5
+n=16
+n=8
+n=4
+n=2
+reached 1
+```
+
+Each line shows the value of `n` at the start of a pass, so you can follow the loop step by step and see where it stops behaving as you expect. Delete the `print` when you are done.
+
+For longer programs, Python can pause on a line and let you inspect variables interactively. Putting `breakpoint()` on a line starts the built-in debugger there. A later lesson shows how to use it.
 
 ## Common pitfalls
 
 - **Forgetting to update the loop variable.** `while n > 0:` with no `n -= 1` runs forever. Stop a runaway program in the terminal with Ctrl+C.
-- **Off-by-one conditions.** `while n > 0` counts 3, 2, 1. `while n >= 0` would also print 0. Trace through a small case by hand.
+- **Off-by-one conditions.** `while n > 0` counts 3, 2, 1. `while n >= 0` would also print 0. Trace through a small case by hand, or with a `print`.
 - **Changing the wrong variable.** If you update `count` but the condition tests `total`, nothing converges.
-- **`continue` that skips the update.** If the step `n += 1` comes after a `continue`, the loop can stick on the same value forever. Update before you `continue`, or use a `for` loop.
+- **`continue` that skips the update.** If the step `n += 1` comes after a `continue`, the loop can stick on the same value forever. Update before you `continue`.
 - **Comparing floats for equality.** `while x != 1.0` with `x += 0.1` may never hit exactly 1.0. Use `<` or `<=`.
 
-<Exercise title="Number-guessing game">
+<Exercise title="Predict the countdown">
 
-Extend the example. Count how many guesses the player makes, and stop with a message after 7 wrong guesses, revealing the secret.
+Predict what this loop prints, then run it. Input: none. Expected output: four lines.
+
+```python title="predict_step.py"
+n = 10
+while n > 0:
+    print(n)
+    n -= 3
+```
+
+<Solution>
+
+```text
+10
+7
+4
+1
+```
+
+After `1` the value becomes `-2`, which fails the test `n > 0`, so the loop stops. The loop never prints `0` or a negative number.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Add numbers until zero">
+
+Write a program that asks for whole numbers one at a time with the prompt `Number (0 to stop): `, adds them up, and stops when the user types `0`. Then print `Total: ` and the sum.
+
+Input: `5`, `3`, `8`, `0`. Expected output: the prompts and then `Total: 16`.
+
+<Solution>
+
+```python title="sum_until_zero.py"
+total = 0
+
+while True:
+    number = int(input("Number (0 to stop): "))
+    if number == 0:
+        break
+    total += number
+
+print("Total:", total)
+```
+
+{/* stdin: 5|3|8|0 */}
+
+```text
+Number (0 to stop): 5
+Number (0 to stop): 3
+Number (0 to stop): 8
+Number (0 to stop): 0
+Total: 16
+```
+
+The `0` is read and converted, then `break` leaves the loop before it can be added. Adding `0` would not change the total anyway, but the pattern is the same one you would use for any sentinel.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Number-guessing game with a limit">
+
+Extend the guessing game. Count how many numeric guesses the player makes, and stop with a message after 7 wrong guesses, revealing the secret. Use a `won` flag to remember whether the player got it right.
+
+Input: the answers `10`, `99`, `abc`, `41`, `43`, `50`, `5` and `60`. Expected output: the prompts with `Too low.` or `Too high.` after each number, `Please type a whole number.` for `abc`, and finally `Out of guesses. The number was 42.`
 
 <Solution>
 
@@ -106,6 +226,7 @@ Extend the example. Count how many guesses the player makes, and stop with a mes
 secret = 42
 max_attempts = 7
 attempts = 0
+won = False
 
 while attempts < max_attempts:
     text = input("Guess: ")
@@ -116,35 +237,46 @@ while attempts < max_attempts:
     guess = int(text)
     if guess == secret:
         print(f"Correct, after {attempts} attempts.")
+        won = True
         break
     print("Too low." if guess < secret else "Too high.")
-else:
+
+if not won:
     print(f"Out of guesses. The number was {secret}.")
 ```
 
-With the answers `10`, `99`, `abc`, `41`, `43`, `50`, `5` and `60` fed in from a file, the output is:
+{/* stdin: 10|99|abc|41|43|50|5|60 */}
 
 ```text
-Guess: Too low.
-Guess: Too high.
-Guess: Please type a whole number.
-Guess: Too low.
-Guess: Too high.
-Guess: Too high.
-Guess: Too low.
-Guess: Too high.
+Guess: 10
+Too low.
+Guess: 99
+Too high.
+Guess: abc
+Please type a whole number.
+Guess: 41
+Too low.
+Guess: 43
+Too high.
+Guess: 50
+Too high.
+Guess: 5
+Too low.
+Guess: 60
+Too high.
 Out of guesses. The number was 42.
 ```
 
-The loop condition now enforces the limit, so no `while True` is needed. The `else` on a loop runs only when the loop ends without a `break`, which here means the player ran out of guesses. The lesson on loop control explains it fully.
+The loop condition now enforces the limit, so no `while True` is needed. The `won` flag is set just before the `break`, and the test after the loop reports the failure only when the player never won. The loop control lesson shows a tidier way to do this with an `else` on the loop.
 
 </Solution>
+
 </Exercise>
 
 ## Summary
 
 - `while condition:` repeats its block as long as the condition is truthy, testing before each pass.
 - `while True` plus `break` is the standard shape for sentinel loops and loops with several exits.
-- `break` leaves the loop; `continue` skips to the next pass. Make sure something in the body moves the loop towards its end.
+- `break` leaves the loop; `continue` skips to the next pass. Make sure something in the body moves the loop towards its end, and use `print(f"{x=}")` to trace it.
 
 Next: for loops and range.

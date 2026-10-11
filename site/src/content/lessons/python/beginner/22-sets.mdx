@@ -17,57 +17,101 @@ fundamentals: ["fundamentals/beginner/14-maps-and-sets"]
 
 Sometimes you do not care about order or position, only about *whether something is there*. Is this user already registered? Which words appear in both documents? A **set** is an unordered collection of unique items built for exactly those questions. It rests on the same hashing idea as dictionary keys, which the fundamentals lesson on maps and sets explains.
 
-## Creating and changing a set
+## Creating a set
 
-```python title="set_basics.py"
+Curly braces with bare items make a set, and duplicates are dropped.
+
+```python title="set_create.py"
 colors = {"red", "green", "blue", "red"}
 print(sorted(colors), len(colors))
-
-empty_set = set()
-empty_dict = {}
-print(type(empty_set).__name__, type(empty_dict).__name__)
-
-colors.add("yellow")
-colors.discard("purple")
-colors.discard("red")
-print(sorted(colors))
-
-try:
-    colors.remove("purple")
-except KeyError as error:
-    print("KeyError:", error)
-
-print("blue" in colors)
-
-# Removing duplicates from a list
-print(sorted(set([3, 1, 3, 2, 1])))
-
-# Elements must be hashable
-try:
-    {[1, 2]}
-except TypeError as error:
-    print("TypeError:", error)
-print({(1, 2), (1, 2)})
 ```
 
 ```text
 ['blue', 'green', 'red'] 3
-set dict
-['blue', 'green', 'yellow']
-KeyError: 'purple'
-True
-[1, 2, 3]
-TypeError: cannot use 'list' as a set element (unhashable type: 'list')
-{(1, 2)}
 ```
 
-Curly braces with bare items make a set, and the duplicate `"red"` is dropped. The empty case is the trap: `{}` is an empty **dict**, so spell an empty set `set()`.
+A set has no positions, so `s[0]` is an error and the printing order is not something to rely on. The example wraps the set in `sorted(...)` so the output is the same on every run.
+
+The empty case is the trap: `{}` is an empty **dict**, so spell an empty set `set()`.
+
+```python title="set_empty.py"
+empty_set = set()
+empty_dict = {}
+print(type(empty_set).__name__, type(empty_dict).__name__)
+```
+
+```text
+set dict
+```
+
+## Changing a set
 
 `add` inserts an item. `discard` removes it if present and does nothing otherwise, whereas `remove` raises `KeyError` for a missing item. `x in s` is very fast, and the [last lesson of this module](../choosing-collections/) shows by how much.
 
-A set has no positions, so `s[0]` is an error and the printing order is not something to rely on. The example wraps sets in `sorted(...)` so the output is the same on every run. Items must be hashable, so you can store numbers, strings and tuples but not lists. And `set(my_list)` is the quickest way to drop duplicates, though the original order is lost. The exercise shows how to keep it.
+```python title="set_change.py"
+colors = {"red", "green", "blue"}
+colors.add("yellow")
+colors.discard("purple")
+colors.discard("red")
+print(sorted(colors))
+print("blue" in colors)
+```
+
+```text
+['blue', 'green', 'yellow']
+True
+```
+
+```python
+colors = {"blue"}
+colors.remove("purple")
+```
+
+```text
+KeyError: 'purple'
+```
+
+## Removing duplicates
+
+`set(my_list)` is the quickest way to drop duplicates, though the original order is lost. The exercise below shows how to keep it.
+
+```python title="set_dedupe.py"
+numbers = [3, 1, 3, 2, 1]
+print(sorted(set(numbers)))
+```
+
+```text
+[1, 2, 3]
+```
+
+Items must be hashable, so you can store numbers, strings and tuples but not lists:
+
+```python
+print({[1, 2]})
+```
+
+```text
+TypeError: cannot use 'list' as a set element (unhashable type: 'list')
+```
+
+```python title="set_tuples.py"
+print({(1, 2), (1, 2)})
+```
+
+```text
+{(1, 2)}
+```
 
 ## Set algebra
+
+The four operators match the diagrams from school maths:
+
+| Operator | Meaning |
+|---|---|
+| `a \| b` | union: in either set |
+| `a & b` | intersection: in both |
+| `a - b` | difference: in `a` but not `b` |
+| `a ^ b` | symmetric difference: in exactly one |
 
 ```python title="set_algebra.py"
 python_fans = {"Ada", "Grace", "Linus", "Guido"}
@@ -77,22 +121,6 @@ print(sorted(python_fans | rust_fans))
 print(sorted(python_fans & rust_fans))
 print(sorted(python_fans - rust_fans))
 print(sorted(python_fans ^ rust_fans))
-
-print({"Ada"} <= python_fans)
-print(python_fans.isdisjoint({"Zed"}))
-
-# Method forms accept any iterable
-print(sorted(python_fans.intersection(["Ada", "Zed"])))
-
-fs = frozenset({1, 2, 3})
-print(fs, 2 in fs)
-try:
-    fs.add(4)
-except AttributeError as error:
-    print("AttributeError:", error)
-
-rooms = {frozenset({"Ada", "Alan"}): "lab"}
-print(rooms[frozenset({"Alan", "Ada"})])
 ```
 
 ```text
@@ -100,28 +128,58 @@ print(rooms[frozenset({"Alan", "Ada"})])
 ['Grace', 'Linus']
 ['Ada', 'Guido']
 ['Ada', 'Ferris', 'Guido']
+```
+
+`a <= b` asks whether `a` is a subset of `b`, and `a.isdisjoint(b)` asks whether they share nothing. Each operator has a method twin (`union`, `intersection`, `difference`, `symmetric_difference`). The methods accept any iterable, so a list works, but the operators need two sets.
+
+```python title="set_tests.py"
+python_fans = {"Ada", "Grace", "Linus", "Guido"}
+
+print({"Ada"} <= python_fans)
+print(python_fans.isdisjoint({"Zed"}))
+print(sorted(python_fans.intersection(["Ada", "Zed"])))
+```
+
+```text
 True
 True
 ['Ada']
-frozenset({1, 2, 3}) True
-AttributeError: 'frozenset' object has no attribute 'add'
-lab
 ```
-
-The four operators match the diagrams from school maths:
-
-| Operator | Meaning | Example result |
-|---|---|---|
-| `a \| b` | union: in either set | all five names |
-| `a & b` | intersection: in both | `Grace`, `Linus` |
-| `a - b` | difference: in `a` but not `b` | `Ada`, `Guido` |
-| `a ^ b` | symmetric difference: in exactly one | `Ada`, `Ferris`, `Guido` |
-
-`a <= b` asks whether `a` is a subset of `b`, and `a.isdisjoint(b)` asks whether they share nothing. Each operator has a method twin (`union`, `intersection`, `difference`, `symmetric_difference`). The methods accept any iterable, so `python_fans.intersection(["Ada", "Zed"])` works with a list, but the operators need two sets.
 
 ## frozenset
 
-A `frozenset` is an immutable set. It supports all the read-only operations but has no `add` or `remove`. Because it cannot change, it is hashable, so it can be a dictionary key or an element of another set. The `rooms` example uses it as a key, and the order in which the names were written does not matter. (Python 3.15 adds the same idea for dicts as `frozendict`, covered in the previous lesson.)
+A `frozenset` is an immutable set. It supports all the read-only operations but has no `add` or `remove`.
+
+```python title="frozenset_basic.py"
+fs = frozenset({1, 2, 3})
+print(fs, 2 in fs)
+```
+
+```text
+frozenset({1, 2, 3}) True
+```
+
+```python
+fs = frozenset({1, 2, 3})
+fs.add(4)
+```
+
+```text
+AttributeError: 'frozenset' object has no attribute 'add'. Did you mean to use a 'set' object?
+```
+
+Because it cannot change, a `frozenset` is hashable, so it can be a dictionary key or an element of another set, and the order in which the names were written does not matter.
+
+```python title="frozenset_key.py"
+rooms = {frozenset({"Ada", "Alan"}): "lab"}
+print(rooms[frozenset({"Alan", "Ada"})])
+```
+
+```text
+lab
+```
+
+(Python 3.15 adds the same idea for dicts as `frozendict`, covered in the previous lesson.)
 
 ## Common pitfalls
 
@@ -132,59 +190,85 @@ A `frozenset` is an immutable set. It supports all the read-only operations but 
 - **Using `|` with a list.** `{1} | [2]` is a `TypeError`. Call `{1}.union([2])` or convert the list first.
 - **Expecting `set(text)` to give words.** It gives the set of characters. Use `set(text.split())` for words.
 
+<Exercise title="Count the distinct letters">
+
+Predict the two lines this prints, then run the file. Input: none. Expected output: a number and then a sorted list of letters.
+
+```python title="predict_set.py"
+letters = set("mississippi")
+print(len(letters))
+print(sorted(letters))
+```
+
+<Solution>
+
+```text
+4
+['i', 'm', 'p', 's']
+```
+
+A string is a sequence of characters, so `set("mississippi")` keeps one of each distinct letter. There are four, and `sorted` puts them in alphabetical order.
+
+</Solution>
+
+</Exercise>
+
 <Exercise title="Common friends">
 
-Given two people's friend lists, find the friends they share and the friends only the first person has. Then remove duplicates from one list while keeping the original order.
+Ada's friends are `["Grace", "Alan", "Linus", "Margaret"]` and Ben's are `["Alan", "Margaret", "Dennis", "Alan"]`. Print the sorted list of friends they share, the sorted list of friends only Ada has, and Ben's list with duplicates removed but the original order kept.
+
+Input: the two lists. Expected output:
+
+```text
+['Alan', 'Margaret']
+['Grace', 'Linus']
+['Alan', 'Margaret', 'Dennis']
+```
 
 <Solution>
 
 ```python title="common_friends.py"
-friends = {
-    "Ada": ["Grace", "Alan", "Linus", "Margaret"],
-    "Ben": ["Alan", "Margaret", "Dennis", "Alan"],
-}
+ada = ["Grace", "Alan", "Linus", "Margaret"]
+ben = ["Alan", "Margaret", "Dennis", "Alan"]
 
-common = set(friends["Ada"]) & set(friends["Ben"])
-print(sorted(common))
+print(sorted(set(ada) & set(ben)))
+print(sorted(set(ada) - set(ben)))
 
-only_ada = set(friends["Ada"]) - set(friends["Ben"])
-print(sorted(only_ada))
-
-# Remove duplicates but keep the original order
 seen = set()
 unique_in_order = []
-for name in friends["Ben"]:
+for name in ben:
     if name not in seen:
         seen.add(name)
         unique_in_order.append(name)
 print(unique_in_order)
-print(list(dict.fromkeys(friends["Ben"])))
 ```
 
 ```text
 ['Alan', 'Margaret']
 ['Grace', 'Linus']
 ['Alan', 'Margaret', 'Dennis']
-['Alan', 'Margaret', 'Dennis']
 ```
 
-The `seen` set gives a fast "have I met this before?" test while the list keeps the order. The one-line alternative, `dict.fromkeys`, works because dict keys are unique and remember insertion order.
+The `seen` set gives a fast "have I met this before?" test while the list keeps the order. A one-line alternative is `list(dict.fromkeys(ben))`, which works because dict keys are unique and remember insertion order.
 
 </Solution>
+
 </Exercise>
 
 <Exercise title="Words only in the first text">
 
-Write `words_only_in_first(first, second)` that returns the sorted words that appear in the first text but not the second, ignoring case.
+Given `first = "The cat sat on the mat"` and `second = "the dog sat"`, print the sorted list of words that appear in the first text but not the second, ignoring case.
+
+Input: the two texts. Expected output: `['cat', 'mat', 'on']`.
 
 <Solution>
 
 ```python title="unique_words.py"
-def words_only_in_first(first, second):
-    return sorted(set(first.lower().split()) - set(second.lower().split()))
+first = "The cat sat on the mat"
+second = "the dog sat"
 
-
-print(words_only_in_first("The cat sat on the mat", "the dog sat"))
+only_first = set(first.lower().split()) - set(second.lower().split())
+print(sorted(only_first))
 ```
 
 ```text
@@ -194,6 +278,7 @@ print(words_only_in_first("The cat sat on the mat", "the dog sat"))
 Lowercasing first makes `The` and `the` the same word, and the set difference does the rest.
 
 </Solution>
+
 </Exercise>
 
 ## Summary

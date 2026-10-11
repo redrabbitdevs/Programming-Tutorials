@@ -10,7 +10,7 @@ objectives:
   - Distinguish str (text) from bytes (data)
   - Encode and decode with UTF-8 and handle encoding errors
   - Explain why len() of a string and of its bytes can differ
-  - Read and write text files with an explicit encoding
+  - Read and write a text file with an explicit encoding
 estimatedMinutes: 30
 fundamentals: ["fundamentals/beginner/06-text-and-strings"]
 ---
@@ -23,43 +23,78 @@ The fundamentals lesson on text explains code points and UTF-8 in general. This 
 
 A Python `str` is a sequence of Unicode code points. `encode()` turns a `str` into `bytes`, and `decode()` turns `bytes` back into a `str`. Both take an encoding name, and UTF-8 is the right choice almost everywhere.
 
-```python title="unicode_bytes.py"
+```python title="encode_decode.py"
 word = "café"
 data = word.encode("utf-8")
 print(len(word), len(data))
 print(data)
 print(data.decode("utf-8"))
-print([ord(ch) for ch in "aé€"])
-print(chr(233), chr(0x20AC), "é", "\N{GREEK SMALL LETTER LAMDA}")
-print(list("hi".encode("utf-8")))
-print(b"abc"[0], b"abc"[:2])
-print(word.encode("latin-1"))
-try:
-    "€".encode("latin-1")
-except UnicodeEncodeError as error:
-    print("error:", error.reason)
-print("€".encode("latin-1", errors="replace"))
 ```
 
 ```text
 4 5
 b'caf\xc3\xa9'
 café
-[97, 233, 8364]
-é € é λ
-[104, 105]
-97 b'ab'
-b'caf\xe9'
-error: ordinal not in range(256)
-b'?'
 ```
 
-What the output shows:
+`"café"` has 4 characters but 5 bytes in UTF-8, because `é` takes two bytes (`\xc3\xa9`). "Length" depends on what you count.
 
-- `"café"` has 4 characters but 5 bytes in UTF-8, because `é` takes two bytes (`\xc3\xa9`). "Length" depends on what you count.
-- `ord()` gives a character's code point, and `chr()` goes the other way. You can write a character in source with `é`, or by name with `\N{...}`.
-- Indexing a `bytes` object gives an `int`, not a one-character string. Slicing gives `bytes`.
-- Encoding with a different codec produces different bytes. Latin-1 stores `é` in one byte, but it cannot represent `€` at all. By default that raises `UnicodeEncodeError`. The `errors="replace"` option substitutes `?` instead, which loses information, so use it only when you accept that.
+A **code point** is the number Unicode gives to a character. `ord()` gives a character's code point, and `chr()` goes the other way. You can write a character in source directly, or by name with `\N{...}`.
+
+```python title="code_points.py"
+print(ord("a"), ord("é"), ord("€"))
+print(chr(233), chr(0x20AC), "\N{GREEK SMALL LETTER LAMDA}")
+```
+
+```text
+97 233 8364
+é € λ
+```
+
+Indexing a `bytes` object gives an `int`, not a one-character string. Slicing gives `bytes`.
+
+```python title="bytes_indexing.py"
+data = "hi".encode("utf-8")
+print(data[0], data[1])
+print(b"abc"[:2])
+```
+
+```text
+104 105
+b'ab'
+```
+
+## Other encodings and errors
+
+Encoding with a different codec produces different bytes. Latin-1 stores `é` in one byte:
+
+```python title="latin1.py"
+print("café".encode("latin-1"))
+```
+
+```text
+b'caf\xe9'
+```
+
+But Latin-1 cannot represent `€` at all. By default that stops the program with an error:
+
+```python
+print("€".encode("latin-1"))
+```
+
+```text
+UnicodeEncodeError: 'latin-1' codec can't encode character '\u20ac' in position 0: ordinal not in range(256)
+```
+
+The `errors="replace"` option substitutes `?` instead, which loses information, so use it only when you accept that.
+
+```python title="errors_replace.py"
+print("€".encode("latin-1", errors="replace"))
+```
+
+```text
+b'?'
+```
 
 ## Mojibake: decoding with the wrong codec
 
@@ -70,32 +105,42 @@ original = "naïve café"
 data = original.encode("utf-8")
 wrong = data.decode("latin-1")
 print(wrong)
-fixed = wrong.encode("latin-1").decode("utf-8")
-print(fixed == original)
-print(len(original), len(data))
 ```
 
 ```text
 naÃ¯ve cafÃ©
+```
+
+Latin-1 maps every byte to a character, so it never fails, which is exactly why it hides mistakes. Encoding the wrong text back with Latin-1 recovers the original bytes, and decoding those as UTF-8 repairs it:
+
+```python title="mojibake_fix.py"
+original = "naïve café"
+wrong = original.encode("utf-8").decode("latin-1")
+fixed = wrong.encode("latin-1").decode("utf-8")
+print(fixed == original)
+print(len(original), len(original.encode("utf-8")))
+```
+
+```text
 True
 10 12
 ```
 
-Latin-1 maps every byte to a character, so it never fails, which is exactly why it hides mistakes. Encoding the wrong text back with Latin-1 recovers the original bytes, and decoding those as UTF-8 repairs it. The better fix is to decode correctly in the first place.
+The better fix is to decode correctly in the first place.
 
 ## Files and the default encoding
 
-When you open a text file, Python decodes the bytes for you, and it needs to know the encoding. Always say so with `encoding="utf-8"`.
+When you open a text file, Python decodes the bytes for you, and it needs to know the encoding. Always say so with `encoding="utf-8"`. The `pathlib` module gives you a `Path` object for a file, with `write_text` and `read_text` methods. This example uses a file in your system's temporary folder and deletes it at the end.
 
 ```python title="file_encoding.py"
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
-with tempfile.TemporaryDirectory() as folder:
-    path = Path(folder) / "note.txt"
-    path.write_text("naïve café\n", encoding="utf-8")
-    print(path.read_text(encoding="utf-8").strip())
-    print(path.stat().st_size)
+path = Path(tempfile.gettempdir()) / "unicode_lesson_note.txt"
+path.write_text("naïve café\n", encoding="utf-8")
+print(path.read_text(encoding="utf-8").strip())
+print(path.stat().st_size)
+path.unlink()
 ```
 
 ```text
@@ -103,7 +148,7 @@ naïve café
 13
 ```
 
-The file holds 13 bytes for 11 characters including the newline: two characters, `ï` and `é`, use two bytes each.
+The file holds 13 bytes for 11 characters including the newline: two characters, `ï` and `é`, use two bytes each. `unlink()` deletes the file again so the example leaves nothing behind.
 
 <Callout type="note">
 
@@ -121,14 +166,47 @@ Keep writing `encoding="utf-8"` anyway. It makes your intent visible, and your c
 - **Silencing errors.** `errors="ignore"` and `errors="replace"` hide problems. Prefer fixing the encoding.
 - **Believing one character is one code point.** Some visible characters, such as certain accented letters and emoji sequences, are several code points. Counting code points with `len()` is usually good enough for beginners.
 
-<Exercise title="Characters versus bytes, and a mojibake fix">
+<Exercise title="Characters versus bytes">
 
-1. For the text `"naïve café"`, print its number of characters and its number of UTF-8 bytes.
-2. Decode its UTF-8 bytes as Latin-1 to create the garbled text, then repair it back to the original.
+For the text `"naïve café"`, print its number of characters and its number of UTF-8 bytes on one line.
+
+Input: none. Expected output: `10 12`.
 
 <Solution>
 
-`mojibake.py` above does both. The character count is 10 and the byte count is 12, because `ï` and `é` take two bytes each. The garbled text prints as `naÃ¯ve cafÃ©`. The repair is `wrong.encode("latin-1").decode("utf-8")`, and comparing it with the original prints `True`.
+```python title="chars_vs_bytes.py"
+text = "naïve café"
+print(len(text), len(text.encode("utf-8")))
+```
+
+```text
+10 12
+```
+
+The character count is 10. The byte count is 12, because `ï` and `é` take two bytes each in UTF-8.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Repair the mojibake">
+
+A file was written as UTF-8 but read as Latin-1, so it arrived as `naÃ¯ve cafÃ©`. Repair it and print the original text.
+
+Input: `garbled = "naÃ¯ve cafÃ©"`. Expected output: `naïve café`.
+
+<Solution>
+
+```python title="repair_mojibake.py"
+garbled = "naÃ¯ve cafÃ©"
+print(garbled.encode("latin-1").decode("utf-8"))
+```
+
+```text
+naïve café
+```
+
+Latin-1 maps each character back to exactly one byte, which recovers the original UTF-8 bytes. Decoding those bytes as UTF-8 then gives the intended text.
 
 </Solution>
 

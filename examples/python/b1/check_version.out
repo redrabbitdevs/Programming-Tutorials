@@ -1,2 +1,1 @@
-Running Python 3.15
-At least 3.11: True
+sys.version_info(major=3, minor=15, micro=0, releaselevel='final', serial=0)

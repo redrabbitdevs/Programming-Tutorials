@@ -3,8 +3,3 @@ b = a
 b.append(4)
 print(a)
 print(a is b)
-
-c = list(a)
-c.append(5)
-print(a)
-print(c)

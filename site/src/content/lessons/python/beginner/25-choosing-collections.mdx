@@ -4,7 +4,7 @@ level: beginner
 module: Collections
 order: 25
 title: Choosing the right collection
-description: Pick between list, tuple, dict, set and deque by the operations you need, and measure the difference with timeit.
+description: Pick between list, tuple, dict, set and deque by the operations you need, and measure the difference with a stopwatch.
 minVersion: "3.8"
 objectives:
   - Choose a collection from the questions your code asks of it
@@ -28,40 +28,56 @@ You now have five ways to hold many values: lists, tuples, dicts, sets, and the 
 | Add and remove at both ends | `collections.deque` |
 | The same as a set or dict, but unchangeable and hashable | `frozenset`, `frozendict` (3.15) |
 
-```python title="choose_demo.py"
+Each collection answers a different question. Here they are in action, one at a time.
+
+```python title="choose_list_dict.py"
 students = ["Ada", "Ben", "Cy"]
 grades = {"Ada": "A", "Ben": "B", "Cy": "A"}
-tags = {"python", "tutorial"}
-origin = (0, 0)
 
-# Ordered, may repeat, will change: list
 students.append("Dee")
-
-# Look up by name: dict
+print(students)
 print(grades["Ben"])
-
-# Does it exist, ignoring repeats: set
-print("python" in tags)
-
-# Fixed group, usable as a key: tuple
-distances = {origin: 0, (1, 1): 2}
-print(distances[(1, 1)])
-
-# Group by a key, then count distinct members
-by_grade = {}
-for student, grade in grades.items():
-    by_grade.setdefault(grade, set()).add(student)
-print({g: sorted(s) for g, s in sorted(by_grade.items())})
 ```
 
 ```text
+['Ada', 'Ben', 'Cy', 'Dee']
 B
-True
-2
-{'A': ['Ada', 'Cy'], 'B': ['Ben']}
 ```
 
-Real programs nest these freely: a dict of sets, a list of tuples, a dict of lists. The last lines above build a dict whose values are sets, which answers "which students got each grade, without repeats?".
+The list is ordered, may repeat and will change. The dict looks a value up by name.
+
+```python title="choose_set_tuple.py"
+tags = {"python", "tutorial"}
+print("python" in tags)
+
+origin = (0, 0)
+print(origin[0], origin[1])
+```
+
+```text
+True
+0 0
+```
+
+The set answers "is it here?", ignoring repeats. The tuple is a fixed group that can also serve as a dict key.
+
+Real programs nest these freely: a dict of sets, a list of tuples, a dict of lists. This loop builds a dict whose values are sets, which answers "which students got each grade, without repeats?":
+
+```python title="choose_nested.py"
+grades = {"Ada": "A", "Ben": "B", "Cy": "A"}
+
+by_grade = {}
+for student, grade in grades.items():
+    by_grade.setdefault(grade, set()).add(student)
+
+for grade in sorted(by_grade):
+    print(grade, sorted(by_grade[grade]))
+```
+
+```text
+A ['Ada', 'Cy']
+B ['Ben']
+```
 
 ## What operations cost
 
@@ -82,18 +98,25 @@ The practical rule: if you test `in` repeatedly on a large collection, make it a
 ## Measuring it
 
 ```python title="membership_benchmark.py"
-from timeit import timeit
+import time
 
 size = 100_000
 as_list = list(range(size))
 as_set = set(as_list)
-missing = -1  # worst case for the list: scan everything
+missing = -1
 
-list_time = timeit(lambda: missing in as_list, number=200)
-set_time = timeit(lambda: missing in as_set, number=200)
+start = time.perf_counter()
+for _ in range(200):
+    missing in as_list
+list_time = time.perf_counter() - start
 
-print(f"list is slower: {list_time > set_time}")
-print(f"set is at least 100x faster: {list_time / set_time > 100}")
+start = time.perf_counter()
+for _ in range(200):
+    missing in as_set
+set_time = time.perf_counter() - start
+
+print("list is slower:", list_time > set_time)
+print("set is at least 100x faster:", list_time / set_time > 100)
 ```
 
 ```text
@@ -101,7 +124,7 @@ list is slower: True
 set is at least 100x faster: True
 ```
 
-`timeit` runs the small function `number` times and returns the total seconds. We look for a value that is not present, which is the worst case for the list because it must check all 100,000 items before giving up, while the set answers with one hash lookup. The program prints comparisons rather than raw times because times differ from machine to machine. Print the two numbers yourself to see the gap: on typical hardware it is several orders of magnitude.
+`time.perf_counter()` is a stopwatch. Each loop repeats the test 200 times and the difference between the two readings is the time taken. We look for a value that is not present, which is the worst case for the list because it must check all 100,000 items before giving up, while the set answers with one hash lookup. The program prints comparisons rather than raw times because times differ from machine to machine. Print the two numbers yourself to see the gap: on typical hardware it is several orders of magnitude. The standard `timeit` module automates this kind of measurement.
 
 ## deque, a preview
 
@@ -117,6 +140,19 @@ print(line)
 print(line.popleft())
 print(line.pop())
 print(list(line), len(line))
+```
+
+```text
+deque(['VIP', 'Ada', 'Ben', 'Cy'])
+VIP
+Cy
+['Ada', 'Ben'] 2
+```
+
+With `maxlen`, the deque discards from the opposite end when full, which makes a neat "last N items" buffer:
+
+```python title="deque_maxlen.py"
+from collections import deque
 
 recent = deque(maxlen=3)
 for n in range(1, 6):
@@ -125,14 +161,10 @@ print(recent)
 ```
 
 ```text
-deque(['VIP', 'Ada', 'Ben', 'Cy'])
-VIP
-Cy
-['Ada', 'Ben'] 2
 deque([3, 4, 5], maxlen=3)
 ```
 
-`append` and `pop` work on the right, `appendleft` and `popleft` on the left, and all four are fast. With `maxlen`, the deque discards from the opposite end when full, which makes a neat "last N items" buffer: only 3, 4 and 5 remain. The data-structures track in the shared fundamentals covers queues in general, and a later lesson returns to `collections` in depth. For now, remember the name.
+`append` and `pop` work on the right, `appendleft` and `popleft` on the left, and all four are fast. Only 3, 4 and 5 remain above. The data-structures track in the shared fundamentals covers queues in general, and a later lesson returns to `collections` in depth. For now, remember the name.
 
 ## Common pitfalls
 
@@ -143,25 +175,64 @@ deque([3, 4, 5], maxlen=3)
 - **Optimising too early.** For a few dozen items, any collection is fast enough. Choose for clarity first, and measure before you tune.
 - **Timing a best case.** Searching for an item at the front of a list looks fast. Test absent and late items too.
 
-<Exercise title="Benchmark membership tests">
+<Exercise title="Pick the collection">
 
-Measure `in` on a list and on a set of 100,000 integers, searching for a value that is not present. Print whether the set is faster, and by what factor at least.
+For each job, name the collection you would use, then check your answers against the solution. Input: the four jobs. Expected output: one collection name per job.
+
+1. Remember the order in which customers arrived, repeats allowed.
+2. Look up a phone number by name.
+3. Check quickly whether a username is taken.
+4. Store an (x, y) position that must never change.
 
 <Solution>
 
-```python title="membership_benchmark.py"
-from timeit import timeit
+```python title="pick_collection.py"
+print("1: list")
+print("2: dict")
+print("3: set")
+print("4: tuple")
+```
+
+```text
+1: list
+2: dict
+3: set
+4: tuple
+```
+
+Order with repeats is a list. Lookup by name is a dict. Fast membership is a set. A fixed group is a tuple.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Benchmark membership tests">
+
+Measure `in` on a list and on a set of 100,000 integers, searching for a value that is not present, using `time.perf_counter()`. Print whether the set is faster, and whether it is at least 100 times faster.
+
+Input: none. Expected output: `list is slower: True` and `set is at least 100x faster: True`.
+
+<Solution>
+
+```python title="benchmark_solution.py"
+import time
 
 size = 100_000
 as_list = list(range(size))
 as_set = set(as_list)
-missing = -1  # worst case for the list: scan everything
 
-list_time = timeit(lambda: missing in as_list, number=200)
-set_time = timeit(lambda: missing in as_set, number=200)
+start = time.perf_counter()
+for _ in range(200):
+    -1 in as_list
+list_time = time.perf_counter() - start
 
-print(f"list is slower: {list_time > set_time}")
-print(f"set is at least 100x faster: {list_time / set_time > 100}")
+start = time.perf_counter()
+for _ in range(200):
+    -1 in as_set
+set_time = time.perf_counter() - start
+
+print("list is slower:", list_time > set_time)
+print("set is at least 100x faster:", list_time / set_time > 100)
 ```
 
 ```text
@@ -172,11 +243,14 @@ set is at least 100x faster: True
 Searching for a missing value forces the list to scan everything, which is the case where the gap is widest. To explore, change `size` and watch the list time grow in step while the set time barely moves.
 
 </Solution>
+
 </Exercise>
 
 <Exercise title="Group anagrams">
 
-Group the words `listen`, `silent`, `enlist`, `google`, `gogole`, `cat` and `act` so that words made of the same letters end up together. Which collections do you need?
+Group the words `listen`, `silent`, `enlist`, `google`, `gogole`, `cat` and `act` so that words made of the same letters end up together. Print each group on its own line.
+
+Input: the seven words. Expected output: `['listen', 'silent', 'enlist']`, `['google', 'gogole']`, `['cat', 'act']`.
 
 <Solution>
 
@@ -198,15 +272,16 @@ for group in groups.values():
 ['cat', 'act']
 ```
 
-Three collections cooperate. `sorted(word)` returns a list of letters, which cannot be a dict key, so `tuple(...)` turns it into a hashable key. The dict maps each letter-signature to a list of words, since the words in a group are ordered and may in principle repeat.
+Three collections cooperate. `sorted(word)` returns a list of letters, which cannot be a dict key, so `tuple(...)` turns it into a hashable key. The dict maps each letter-signature to a list of words.
 
 </Solution>
+
 </Exercise>
 
 ## Summary
 
 - Choose by operation: list for ordered and changeable, tuple for fixed groups, dict for lookup by key, set for membership and uniqueness, deque for both ends.
 - `in` scans a list but hashes into a set or dict, so repeated membership tests belong in a set.
-- Measure with `timeit` rather than guessing, and test the worst case.
+- Measure rather than guessing, and test the worst case.
 
 This completes the collections module. Next up is functions, where these structures become arguments and return values.

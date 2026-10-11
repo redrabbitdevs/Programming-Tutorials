@@ -19,23 +19,24 @@ fundamentals: ["fundamentals/beginner/07-conditionals"]
 
 ## Literal patterns, alternatives and guards
 
+The word after `match` is the **subject**. Python tries each `case` from top to bottom and runs the block of the first pattern that fits, then leaves the whole `match`. There is no fall-through, so you never write `break`.
+
+The examples loop over a few values so you can see every case run. The text `"200 302 404 503 418".split()` makes a list of five words, and `int(text)` turns each into a number.
+
 ```python title="match_basics.py"
-def describe(status):
+for text in "200 302 404 503 418".split():
+    status = int(text)
     match status:
         case 200:
-            return "ok"
+            print(status, "ok")
         case 301 | 302:
-            return "redirect"
+            print(status, "redirect")
         case 404:
-            return "not found"
+            print(status, "not found")
         case code if code >= 500:
-            return f"server error {code}"
+            print(status, "server error", code)
         case _:
-            return "other"
-
-
-for status in [200, 302, 404, 503, 418]:
-    print(status, describe(status))
+            print(status, "other")
 ```
 
 ```text
@@ -45,8 +46,6 @@ for status in [200, 302, 404, 503, 418]:
 503 server error 503
 418 other
 ```
-
-The word after `match` is the **subject**. Python tries each `case` from top to bottom and runs the block of the first pattern that fits, then leaves the whole `match`. There is no fall-through, so you never write `break`.
 
 The patterns above:
 
@@ -58,32 +57,22 @@ The patterns above:
 
 ## Matching shapes
 
-Patterns can also describe the shape of a sequence. This is where `match` pulls ahead of `if`. A text-adventure command parser is a good example, since a command is a list of words:
+Patterns can also describe the shape of a sequence. This is where `match` pulls ahead of `if`. A text-adventure command parser is a good example, since a command is a list of words. `command.split()` turns `"go north"` into the list `["go", "north"]`, and a sequence pattern with the same square brackets matches it.
 
 ```python title="adventure.py"
-def handle(command):
-    match command.split():
+for line in "look;go north;go up;dance;quit".split(";"):
+    print(">", line)
+    match line.split():
         case ["quit"]:
-            return "Goodbye."
+            print("Goodbye.")
         case ["look"]:
-            return "You see a dusty room."
+            print("You see a dusty room.")
         case ["go", ("north" | "south" | "east" | "west") as direction]:
-            return f"You walk {direction}."
+            print("You walk", direction + ".")
         case ["go", _]:
-            return "You cannot go that way."
-        case ["take", item]:
-            return f"You pick up the {item}."
-        case ["take", *items] if items:
-            return f"One thing at a time: {', '.join(items)}."
-        case []:
-            return "Say something."
+            print("You cannot go that way.")
         case _:
-            return f"I don't understand {command!r}."
-
-
-for line in ["look", "go north", "go up", "take lamp", "take a b", "", "dance", "quit"]:
-    print(f"> {line}")
-    print(handle(line))
+            print("I don't understand", repr(line) + ".")
 ```
 
 ```text
@@ -93,26 +82,44 @@ You see a dusty room.
 You walk north.
 > go up
 You cannot go that way.
-> take lamp
-You pick up the lamp.
-> take a b
-One thing at a time: a, b.
-> 
-Say something.
 > dance
 I don't understand 'dance'.
 > quit
 Goodbye.
 ```
 
-`command.split()` turns `"go north"` into `["go", "north"]`. A sequence pattern like `["go", _]` matches a two-item list whose first item is the string `"go"`; the second can be anything. Each name in the pattern is bound as the match happens:
-
-- `["take", item]` matches exactly two words and captures the second as `item`.
-- `["take", *items]` uses a star to capture any number of remaining words as a list. The guard `if items` makes sure at least one word follows.
-- `("north" | "south" | "east" | "west") as direction` matches any of four literals and also keeps the matched value under a name with `as`.
-- `[]` matches an empty list, which is what `"".split()` gives.
+A sequence pattern like `["go", _]` matches a two-item list whose first item is the string `"go"`; the second can be anything. Each name in the pattern is bound as the match happens. `("north" | "south" | "east" | "west") as direction` matches any of four literals and also keeps the matched value under a name with `as`.
 
 Order matters, as in `if`/`elif`. `["go", _]` sits after the direction case, so valid directions are handled first.
+
+## Capturing the rest of a sequence
+
+A starred name in a pattern captures any number of remaining items as a list, and the pattern `[]` matches an empty list, which is what `"".split()` gives.
+
+```python title="adventure_take.py"
+for line in "take lamp;take a b;".split(";"):
+    print(">", line)
+    match line.split():
+        case ["take", item]:
+            print("You pick up the", item + ".")
+        case ["take", *items] if items:
+            print("One thing at a time:", ", ".join(items) + ".")
+        case []:
+            print("Say something.")
+        case _:
+            print("I don't understand.")
+```
+
+```text
+> take lamp
+You pick up the lamp.
+> take a b
+One thing at a time: a, b.
+> 
+Say something.
+```
+
+`["take", item]` matches exactly two words and captures the second as `item`. `["take", *items]` uses a star to capture the remaining words, and the guard `if items` makes sure at least one word follows. The last line of the input is empty, so `"".split()` is `[]` and the `[]` case answers.
 
 ## When to use match
 
@@ -126,25 +133,62 @@ Reach for `match` when you are branching on the *value or shape* of a single sub
 - **Using it on Python older than 3.10.** `match` is a `SyntaxError` there. Check `python --version`.
 - **Expecting fall-through or a `break`.** After one case runs, the `match` is done.
 
+<Exercise title="Weekday or weekend">
+
+Use `match` to print `weekday` for the numbers 1 to 5 and `weekend` for 6 and 7. Loop over the numbers 1 to 7 and print each number followed by its label. Use an or-pattern for the weekend.
+
+Input: none. Expected output: seven lines from `1 weekday` to `7 weekend`.
+
+<Solution>
+
+```python title="weekday_match.py"
+for day in range(1, 8):
+    match day:
+        case 6 | 7:
+            print(day, "weekend")
+        case _:
+            print(day, "weekday")
+```
+
+```text
+1 weekday
+2 weekday
+3 weekday
+4 weekday
+5 weekday
+6 weekend
+7 weekend
+```
+
+The or-pattern `6 | 7` catches both weekend days, and the wildcard handles everything else.
+
+</Solution>
+
+</Exercise>
+
 <Exercise title="Text-adventure command parser">
 
-Extend `handle` with two new commands: `"drop <item>"`, which returns `"You drop the <item>."`, and `"inventory"`, which returns `"You carry nothing."`. Test with `drop lamp`, `inventory`, and `drop` on its own, which should fall through to the "I don't understand" case.
+Extend the parser with two new commands: `"drop <item>"`, which prints `You drop the <item>.`, and `"inventory"`, which prints `You carry nothing.`. Test with the commands `drop lamp`, `inventory` and `drop` on its own, which should fall through to the "I don't understand" case.
+
+Input: the commands `drop lamp`, `inventory`, `drop`. Expected output:
+
+```text
+You drop the lamp.
+You carry nothing.
+I don't understand 'drop'.
+```
 
 <Solution>
 
 ```python title="adventure_more.py"
-def handle(command):
-    match command.split():
+for line in "drop lamp;inventory;drop".split(";"):
+    match line.split():
         case ["inventory"]:
-            return "You carry nothing."
+            print("You carry nothing.")
         case ["drop", item]:
-            return f"You drop the {item}."
+            print("You drop the", item + ".")
         case _:
-            return f"I don't understand {command!r}."
-
-
-for line in ["drop lamp", "inventory", "drop"]:
-    print(handle(line))
+            print("I don't understand", repr(line) + ".")
 ```
 
 ```text
@@ -153,9 +197,10 @@ You carry nothing.
 I don't understand 'drop'.
 ```
 
-`["drop", item]` needs exactly two words, so a bare `drop` is one word and skips to the wildcard. Add these two cases to the full parser above, anywhere before `case _`.
+`["drop", item]` needs exactly two words, so a bare `drop` is one word and skips to the wildcard. In the full parser, add these two cases anywhere before `case _`.
 
 </Solution>
+
 </Exercise>
 
 ## Summary

@@ -1,16 +1,13 @@
-def describe(status):
+for text in "200 302 404 503 418".split():
+    status = int(text)
     match status:
         case 200:
-            return "ok"
+            print(status, "ok")
         case 301 | 302:
-            return "redirect"
+            print(status, "redirect")
         case 404:
-            return "not found"
+            print(status, "not found")
         case code if code >= 500:
-            return f"server error {code}"
+            print(status, "server error", code)
         case _:
-            return "other"
-
-
-for status in [200, 302, 404, 503, 418]:
-    print(status, describe(status))
+            print(status, "other")

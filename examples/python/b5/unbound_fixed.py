@@ -30,17 +30,15 @@ def puzzle4():
     return count
 
 
-def puzzle5():
-    message = ""
-    try:
-        int("x")
-    except ValueError as error:
-        message = str(error)
-    return message
+def puzzle5(words):
+    last = ""
+    for word in words:
+        last = word
+    return last
 
 
 print(puzzle1())
 print(puzzle2(False), puzzle2(True))
 puzzle3()
 print(puzzle4())
-print(puzzle5())
+print(puzzle5([]))

@@ -1,21 +1,14 @@
-def letter(score):
-    if score < 0 or score > 100:
-        return "invalid"
-    if score >= 90:
-        return "A"
-    elif score >= 80:
-        return "B"
-    elif score >= 70:
-        return "C"
-    elif score >= 60:
-        return "D"
-    else:
-        return "F"
+score = 89.5
 
-
-for score in [95, 90, 89.5, 70, 59, 101]:
-    print(score, letter(score))
-
-age = 17
-status = "adult" if age >= 18 else "minor"
-print(status)
+if score < 0 or score > 100:
+    print("invalid")
+elif score >= 90:
+    print("A")
+elif score >= 80:
+    print("B")
+elif score >= 70:
+    print("C")
+elif score >= 60:
+    print("D")
+else:
+    print("F")

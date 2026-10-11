@@ -25,66 +25,88 @@ The general ideas of types, and the difference between static and dynamic typing
 | `int` | `42`, `-7` | Whole numbers of any size |
 | `float` | `3.14`, `2.0` | Numbers with a fractional part |
 | `str` | `"hello"`, `'hi'` | Text |
-| `bool` | `True`, `False` | Yes or no |
+| `bool` | `True`, `False` | Yes or no, usually the answer to a comparison such as `7 > 2` |
 | `NoneType` | `None` | "No value" |
 
-`None` is Python's way to say "nothing here". It is the only value of its own type, and you compare it with `is None`, covered in a later lesson.
+`None` is Python's way to say "nothing here". It is the only value of its own type.
 
 ## type() and isinstance()
 
-`type(value)` tells you the exact type. `isinstance(value, type)` asks whether a value is of a given type, which is usually the better question.
+`type(value)` tells you the exact type of a value.
 
-```python title="types_tour.py"
-print(type(42).__name__)
-print(type(3.14).__name__)
-print(type("hello").__name__)
-print(type(True).__name__)
-print(type(None).__name__)
-
-print(isinstance(42, int))
-print(isinstance(True, int))
-print(isinstance(3, float))
-print(isinstance(3, (int, float)))
-
-print(int("42") + 1)
-print(float("2.5") * 2)
-print(str(7) + "!")
-print(bool(0), bool("0"))
+```python title="type_of_values.py"
+print(type(42))
+print(type(3.14))
+print(type("hello"))
+print(type(True))
+print(type(None))
 ```
 
 ```text
-int
-float
-str
-bool
-NoneType
-True
+<class 'int'>
+<class 'float'>
+<class 'str'>
+<class 'bool'>
+<class 'NoneType'>
+```
+
+If you only want the short name, add `.__name__` after the call: `type(42).__name__` is `int`. The exercises below use that form.
+
+`isinstance(value, type)` asks whether a value is of a given type, which is usually the better question.
+
+```python title="isinstance_basics.py"
+print(isinstance(42, int))
+print(isinstance(3, float))
+print(isinstance(True, int))
+```
+
+```text
 True
 False
 True
-43
-5.0
-7!
-False True
 ```
 
-Reading the output:
-
-- `type(...).__name__` gives just the short name. Without `.__name__`, `print(type(42))` shows `<class 'int'>`.
-- `isinstance(True, int)` is `True`. In Python, `bool` is a special kind of `int`, where `True` behaves like 1 and `False` like 0. This surprises people, so remember it.
-- `isinstance(3, (int, float))` takes a tuple of types and asks whether the value matches any one of them.
+The last line surprises people. In Python, `bool` is a special kind of `int`, where `True` behaves like 1 and `False` like 0. Remember it, because it comes back in a later lesson.
 
 ## Conversion
 
 You convert between types by calling the type like a function: `int("42")`, `float("2.5")`, `str(7)`, `bool(0)`.
 
-Notice `bool(0)` is `False` but `bool("0")` is `True`: any non-empty string counts as true, even the string `"0"`. A later lesson covers truthiness in full.
+```python title="conversions.py"
+print(int("42") + 1)
+print(float("2.5") * 2)
+print(str(7) + "!")
+print(int(3.9))
+```
 
-Conversion is explicit. Python will not guess for you, as the next section shows.
+```text
+43
+5.0
+7!
+3
+```
+
+Conversion is explicit, and `int(3.9)` drops the fractional part rather than rounding. Python will not guess for you, as the next section shows.
+
+`bool()` turns any value into `True` or `False`:
+
+```python title="bool_conversion.py"
+print(bool(0), bool(1))
+print(bool(""), bool("0"))
+```
+
+```text
+False True
+False True
+```
+
+`bool(0)` is `False` but `bool("0")` is `True`: any non-empty string counts as true, even the string `"0"`. A later lesson covers truthiness in full.
 
 ## Dynamic and strong typing
 
 Python is **dynamically typed**: a name can be bound to a value of any type, and types are checked while the program runs, not before. It is also **strongly typed**: it does not quietly turn one type into another to make an operation work.
+
+The same `+` joins strings and adds numbers, depending on the types:
 
 ```python title="strong_typing.py"
 print("3" + "4")
@@ -100,7 +122,11 @@ print("3" * 3)
 333
 ```
 
-The same `+` joins strings and adds numbers, depending on the types. What it will not do is mix them. Running `print("3" + 4)` stops the program:
+What `+` will not do is mix the two:
+
+```python
+print("3" + 4)
+```
 
 ```text
 TypeError: can only concatenate str (not "int") to str
@@ -117,7 +143,7 @@ That error is useful. It tells you that a number and some text met, and you must
 
 <Exercise title="Type detective">
 
-Predict what each line prints, then run the file to check.
+Predict what each line prints, then run the file to check. Input: none. Expected output: six short type names, one per line.
 
 ```python title="type_detective.py"
 print(type(7 / 2).__name__)
@@ -140,6 +166,32 @@ str
 ```
 
 `/` always gives a float and `//` of two ints gives an int. A comparison produces a `bool`. `int("7")` is an int, and `str(7.0)` is the text `"7.0"`, so it is a `str`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict the conversions">
+
+Predict the output of this file, then run it. Input: none. Expected output: four lines.
+
+```python title="predict_conversions.py"
+print(int("12") + int("30"))
+print("12" + "30")
+print(float(4))
+print(bool(""), bool("False"))
+```
+
+<Solution>
+
+```text
+42
+1230
+4.0
+False True
+```
+
+The first line adds two numbers. The second joins two strings. `float(4)` is `4.0`. On the last line `bool("")` is `False`, but `bool("False")` is `True`, because any non-empty string is true, whatever it says.
 
 </Solution>
 

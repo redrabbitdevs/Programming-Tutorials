@@ -1,8 +1,0 @@
-['blue', 'green', 'red'] 3
-set dict
-['blue', 'green', 'yellow']
-KeyError: 'purple'
-True
-[1, 2, 3]
-TypeError: cannot use 'list' as a set element (unhashable type: 'list')
-{(1, 2)}

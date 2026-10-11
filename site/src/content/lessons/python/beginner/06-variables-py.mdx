@@ -8,8 +8,8 @@ description: Understand that a Python variable is a name bound to an object, and
 minVersion: "3.8"
 objectives:
   - Explain assignment as binding a name to an object
-  - Use multiple assignment and tuple swapping
-  - Avoid shadowing built-in names
+  - Use multiple assignment and swap two names
+  - Remove a name with del, and avoid shadowing built-in names
 estimatedMinutes: 25
 fundamentals: ["fundamentals/beginner/04-variables-and-assignment"]
 ---
@@ -22,49 +22,69 @@ The fundamentals lesson on variables covers assignment and scope in general. Her
 
 `name = value` does not copy the value into a box. It makes `name` refer to the value, and a later assignment simply moves the tag.
 
-```python title="names_and_objects.py"
+```python title="rebinding.py"
 count = 10
 count = count + 1
 print(count)
-
-x = y = 0
-width, height = 4, 5
-print(x, y, width, height)
-
-width, height = height, width
-print(width, height)
-
-first = "spam"
-second = first
-print(first is second)
-second = second + "!"
-print(first, second)
-print(first is second)
-
-MAX_RETRIES = 3
-print(MAX_RETRIES)
 ```
 
 ```text
 11
+```
+
+`count = count + 1` first works out the right side (11), then binds the name `count` to that new value. The old `10` is simply no longer tagged.
+
+You can bind several names in one statement:
+
+```python title="multiple_assignment.py"
+x = y = 0
+width, height = 4, 5
+print(x, y, width, height)
+```
+
+```text
 0 0 4 5
+```
+
+`x = y = 0` binds two names to the same value. `width, height = 4, 5` binds two names at once, one for each value on the right.
+
+That second form gives Python its neat way to swap two names without a temporary variable. The right side is worked out first, then the names are bound:
+
+```python title="swap.py"
+width, height = 4, 5
+width, height = height, width
+print(width, height)
+```
+
+```text
 5 4
+```
+
+The pair of values on each side is called a **tuple**. Lesson 20 covers tuples properly, and for now it is enough to know that this one-line swap works.
+
+## Names and objects
+
+Two names can refer to the same object. The `is` operator asks whether two names refer to the exact same object, which is a stricter question than whether they have equal values.
+
+```python title="names_and_objects.py"
+first = "spam"
+second = first
+print(first is second)
+
+second = second + "!"
+print(first, second)
+print(first is second)
+```
+
+```text
 True
 spam spam!
 False
-3
 ```
 
-Going through it:
+After `second = first` the answer is `True`: one object, two names. The line `second = second + "!"` creates a new string and moves the `second` tag to it, so `first` keeps the original.
 
-- `count = count + 1` first works out the right side (11), then binds the name `count` to that new value.
-- `x = y = 0` binds two names to the same value. `width, height = 4, 5` binds two names at once.
-- `width, height = height, width` swaps without a temporary variable. Python builds a pair from the right side first, then unpacks it. Tuples get their own lesson later.
-- `first is second` asks whether two names refer to the exact same object. After `second = first` the answer is `True`: one object, two names. The line `second = second + "!"` creates a new string and moves the `second` tag to it, so `first` keeps the original.
-
-## Why it matters: shared objects
-
-Strings and numbers cannot be changed after they are made, so sharing them is harmless. Lists can be changed, and there a shared name shows up as a surprise. This is a preview, and the lists lesson returns to it.
+Strings and numbers cannot be changed after they are made, so sharing them is harmless. Lists can be changed, and there a shared name shows up as a surprise. Lesson 19 teaches lists. For now, read the square brackets in this preview as "a collection of three numbers", and `append` as "add one to the end":
 
 ```python title="shared_list.py"
 a = [1, 2, 3]
@@ -72,23 +92,14 @@ b = a
 b.append(4)
 print(a)
 print(a is b)
-
-c = list(a)
-c.append(5)
-print(a)
-print(c)
 ```
 
 ```text
 [1, 2, 3, 4]
 True
-[1, 2, 3, 4]
-[1, 2, 3, 4, 5]
 ```
 
-`b = a` does not copy the list. Both names point at the same one, so growing it through `b` changes what `a` sees. `list(a)` makes a real copy, which is why `c` can change without affecting `a`.
-
-If you keep one rule from this lesson, keep this one: **assignment never copies an object.**
+`b = a` does not copy the list. Both names point at the same one, so growing it through `b` changes what `a` sees. If you keep one rule from this lesson, keep this one: **assignment never copies an object.** The lists lesson shows how to make a real copy.
 
 ## Choosing names
 
@@ -98,33 +109,40 @@ Python has no constants. `MAX_RETRIES = 3` is only a convention: capital letters
 
 A few names, such as `match`, `case`, `type` and `lazy` <Since v="3.15" />, are **soft keywords**. They have special meaning only in specific places, so you can still use them as ordinary variable names, though it is usually clearer not to.
 
-## Common pitfalls
+## Removing a name
 
-The most damaging is **shadowing a built-in**. Names like `list`, `max`, `sum`, `str` and `input` are built-in functions. If you assign to one, your variable hides the function.
+`del name` removes a name, so using it afterwards is an error. You will rarely need it, but it helps to see what happens when a name hides something else, as in the next section.
+
+## Shadowing built-ins
+
+The most damaging naming mistake is **shadowing a built-in**. Names like `int`, `str`, `print` and `input` are built-in functions. If you assign to one, your variable hides the function.
 
 ```python title="shadowing.py"
-print(max(3, 8))
-max = 5
-print(max)
-del max
-print(max(3, 8))
+print(int("42"))
+int = 5
+print(int)
+del int
+print(int("42"))
 ```
 
 ```text
-8
+42
 5
-8
+42
 ```
 
-After `max = 5`, calling `max(3, 8)` would raise `TypeError: 'int' object is not callable`. Here `del max` removes our variable, and the built-in becomes visible again. In real code, simply pick a different name such as `highest`.
+After `int = 5`, calling `int("42")` would raise `TypeError: 'int' object is not callable`. Here `del int` removes our variable, and the built-in becomes visible again. In real code, simply pick a different name such as `count`.
+
+## Common pitfalls
 
 - **Using a name before it exists.** `print(total)` before any `total = ...` raises `NameError`.
 - **Typos create new names.** Writing `conut = count + 1` quietly binds a new name. Editors and linters catch many of these.
 - **Believing `b = a` copies.** See the list example above.
+- **Reusing a built-in's name** such as `list`, `max` or `sum` for your own variable. Pick a more specific name.
 
 <Exercise title="Trace the bindings">
 
-Without running it, work out what the last line prints. Then run it and compare.
+Without running it, work out what the last line prints. Then run it and compare. Input: none. Expected output: one line.
 
 ```python title="trace_bindings.py"
 a = 5
@@ -150,10 +168,65 @@ Step by step: `a` and `b` are 5. Then `a` becomes 6, and `c` takes `b`'s value, 
 
 </Exercise>
 
+<Exercise title="Swap and predict">
+
+Predict the output, then run it. Input: none. Expected output: one line with three words.
+
+```python title="swap_predict.py"
+a = "left"
+b = "right"
+a, b = b, a
+c = a
+a = "centre"
+print(a, b, c)
+```
+
+<Solution>
+
+```text
+centre left right
+```
+
+After the swap, `a` is `"right"` and `b` is `"left"`. Then `c` is tagged onto the same `"right"` string, and `a` moves on to `"centre"`. Moving `a` does not touch `c`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fix the shadowing bug">
+
+This program is meant to print `5 43`, but it crashes. Rename the variable so the program works.
+
+```python
+int = 5
+print(int, int("42") + 1)
+```
+
+```text
+TypeError: 'int' object is not callable
+```
+
+<Solution>
+
+```python title="shadow_fixed.py"
+count = 5
+print(count, int("42") + 1)
+```
+
+```text
+5 43
+```
+
+The variable no longer hides the built-in `int`, so `int("42")` converts the text again.
+
+</Solution>
+
+</Exercise>
+
 ## Summary
 
 - A Python variable is a name bound to an object. Assignment never copies.
-- `a, b = b, a` swaps two names. `is` tests whether two names share one object.
+- `a, b = b, a` swaps two names. `is` tests whether two names share one object, and `del` removes a name.
 - Constants are a naming convention. Avoid names that shadow built-ins.
 
 That completes the first module. The next module covers numbers and text in depth.

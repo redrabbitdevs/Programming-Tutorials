@@ -1,12 +1,1 @@
-0 False
-0.0 False
--1 True
-'' False
-'False' True
-[] False
-[[]] True
-{} False
-{'a': 0} True
-None False
-' ' True
-() False
+False False True False True False True

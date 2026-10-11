@@ -2,9 +2,3 @@
 ['Grace', 'Linus']
 ['Ada', 'Guido']
 ['Ada', 'Ferris', 'Guido']
-True
-True
-['Ada']
-frozenset({1, 2, 3}) True
-AttributeError: 'frozenset' object has no attribute 'add'
-lab

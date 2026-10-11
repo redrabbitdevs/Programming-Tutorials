@@ -1,12 +1,8 @@
-def handle(command):
-    match command.split():
+for line in "drop lamp;inventory;drop".split(";"):
+    match line.split():
         case ["inventory"]:
-            return "You carry nothing."
+            print("You carry nothing.")
         case ["drop", item]:
-            return f"You drop the {item}."
+            print("You drop the", item + ".")
         case _:
-            return f"I don't understand {command!r}."
-
-
-for line in ["drop lamp", "inventory", "drop"]:
-    print(handle(line))
+            print("I don't understand", repr(line) + ".")

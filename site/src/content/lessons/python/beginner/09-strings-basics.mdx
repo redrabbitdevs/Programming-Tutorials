@@ -23,70 +23,138 @@ The fundamentals lesson on text explains characters, code points and encodings i
 
 Single and double quotes are interchangeable, so you can pick whichever avoids a backslash. Triple quotes allow a string to span several lines.
 
-```python title="string_basics.py"
+```python title="quotes.py"
 single = 'It is'
 double = "It's"
 triple = """Line one
 Line two"""
+
 print(single, double)
 print(triple)
-print("Tab:\tdone")
-print("C:\new")
-print(r"C:\new")
-print("ab" "cd")
-
-word = "Python"
-print(word[0], word[-1])
-print(word[1:4], word[:2], word[4:])
-print(word[::-1])
-print(len(word), "th" in word)
-print("ha" * 3 + "!")
-try:
-    word[0] = "J"
-except TypeError as error:
-    print(error)
-print("J" + word[1:])
 ```
 
 ```text
 It is It's
 Line one
 Line two
-Tab:	done
-C:
-ew
-C:\new
+```
+
+Two string literals side by side are joined into one, which is occasionally useful for splitting a long literal over several lines:
+
+```python title="adjacent_literals.py"
+print("ab" "cd")
+```
+
+```text
 abcd
-P n
-yth Py on
-nohtyP
-6 True
-hahaha!
-'str' object does not support item assignment
-Jython
 ```
 
 ## Escapes and raw strings
 
-A backslash starts an escape sequence: `\n` is a newline, `\t` a tab, `\\` a literal backslash, and `\"` a quote. That is why `"C:\new"` prints a line break in the middle of a Windows path.
+A backslash starts an escape sequence: `\n` is a newline, `\t` a tab, `\\` a literal backslash, and `\"` a quote.
 
-Put an `r` before the opening quote to make a **raw string**, where backslashes are left alone. Raw strings are handy for Windows paths and for regular expressions.
+```python title="escapes.py"
+print("Tab:\tdone")
+print("C:\new")
+```
 
-Two string literals side by side, like `"ab" "cd"`, are joined into one at compile time. It is occasionally useful for splitting a long literal over several lines.
+```text
+Tab:	done
+C:
+ew
+```
+
+That is why `"C:\new"` prints a line break in the middle of what looks like a Windows path. Put an `r` before the opening quote to make a **raw string**, where backslashes are left alone. Raw strings are handy for Windows paths and for regular expressions.
+
+```python title="raw_string.py"
+print(r"C:\new")
+```
+
+```text
+C:\new
+```
+
+## Length, membership and repetition
+
+`len(text)` counts characters, `in` tests for a substring, `+` joins two strings, and `*` repeats one.
+
+```python title="string_operations.py"
+word = "Python"
+print(len(word))
+print("th" in word)
+print("ha" * 3 + "!")
+```
+
+```text
+6
+True
+hahaha!
+```
 
 ## Indexing and slicing
 
 Each character has a position that starts at 0. Negative numbers count from the end, so `word[-1]` is the last character.
 
-A slice `word[start:stop]` takes characters from `start` up to, but not including, `stop`. You can leave either end out, and add a third number for the step: `word[::-1]` reverses the string. Slices never raise an error for out-of-range ends, but an out-of-range *single index* raises `IndexError`.
+```python title="indexing.py"
+word = "Python"
+print(word[0], word[-1])
+```
 
-The lists module teaches slicing in depth, and the same rules apply to lists and tuples.
+```text
+P n
+```
+
+A slice `word[start:stop]` takes characters from `start` up to, but not including, `stop`. You can leave either end out, and add a third number for the step: `word[::-1]` reverses the string.
+
+```python title="slicing.py"
+word = "Python"
+print(word[1:4])
+print(word[:2], word[4:])
+print(word[::-1])
+```
+
+```text
+yth
+Py on
+nohtyP
+```
+
+Slices never raise an error for out-of-range ends, but an out-of-range *single index* does:
+
+```python
+print("Python"[10])
+```
+
+```text
+IndexError: string index out of range
+```
+
+The collections module teaches slicing in depth, and the same rules apply to lists and tuples.
 
 ## Strings are immutable
 
-You cannot change a string in place. `word[0] = "J"` raises a `TypeError`. Instead, build a new string and bind your name to it, as the last line of the example does with `"J" + word[1:]`. This is the same name-and-object idea from the variables lesson.
+You cannot change a string in place. Trying to assign to a position fails:
 
-The other basics: `len(text)` counts characters, `in` tests for a substring, `+` joins two strings, and `*` repeats one.
+```python
+word = "Python"
+word[0] = "J"
+```
+
+```text
+TypeError: 'str' object does not support item assignment
+```
+
+Instead, build a new string and bind your name to it. This is the same name-and-object idea from the variables lesson.
+
+```python title="new_string.py"
+word = "Python"
+word = "J" + word[1:]
+print(word)
+```
+
+```text
+Jython
+```
 
 ## Common pitfalls
 
@@ -95,30 +163,53 @@ The other basics: `len(text)` counts characters, `in` tests for a substring, `+`
 - **Off-by-one in slices.** `word[1:4]` has three characters, not four.
 - **Expecting methods to modify the string.** Methods such as `upper()` return a new string. The original is untouched.
 
-<Exercise title="Palindrome checker">
+<Exercise title="Four slices of one word">
 
-Write `is_palindrome(text)` that returns `True` when the text reads the same forwards and backwards, ignoring case, spaces and punctuation. Test it on `"Racecar"`, `"A man, a plan, a canal: Panama"` and `"Python"`.
+Given `word = "Python"`, print four lines: the first three letters, the last three letters, the word reversed, and every second letter starting from the first.
+
+Input: none. Expected output: `Pyt`, `hon`, `nohtyP`, `Pto`, one per line.
+
+<Solution>
+
+```python title="four_slices.py"
+word = "Python"
+print(word[:3])
+print(word[-3:])
+print(word[::-1])
+print(word[::2])
+```
+
+```text
+Pyt
+hon
+nohtyP
+Pto
+```
+
+`word[:3]` stops before index 3. `word[-3:]` starts three from the end and runs to the finish. A step of 2 takes the letters at positions 0, 2 and 4.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Palindrome test">
+
+A palindrome reads the same forwards and backwards. For the word `"racecar"`, print `True` if it is a palindrome and `False` if not, by comparing it with its reverse. Then change the word to `"python"` and check that you get `False`.
+
+Input: none. Expected output for `"racecar"`: `True`.
 
 <Solution>
 
 ```python title="palindrome.py"
-def is_palindrome(text):
-    cleaned = "".join(ch for ch in text.casefold() if ch.isalnum())
-    return cleaned == cleaned[::-1]
-
-
-print(is_palindrome("Racecar"))
-print(is_palindrome("A man, a plan, a canal: Panama"))
-print(is_palindrome("Python"))
+word = "racecar"
+print(word == word[::-1])
 ```
 
 ```text
 True
-True
-False
 ```
 
-The generator keeps only letters and digits (`isalnum()`) after lowercasing with `casefold()`. Then `[::-1]` reverses the cleaned text for the comparison. Functions get their own module later; for now, read `def` as "name this recipe".
+`word[::-1]` is the reversed text, and `==` asks whether it equals the original. With `"python"` the reverse is `"nohtyp"`, so the answer is `False`. Ignoring capitals and punctuation needs string methods, which the lesson after next introduces.
 
 </Solution>
 

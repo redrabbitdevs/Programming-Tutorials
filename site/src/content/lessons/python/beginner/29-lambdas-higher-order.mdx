@@ -26,16 +26,40 @@ def shout(text):
     return text.upper() + "!"
 
 
+speak = shout
+print(speak("hello"))
+```
+
+```text
+HELLO!
+```
+
+Notice that `speak = shout` has no parentheses: it copies a reference to the function, it does not call it. A dict can turn a name chosen at run time into behaviour, a pattern that often replaces a long `if`/`elif` chain.
+
+```python title="function_dict.py"
+def shout(text):
+    return text.upper() + "!"
+
+
 def whisper(text):
     return text.lower() + "..."
 
 
-speak = shout
-print(speak("hello"))
-
 styles = {"shout": shout, "whisper": whisper}
 for name, style in styles.items():
     print(name, style("Hello"))
+```
+
+```text
+shout HELLO!
+whisper hello...
+```
+
+A function that takes or returns another function is called a **higher-order function**. `apply_twice` takes one:
+
+```python title="apply_twice.py"
+def shout(text):
+    return text.upper() + "!"
 
 
 def apply_twice(func, value):
@@ -44,8 +68,16 @@ def apply_twice(func, value):
 
 print(apply_twice(shout, "hi"))
 print(apply_twice(lambda n: n * 2, 5))
+```
 
+```text
+HI!!
+20
+```
 
+The second call passes a `lambda`, which the next section explains. `make_multiplier` returns a function: the inner `multiply` remembers `factor` through the closure you met in the scope lesson.
+
+```python title="make_multiplier.py"
 def make_multiplier(factor):
     def multiply(n):
         return n * factor
@@ -59,16 +91,9 @@ print(callable(triple), callable(42))
 ```
 
 ```text
-HELLO!
-shout HELLO!
-whisper hello...
-HI!!
-20
 42
 True False
 ```
-
-Notice that `speak = shout` has no parentheses: it copies a reference to the function, it does not call it. The dict turns a name chosen at run time into behaviour, a pattern that often replaces a long `if`/`elif` chain. A function that takes or returns another function is called a **higher-order function**. `apply_twice` takes one, and `make_multiplier` returns one: the inner `multiply` remembers `factor` through the closure you met in the scope lesson.
 
 ## lambda
 
@@ -81,9 +106,32 @@ print(sorted(words))
 print(sorted(words, key=len))
 print(sorted(words, key=str.lower))
 print(sorted(words, key=lambda w: w[-1]))
+```
+
+```text
+['Apple', 'banana', 'cherry', 'kiwi']
+['kiwi', 'Apple', 'banana', 'cherry']
+['Apple', 'banana', 'cherry', 'kiwi']
+['banana', 'Apple', 'kiwi', 'cherry']
+```
+
+`min` and `max` take a `key=` too:
+
+```python title="lambda_min_max.py"
+words = ["banana", "kiwi", "Apple", "cherry"]
+
 print(max(words, key=len))
 print(min(words, key=lambda w: w.lower()))
+```
 
+```text
+banana
+Apple
+```
+
+A lambda is an ordinary function, but with no name of its own:
+
+```python title="lambda_name.py"
 add = lambda a, b: a + b
 print(add(2, 3))
 print(add.__name__)
@@ -97,12 +145,6 @@ print(add_def.__name__)
 ```
 
 ```text
-['Apple', 'banana', 'cherry', 'kiwi']
-['kiwi', 'Apple', 'banana', 'cherry']
-['Apple', 'banana', 'cherry', 'kiwi']
-['banana', 'Apple', 'kiwi', 'cherry']
-banana
-Apple
 5
 <lambda>
 add_def
@@ -125,42 +167,63 @@ numbers = [1, 2, 3, 4, 5, 6]
 
 print(list(map(lambda n: n * n, numbers)))
 print(list(filter(lambda n: n % 2 == 0, numbers)))
+```
+
+```text
+[1, 4, 9, 16, 25, 36]
+[2, 4, 6]
+```
+
+The same results with comprehensions:
+
+```python title="map_filter_comprehension.py"
+numbers = [1, 2, 3, 4, 5, 6]
 
 print([n * n for n in numbers])
 print([n for n in numbers if n % 2 == 0])
+```
 
+```text
+[1, 4, 9, 16, 25, 36]
+[2, 4, 6]
+```
+
+With an existing function, `map` needs no lambda:
+
+```python title="map_named.py"
 print(list(map(str.upper, ["a", "b"])))
 print(list(map(int, ["1", "2", "3"])))
+```
 
-lazy = map(str, numbers)
+```text
+['A', 'B']
+[1, 2, 3]
+```
+
+And the catch with lazy iterators:
+
+```python title="map_lazy.py"
+lazy = map(str, [1, 2, 3, 4])
 print(next(lazy))
 print(list(lazy))
 print(list(lazy))
 ```
 
 ```text
-[1, 4, 9, 16, 25, 36]
-[2, 4, 6]
-[1, 4, 9, 16, 25, 36]
-[2, 4, 6]
-['A', 'B']
-[1, 2, 3]
 1
-['2', '3', '4', '5', '6']
+['2', '3', '4']
 []
 ```
 
-The two list comprehensions in the middle do the same work as `map` and `filter` with a lambda, and most Python programmers find them easier to read. Prefer a comprehension when you would otherwise write a lambda inside `map` or `filter`. Use `map` when you already have a named function, as in `map(int, strings)`.
+The comprehensions do the same work as `map` and `filter` with a lambda, and most Python programmers find them easier to read. Prefer a comprehension when you would otherwise write a lambda inside `map` or `filter`. Use `map` when you already have a named function, as in `map(int, strings)`.
 
-The final three lines show the catch with lazy iterators: after `next(lazy)` took the first item and `list(lazy)` took the rest, the iterator is used up, so a second `list(lazy)` is empty.
+The last example shows the catch with lazy iterators: after `next(lazy)` took the first item and `list(lazy)` took the rest, the iterator is used up, so a second `list(lazy)` is empty.
 
 ## Sorting by several keys
 
 Because `key=` may return a tuple, and tuples compare item by item, one lambda can express a multi-level sort. Negating a number reverses its order within the tuple.
 
 ```python title="sort_records.py"
-from operator import itemgetter
-
 people = [
     {"name": "Ada", "team": "math", "age": 36},
     {"name": "Grace", "team": "navy", "age": 85},
@@ -173,14 +236,6 @@ people = [
 ordered = sorted(people, key=lambda p: (p["team"], -p["age"], p["name"]))
 for person in ordered:
     print(person["team"], person["age"], person["name"])
-
-print("--")
-
-# the same result with stable sorts, least important key first
-second = sorted(people, key=itemgetter("name"))
-second = sorted(second, key=itemgetter("age"), reverse=True)
-second = sorted(second, key=itemgetter("team"))
-print(second == ordered)
 ```
 
 ```text
@@ -189,11 +244,37 @@ math 36 Ada
 math 36 Barbara
 nasa 101 Katherine
 navy 85 Grace
---
-True
 ```
 
-The tuple trick works when you can negate the field (numbers). For text you cannot negate, use the second approach: sort several times, least important key first, and rely on stability so earlier orderings survive within ties. `operator.itemgetter("age")` is a ready-made function equivalent to `lambda p: p["age"]`.
+The same result is possible with stable sorts, least important key first. `operator.itemgetter("age")` is a ready-made function equivalent to `lambda p: p["age"]`.
+
+```python title="sort_stable.py"
+from operator import itemgetter
+
+people = [
+    {"name": "Ada", "team": "math", "age": 36},
+    {"name": "Grace", "team": "navy", "age": 85},
+    {"name": "Alan", "team": "math", "age": 41},
+    {"name": "Katherine", "team": "nasa", "age": 101},
+    {"name": "Barbara", "team": "math", "age": 36},
+]
+
+second = sorted(people, key=itemgetter("name"))
+second = sorted(second, key=itemgetter("age"), reverse=True)
+second = sorted(second, key=itemgetter("team"))
+for person in second:
+    print(person["team"], person["age"], person["name"])
+```
+
+```text
+math 41 Alan
+math 36 Ada
+math 36 Barbara
+nasa 101 Katherine
+navy 85 Grace
+```
+
+The tuple trick works when you can negate the field (numbers). For text you cannot negate, use the second approach: sort several times, least important key first, and rely on stability so earlier orderings survive within ties.
 
 ## Common pitfalls
 
@@ -221,6 +302,17 @@ All three lambdas share one `i`, and by the time they run the loop has finished 
 <Exercise title="Sort records by several keys">
 
 Given the list of people from the lesson, print them sorted by age descending, with ties broken by name. Then print only the names of those on the `math` team, in alphabetical order.
+
+Input: the `people` list from the lesson. Expected output:
+
+```text
+101 Katherine
+85 Grace
+41 Alan
+36 Ada
+36 Barbara
+['Ada', 'Alan', 'Barbara']
+```
 
 <Solution>
 
@@ -255,9 +347,34 @@ The key returns `(-age, name)`, so the biggest ages come first and equal ages fa
 </Solution>
 </Exercise>
 
+<Exercise title="Sort by length, then alphabetically">
+
+Sort `["pear", "fig", "banana", "kiwi", "apple"]` by length, shortest first, with words of equal length in alphabetical order. Use a `key=` that returns a tuple.
+
+Input: the five words. Expected output: `['fig', 'kiwi', 'pear', 'apple', 'banana']`.
+
+<Solution>
+
+```python title="sort_length_alpha.py"
+words = ["pear", "fig", "banana", "kiwi", "apple"]
+print(sorted(words, key=lambda w: (len(w), w)))
+```
+
+```text
+['fig', 'kiwi', 'pear', 'apple', 'banana']
+```
+
+The key returns `(length, word)`. Tuples compare item by item, so length decides first and the word breaks ties.
+
+</Solution>
+
+</Exercise>
+
 <Exercise title="Replace an if-chain with a dict of functions">
 
 Write `calculate(op, a, b)` that supports `"add"`, `"sub"` and `"mul"` by looking the operation up in a dict of functions. An unknown operation should return `None`.
+
+Input: `calculate("add", 2, 3)`, `calculate("mul", 4, 5)`, `calculate("pow", 2, 3)`. Expected output: `5`, `20`, `None`.
 
 <Solution>
 

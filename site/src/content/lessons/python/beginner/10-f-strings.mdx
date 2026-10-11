@@ -25,35 +25,69 @@ Put an `f` before the opening quote. Anything inside `{}` is evaluated as a Pyth
 
 ```python title="fstring_basics.py"
 name = "Ada"
-price = 1234.5
-ratio = 0.256
-
 print(f"Hello, {name}!")
-print(f"{price:,.2f}")
-print(f"{ratio:.1%}")
-print(f"[{name:>8}] [{name:<8}] [{name:^8}]")
-print(f"[{42:05d}] [{255:x}] [{255:#b}]")
-print(f"{name!r}")
-print(f"{price=}")
-print(f"{2 + 3 = }")
+print(f"2 + 3 is {2 + 3}")
 print(f"{{literal braces}}")
 ```
 
 ```text
 Hello, Ada!
-1,234.50
-25.6%
-[     Ada] [Ada     ] [  Ada   ]
-[00042] [ff] [0b11111111]
-'Ada'
-price=1234.5
-2 + 3 = 5
+2 + 3 is 5
 {literal braces}
 ```
 
+Use `{{` and `}}` when you want literal braces in the output.
+
 ## The format spec
 
-After a colon comes a **format spec**, a small language for presentation. Its general shape is `[align][sign][#][0][width][,][.precision][type]`. The pieces you will use constantly:
+After a colon inside the braces comes a **format spec**, a small language for presentation. Its general shape is `[align][sign][#][0][width][,][.precision][type]`. Here are the pieces you will use constantly, one group at a time.
+
+Numbers first: thousands separators, decimal places and percentages.
+
+```python title="fstring_numbers.py"
+price = 1234.5
+ratio = 0.256
+print(f"{price:,.2f}")
+print(f"{ratio:.1%}")
+print(f"[{42:05d}]")
+```
+
+```text
+1,234.50
+25.6%
+[00042]
+```
+
+`,.2f` means a thousands separator and 2 decimal places. `.1%` multiplies by 100 and adds `%`. `05d` pads an integer with zeros to width 5.
+
+Alignment comes next. A number after the alignment character sets the width of the field:
+
+```python title="fstring_align.py"
+name = "Ada"
+print(f"[{name:>8}]")
+print(f"[{name:<8}]")
+print(f"[{name:^8}]")
+```
+
+```text
+[     Ada]
+[Ada     ]
+[  Ada   ]
+```
+
+`>` aligns right, `<` left and `^` centres. Numbers align right by default and text aligns left.
+
+For other number bases, use a type letter:
+
+```python title="fstring_bases.py"
+print(f"{255:x}")
+print(f"{255:#b}")
+```
+
+```text
+ff
+0b11111111
+```
 
 | Spec | Meaning | Example result |
 |---|---|---|
@@ -63,46 +97,72 @@ After a colon comes a **format spec**, a small language for presentation. Its ge
 | `.1%` | Multiply by 100, add `%` | `25.6%` |
 | `x`, `#b` | Hexadecimal; binary with a `0b` prefix | `ff`, `0b11111111` |
 
-Numbers align right by default and text aligns left. Use `{{` and `}}` for literal braces.
-
 ## Debugging with = and !r
 
-Adding `=` after an expression prints the expression text, then its value: `f"{price=}"` gives `price=1234.5`. It has worked since Python 3.8 and is the quickest way to inspect a value.
+Adding `=` after an expression prints the expression text, then its value. It has worked since Python 3.8 and is the quickest way to inspect a value while you debug.
+
+```python title="fstring_debug.py"
+price = 1234.5
+print(f"{price=}")
+print(f"{2 + 3 = }")
+```
+
+```text
+price=1234.5
+2 + 3 = 5
+```
 
 `!r` applies `repr()` to the value, which shows quotes around strings and makes invisible characters visible. This is usually what you want in log messages and error text.
+
+```python title="fstring_repr.py"
+name = "Ada"
+note = "two\nlines"
+print(f"{name!r}")
+print(f"{note!r}")
+print(f"{note}")
+```
+
+```text
+'Ada'
+'two\nlines'
+two
+lines
+```
+
+Printing a value together with its name, as `{price=}` does, is called **print debugging**, and the loops module uses it to find bugs.
 
 ## Quotes and line breaks <Since v="3.12" />
 
 Before Python 3.12 you could not reuse the surrounding quote character inside the braces, nor put a comment or newline in the expression. From 3.12 onwards (PEP 701) f-strings are part of the normal grammar, so all of that works.
 
 ```python title="fstring_312.py"
-names = ["Ada", "Grace"]
-print(f"Hello {", ".join(names)}")
-
-width = 10
-precision = 3
-value = 3.14159265
-print(f"{value:{width}.{precision}f}|")
+print(f"{len("Python")} letters")
 
 report = f"""Total: {
-    sum([1, 2, 3])
+    2 + 3
 }"""
 print(report)
 ```
 
 ```text
-Hello Ada, Grace
-     3.142|
-Total: 6
+6 letters
+Total: 5
 ```
 
-The first line reuses the double quote inside the braces. The second **nests** replacement fields inside the format spec, so the width and precision come from variables. This nesting is not new, and it works on older versions as well. On Python 3.11 or earlier, the first and third examples would be a `SyntaxError`.
+The first line reuses the double quote inside the braces. On Python 3.11 or earlier, both examples would be a `SyntaxError`. Even on 3.12 and later, reusing the outer quote can make a line hard to read. Switching quote style, or computing the value on its own line first, is often clearer.
 
-<Callout type="note">
+Replacement fields can also be **nested** inside the format spec, so that the width and precision come from variables. This is not new in 3.12, and it works on older versions as well.
 
-Even on 3.12 and later, reusing the outer quote can make a line hard to read. Switching quote style, or computing the value on its own line first, is often clearer.
+```python title="fstring_nested.py"
+width = 10
+precision = 3
+value = 3.14159265
+print(f"{value:{width}.{precision}f}|")
+```
 
-</Callout>
+```text
+     3.142|
+```
 
 ## Common pitfalls
 
@@ -111,28 +171,64 @@ Even on 3.12 and later, reusing the outer quote can make a line hard to read. Sw
 - **Rounding surprises.** `f"{2.675:.2f}"` gives `2.67` for the same reason as `round()` in the numbers lesson.
 - **Formatting a string with a number spec.** `f"{'abc':d}"` raises `ValueError`. The type letter must match the value.
 
+<Exercise title="Format a price and a share">
+
+Given `price = 1234.5` and `ratio = 0.256`, print one line using a single f-string, with a dollar sign, a thousands separator, two decimals for the price and one decimal for the percentage.
+
+Input: none. Expected output: `$1,234.50 is 25.6% of the budget`.
+
+<Solution>
+
+```python title="price_share.py"
+price = 1234.5
+ratio = 0.256
+print(f"${price:,.2f} is {ratio:.1%} of the budget")
+```
+
+```text
+$1,234.50 is 25.6% of the budget
+```
+
+The `$` outside the braces is ordinary text. Inside, `,.2f` adds the separator and two decimals, and `.1%` turns `0.256` into `25.6%`.
+
+</Solution>
+
+</Exercise>
+
 <Exercise title="Print an aligned receipt">
 
-Given the list of `(name, quantity, unit price)` tuples below, print a table with the columns Item, Qty, Price and Total, a divider line, and a final line with the grand total. Money has two decimals, and numbers are right-aligned.
+Print the table below. Each row has a name, a quantity and a unit price, and the line total is quantity times price. Money has two decimals, numbers are right-aligned, and the columns are 14, 4, 9 and 9 characters wide. Use a divider line of 36 dashes.
 
-```python title="receipt_start.py"
-items = [("Coffee", 2, 3.5), ("Bagel", 1, 2.25), ("Orange juice", 3, 4.0)]
+Input: the three rows `Coffee, 2, 3.5`, `Bagel, 1, 2.25` and `Orange juice, 3, 4.0`. Expected output:
+
+```text
+Item           Qty    Price    Total
+------------------------------------
+Coffee           2     3.50     7.00
+Bagel            1     2.25     2.25
+Orange juice     3     4.00    12.00
+------------------------------------
+Total                          21.25
 ```
 
 <Solution>
 
 ```python title="receipt.py"
-items = [("Coffee", 2, 3.5), ("Bagel", 1, 2.25), ("Orange juice", 3, 4.0)]
+name1, qty1, price1 = "Coffee", 2, 3.5
+name2, qty2, price2 = "Bagel", 1, 2.25
+name3, qty3, price3 = "Orange juice", 3, 4.0
+
+total1 = qty1 * price1
+total2 = qty2 * price2
+total3 = qty3 * price3
 
 print(f"{'Item':<14}{'Qty':>4}{'Price':>9}{'Total':>9}")
 print("-" * 36)
-grand = 0
-for name, qty, price in items:
-    line = qty * price
-    grand += line
-    print(f"{name:<14}{qty:>4}{price:>9.2f}{line:>9.2f}")
+print(f"{name1:<14}{qty1:>4}{price1:>9.2f}{total1:>9.2f}")
+print(f"{name2:<14}{qty2:>4}{price2:>9.2f}{total2:>9.2f}")
+print(f"{name3:<14}{qty3:>4}{price3:>9.2f}{total3:>9.2f}")
 print("-" * 36)
-print(f"{'Total':<27}{grand:>9.2f}")
+print(f"{'Total':<27}{total1 + total2 + total3:>9.2f}")
 ```
 
 ```text
@@ -145,7 +241,7 @@ Orange juice     3     4.00    12.00
 Total                          21.25
 ```
 
-The widths 14, 4, 9 and 9 add up to the 36 dashes. The header strings are quoted with single quotes so they can sit inside a double-quoted f-string on every Python version. The `for` loop is previewed here; the control-flow module teaches it properly.
+The widths 14, 4, 9 and 9 add up to the 36 dashes. The header strings are quoted with single quotes so they can sit inside a double-quoted f-string on every Python version. The three rows repeat one pattern. Lesson 16 shows how a loop removes that repetition.
 
 </Solution>
 

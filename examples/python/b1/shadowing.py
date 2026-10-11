@@ -1,5 +1,5 @@
-print(max(3, 8))
-max = 5
-print(max)
-del max
-print(max(3, 8))
+print(int("42"))
+int = 5
+print(int)
+del int
+print(int("42"))

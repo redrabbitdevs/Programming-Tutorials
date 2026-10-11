@@ -22,25 +22,9 @@ You have already met `break` and `continue`. This lesson pins down exactly what 
 - `break` ends the **innermost** loop that contains it, and execution carries on after that loop.
 - `continue` abandons the rest of the current pass of the innermost loop and moves on to the next one.
 
-Neither affects an outer loop. Python has no labelled `break`, so to leave several loops at once you usually move the loops into a function and use `return`.
+Neither affects an outer loop. Python has no labelled `break`, so to leave several loops at once you usually move the loops into a function and use `return`, which the functions module covers.
 
-```python title="loop_else_flag.py"
-words = ["tree", "river", "stone"]
-
-found = False
-for word in words:
-    if word.startswith("r"):
-        found = True
-        break
-print("flag version:", found)
-
-for word in words:
-    if word.startswith("z"):
-        print("found z")
-        break
-else:
-    print("else version: no word starts with z")
-
+```python title="nested_control.py"
 for i in range(1, 4):
     for j in range(1, 4):
         if j == 2:
@@ -51,55 +35,93 @@ for i in range(1, 4):
 ```
 
 ```text
-flag version: True
-else version: no word starts with z
 1 1
 1 3
 2 1
 2 3
 ```
 
-In the nested loops, `continue` skips `j == 2` in every row. When `i` is 3, `break` stops the inner loop at its very first pass, so nothing prints for row 3, but the outer loop still finishes normally.
+`continue` skips `j == 2` in every row. When `i` is 3, `break` stops the inner loop at its very first pass, so nothing prints for row 3, but the outer loop still finishes normally.
+
+## Searching with a flag
+
+A search loop has two outcomes: you found what you wanted, or you ran out of places to look. The classic way to tell them apart is a **flag**: a variable set to `False` before the loop, flipped to `True` before `break`, and tested afterwards.
+
+```python title="search_flag.py"
+found = False
+for letter in "river":
+    if letter == "v":
+        found = True
+        break
+print("flag version:", found)
+```
+
+```text
+flag version: True
+```
 
 ## The else clause on a loop
 
 A `for` or `while` loop can have an `else` block. It runs **when the loop finishes without hitting `break`**. Read it as "no break": if the loop was cut short, `else` is skipped; if it ran out of items or its condition went false, `else` runs.
 
-That makes it a natural fit for searches, where the interesting question is "did I find it?". The second loop above searches for a word starting with `z`. If it had found one, it would print and `break`, skipping the `else`. Since none exists, the loop ends normally and the `else` reports the failure.
+That makes it a natural fit for searches, where the interesting question is "did I find it?".
 
-The older way is a **flag**: set `found = False`, flip it to `True` before `break`, and test it afterwards, as the first loop does. Both are correct. A flag is more familiar and often easier to read. `for ... else` saves a variable but is unfamiliar to many readers, so give it a comment if your team may not know it.
-
-## Searching in practice
-
-```python title="first_prime.py"
-def is_prime(n):
-    if n < 2:
-        return False
-    for divisor in range(2, int(n**0.5) + 1):
-        if n % divisor == 0:
-            return False
-    return True
-
-
-def report_first_prime(numbers):
-    for n in numbers:
-        if is_prime(n):
-            print("first prime:", n)
-            break
-    else:
-        print("no primes in", numbers)
-
-
-report_first_prime([4, 6, 9, 11, 13])
-report_first_prime([4, 6, 8, 10])
+```python title="search_else.py"
+for letter in "river":
+    if letter == "z":
+        print("found z")
+        break
+else:
+    print("else version: no z in the word")
 ```
 
 ```text
-first prime: 11
-no primes in [4, 6, 8, 10]
+else version: no z in the word
 ```
 
-`is_prime` itself returns from inside its loop, which is the other way to leave a loop early. In `report_first_prime`, the `else` belongs to the `for`, not to the `if`: look at the indentation.
+If the word had a `z`, the loop would print and `break`, skipping the `else`. Since none exists, the loop ends normally and the `else` reports the failure.
+
+A flag is more familiar and often easier to read. `for ... else` saves a variable but is unfamiliar to many readers, so give it a comment if your team may not know it.
+
+## Searching in practice
+
+Nested loops and `else` together test whether a number is prime. The inner loop looks for a divisor, and `break` leaves it as soon as one is found. The `else` runs only when no divisor was found, which means the number is prime.
+
+```python title="primes.py"
+for n in range(2, 20):
+    for divisor in range(2, n):
+        if n % divisor == 0:
+            break
+    else:
+        print(n, end=" ")
+print()
+```
+
+```text
+2 3 5 7 11 13 17 19 
+```
+
+Look at the indentation: the `else` lines up with the inner `for`, not with the `if`, so it belongs to the loop. For `n = 2` the inner range is empty, so the loop ends without a `break` and 2 counts as prime.
+
+The `else` can belong to the outer loop too. Here it reports that a search over several numbers found nothing:
+
+```python title="outer_else.py"
+for n in range(24, 29):
+    for divisor in range(2, n):
+        if n % divisor == 0:
+            break
+    else:
+        print("first prime:", n)
+        break
+else:
+    print("no primes from 24 to 28")
+```
+
+```text
+no primes from 24 to 28
+```
+
+None of 24 to 28 is prime, so the inner `else` never runs and the outer loop finishes without a `break`. Change the range to `range(24, 30)` and it prints `first prime: 29` instead.
 
 ## Common pitfalls
 
@@ -109,47 +131,95 @@ no primes in [4, 6, 8, 10]
 - **Putting the update after `continue` in a `while`.** The skipped update can cause an infinite loop.
 - **Using `for ... else` with no `break` in the loop.** Then the `else` always runs, so it is pointless. Without a `break`, it is just ordinary code after the loop.
 
-<Exercise title="First prime or none">
+<Exercise title="Predict the continue and break">
 
-Using `is_prime` from above, write a function `first_prime(numbers)` that **returns** the first prime in the list, or `None` if there is none. Do it without a flag variable and without `for ... else`, then explain why a loop `else` is not needed.
+Predict what this program prints, then run it. Input: none. Expected output: four numbers on one line.
+
+```python title="predict_control.py"
+for n in range(1, 10):
+    if n % 2 == 0:
+        continue
+    if n > 7:
+        break
+    print(n, end=" ")
+print()
+```
 
 <Solution>
 
-```python title="first_prime_return.py"
-def is_prime(n):
-    if n < 2:
-        return False
-    for divisor in range(2, int(n**0.5) + 1):
-        if n % divisor == 0:
-            return False
-    return True
+```text
+1 3 5 7 
+```
 
+Even numbers are skipped by `continue`. The odd numbers 1, 3, 5 and 7 are printed. When `n` reaches 9, it is odd, so `continue` does not apply, but `9 > 7` triggers `break` before the `print`.
 
-def first_prime(numbers):
-    for n in numbers:
-        if is_prime(n):
-            return n
-    return None
+</Solution>
 
+</Exercise>
 
-print(first_prime([4, 6, 9, 11, 13]))
-print(first_prime([4, 6, 8, 10]))
+<Exercise title="Does the word contain a digit?">
+
+Given `word = "route66"`, use a `for` loop with `else` to print `has a digit` if any character is a digit, and `no digits` otherwise. Use the string method `isdigit()`.
+
+Input: `route66`, then try `route`. Expected output: `has a digit` for the first and `no digits` for the second. The file shows the run for `route66`.
+
+<Solution>
+
+```python title="has_digit.py"
+word = "route66"
+
+for character in word:
+    if character.isdigit():
+        print("has a digit")
+        break
+else:
+    print("no digits")
 ```
 
 ```text
-11
-None
+has a digit
 ```
 
-`return` leaves the loop and the function in one move, and the line after the loop only runs when nothing matched, which is exactly what `else` would express. Inside a function, early `return` is usually the clearest search.
+The loop stops at the first `6` and `break` skips the `else`. With `"route"` the loop reaches the end without a `break`, so the `else` prints `no digits`.
 
 </Solution>
+
+</Exercise>
+
+<Exercise title="First prime from 90">
+
+Find the first prime number from 90 upwards, searching up to 119, and print it as `first prime: ` followed by the number. If none is found, print `none found`. Use nested loops and `else`.
+
+Input: none. Expected output: `first prime: 97`.
+
+<Solution>
+
+```python title="first_prime.py"
+for n in range(90, 120):
+    for divisor in range(2, n):
+        if n % divisor == 0:
+            break
+    else:
+        print("first prime:", n)
+        break
+else:
+    print("none found")
+```
+
+```text
+first prime: 97
+```
+
+The inner `else` runs for a number with no divisor, prints it, and the outer `break` ends the search. The outer `else` would only run if all 30 numbers had a divisor.
+
+</Solution>
+
 </Exercise>
 
 ## Summary
 
 - `break` leaves the innermost loop; `continue` skips to its next pass.
 - A loop's `else` runs only if the loop ended without `break`, which makes it a "not found" branch for searches.
-- A flag variable or an early `return` achieves the same result and may read more clearly.
+- A flag variable achieves the same result and may read more clearly. Functions will give you a third option, an early `return`.
 
 Next: match statements.

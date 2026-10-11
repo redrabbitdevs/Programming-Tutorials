@@ -1,14 +1,2 @@
 {'Ada': 37, 'Alan': 41, 'Grace': 85} 3
 41
-KeyError: 'Linus'
-None
-0
-True False
-{'a': ['apple', 'avocado'], 'b': ['banana', 'blueberry'], 'c': ['cherry']}
-85 {'Ada': 37}
-not there
-pens ink paper 
-pens: 12
-ink: 3
-paper: 40
-['pens', 'ink', 'paper'] [12, 3, 40]

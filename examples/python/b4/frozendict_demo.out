@@ -1,7 +1,2 @@
 frozendict({'host': 'localhost', 'port': 8080})
 8080 False
-TypeError: 'frozendict' object does not support item assignment
-True True
-connection #1
-False
-frozendict({'host': 'localhost', 'port': 9090}) frozendict({'host': 'localhost', 'port': 8080})
