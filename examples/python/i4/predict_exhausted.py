@@ -1,0 +1,5 @@
+letters = iter("abc")
+first = next(letters)
+rest = list(letters)
+again = list(letters)
+print(first, rest, again)

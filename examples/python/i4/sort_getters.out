@@ -1,0 +1,4 @@
+[('grace', 28), ('ada', 31), ('alan', 41)]
+[{'name': 'alan', 'score': 75}, {'name': 'ada', 'score': 90}]
+('ada', 90)
+['alan', 'ada']

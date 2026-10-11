@@ -1,0 +1,6 @@
+['Apple', 'Banana', 'apple', 'banana', 'cherry']
+['Apple', 'apple', 'banana', 'Banana', 'cherry']
+['Apple', 'apple', 'banana', 'cherry', 'Banana']
+['banana', 'cherry', 'Banana', 'Apple', 'apple']
+['banana', 'Apple', 'cherry', 'apple', 'Banana']
+None ['Apple', 'apple', 'banana', 'Banana', 'cherry']
