@@ -25,6 +25,16 @@ A **record** (also called a *struct*, or a *data class*) is a value made of seve
 
 Unlike a list, whose elements normally share one meaning ("a score, another score"), a record's fields are different things that belong together: a title, a year, a flag. Unlike a map, a record's fields are fixed in advance, so a typo in a field name is caught early instead of silently creating a new key.
 
+```text
+Book
++-----------+-----------------+
+| title     | "Dune"          |
+| author    | "Frank Herbert" |
+| year      | 1965            |
+| available | true            |
++-----------+-----------------+
+```
+
 ## From records to objects
 
 A record only holds data. Sooner or later you write functions that work on that data: describe a book, lend it out. The step from record to **object** is to keep those functions with the data they operate on, as **methods**. You call a method on a particular object: `book.lend()`. Inside, the method has access to that object's fields (Python calls it `self`, JavaScript and Java call it `this`; in C there are no methods, so you pass a pointer to the struct as the first parameter instead).
@@ -177,7 +187,10 @@ If any code anywhere may set any field, then any code anywhere may break your ru
 
 **Encapsulation** means a type keeps its fields private and offers a small set of methods as the only way to change them. The methods enforce the rules. Callers then depend on what the object *does*, not on how it stores things, so you are free to change the inside later.
 
-Languages support this differently. Java has `private` fields. JavaScript has `#name` private fields. Python has no enforcement, only a convention: a leading underscore (`_borrowed`) means "internal, please leave alone". C can hide a struct's layout by keeping its definition out of the header file. The idea is the same everywhere.
+Languages support this differently. Java has `private` fields. JavaScript has `#name` private fields. Python has no enforcement, only a convention: a leading underscore (`_borrowed`) means "internal, please leave alone". C can hide a struct's layout by keeping its definition out of the header file. The idea is the same everywhere. In each program below, Ada borrows two books, is refused a third, returns one, and then borrows the third.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="encapsulation_demo.py"
 class Member:
@@ -209,14 +222,168 @@ except ValueError as err:
 
 ada.give_back("Dune")
 ada.borrow("Ulysses")
-print(ada.books())
+print("books:", ", ".join(ada.books()))
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="encapsulation_demo.js"
+class Member {
+  static MAX_BOOKS = 2;
+  #borrowed = [];                  // private: only code inside the class can see it
+
+  constructor(name) {
+    this.name = name;
+  }
+
+  borrow(title) {
+    if (this.#borrowed.length >= Member.MAX_BOOKS) {
+      throw new Error(`${this.name} already has ${Member.MAX_BOOKS} books`);
+    }
+    this.#borrowed.push(title);
+  }
+
+  giveBack(title) {
+    this.#borrowed.splice(this.#borrowed.indexOf(title), 1);
+  }
+
+  books() {
+    return [...this.#borrowed];    // a copy, so callers cannot change ours
+  }
+}
+
+const ada = new Member("Ada");
+ada.borrow("Dune");
+ada.borrow("Emma");
+try {
+  ada.borrow("Ulysses");
+} catch (err) {
+  console.log("refused:", err.message);
+}
+
+ada.giveBack("Dune");
+ada.borrow("Ulysses");
+console.log("books:", ada.books().join(", "));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="EncapsulationDemo.java"
+import java.util.ArrayList;
+import java.util.List;
+
+class Member {
+    static final int MAX_BOOKS = 2;
+    private final String name;
+    private final List<String> borrowed = new ArrayList<>();   // private: other classes cannot touch it
+
+    Member(String name) {
+        this.name = name;
+    }
+
+    void borrow(String title) {
+        if (borrowed.size() >= MAX_BOOKS) {
+            throw new IllegalStateException(name + " already has " + MAX_BOOKS + " books");
+        }
+        borrowed.add(title);
+    }
+
+    void giveBack(String title) {
+        borrowed.remove(title);
+    }
+
+    List<String> books() {
+        return new ArrayList<>(borrowed);   // a copy, so callers cannot change ours
+    }
+}
+
+public class EncapsulationDemo {
+    public static void main(String[] args) {
+        Member ada = new Member("Ada");
+        ada.borrow("Dune");
+        ada.borrow("Emma");
+        try {
+            ada.borrow("Ulysses");
+        } catch (IllegalStateException err) {
+            System.out.println("refused: " + err.getMessage());
+        }
+
+        ada.giveBack("Dune");
+        ada.borrow("Ulysses");
+        System.out.println("books: " + String.join(", ", ada.books()));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="encapsulation_demo.c"
+#include <stdio.h>
+#include <string.h>
+
+#define MAX_BOOKS 2
+
+/* In a real project this struct would be declared in a header as an incomplete
+   type, so other files could not see the fields at all. */
+typedef struct {
+    const char *name;
+    const char *borrowed[MAX_BOOKS];
+    int count;
+} Member;
+
+/* Returns 0 on success, -1 when the member already has the maximum. */
+static int member_borrow(Member *m, const char *title) {
+    if (m->count >= MAX_BOOKS) {
+        return -1;
+    }
+    m->borrowed[m->count++] = title;
+    return 0;
+}
+
+static void member_give_back(Member *m, const char *title) {
+    for (int i = 0; i < m->count; i++) {
+        if (strcmp(m->borrowed[i], title) == 0) {
+            m->borrowed[i] = m->borrowed[m->count - 1];   /* fill the gap with the last book */
+            m->count--;
+            return;
+        }
+    }
+}
+
+static void member_print_books(const Member *m) {
+    printf("books: ");
+    for (int i = 0; i < m->count; i++) {
+        printf("%s%s", i > 0 ? ", " : "", m->borrowed[i]);
+    }
+    printf("\n");
+}
+
+int main(void) {
+    Member ada = {"Ada", {NULL}, 0};
+    member_borrow(&ada, "Dune");
+    member_borrow(&ada, "Emma");
+    if (member_borrow(&ada, "Ulysses") != 0) {
+        printf("refused: %s already has %d books\n", ada.name, MAX_BOOKS);
+    }
+
+    member_give_back(&ada, "Dune");
+    member_borrow(&ada, "Ulysses");
+    member_print_books(&ada);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
 refused: Ada already has 2 books
-['Emma', 'Ulysses']
+books: Emma, Ulysses
 ```
 
 The rule lives in one place, `borrow`. Returning a copy from `books()` stops callers from reaching in and changing the internal list.
@@ -229,6 +396,11 @@ Two questions that sound alike are different:
 - **Identity**: are these two names for the very same object in memory?
 
 Two copies of the same paperback are equal in contents, but they are two separate objects. Lend one and the other stays on the shelf. If instead two variables name one object, lending through either changes what both see.
+
+```text
+a ---> [ "Dune", 1965 ]        b ---> [ "Dune", 1965 ]     a and b: equal, not identical
+c ---> (same object as a)                                  a and c: identical
+```
 
 <Tabs>
 <Tab label="Python">
@@ -328,9 +500,42 @@ public class IdentityDemo {
 ```
 
 </Tab>
+<Tab label="C">
+
+```c title="identity_demo.c"
+#include <stdio.h>
+#include <string.h>
+
+typedef struct {
+    const char *title;
+    int year;
+} Book;
+
+/* C has no built-in == for structs, so equality is a function we write. */
+static int book_equals(const Book *x, const Book *y) {
+    return strcmp(x->title, y->title) == 0 && x->year == y->year;
+}
+
+int main(void) {
+    Book a = {"Dune", 1965};
+    Book b = {"Dune", 1965};
+    Book *c = &a;   /* a second name for a: a pointer to it */
+
+    printf("equal contents: %s\n", book_equals(&a, &b) ? "yes" : "no");
+    printf("same object (a, b): %s\n", &a == &b ? "yes" : "no");
+    printf("same object (a, c): %s\n", &a == c ? "yes" : "no");
+
+    c->year = 1966;
+    printf("a.year after changing c: %d\n", a.year);
+    printf("b.year: %d\n", b.year);
+    return 0;
+}
+```
+
+</Tab>
 </Tabs>
 
-Each prints:
+All four print:
 
 ```text
 equal contents: yes
@@ -340,9 +545,9 @@ a.year after changing c: 1966
 b.year: 1965
 ```
 
-`c = a` did not make a new book. It gave the same book a second name, so changing the year through `c` is visible through `a`, while `b`, a separate object, is untouched. Python's `is`, JavaScript's `===` on objects and Java's `==` on objects all test identity. For equality, Python's dataclass writes `==` for you, while JavaScript and Java need a method you define yourself (and Java's `hashCode` must agree with `equals`, so maps and sets that use it keep working).
+`c = a` did not make a new book. It gave the same book a second name, so changing the year through `c` is visible through `a`, while `b`, a separate object, is untouched. Python's `is`, JavaScript's `===` on objects and Java's `==` on objects all test identity; in C you compare addresses. For equality, Python's dataclass writes `==` for you, while JavaScript, Java and C need a method or function you define yourself (and Java's `hashCode` must agree with `equals`, so maps and sets that use it keep working).
 
-C structs are plain values, copied byte by byte on assignment, so `c = a` makes a true copy there and there is no built-in `==` for structs at all. You compare field by field.
+C structs are plain values, copied byte by byte on assignment, so `Book c = a;` would make a true copy there. That is why the C program makes `c` a pointer when it wants a second name for the same book.
 
 ## Common pitfalls
 
@@ -354,11 +559,21 @@ C structs are plain values, copied byte by byte on assignment, so `c = a` makes 
 
 <Exercise title="A library book and a member">
 
-Model a `Book` (title, author, `available` flag) and a `Member` (name, list of borrowed books). A member borrows a book with `member.borrow(book)`. It must fail with a clear error if the book is already on loan or the member already holds two books. Returning a book makes it available again. Demonstrate each case.
+Model a `Book` (title, author, `available` flag) and a `Member` (name, list of borrowed books). A member borrows a book with `member.borrow(book)`. It must fail with a clear error if the book is already on loan or the member already holds two books. Returning a book makes it available again. Demonstrate each case with this script: Ada borrows Dune and Emma; Ada then tries Ulysses; Grace tries Dune; Ada returns Dune; Grace borrows Dune. Expected output:
+
+```text
+refused: Ada already has 2 books
+refused: 'Dune' is already on loan
+Ada: Emma
+Grace: Dune
+```
 
 <Solution>
 
 The member checks both rules before changing anything, so a refused request leaves everything as it was.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="library.py"
 class Book:
@@ -366,9 +581,6 @@ class Book:
         self.title = title
         self.author = author
         self.available = True
-
-    def __repr__(self):
-        return f"Book({self.title!r})"
 
 
 class Member:
@@ -390,8 +602,11 @@ class Member:
         self._borrowed.remove(book)
         book.available = True
 
-    def books(self):
-        return list(self._borrowed)
+    def titles(self):
+        names = []
+        for book in self._borrowed:
+            names.append(book.title)
+        return ", ".join(names)
 
 
 dune = Book("Dune", "Frank Herbert")
@@ -410,16 +625,240 @@ for member, book in [(ada, ulysses), (grace, dune)]:
 
 ada.give_back(dune)
 grace.borrow(dune)
-print(ada.books(), grace.books())
+print(f"Ada: {ada.titles()}")
+print(f"Grace: {grace.titles()}")
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
 
-```text
-refused: Ada already has 2 books
-refused: 'Dune' is already on loan
-[Book('Emma')] [Book('Dune')]
+```javascript title="library.js"
+class Book {
+  constructor(title, author) {
+    this.title = title;
+    this.author = author;
+    this.available = true;
+  }
+}
+
+class Member {
+  static MAX_BOOKS = 2;
+  #borrowed = [];
+
+  constructor(name) {
+    this.name = name;
+  }
+
+  borrow(book) {
+    if (!book.available) {
+      throw new Error(`'${book.title}' is already on loan`);
+    }
+    if (this.#borrowed.length >= Member.MAX_BOOKS) {
+      throw new Error(`${this.name} already has ${Member.MAX_BOOKS} books`);
+    }
+    book.available = false;
+    this.#borrowed.push(book);
+  }
+
+  giveBack(book) {
+    this.#borrowed.splice(this.#borrowed.indexOf(book), 1);
+    book.available = true;
+  }
+
+  titles() {
+    return this.#borrowed.map((book) => book.title).join(", ");
+  }
+}
+
+const dune = new Book("Dune", "Frank Herbert");
+const emma = new Book("Emma", "Jane Austen");
+const ulysses = new Book("Ulysses", "James Joyce");
+const ada = new Member("Ada");
+const grace = new Member("Grace");
+
+ada.borrow(dune);
+ada.borrow(emma);
+for (const [member, book] of [[ada, ulysses], [grace, dune]]) {
+  try {
+    member.borrow(book);
+  } catch (err) {
+    console.log("refused:", err.message);
+  }
+}
+
+ada.giveBack(dune);
+grace.borrow(dune);
+console.log(`Ada: ${ada.titles()}`);
+console.log(`Grace: ${grace.titles()}`);
 ```
+
+</Tab>
+<Tab label="Java">
+
+```java title="Library.java"
+import java.util.ArrayList;
+import java.util.List;
+
+class Book {
+    final String title;
+    final String author;
+    boolean available = true;
+
+    Book(String title, String author) {
+        this.title = title;
+        this.author = author;
+    }
+}
+
+class Member {
+    static final int MAX_BOOKS = 2;
+    private final String name;
+    private final List<Book> borrowed = new ArrayList<>();
+
+    Member(String name) {
+        this.name = name;
+    }
+
+    void borrow(Book book) {
+        if (!book.available) {
+            throw new IllegalStateException("'" + book.title + "' is already on loan");
+        }
+        if (borrowed.size() >= MAX_BOOKS) {
+            throw new IllegalStateException(name + " already has " + MAX_BOOKS + " books");
+        }
+        book.available = false;
+        borrowed.add(book);
+    }
+
+    void giveBack(Book book) {
+        borrowed.remove(book);
+        book.available = true;
+    }
+
+    String titles() {
+        List<String> names = new ArrayList<>();
+        for (Book book : borrowed) {
+            names.add(book.title);
+        }
+        return String.join(", ", names);
+    }
+}
+
+public class Library {
+    public static void main(String[] args) {
+        Book dune = new Book("Dune", "Frank Herbert");
+        Book emma = new Book("Emma", "Jane Austen");
+        Book ulysses = new Book("Ulysses", "James Joyce");
+        Member ada = new Member("Ada");
+        Member grace = new Member("Grace");
+
+        ada.borrow(dune);
+        ada.borrow(emma);
+        Member[] members = {ada, grace};
+        Book[] books = {ulysses, dune};
+        for (int i = 0; i < members.length; i++) {
+            try {
+                members[i].borrow(books[i]);
+            } catch (IllegalStateException err) {
+                System.out.println("refused: " + err.getMessage());
+            }
+        }
+
+        ada.giveBack(dune);
+        grace.borrow(dune);
+        System.out.println("Ada: " + ada.titles());
+        System.out.println("Grace: " + grace.titles());
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="library.c"
+#include <stdbool.h>
+#include <stdio.h>
+
+#define MAX_BOOKS 2
+
+typedef struct {
+    const char *title;
+    const char *author;
+    bool available;
+} Book;
+
+typedef struct {
+    const char *name;
+    Book *borrowed[MAX_BOOKS];
+    int count;
+} Member;
+
+/* Returns NULL on success, or a message that says why the loan was refused. */
+static const char *member_borrow(Member *m, Book *book) {
+    static char message[80];
+    if (!book->available) {
+        snprintf(message, sizeof message, "'%s' is already on loan", book->title);
+        return message;
+    }
+    if (m->count >= MAX_BOOKS) {
+        snprintf(message, sizeof message, "%s already has %d books", m->name, MAX_BOOKS);
+        return message;
+    }
+    book->available = false;
+    m->borrowed[m->count++] = book;
+    return NULL;
+}
+
+static void member_give_back(Member *m, Book *book) {
+    for (int i = 0; i < m->count; i++) {
+        if (m->borrowed[i] == book) {
+            m->borrowed[i] = m->borrowed[m->count - 1];
+            m->count--;
+            book->available = true;
+            return;
+        }
+    }
+}
+
+static void member_print(const Member *m) {
+    printf("%s: ", m->name);
+    for (int i = 0; i < m->count; i++) {
+        printf("%s%s", i > 0 ? ", " : "", m->borrowed[i]->title);
+    }
+    printf("\n");
+}
+
+int main(void) {
+    Book dune = {"Dune", "Frank Herbert", true};
+    Book emma = {"Emma", "Jane Austen", true};
+    Book ulysses = {"Ulysses", "James Joyce", true};
+    Member ada = {"Ada", {NULL}, 0};
+    Member grace = {"Grace", {NULL}, 0};
+
+    member_borrow(&ada, &dune);
+    member_borrow(&ada, &emma);
+
+    Member *members[] = {&ada, &grace};
+    Book *books[] = {&ulysses, &dune};
+    for (int i = 0; i < 2; i++) {
+        const char *problem = member_borrow(members[i], books[i]);
+        if (problem != NULL) {
+            printf("refused: %s\n", problem);
+        }
+    }
+
+    member_give_back(&ada, &dune);
+    member_borrow(&grace, &dune);
+    member_print(&ada);
+    member_print(&grace);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print the four lines above.
 
 </Solution>
 
@@ -427,11 +866,106 @@ refused: 'Dune' is already on loan
 
 <Exercise title="Same or equal?">
 
-In Python, with `a = [1, 2]`, `b = [1, 2]` and `c = a`, say what `a == b`, `a is b` and `a is c` give, and what `a` looks like after `c.append(3)`.
+Make two lists `a` and `b` that both hold 1 and 2, and a third name `c` for the same list as `a`. Print whether `a` and `b` have equal contents, whether `a` and `b` are the same list, and whether `a` and `c` are the same list. Then set the first element through `c` to 99 and print `a` and `b`. Expected output:
+
+```text
+equal contents (a, b): yes
+same list (a, b): no
+same list (a, c): yes
+a: [99, 2]
+b: [1, 2]
+```
 
 <Solution>
 
-`a == b` is `True` (same contents), `a is b` is `False` (two separate lists) and `a is c` is `True` (one list with two names). After `c.append(3)`, `a` is `[1, 2, 3]`, because `a` and `c` are the same list; `b` is still `[1, 2]`.
+`a` and `b` match in contents but are two separate lists; `a` and `c` are one list with two names, so a change through `c` shows in `a` and leaves `b` alone.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="same_or_equal.py"
+a = [1, 2]
+b = [1, 2]
+c = a
+
+print("equal contents (a, b):", "yes" if a == b else "no")
+print("same list (a, b):", "yes" if a is b else "no")
+print("same list (a, c):", "yes" if a is c else "no")
+
+c[0] = 99
+print("a:", a)
+print("b:", b)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="same_or_equal.js"
+const a = [1, 2];
+const b = [1, 2];
+const c = a;
+
+const sameContents = a.length === b.length && a.every((value, i) => value === b[i]);
+console.log("equal contents (a, b):", sameContents ? "yes" : "no");
+console.log("same list (a, b):", a === b ? "yes" : "no");
+console.log("same list (a, c):", a === c ? "yes" : "no");
+
+c[0] = 99;
+console.log("a:", `[${a.join(", ")}]`);
+console.log("b:", `[${b.join(", ")}]`);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="SameOrEqual.java"
+import java.util.ArrayList;
+import java.util.List;
+
+public class SameOrEqual {
+    public static void main(String[] args) {
+        List<Integer> a = new ArrayList<>(List.of(1, 2));
+        List<Integer> b = new ArrayList<>(List.of(1, 2));
+        List<Integer> c = a;
+
+        System.out.println("equal contents (a, b): " + (a.equals(b) ? "yes" : "no"));
+        System.out.println("same list (a, b): " + (a == b ? "yes" : "no"));
+        System.out.println("same list (a, c): " + (a == c ? "yes" : "no"));
+
+        c.set(0, 99);
+        System.out.println("a: " + a);
+        System.out.println("b: " + b);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="same_or_equal.c"
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    int a[2] = {1, 2};
+    int b[2] = {1, 2};
+    int *c = a;   /* a second name for the same array */
+
+    printf("equal contents (a, b): %s\n", memcmp(a, b, sizeof a) == 0 ? "yes" : "no");
+    printf("same list (a, b): %s\n", &a[0] == &b[0] ? "yes" : "no");
+    printf("same list (a, c): %s\n", &a[0] == &c[0] ? "yes" : "no");
+
+    c[0] = 99;
+    printf("a: [%d, %d]\n", a[0], a[1]);
+    printf("b: [%d, %d]\n", b[0], b[1]);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print the five lines above.
 
 </Solution>
 
@@ -439,11 +973,140 @@ In Python, with `a = [1, 2]`, `b = [1, 2]` and `c = a`, say what `a == b`, `a is
 
 <Exercise title="Spot the design problem">
 
-A `Temperature` object stores `celsius` as a public field. Another part of the program sets `t.celsius = -500`. What is wrong, and how would you fix the design?
+A `Temperature` object stores `celsius` as a public field. Another part of the program sets `t.celsius = -500`. What is wrong, and how would you fix the design? Then check your fix: setting 20 should be accepted, and setting -500 should be refused with the message `rejected: -500 is below absolute zero`.
 
 <Solution>
 
-Nothing stops an impossible value: nothing can be colder than absolute zero (about -273.15 degrees Celsius). Make the field private and offer a `set_celsius` method (or a property in Python) that checks the value and raises an error when it is out of range. Then the object can never be in an invalid state, whichever code uses it.
+Nothing stops an impossible value: nothing can be colder than absolute zero (about -273.15 degrees Celsius). Make the field private and offer a setter method that checks the value and refuses it when it is out of range. Then the object can never be in an invalid state, whichever code uses it.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="temperature.py"
+class Temperature:
+    def __init__(self):
+        self._celsius = 0.0
+
+    def set_celsius(self, value):
+        if value < -273.15:
+            raise ValueError(f"{value} is below absolute zero")
+        self._celsius = value
+
+    def celsius(self):
+        return self._celsius
+
+
+t = Temperature()
+t.set_celsius(20)
+print("accepted:", t.celsius())
+try:
+    t.set_celsius(-500)
+except ValueError as err:
+    print("rejected:", err)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="temperature.js"
+class Temperature {
+  #celsius = 0;
+
+  setCelsius(value) {
+    if (value < -273.15) {
+      throw new RangeError(`${value} is below absolute zero`);
+    }
+    this.#celsius = value;
+  }
+
+  celsius() {
+    return this.#celsius;
+  }
+}
+
+const t = new Temperature();
+t.setCelsius(20);
+console.log("accepted:", t.celsius());
+try {
+  t.setCelsius(-500);
+} catch (err) {
+  console.log("rejected:", err.message);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="Temperature.java"
+public class Temperature {
+    private double celsius = 0;
+
+    void setCelsius(double value) {
+        if (value < -273.15) {
+            throw new IllegalArgumentException((int) value + " is below absolute zero");
+        }
+        celsius = value;
+    }
+
+    double celsius() {
+        return celsius;
+    }
+
+    public static void main(String[] args) {
+        Temperature t = new Temperature();
+        t.setCelsius(20);
+        System.out.println("accepted: " + (int) t.celsius());
+        try {
+            t.setCelsius(-500);
+        } catch (IllegalArgumentException err) {
+            System.out.println("rejected: " + err.getMessage());
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="temperature.c"
+#include <stdio.h>
+
+typedef struct {
+    double celsius;   /* callers should use temperature_set instead of writing this */
+} Temperature;
+
+/* Returns 0 if the value was accepted, -1 if it is below absolute zero. */
+static int temperature_set(Temperature *t, double value) {
+    if (value < -273.15) {
+        return -1;
+    }
+    t->celsius = value;
+    return 0;
+}
+
+int main(void) {
+    Temperature t = {0};
+    if (temperature_set(&t, 20) == 0) {
+        printf("accepted: %g\n", t.celsius);
+    }
+    if (temperature_set(&t, -500) != 0) {
+        printf("rejected: -500 is below absolute zero\n");
+    }
+    return 0;
+}
+```
+
+C cannot force callers to go through `temperature_set`; the protection comes from hiding the struct's layout in a separate file.
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+accepted: 20
+rejected: -500 is below absolute zero
+```
 
 </Solution>
 

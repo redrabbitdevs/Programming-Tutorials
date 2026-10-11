@@ -31,7 +31,7 @@ The factorial of `n`, written `n!`, is `n × (n-1) × ... × 1`. Notice that `5!
 <Tabs>
 <Tab label="Python">
 
-```python
+```python title="recursion_factorial.py"
 def factorial(n):
     if n <= 1:
         return 1                 # base case
@@ -44,7 +44,7 @@ print("5! =", factorial(5))
 </Tab>
 <Tab label="JavaScript">
 
-```javascript
+```javascript title="recursion_factorial.js"
 function factorial(n) {
   if (n <= 1) {
     return 1;                  // base case
@@ -58,7 +58,7 @@ console.log("5! =", factorial(5));
 </Tab>
 <Tab label="Java">
 
-```java
+```java title="Factorial.java"
 public class Factorial {
     static long factorial(int n) {
         if (n <= 1) {
@@ -76,7 +76,7 @@ public class Factorial {
 </Tab>
 <Tab label="C">
 
-```c
+```c title="recursion_factorial.c"
 #include <stdio.h>
 
 long factorial(int n) {
@@ -107,8 +107,10 @@ Two checks to make about any recursive function: does every call move *toward* t
 
 The [call stack](../functions/) from the functions lesson is what makes recursion work. Each call gets its own frame with its own copy of `n`, so `factorial(3)` and the `factorial(2)` it calls do not interfere. The calls pile up on the way down, then answers flow back on the way up. This version prints indented lines to show it.
 
-```python
-# Tracing the stack: indentation shows how deep each call is.
+<Tabs>
+<Tab label="Python">
+
+```python title="factorial_trace.py"
 def factorial(n, depth=0):
     pad = "  " * depth
     print(f"{pad}call factorial({n})")
@@ -121,9 +123,110 @@ def factorial(n, depth=0):
 
 
 factorial(3)
+```
 
+</Tab>
+<Tab label="JavaScript">
 
-# No base case: the stack fills up and Python stops it.
+```javascript title="factorial_trace.js"
+function factorial(n, depth = 0) {
+  const pad = "  ".repeat(depth);
+  console.log(`${pad}call factorial(${n})`);
+  if (n <= 1) {
+    console.log(`${pad}return 1`);
+    return 1;
+  }
+  const result = n * factorial(n - 1, depth + 1);
+  console.log(`${pad}return ${result}`);
+  return result;
+}
+
+factorial(3);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="FactorialTrace.java"
+public class FactorialTrace {
+    static long factorial(int n, int depth) {
+        String pad = "  ".repeat(depth);
+        System.out.println(pad + "call factorial(" + n + ")");
+        if (n <= 1) {
+            System.out.println(pad + "return 1");
+            return 1;
+        }
+        long result = n * factorial(n - 1, depth + 1);
+        System.out.println(pad + "return " + result);
+        return result;
+    }
+
+    public static void main(String[] args) {
+        factorial(3, 0);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="factorial_trace.c"
+#include <stdio.h>
+
+long factorial(int n, int depth) {
+    printf("%*scall factorial(%d)\n", depth * 2, "", n);
+    if (n <= 1) {
+        printf("%*sreturn 1\n", depth * 2, "");
+        return 1;
+    }
+    long result = n * factorial(n - 1, depth + 1);
+    printf("%*sreturn %ld\n", depth * 2, "", result);
+    return result;
+}
+
+int main(void) {
+    factorial(3, 0);
+    return 0;
+}
+```
+
+The `%*s` in `printf` prints an empty string padded to a width, which is a short way to indent.
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+call factorial(3)
+  call factorial(2)
+    call factorial(1)
+    return 1
+  return 2
+return 6
+```
+
+Follow it: `factorial(3)` calls `factorial(2)`, which calls `factorial(1)`. That one hits the base case and returns 1. Then `factorial(2)` finishes its multiplication (2 × 1 = 2) and returns, and `factorial(3)` computes 3 × 2 = 6. The work is done on the way back up.
+
+A good way to trace by hand is to write the pending calls as a stack, and replace each one with its result as it completes:
+
+```text
+factorial(3)
+3 * factorial(2)
+3 * (2 * factorial(1))
+3 * (2 * 1)
+3 * 2
+6
+```
+
+## Stack overflow
+
+Each active call holds a frame, and the stack has a fixed size. If recursion never reaches a base case, or the input is simply too big, the frames use up all the room and the program fails with a **stack overflow**. The function below has no base case, so it can never stop on its own.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="stack_overflow.py"
 def forever(n):
     return forever(n + 1)
 
@@ -132,8 +235,100 @@ try:
     forever(0)
 except RecursionError:
     print("RecursionError: the stack ran out of room")
+```
 
-# Recursion over nested data: a folder is a dict, a file is its size.
+```text title="output"
+RecursionError: the stack ran out of room
+```
+
+Python stops the recursion at a limit of about a thousand frames and raises a `RecursionError`, which is why a recursive function over a million items may need a loop instead.
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="stack_overflow.js"
+function forever(n) {
+  return forever(n + 1);
+}
+
+try {
+  forever(0);
+} catch (error) {
+  console.log(error.name + ": the stack ran out of room");
+}
+```
+
+```text title="output"
+RangeError: the stack ran out of room
+```
+
+JavaScript throws a `RangeError` when the stack is full.
+
+</Tab>
+<Tab label="Java">
+
+```java title="StackOverflow.java"
+public class StackOverflow {
+    static int forever(int n) {
+        return forever(n + 1);
+    }
+
+    public static void main(String[] args) {
+        try {
+            forever(0);
+        } catch (StackOverflowError error) {
+            System.out.println("StackOverflowError: the stack ran out of room");
+        }
+    }
+}
+```
+
+```text title="output"
+StackOverflowError: the stack ran out of room
+```
+
+Java throws a `StackOverflowError`, which a program can technically catch, though it usually should not try.
+
+</Tab>
+<Tab label="C">
+
+```c
+int forever(int n) {
+    return forever(n + 1);
+}
+
+/* Calling forever(0) fills the stack until the operating system
+   stops the program, usually with "Segmentation fault". */
+```
+
+C has no safe way to demonstrate this. There is no exception to catch, so the program is simply killed, which is why this example is not run.
+
+</Tab>
+</Tabs>
+
+## Recursion over nested data
+
+Recursion shines when the data itself is nested. Take a folder tree where a file is just its size and a folder holds more items. The size of a folder is the sum of the sizes of everything inside, and each of those might be a folder in turn.
+
+```text
+root
+|-- readme.txt        5
+|-- logo.png         40
+`-- src
+    |-- main.py      20
+    |-- util.py      12
+    `-- tests
+        `-- test_main.py   8
+
+total size = 5 + 40 + 20 + 12 + 8 = 85
+```
+
+The base case is a file (a plain size); the recursive case is a folder, handled by asking about each child. In Python and JavaScript a folder is naturally a dictionary or object of names to contents, so a number tells you it is a file. In Java and C there is no such mixed container, so each item is a small node holding a size and a list of children; a file simply has no children.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="tree_total.py"
 tree = {
     "readme.txt": 5,
     "logo.png": 40,
@@ -152,9 +347,122 @@ def total_size(node):
 
 
 print("total size:", total_size(tree))
+```
 
+</Tab>
+<Tab label="JavaScript">
 
-# The same factorial as a loop.
+```javascript title="tree_total.js"
+const tree = {
+  "readme.txt": 5,
+  "logo.png": 40,
+  src: {
+    "main.py": 20,
+    "util.py": 12,
+    tests: { "test_main.py": 8 },
+  },
+};
+
+function totalSize(node) {
+  if (typeof node === "number") {   // base case: a file
+    return node;
+  }
+  let total = 0;                    // a folder
+  for (const child of Object.values(node)) {
+    total += totalSize(child);
+  }
+  return total;
+}
+
+console.log("total size:", totalSize(tree));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="TreeTotal.java"
+import java.util.List;
+
+public class TreeTotal {
+    // A file has a size and no children; a folder has children and size 0.
+    record Node(int size, List<Node> children) {}
+
+    static Node file(int size) {
+        return new Node(size, List.of());
+    }
+
+    static Node folder(Node... children) {
+        return new Node(0, List.of(children));
+    }
+
+    static int totalSize(Node node) {
+        int total = node.size();            // a file: its own size (a folder: 0)
+        for (Node child : node.children()) {
+            total += totalSize(child);      // recursive case: each child
+        }
+        return total;
+    }
+
+    public static void main(String[] args) {
+        Node tree = folder(
+            file(5),
+            file(40),
+            folder(file(20), file(12), folder(file(8)))
+        );
+        System.out.println("total size: " + totalSize(tree));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="tree_total.c"
+#include <stdio.h>
+
+typedef struct Node {
+    int size;                    /* a file's size; 0 for a folder */
+    int count;                   /* number of children */
+    const struct Node *children;
+} Node;
+
+static int total_size(const Node *node) {
+    int total = node->size;
+    for (int i = 0; i < node->count; i++) {
+        total += total_size(&node->children[i]);
+    }
+    return total;
+}
+
+int main(void) {
+    static const Node tests[] = {{8, 0, NULL}};
+    static const Node src[] = {{20, 0, NULL}, {12, 0, NULL}, {0, 1, tests}};
+    static const Node top[] = {{5, 0, NULL}, {40, 0, NULL}, {0, 3, src}};
+    Node root = {0, 3, top};
+    printf("total size: %d\n", total_size(&root));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+total size: 85
+```
+
+Writing the same thing with a loop is possible but needs you to keep your own stack of folders still to visit. Here, recursion lets the shape of the code match the shape of the data.
+
+## Recursion or iteration?
+
+Anything you can do with recursion you can do with a loop, and vice versa. Here is factorial as a loop. It gets 120 again.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="factorial_loop.py"
 def factorial_loop(n):
     result = 1
     for k in range(2, n + 1):
@@ -165,46 +473,64 @@ def factorial_loop(n):
 print(factorial_loop(5))
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
 
-```text
-call factorial(3)
-  call factorial(2)
-    call factorial(1)
-    return 1
-  return 2
-return 6
-RecursionError: the stack ran out of room
-total size: 85
-120
+```javascript title="factorial_loop.js"
+function factorialLoop(n) {
+  let result = 1;
+  for (let k = 2; k <= n; k++) {
+    result *= k;
+  }
+  return result;
+}
+
+console.log(factorialLoop(5));
 ```
 
-Follow the first part: `factorial(3)` calls `factorial(2)`, which calls `factorial(1)`. That one hits the base case and returns 1. Then `factorial(2)` finishes its multiplication (2 × 1 = 2) and returns, and `factorial(3)` computes 3 × 2 = 6. The work is done on the way back up.
+</Tab>
+<Tab label="Java">
 
-A good way to trace by hand is to write the pending calls as a stack, and replace each one with its result as it completes:
+```java title="FactorialLoop.java"
+public class FactorialLoop {
+    static long factorialLoop(int n) {
+        long result = 1;
+        for (int k = 2; k <= n; k++) {
+            result *= k;
+        }
+        return result;
+    }
 
-```text
-factorial(3)
-3 * factorial(2)
-3 * (2 * factorial(1))
-3 * (2 * 1)
-3 * 2
-6
+    public static void main(String[] args) {
+        System.out.println(factorialLoop(5));
+    }
+}
 ```
 
-## Stack overflow
+</Tab>
+<Tab label="C">
 
-Each active call holds a frame, and the stack has a fixed size. If recursion never reaches a base case, or the input is simply too big, the frames use up all the room and the program fails with a **stack overflow** (in Python, a `RecursionError`; in Java, `StackOverflowError`; in C, usually a crash). The second part of the file above shows it: `forever` has no base case, so Python gives up and reports an error instead of running forever. The default limit in Python is about a thousand frames, which is why a recursive function over a million items may need a loop instead.
+```c title="factorial_loop.c"
+#include <stdio.h>
 
-## Recursion over nested data
+long factorial_loop(int n) {
+    long result = 1;
+    for (int k = 2; k <= n; k++) {
+        result *= k;
+    }
+    return result;
+}
 
-Recursion shines when the data itself is nested. Take a folder tree where a folder is a dictionary of names to contents, and a file is just its size. The size of a folder is the sum of the sizes of everything inside, and each of those might be a folder in turn.
+int main(void) {
+    printf("%ld\n", factorial_loop(5));
+    return 0;
+}
+```
 
-The base case is a file (a number); the recursive case is a folder, handled by asking about each child. The code in `total_size` above does exactly this and reports 85 for the sample tree. Writing the same thing with a loop is possible but needs you to keep your own stack of folders still to visit. Here, recursion lets the shape of the code match the shape of the data.
+</Tab>
+</Tabs>
 
-## Recursion or iteration?
-
-Anything you can do with recursion you can do with a loop, and vice versa. The last function in the file computes factorial with a loop and gets 120 again. Choose on clarity:
+All four print `120`. Choose between the two on clarity:
 
 - Prefer **recursion** for nested or branching structures (trees, folders, "try each choice and recurse") and for problems defined in terms of smaller versions of themselves.
 - Prefer **iteration** for simple repetition (summing a list, counting), where a loop is shorter, uses less memory and cannot overflow.
@@ -222,7 +548,7 @@ Beware naive recursion that repeats work. Computing Fibonacci numbers as `fib(n-
 
 <Exercise title="Factorial, then trace it">
 
-Write `factorial(n)` recursively, then write out by hand the stack of pending multiplications for `factorial(4)`.
+Write `factorial(n)` recursively, then write out by hand the stack of pending multiplications for `factorial(4)`. Input: 4. Expected result: 24.
 
 <Solution>
 
@@ -243,13 +569,117 @@ factorial(4)
 
 </Exercise>
 
-<Exercise title="Directory size">
+<Exercise title="Power by recursion">
 
-A folder is a dictionary; a file is a number (its size). Write a recursive `total_size` and use it on this tree: `{"a.txt": 10, "docs": {"b.txt": 20, "old": {"c.txt": 5}}}`.
+Write a recursive `power(base, exponent)` for whole-number exponents of 0 or more, without using a built-in power operator. Use the fact that `base` to the `exponent` is `base` times `base` to the `exponent - 1`. Check these inputs:
+
+| base | exponent | Expected |
+|---|---|---|
+| 2 | 10 | 1024 |
+| 5 | 0 | 1 |
+| 3 | 4 | 81 |
 
 <Solution>
 
-The base case is a file, the recursive case is a folder:
+The base case is exponent 0, where the answer is 1. Each call reduces the exponent by one, so every call moves toward it.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="power_rec.py"
+def power(base, exponent):
+    if exponent == 0:
+        return 1
+    return base * power(base, exponent - 1)
+
+
+print(power(2, 10))
+print(power(5, 0))
+print(power(3, 4))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="power_rec.js"
+function power(base, exponent) {
+  if (exponent === 0) {
+    return 1;
+  }
+  return base * power(base, exponent - 1);
+}
+
+console.log(power(2, 10));
+console.log(power(5, 0));
+console.log(power(3, 4));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="PowerRec.java"
+public class PowerRec {
+    static long power(long base, int exponent) {
+        if (exponent == 0) {
+            return 1;
+        }
+        return base * power(base, exponent - 1);
+    }
+
+    public static void main(String[] args) {
+        System.out.println(power(2, 10));
+        System.out.println(power(5, 0));
+        System.out.println(power(3, 4));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="power_rec.c"
+#include <stdio.h>
+
+static long power(long base, int exponent) {
+    if (exponent == 0) {
+        return 1;
+    }
+    return base * power(base, exponent - 1);
+}
+
+int main(void) {
+    printf("%ld\n", power(2, 10));
+    printf("%ld\n", power(5, 0));
+    printf("%ld\n", power(3, 4));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+1024
+1
+81
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Directory size">
+
+Use the folder idea from the lesson on this tree: a file `a.txt` of size 10, and a folder `docs` that holds `b.txt` of size 20 and a folder `old` that holds `c.txt` of size 5. Write a recursive `total_size` and print the total. Expected output: `35`.
+
+<Solution>
+
+The base case is a file, the recursive case is a folder. Only the data differs from the lesson's example.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="tree_size.py"
 def total_size(node):
@@ -262,11 +692,88 @@ tree = {"a.txt": 10, "docs": {"b.txt": 20, "old": {"c.txt": 5}}}
 print(total_size(tree))
 ```
 
-It prints `35` (10 + 20 + 5):
+</Tab>
+<Tab label="JavaScript">
 
-```text
-35
+```javascript title="tree_size.js"
+function totalSize(node) {
+  if (typeof node === "number") {
+    return node;
+  }
+  let total = 0;
+  for (const child of Object.values(node)) {
+    total += totalSize(child);
+  }
+  return total;
+}
+
+const tree = { "a.txt": 10, docs: { "b.txt": 20, old: { "c.txt": 5 } } };
+console.log(totalSize(tree));
 ```
+
+</Tab>
+<Tab label="Java">
+
+```java title="TreeSize.java"
+import java.util.List;
+
+public class TreeSize {
+    record Node(int size, List<Node> children) {}
+
+    static int totalSize(Node node) {
+        int total = node.size();
+        for (Node child : node.children()) {
+            total += totalSize(child);
+        }
+        return total;
+    }
+
+    public static void main(String[] args) {
+        Node c = new Node(5, List.of());
+        Node old = new Node(0, List.of(c));
+        Node b = new Node(20, List.of());
+        Node docs = new Node(0, List.of(b, old));
+        Node a = new Node(10, List.of());
+        Node root = new Node(0, List.of(a, docs));
+        System.out.println(totalSize(root));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="tree_size.c"
+#include <stdio.h>
+
+typedef struct Node {
+    int size;
+    int count;
+    const struct Node *children;
+} Node;
+
+static int total_size(const Node *node) {
+    int total = node->size;
+    for (int i = 0; i < node->count; i++) {
+        total += total_size(&node->children[i]);
+    }
+    return total;
+}
+
+int main(void) {
+    static const Node old[] = {{5, 0, NULL}};
+    static const Node docs[] = {{20, 0, NULL}, {0, 1, old}};
+    static const Node top[] = {{10, 0, NULL}, {0, 2, docs}};
+    Node root = {0, 2, top};
+    printf("%d\n", total_size(&root));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print `35` (10 + 20 + 5).
 
 </Solution>
 
@@ -274,16 +781,122 @@ It prints `35` (10 + 20 + 5):
 
 <Exercise title="Find the bug">
 
-This function should add up the numbers from 1 to `n`, but it never stops. What is wrong, and how do you fix it?
+This function should add up the numbers from 1 to `n`, but it never stops. What is wrong, and how do you fix it? After the fix, `total_to(3)` should give `6` and `total_to(0)` should give `0`.
+
+<Tabs>
+<Tab label="Python">
 
 ```python
 def total_to(n):
     return n + total_to(n - 1)
 ```
 
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+function totalTo(n) {
+  return n + totalTo(n - 1);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+static int totalTo(int n) {
+    return n + totalTo(n - 1);
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+int total_to(int n) {
+    return n + total_to(n - 1);
+}
+```
+
+</Tab>
+</Tabs>
+
 <Solution>
 
-There is no base case, so the calls continue through 0, -1, -2 and so on until the stack overflows. Add a base case: `if n <= 0: return 0`. Now `total_to(3)` is `3 + 2 + 1 + 0 = 6`.
+There is no base case, so the calls continue through 0, -1, -2 and so on until the stack overflows. Add a base case: when `n` is 0 or less, return 0. Now `total_to(3)` is `3 + 2 + 1 + 0 = 6`.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="total_to.py"
+def total_to(n):
+    if n <= 0:
+        return 0
+    return n + total_to(n - 1)
+
+
+print(total_to(3))
+print(total_to(0))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="total_to.js"
+function totalTo(n) {
+  if (n <= 0) {
+    return 0;
+  }
+  return n + totalTo(n - 1);
+}
+
+console.log(totalTo(3));
+console.log(totalTo(0));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="TotalTo.java"
+public class TotalTo {
+    static int totalTo(int n) {
+        if (n <= 0) {
+            return 0;
+        }
+        return n + totalTo(n - 1);
+    }
+
+    public static void main(String[] args) {
+        System.out.println(totalTo(3));
+        System.out.println(totalTo(0));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="total_to.c"
+#include <stdio.h>
+
+int total_to(int n) {
+    if (n <= 0) {
+        return 0;
+    }
+    return n + total_to(n - 1);
+}
+
+int main(void) {
+    printf("%d\n", total_to(3));
+    printf("%d\n", total_to(0));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print `6` then `0`.
 
 </Solution>
 

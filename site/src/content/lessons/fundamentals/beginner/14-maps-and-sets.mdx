@@ -20,7 +20,7 @@ A list answers the question "what is at position 3?". Often the question is diff
 
 ## Maps: keys and values
 
-A **map** stores **key/value pairs**. You give it a key and it gives back the value stored under that key. Other names for the same idea are *dictionary* (Python), *object* or `Map` (JavaScript), *hash map* (Java's `HashMap`) and *associative array*.
+A **map** stores **key/value pairs**. You give it a key and it gives back the value stored under that key. Other names for the same idea are *dictionary* (Python), *object* or `Map` (JavaScript), *hash map* (Java's `HashMap`) and *associative array*. C has no built-in map; its standard library offers only arrays, so C programmers write their own or use a library.
 
 ```text
 key        value
@@ -114,9 +114,61 @@ public class MapCount {
 ```
 
 </Tab>
+<Tab label="C">
+
+```c title="map_count.c"
+#include <stdio.h>
+#include <string.h>
+
+#define MAX 16
+
+/* A tiny map: two parallel arrays that are searched one entry at a time.
+   Real C programs use a hash table, which they write themselves or borrow from a library. */
+static const char *keys[MAX];
+static int values[MAX];
+static int size = 0;
+
+static int find(const char *key) {
+    for (int i = 0; i < size; i++) {
+        if (strcmp(keys[i], key) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int main(void) {
+    const char *words[] = {"the", "cat", "and", "the", "hat", "and", "the", "bat"};
+    int count = sizeof words / sizeof words[0];
+
+    for (int i = 0; i < count; i++) {
+        int at = find(words[i]);
+        if (at >= 0) {
+            values[at] += 1;
+        } else {
+            keys[size] = words[i];
+            values[size] = 1;
+            size++;
+        }
+    }
+
+    for (int i = 0; i < size; i++) {
+        printf("%s: %d\n", keys[i], values[i]);
+    }
+
+    printf("has 'cat': %s\n", find("cat") >= 0 ? "yes" : "no");
+    printf("has 'dog': %s\n", find("dog") >= 0 ? "yes" : "no");
+    printf("count of 'hat': %d\n", values[find("hat")]);
+    return 0;
+}
+```
+
+The C version scans the keys one by one, so it shows the idea but not the speed. The next section explains what a real map does instead.
+
+</Tab>
 </Tabs>
 
-All three print:
+All four print:
 
 ```text
 the: 3
@@ -129,21 +181,25 @@ has 'dog': no
 count of 'hat': 1
 ```
 
-C has no built-in map. Its standard library offers only arrays, so C programmers either write their own hash table or use a third-party library. That is one of the reasons higher-level languages are popular for text processing.
-
 ## Why lookup is fast: hashing, in intuition
 
-A naive map could keep its pairs in a list and scan for the key, but that gets slower with every pair you add. Real maps use a **hash table**. The idea:
+A naive map could keep its pairs in a list and scan for the key, exactly as the C version above does, but that gets slower with every pair you add. Real maps use a **hash table**. The idea:
 
 1. A **hash function** turns a key into a number. The same key always gives the same number, and different keys usually give different numbers.
 2. That number picks one of many **buckets** (slots) where the pair is stored.
 3. To look a key up, hash it again, go straight to its bucket, and check there.
 
+```text
+key "cat"  --hash-->  7  --> bucket 7: ("cat", 1)
+key "the"  --hash-->  2  --> bucket 2: ("the", 3)
+key "hat"  --hash-->  7  --> bucket 7: collision, stored next to "cat"
+```
+
 Think of a coat check: instead of searching every coat, you hand over a ticket number and the attendant goes to one hook. Two different keys occasionally land in the same bucket (a **collision**), and the table has ways to cope, but on average a lookup, an insertion and a removal all take roughly the same short time whether the map holds ten pairs or ten million.
 
 Two consequences matter in daily use:
 
-- **Keys must be hashable**, which in practice means they must not change while they are in the map. Strings, numbers and (in Python) tuples work well as keys. A Python list cannot be a key, because a list can change after it was hashed.
+- **Keys must be hashable**, which in practice means they must not change while they are in the map. Strings and numbers work well as keys everywhere. Whether a list may be a key depends on the language, as the table in the "More tools" section shows.
 - **Order is not the point.** Hash tables do not promise any particular order. Modern Python and JavaScript maps happen to remember insertion order, and Java's `LinkedHashMap` does too, but Java's plain `HashMap` does not. If you need a sorted order, sort the keys explicitly.
 
 ## Sets: unique values
@@ -218,9 +274,67 @@ public class SetOps {
 ```
 
 </Tab>
+<Tab label="C">
+
+```c title="set_ops.c"
+#include <stdbool.h>
+#include <stdio.h>
+
+#define N 10   /* this set can hold the whole numbers 0 to 9 */
+
+/* A set of small numbers: in[v] is true when v is a member. */
+static void print_set(const char *label, const bool in[N]) {
+    printf("%s: [", label);
+    bool first = true;
+    for (int v = 0; v < N; v++) {
+        if (in[v]) {
+            printf("%s%d", first ? "" : ", ", v);
+            first = false;
+        }
+    }
+    printf("]\n");
+}
+
+int main(void) {
+    bool a[N] = {false};
+    bool b[N] = {false};
+    int a_values[] = {1, 2, 3, 4};
+    int b_values[] = {3, 4, 5};
+    for (int i = 0; i < 4; i++) a[a_values[i]] = true;
+    for (int i = 0; i < 3; i++) b[b_values[i]] = true;
+
+    bool uni[N], inter[N], diff[N];
+    for (int v = 0; v < N; v++) {
+        uni[v] = a[v] || b[v];
+        inter[v] = a[v] && b[v];
+        diff[v] = a[v] && !b[v];
+    }
+
+    print_set("union", uni);
+    print_set("intersection", inter);
+    print_set("difference", diff);
+    printf("3 in a: %s\n", a[3] ? "yes" : "no");
+
+    int repeated[] = {2, 7, 2, 2, 9, 7};
+    bool seen[N] = {false};
+    int unique_count = 0;
+    for (int i = 0; i < 6; i++) {
+        if (!seen[repeated[i]]) {
+            seen[repeated[i]] = true;
+            unique_count++;
+        }
+    }
+    printf("unique count: %d\n", unique_count);
+    return 0;
+}
+```
+
+C has no set type either. When the values are small whole numbers, a row of true/false flags indexed by value is a perfectly good set, and it is also how a bit set works.
+
+</Tab>
 </Tabs>
 
-The three versions print the same thing:
+All four print the same thing:
 
 ```text
 union: [1, 2, 3, 4, 5]
@@ -232,61 +346,345 @@ unique count: 3
 
 The sorting is only there to make the output predictable, since sets themselves have no order.
 
-## More tools in Python
+## More tools
 
-The next file shows idioms you will use constantly: `get` with a default (which removes the if/else from counting), grouping items under a key, removing duplicates while keeping the original order, and what happens when you try an unhashable key.
+Three idioms come up constantly. Each shows a way around the "is it there yet?" branch or a trap around missing keys.
 
-```python title="map_extras.py"
+### A default for a missing key
+
+Counting with an `if` and an `else` works but is wordy. Every language has a way to ask for a value with a fallback:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="default_count.py"
 words = ["the", "cat", "and", "the", "hat"]
 
-# dict.get(key, default) avoids the "is it there yet?" branch.
 counts = {}
 for w in words:
     counts[w] = counts.get(w, 0) + 1
-print(counts)
 
-# Grouping: map each key to a list of values.
+for w, n in counts.items():
+    print(f"{w}: {n}")
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="default_count.js"
+const words = ["the", "cat", "and", "the", "hat"];
+
+const counts = new Map();
+for (const w of words) {
+  counts.set(w, (counts.get(w) ?? 0) + 1);
+}
+
+for (const [w, n] of counts) {
+  console.log(`${w}: ${n}`);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="DefaultCount.java"
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public class DefaultCount {
+    public static void main(String[] args) {
+        String[] words = {"the", "cat", "and", "the", "hat"};
+
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (String w : words) {
+            counts.put(w, counts.getOrDefault(w, 0) + 1);
+        }
+
+        for (Map.Entry<String, Integer> e : counts.entrySet()) {
+            System.out.println(e.getKey() + ": " + e.getValue());
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+C has no default-returning lookup, so the usual shape is a small helper that returns 0 for a word it has not met.
+
+```c title="default_count.c"
+#include <stdio.h>
+#include <string.h>
+
+#define MAX 16
+
+static const char *keys[MAX];
+static int values[MAX];
+static int size = 0;
+
+static int count_of(const char *key) {
+    for (int i = 0; i < size; i++) {
+        if (strcmp(keys[i], key) == 0) {
+            return values[i];
+        }
+    }
+    return 0;
+}
+
+static void set_count(const char *key, int n) {
+    for (int i = 0; i < size; i++) {
+        if (strcmp(keys[i], key) == 0) {
+            values[i] = n;
+            return;
+        }
+    }
+    keys[size] = key;
+    values[size] = n;
+    size++;
+}
+
+int main(void) {
+    const char *words[] = {"the", "cat", "and", "the", "hat"};
+    for (int i = 0; i < 5; i++) {
+        set_count(words[i], count_of(words[i]) + 1);
+    }
+    for (int i = 0; i < size; i++) {
+        printf("%s: %d\n", keys[i], values[i]);
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+the: 2
+cat: 1
+and: 1
+hat: 1
+```
+
+### Grouping under a key
+
+A map can hold a list under each key. Here the words are grouped by their length:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="group_by_length.py"
+words = ["a", "bb", "cc", "d", "eee"]
+
 by_length = {}
 for w in words:
     by_length.setdefault(len(w), []).append(w)
-print(by_length)
 
-# Remove duplicates but keep first-seen order.
-seen = set()
-unique_in_order = []
-for w in words:
-    if w not in seen:
-        seen.add(w)
-        unique_in_order.append(w)
-print(unique_in_order)
+for length, group in by_length.items():
+    print(length, "[" + ", ".join(group) + "]")
+```
 
-# A missing key is an error for [] but not for get().
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="group_by_length.js"
+const words = ["a", "bb", "cc", "d", "eee"];
+
+const byLength = new Map();
+for (const w of words) {
+  if (!byLength.has(w.length)) {
+    byLength.set(w.length, []);
+  }
+  byLength.get(w.length).push(w);
+}
+
+for (const [length, group] of byLength) {
+  console.log(length, `[${group.join(", ")}]`);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="GroupByLength.java"
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+public class GroupByLength {
+    public static void main(String[] args) {
+        String[] words = {"a", "bb", "cc", "d", "eee"};
+
+        Map<Integer, List<String>> byLength = new LinkedHashMap<>();
+        for (String w : words) {
+            byLength.computeIfAbsent(w.length(), k -> new ArrayList<>()).add(w);
+        }
+
+        for (Map.Entry<Integer, List<String>> e : byLength.entrySet()) {
+            System.out.println(e.getKey() + " " + e.getValue());
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+Here the key is a small number, so the "map" is an array indexed by length, with one row of words per length.
+
+```c title="group_by_length.c"
+#include <stdio.h>
+#include <string.h>
+
+#define MAX_LEN 4
+#define MAX_PER_GROUP 5
+
+int main(void) {
+    const char *words[] = {"a", "bb", "cc", "d", "eee"};
+    const char *groups[MAX_LEN][MAX_PER_GROUP];
+    int sizes[MAX_LEN] = {0};
+
+    for (int i = 0; i < 5; i++) {
+        int len = (int)strlen(words[i]);
+        groups[len][sizes[len]] = words[i];
+        sizes[len]++;
+    }
+
+    for (int len = 1; len < MAX_LEN; len++) {
+        printf("%d [", len);
+        for (int j = 0; j < sizes[len]; j++) {
+            printf("%s%s", j > 0 ? ", " : "", groups[len][j]);
+        }
+        printf("]\n");
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+1 [a, d]
+2 [bb, cc]
+3 [eee]
+```
+
+### Missing keys and unhashable keys
+
+Asking for a key that is not there is a question every language answers differently. A map holds `apples` at 3, and we ask for `pears`:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="missing_key.py"
 prices = {"apples": 3}
+
 print(prices.get("pears"))
 try:
     prices["pears"]
 except KeyError as err:
     print("KeyError:", err)
-
-# Unhashable keys are rejected.
-try:
-    bad = {[1, 2]: "list as key"}
-except TypeError as err:
-    print("TypeError:", err)
 ```
 
-Output:
-
-```text
-{'the': 2, 'cat': 1, 'and': 1, 'hat': 1}
-{3: ['the', 'cat', 'and', 'the', 'hat']}
-['the', 'cat', 'and', 'hat']
+```text title="output"
 None
 KeyError: 'pears'
-TypeError: cannot use 'list' as a dict key (unhashable type: 'list')
 ```
 
-All five words have three letters, so grouping by length gives a single group.
+`get` returns `None`, but square-bracket lookup raises an exception.
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="missing_key.js"
+const prices = new Map([["apples", 3]]);
+
+console.log(prices.get("pears"));
+console.log(prices.has("pears"));
+```
+
+```text title="output"
+undefined
+false
+```
+
+A missing key gives `undefined` quietly, so use `has` when "absent" and "stored as undefined" must differ.
+
+</Tab>
+<Tab label="Java">
+
+```java title="MissingKey.java"
+import java.util.HashMap;
+import java.util.Map;
+
+public class MissingKey {
+    public static void main(String[] args) {
+        Map<String, Integer> prices = new HashMap<>();
+        prices.put("apples", 3);
+
+        System.out.println(prices.get("pears"));
+        System.out.println(prices.containsKey("pears"));
+    }
+}
+```
+
+```text title="output"
+null
+false
+```
+
+A missing key gives `null`. Assigning that to an `int` later throws a `NullPointerException`.
+
+</Tab>
+<Tab label="C">
+
+```c title="missing_key.c"
+#include <stdio.h>
+#include <string.h>
+
+static const char *names[] = {"apples"};
+static int prices[] = {3};
+
+/* Returns the index of the key, or -1 when it is absent. */
+static int find(const char *key) {
+    for (int i = 0; i < 1; i++) {
+        if (strcmp(names[i], key) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int main(void) {
+    printf("%d\n", find("pears"));
+    printf("%d\n", find("apples") >= 0 ? prices[find("apples")] : -1);
+    return 0;
+}
+```
+
+```text title="output"
+-1
+3
+```
+
+Your own map decides the convention. Here the lookup returns `-1` for absent, and the caller must check it.
+
+</Tab>
+</Tabs>
+
+Keys must not change while stored, which is why languages differ on whether a list may be one:
+
+| Language | A list as a key |
+|---|---|
+| Python | rejected with `TypeError: unhashable type: 'list'` (the exact wording varies by version) |
+| JavaScript `Map` | allowed, but compared by identity: a different list with the same contents is a different key |
+| Java | allowed, and compared by contents; changing the list afterwards makes the entry impossible to find |
+| C | not applicable: there is no built-in map |
 
 ## Choosing: list, map or set?
 
@@ -304,17 +702,25 @@ If you find yourself looping through a list again and again just to find an item
 
 - **Assuming an order.** Do not depend on iteration order unless the language promises one. Sort the keys if the output has to be stable.
 - **Missing keys.** Reading a key that is not present raises `KeyError` in Python, returns `undefined` in a JavaScript `Map`, and returns `null` in Java. Check first, or use a default-returning form such as `get(key, default)`.
-- **Changeable keys.** A key must not change after being stored, which is why lists are rejected as dictionary keys in Python.
-- **Using a list for membership.** `x in some_list` checks every element. With thousands of items, a set is much faster.
+- **Changeable keys.** A key must not change after being stored, which is why Python rejects lists as dictionary keys.
+- **Using a list for membership.** Checking whether a list contains an item looks at every element. With thousands of items, a set is much faster.
 - **Expecting `{}` to be an empty set.** In Python `{}` is an empty dictionary; write `set()` for an empty set.
 
 <Exercise title="Word-frequency counter">
 
-Write a program that counts how often each word occurs in `"to be or not to be that is the question"` and prints the words that occur more than once, together with their counts.
+Write a program that counts how often each word occurs in `"to be or not to be that is the question"` and prints the words that occur more than once, together with their counts. Expected output, in order of first appearance:
+
+```text
+to 2
+be 2
+```
 
 <Solution>
 
 Count with a map, then print only the entries whose count is above one.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="word_freq.py"
 text = "to be or not to be that is the question"
@@ -328,7 +734,97 @@ for word, n in counts.items():
         print(word, n)
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="word_freq.js"
+const text = "to be or not to be that is the question";
+
+const counts = new Map();
+for (const word of text.split(" ")) {
+  counts.set(word, (counts.get(word) ?? 0) + 1);
+}
+
+for (const [word, n] of counts) {
+  if (n > 1) {
+    console.log(word, n);
+  }
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="WordFreq.java"
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+public class WordFreq {
+    public static void main(String[] args) {
+        String text = "to be or not to be that is the question";
+
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (String word : text.split(" ")) {
+            counts.put(word, counts.getOrDefault(word, 0) + 1);
+        }
+
+        for (Map.Entry<String, Integer> e : counts.entrySet()) {
+            if (e.getValue() > 1) {
+                System.out.println(e.getKey() + " " + e.getValue());
+            }
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="word_freq.c"
+#include <stdio.h>
+#include <string.h>
+
+#define MAX 16
+
+static const char *keys[MAX];
+static int values[MAX];
+static int size = 0;
+
+int main(void) {
+    const char *words[] = {"to", "be", "or", "not", "to", "be", "that", "is", "the", "question"};
+    int count = sizeof words / sizeof words[0];
+
+    for (int i = 0; i < count; i++) {
+        int at = -1;
+        for (int j = 0; j < size; j++) {
+            if (strcmp(keys[j], words[i]) == 0) {
+                at = j;
+            }
+        }
+        if (at >= 0) {
+            values[at] += 1;
+        } else {
+            keys[size] = words[i];
+            values[size] = 1;
+            size++;
+        }
+    }
+
+    for (int i = 0; i < size; i++) {
+        if (values[i] > 1) {
+            printf("%s %d\n", keys[i], values[i]);
+        }
+    }
+    return 0;
+}
+```
+
+The words are listed in an array here, because splitting text in C needs `strtok`, which modifies its input.
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
 to 2
@@ -341,11 +837,14 @@ be 2
 
 <Exercise title="Remove duplicates, keep order">
 
-Given `[4, 1, 4, 2, 1, 3]`, produce `[4, 1, 2, 3]`: each value once, in the order it first appeared. Why does `list(set(values))` not solve it reliably?
+Given `[4, 1, 4, 2, 1, 3]`, produce `[4, 1, 2, 3]`: each value once, in the order it first appeared. Why is "put the values in a set and take them back out" not a reliable answer?
 
 <Solution>
 
 Keep a set of values already seen. The set makes each check fast, and the list preserves the order.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="dedupe_ordered.py"
 values = [4, 1, 4, 2, 1, 3]
@@ -359,13 +858,90 @@ for v in values:
 print(result)
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="dedupe_ordered.js"
+const values = [4, 1, 4, 2, 1, 3];
+
+const seen = new Set();
+const result = [];
+for (const v of values) {
+  if (!seen.has(v)) {
+    seen.add(v);
+    result.push(v);
+  }
+}
+console.log(`[${result.join(", ")}]`);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="DedupeOrdered.java"
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+public class DedupeOrdered {
+    public static void main(String[] args) {
+        int[] values = {4, 1, 4, 2, 1, 3};
+
+        Set<Integer> seen = new HashSet<>();
+        List<Integer> result = new ArrayList<>();
+        for (int v : values) {
+            if (!seen.contains(v)) {
+                seen.add(v);
+                result.add(v);
+            }
+        }
+        System.out.println(result);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="dedupe_ordered.c"
+#include <stdbool.h>
+#include <stdio.h>
+
+#define N 10   /* the values are whole numbers 0 to 9 */
+
+int main(void) {
+    int values[] = {4, 1, 4, 2, 1, 3};
+    bool seen[N] = {false};
+    int result[6];
+    int size = 0;
+
+    for (int i = 0; i < 6; i++) {
+        if (!seen[values[i]]) {
+            seen[values[i]] = true;
+            result[size++] = values[i];
+        }
+    }
+
+    printf("[");
+    for (int i = 0; i < size; i++) {
+        printf("%s%d", i > 0 ? ", " : "", result[i]);
+    }
+    printf("]\n");
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
 [4, 1, 2, 3]
 ```
 
-`list(set(values))` removes duplicates but a set promises no particular order, so the result may come back in a different order from the input.
+Converting a set back to a list removes duplicates, but a plain set promises no particular order (Java's `HashSet`, for example), so the result may come back in a different order from the input.
 
 </Solution>
 
@@ -373,7 +949,7 @@ Output:
 
 <Exercise title="List or map?">
 
-You have 50,000 customer records, each with a unique id, and your program must find a customer by id thousands of times. Would you store them in a list or a map, and why?
+You have 50,000 customer records, each with a unique id, and your program must find a customer by id thousands of times. Would you store them in a list or a map, and why? Expected: one choice and a reason in a sentence or two.
 
 <Solution>
 

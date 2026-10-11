@@ -27,4 +27,4 @@ except ValueError as err:
 
 ada.give_back("Dune")
 ada.borrow("Ulysses")
-print(ada.books())
+print("books:", ", ".join(ada.books()))

@@ -1,6 +1,0 @@
-syntax error caught
-runtime error caught: division by zero
-20.0 but the average of 10 and 20 is 15
-rejected: age must be between 0 and 150, got -3
-1
-None

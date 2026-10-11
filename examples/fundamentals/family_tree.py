@@ -7,13 +7,19 @@ family = {
 
 
 def count_people(tree):
-    return sum(1 + count_people(children) for children in tree.values())
+    total = 0
+    for children in tree.values():
+        total += 1 + count_people(children)
+    return total
 
 
 def depth(tree):
+    deepest = 0
+    for children in tree.values():
+        deepest = max(deepest, depth(children))
     if not tree:
         return 0
-    return 1 + max(depth(children) for children in tree.values())
+    return 1 + deepest
 
 
 print(count_people(family), depth(family))

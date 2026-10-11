@@ -1,6 +1,0 @@
-{'the': 2, 'cat': 1, 'and': 1, 'hat': 1}
-{3: ['the', 'cat', 'and', 'the', 'hat']}
-['the', 'cat', 'and', 'hat']
-None
-KeyError: 'pears'
-TypeError: cannot use 'list' as a dict key (unhashable type: 'list')

@@ -4,9 +4,6 @@ class Book:
         self.author = author
         self.available = True
 
-    def __repr__(self):
-        return f"Book({self.title!r})"
-
 
 class Member:
     MAX_BOOKS = 2
@@ -27,8 +24,11 @@ class Member:
         self._borrowed.remove(book)
         book.available = True
 
-    def books(self):
-        return list(self._borrowed)
+    def titles(self):
+        names = []
+        for book in self._borrowed:
+            names.append(book.title)
+        return ", ".join(names)
 
 
 dune = Book("Dune", "Frank Herbert")
@@ -47,4 +47,5 @@ for member, book in [(ada, ulysses), (grace, dune)]:
 
 ada.give_back(dune)
 grace.borrow(dune)
-print(ada.books(), grace.books())
+print(f"Ada: {ada.titles()}")
+print(f"Grace: {grace.titles()}")

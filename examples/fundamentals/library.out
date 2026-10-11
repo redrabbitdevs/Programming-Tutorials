@@ -1,3 +1,4 @@
 refused: Ada already has 2 books
 refused: 'Dune' is already on loan
-[Book('Emma')] [Book('Dune')]
+Ada: Emma
+Grace: Dune

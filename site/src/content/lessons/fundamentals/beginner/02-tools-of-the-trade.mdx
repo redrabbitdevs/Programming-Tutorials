@@ -89,6 +89,15 @@ Hello, world!
 ```
 
 </Tab>
+<Tab label="Java">
+
+```text frame="terminal"
+$ javac Hello.java
+$ java Hello
+Hello, world!
+```
+
+</Tab>
 <Tab label="C">
 
 ```text frame="terminal"
@@ -100,7 +109,9 @@ Hello, world!
 </Tab>
 </Tabs>
 
-Python and JavaScript are run directly by an interpreter. C has an extra step, because a compiler first produces an executable named `hello`, which you then run. The `./` means "the file in the current folder"; without it, the shell searches only a fixed list of system folders and will not find your program.
+Python and JavaScript are run directly by an interpreter. Java and C have an extra step. Java's compiler `javac` produces bytecode in a file named `Hello.class`, and `java Hello` runs it on the virtual machine (note that you give the class name, not the file name). C's compiler produces a machine-code executable named `hello`, which you then run. The `./` means "the file in the current folder"; without it, the shell searches only a fixed list of system folders and will not find your program.
+
+Recent Java versions can also skip the separate step for a single file: `java Hello.java` compiles it in memory and runs it.
 
 On Windows, the Python launcher is often `py` or `python` rather than `python3`. Use whichever your installation answers to.
 
@@ -116,7 +127,10 @@ Every program starts with three channels already open:
 
 Normal results go to stdout. Diagnostics, warnings and errors go to stderr. Both appear in your terminal, so they look the same, but they are separate streams. That is useful because you can redirect one and keep the other: `>` sends stdout to a file.
 
-This Python program writes to both:
+Each language has a call for each stream. This program writes one line to each:
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="streams.py"
 import sys
@@ -124,6 +138,44 @@ import sys
 print("result: 42")
 print("warning: using default settings", file=sys.stderr)
 ```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="streams.js"
+console.log("result: 42");
+console.error("warning: using default settings");
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="Streams.java"
+public class Streams {
+    public static void main(String[] args) {
+        System.out.println("result: 42");
+        System.err.println("warning: using default settings");
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="streams.c"
+#include <stdio.h>
+
+int main(void) {
+    printf("result: 42\n");
+    fprintf(stderr, "warning: using default settings\n");
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+Run it with stdout redirected to a file (shown here for Python; swap in the run command from the tabs above). All four behave the same way.
 
 ```text frame="terminal"
 $ python3 streams.py > out.txt
@@ -138,6 +190,15 @@ The warning still reached the screen because only stdout was redirected. This is
 
 When a program ends it hands back a small integer, the **exit code**. By convention `0` means success and anything else means failure. Shells let you read the code of the last command (`echo $?` in bash and zsh, `$LASTEXITCODE` in PowerShell). Scripts, build tools and CI systems rely on this number, not on what the program printed, to decide whether a step worked.
 
+A program that finishes normally returns 0 without being asked. To report failure, set a different code on purpose:
+
+| Language | Exit with code 3 |
+|---|---|
+| Python | `sys.exit(3)` (after `import sys`) |
+| JavaScript | `process.exit(3)` |
+| Java | `System.exit(3)` |
+| C | `return 3;` from `main`, or `exit(3)` from `<stdlib.h>` |
+
 ```text frame="terminal"
 $ python3 streams.py
 result: 42
@@ -148,12 +209,12 @@ $ echo $?
 
 ## Changing and rerunning
 
-The working loop is: edit, save, run, read, repeat. Save before you run; an unsaved editor buffer is the most common reason that a change appears to do nothing. Try it: create `hello.py` containing `print("Hello, world!")`, run it, change the text, save, and run it again. The output should change each time.
+The working loop is: edit, save, run, read, repeat. Save before you run; an unsaved editor buffer is the most common reason that a change appears to do nothing. Try it: create a hello-world file in your language (`hello.py`, `hello.js`, `Hello.java` or `hello.c`), run it, change the text, save, and run it again. The output should change each time. For Java and C, compile again after every edit, or the old program runs.
 
 ## Common pitfalls
 
-- **Running from the wrong folder.** If `python3 hello.py` says the file does not exist, run `pwd` and `ls`.
-- **Forgetting to save.** The terminal runs the file on disk, not what is on your screen.
+- **Running from the wrong folder.** If `node hello.js` (or `python3 hello.py`, or `./hello`) says the file does not exist, run `pwd` and `ls`.
+- **Forgetting to save, or to recompile.** The terminal runs the file on disk, not what is on your screen. With Java and C it also runs the last compiled version, not your latest edit.
 - **Editing the wrong copy.** Two files with similar names in different folders is an easy way to lose an hour.
 - **Treating stderr as noise.** Warnings go to stderr so they do not pollute results. They still matter.
 - **Pasting commands with the leading `$`.** The dollar sign is the prompt, not part of the command.
@@ -184,11 +245,70 @@ You are in `/home/sam/projects/app`. Write the absolute path that the relative p
 
 <Exercise title="The edit-run loop">
 
-Create a file that prints your name, run it from a terminal, then change it to print your name twice and run it again. Write down the exact command you used and the folder you ran it from.
+Create a file that prints your name, run it from a terminal, then change it to print your name twice and run it again. Write down the exact command you used and the folder you ran it from. There is no input. If your name is Sam, the first run prints `Sam` and the second prints `Sam` on two lines.
 
 <Solution>
 
-For Python, the file `hello.py` could hold `print("Sam")`, later changed to two `print` lines. The command is `python3 hello.py` run from the folder that contains the file. If you ran it from another folder, you would have used a path such as `python3 ../hello.py`.
+The program, in each language (the second version just repeats the print line):
+
+<Tabs>
+<Tab label="Python">
+
+```python title="name_twice.py"
+print("Sam")
+print("Sam")
+```
+
+Run it with `python3 name_twice.py` from the folder that contains the file.
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="name_twice.js"
+console.log("Sam");
+console.log("Sam");
+```
+
+Run it with `node name_twice.js` from the folder that contains the file.
+
+</Tab>
+<Tab label="Java">
+
+```java title="NameTwice.java"
+public class NameTwice {
+    public static void main(String[] args) {
+        System.out.println("Sam");
+        System.out.println("Sam");
+    }
+}
+```
+
+Run it with `javac NameTwice.java` and then `java NameTwice`, from the folder that contains the file.
+
+</Tab>
+<Tab label="C">
+
+```c title="name_twice.c"
+#include <stdio.h>
+
+int main(void) {
+    printf("Sam\n");
+    printf("Sam\n");
+    return 0;
+}
+```
+
+Run it with `gcc name_twice.c -o name_twice` and then `./name_twice`, from the folder that contains the file.
+
+</Tab>
+</Tabs>
+
+If you ran it from another folder, you would use a path such as `python3 ../name_twice.py`. Whatever the language, the output is two lines:
+
+```text
+Sam
+Sam
+```
 
 </Solution>
 

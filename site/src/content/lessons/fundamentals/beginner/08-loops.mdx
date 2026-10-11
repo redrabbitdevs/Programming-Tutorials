@@ -35,7 +35,7 @@ This program uses both kinds. The `for` adds the numbers 1 to 5; the `while` cou
 <Tabs>
 <Tab label="Python">
 
-```python
+```python title="loops_sum.py"
 total = 0
 for n in range(1, 6):
     total += n
@@ -51,7 +51,7 @@ print("liftoff")
 </Tab>
 <Tab label="JavaScript">
 
-```javascript
+```javascript title="loops_sum.js"
 let total = 0;
 for (let n = 1; n <= 5; n++) {
   total += n;
@@ -69,7 +69,7 @@ console.log("liftoff");
 </Tab>
 <Tab label="Java">
 
-```java
+```java title="LoopsSum.java"
 public class LoopsSum {
     public static void main(String[] args) {
         int total = 0;
@@ -91,7 +91,7 @@ public class LoopsSum {
 </Tab>
 <Tab label="C">
 
-```c
+```c title="loops_sum.c"
 #include <stdio.h>
 
 int main(void) {
@@ -132,28 +132,159 @@ The `while` loop has a pattern worth memorising. Three things must be true for i
 
 Two keywords change the flow within the body. `continue` abandons the current iteration and jumps to the next. `break` ends the loop altogether.
 
-```python
-# range(start, stop) stops BEFORE stop: the classic off-by-one trap.
-print(list(range(1, 5)))   # 1 to 4, not 1 to 5
-print(list(range(1, 6)))   # 1 to 5
+This loop skips even numbers with `continue` and quits early with `break`:
 
-# continue skips to the next pass; break leaves the loop entirely.
+<Tabs>
+<Tab label="Python">
+
+```python title="loop_control.py"
 for n in range(1, 10):
     if n % 2 == 0:
         continue
     if n > 7:
         break
     print("odd and at most 7:", n)
+```
 
-# A conditional loop whose number of passes is not known in advance.
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="loop_control.js"
+for (let n = 1; n < 10; n++) {
+  if (n % 2 === 0) {
+    continue;
+  }
+  if (n > 7) {
+    break;
+  }
+  console.log("odd and at most 7:", n);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="LoopControl.java"
+public class LoopControl {
+    public static void main(String[] args) {
+        for (int n = 1; n < 10; n++) {
+            if (n % 2 == 0) {
+                continue;
+            }
+            if (n > 7) {
+                break;
+            }
+            System.out.println("odd and at most 7: " + n);
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="loop_control.c"
+#include <stdio.h>
+
+int main(void) {
+    for (int n = 1; n < 10; n++) {
+        if (n % 2 == 0) {
+            continue;
+        }
+        if (n > 7) {
+            break;
+        }
+        printf("odd and at most 7: %d\n", n);
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+odd and at most 7: 1
+odd and at most 7: 3
+odd and at most 7: 5
+odd and at most 7: 7
+```
+
+Even values hit `continue` and never reach the `print`. At `n = 9` the `break` ends the loop. Notice the stop value: `range(1, 10)` and `n < 10` both stop before 10.
+
+A conditional loop is the right tool when the number of passes is not known in advance. How many times can you halve 100 before reaching 1?
+
+<Tabs>
+<Tab label="Python">
+
+```python title="halvings.py"
 number = 100
 steps = 0
 while number > 1:
     number = number // 2
     steps += 1
 print("halvings until 1:", steps)
+```
 
-# while True with break: loop until a condition inside the body says stop.
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="halvings.js"
+let number = 100;
+let steps = 0;
+while (number > 1) {
+  number = Math.floor(number / 2);
+  steps += 1;
+}
+console.log("halvings until 1:", steps);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="Halvings.java"
+public class Halvings {
+    public static void main(String[] args) {
+        int number = 100;
+        int steps = 0;
+        while (number > 1) {
+            number = number / 2;
+            steps += 1;
+        }
+        System.out.println("halvings until 1: " + steps);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="halvings.c"
+#include <stdio.h>
+
+int main(void) {
+    int number = 100;
+    int steps = 0;
+    while (number > 1) {
+        number = number / 2;
+        steps += 1;
+    }
+    printf("halvings until 1: %d\n", steps);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print `halvings until 1: 6` (100, 50, 25, 12, 6, 3, 1). The last loop shape is `while true` with a `break`: loop until a condition inside the body says stop.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="square_search.py"
 guess = 1
 while True:
     if guess * guess > 50:
@@ -162,24 +293,67 @@ while True:
 print("first number whose square exceeds 50:", guess)
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
 
-```text
-[1, 2, 3, 4]
-[1, 2, 3, 4, 5]
-odd and at most 7: 1
-odd and at most 7: 3
-odd and at most 7: 5
-odd and at most 7: 7
-halvings until 1: 6
-first number whose square exceeds 50: 8
+```javascript title="square_search.js"
+let guess = 1;
+while (true) {
+  if (guess * guess > 50) {
+    break;
+  }
+  guess += 1;
+}
+console.log("first number whose square exceeds 50:", guess);
 ```
 
-Use them for exceptional cases, not as the main structure. If a loop has three `break`s scattered through it, a clearer condition at the top is usually better. The last example, `while True` with a `break`, is the honest exception: when the natural place to decide is the middle of the body, an explicit exit is easier to read than contorting the condition.
+</Tab>
+<Tab label="Java">
+
+```java title="SquareSearch.java"
+public class SquareSearch {
+    public static void main(String[] args) {
+        int guess = 1;
+        while (true) {
+            if (guess * guess > 50) {
+                break;
+            }
+            guess += 1;
+        }
+        System.out.println("first number whose square exceeds 50: " + guess);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="square_search.c"
+#include <stdio.h>
+
+int main(void) {
+    int guess = 1;
+    while (1) {
+        if (guess * guess > 50) {
+            break;
+        }
+        guess += 1;
+    }
+    printf("first number whose square exceeds 50: %d\n", guess);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print `first number whose square exceeds 50: 8`.
+
+Use `break` and `continue` for exceptional cases, not as the main structure. If a loop has three `break`s scattered through it, a clearer condition at the top is usually better. The `while true` loop is the honest exception: when the natural place to decide is the middle of the body, an explicit exit is easier to read than contorting the condition.
 
 ## Off-by-one errors and invariants
 
-The most common loop bug has a name: the **off-by-one error**. You loop one time too many or too few. In the output above, `range(1, 5)` gave 1 to 4, because in Python (and in most languages' ranges) the start is included and the stop is **excluded**. Writing `n <= 5` versus `n < 5` is the same decision in the three-part form.
+The most common loop bug has a name: the **off-by-one error**. You loop one time too many or too few. In the `continue` example above, `n < 10` stopped before 10, because in most languages' ranges the start is included and the stop is **excluded**. Python's `range(1, 5)` gives 1 to 4. Writing `n <= 5` versus `n < 5` in the three-part form is the same decision.
 
 A habit that prevents these: state the loop's **invariant**, a sentence that is true before the loop starts and after every iteration. In the `for` loop that sums 1 to 5, the invariant is "`total` is the sum of the numbers handled so far". Before the loop it holds trivially (nothing handled, total 0). Each iteration keeps it true. When the loop ends, "handled so far" means "all of them", so the invariant becomes the answer. If you cannot state an invariant, you probably do not yet know what the loop is for.
 
@@ -200,11 +374,14 @@ If the condition never becomes false, the program never ends. Sometimes this is 
 
 <Exercise title="Sum the digits">
 
-Given a positive whole number such as 4821, compute the sum of its digits (4 + 8 + 2 + 1 = 15) without converting it to text. Hint: `n % 10` is the last digit, and `n // 10` (integer division) removes it.
+Given a positive whole number such as 4821, compute the sum of its digits (4 + 8 + 2 + 1 = 15) without converting it to text. Hint: `n % 10` is the last digit, and dividing by 10 with whole-number division removes it. Input: 4821. Expected output: `15`. Also try 7 (expected `7`) and 1000 (expected `1`).
 
 <Solution>
 
 We do not know in advance how many digits there are, so a conditional loop fits.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="digit_sum.py"
 number = 4821
@@ -215,11 +392,64 @@ while number > 0:
 print(total)
 ```
 
-The invariant: `total` holds the sum of the digits already removed from `number`. The loop stops when no digits remain. It prints:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="digit_sum.js"
+let number = 4821;
+let total = 0;
+while (number > 0) {
+  total += number % 10;              // the last digit
+  number = Math.floor(number / 10);  // drop the last digit
+}
+console.log(total);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="DigitSum.java"
+public class DigitSum {
+    public static void main(String[] args) {
+        int number = 4821;
+        int total = 0;
+        while (number > 0) {
+            total += number % 10;   // the last digit
+            number = number / 10;   // drop the last digit
+        }
+        System.out.println(total);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="digit_sum.c"
+#include <stdio.h>
+
+int main(void) {
+    int number = 4821;
+    int total = 0;
+    while (number > 0) {
+        total += number % 10;   /* the last digit */
+        number = number / 10;   /* drop the last digit */
+    }
+    printf("%d\n", total);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+The invariant: `total` holds the sum of the digits already removed from `number`. The loop stops when no digits remain. All four print:
 
 ```text
 15
 ```
+
+Changing `number` to 7 prints `7`, and 1000 prints `1`: the zeros contribute nothing but still take an iteration each.
 
 </Solution>
 
@@ -227,19 +457,7 @@ The invariant: `total` holds the sum of the digits already removed from `number`
 
 <Exercise title="Draw a triangle">
 
-Print a right-angled triangle of stars with 4 rows: one star in the first row, two in the second, and so on.
-
-<Solution>
-
-The number of rows is known, so use a counted loop. The row number doubles as the number of stars. In Python, `"*" * row` repeats the string.
-
-```python title="triangle.py"
-rows = 4
-for row in range(1, rows + 1):
-    print("*" * row)
-```
-
-Output:
+Print a right-angled triangle of stars with 4 rows: one star in the first row, two in the second, and so on. The input is `rows = 4`. Expected output:
 
 ```text
 *
@@ -248,7 +466,71 @@ Output:
 ****
 ```
 
-In a language without string repetition, put a second counted loop inside the first, printing one star per pass and a newline at the end of each row.
+<Solution>
+
+The number of rows is known, so use a counted loop. The row number doubles as the number of stars. Python can repeat a string with `"*" * row`; the other three languages put a second counted loop inside the first, printing one star per pass and a newline at the end of each row.
+<Tabs>
+<Tab label="Python">
+
+```python title="triangle.py"
+rows = 4
+for row in range(1, rows + 1):
+    print("*" * row)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="triangle.js"
+const rows = 4;
+for (let row = 1; row <= rows; row++) {
+  let line = "";
+  for (let star = 0; star < row; star++) {
+    line += "*";
+  }
+  console.log(line);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="Triangle.java"
+public class Triangle {
+    public static void main(String[] args) {
+        int rows = 4;
+        for (int row = 1; row <= rows; row++) {
+            for (int star = 0; star < row; star++) {
+                System.out.print("*");
+            }
+            System.out.println();
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="triangle.c"
+#include <stdio.h>
+
+int main(void) {
+    int rows = 4;
+    for (int row = 1; row <= rows; row++) {
+        for (int star = 0; star < row; star++) {
+            printf("*");
+        }
+        printf("\n");
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print the four rows shown above.
 
 </Solution>
 
@@ -256,11 +538,98 @@ In a language without string repetition, put a second counted loop inside the fi
 
 <Exercise title="Spot the off-by-one">
 
-A program is meant to print the numbers 1 to 10 but prints only 1 to 9: `for n in range(1, 10): print(n)`. Fix it, then explain why 10 was missing.
+A program is meant to print the numbers 1 to 10, one per line, but prints only 1 to 9. The loop header is shown in each language. Fix it, then explain why 10 was missing. Expected output after the fix: ten lines, `1` to `10`.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+for n in range(1, 10):
+    print(n)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+for (let n = 1; n < 10; n++) {
+  console.log(n);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+for (int n = 1; n < 10; n++) {
+    System.out.println(n);
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+for (int n = 1; n < 10; n++) {
+    printf("%d\n", n);
+}
+```
+
+</Tab>
+</Tabs>
 
 <Solution>
 
-Use `range(1, 11)`. The stop value is excluded, so `range(1, 10)` ends at 9. A quick check on a smaller case helps: `range(1, 3)` gives 1 and 2, so to include `k` you must stop at `k + 1`.
+The stop value is excluded. In Python use `range(1, 11)`. In JavaScript, Java and C change the test to `n <= 10` (or `n < 11`). A quick check on a smaller case helps: `range(1, 3)` gives 1 and 2, and `n < 3` does the same, so to include `k` you must stop at `k + 1` or test `<= k`.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="count_to_ten.py"
+for n in range(1, 11):
+    print(n)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="count_to_ten.js"
+for (let n = 1; n <= 10; n++) {
+  console.log(n);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="CountToTen.java"
+public class CountToTen {
+    public static void main(String[] args) {
+        for (int n = 1; n <= 10; n++) {
+            System.out.println(n);
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="count_to_ten.c"
+#include <stdio.h>
+
+int main(void) {
+    for (int n = 1; n <= 10; n++) {
+        printf("%d\n", n);
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print 1 to 10, one per line.
 
 </Solution>
 

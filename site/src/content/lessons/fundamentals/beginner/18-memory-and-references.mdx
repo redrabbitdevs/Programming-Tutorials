@@ -45,6 +45,14 @@ When you assign one variable to another, there are two possibilities:
 - **Value semantics:** the contents are copied. Afterwards there are two independent values. Numbers, booleans and (in C) structs and arrays-inside-structs behave this way.
 - **Reference semantics:** only the address is copied. Afterwards there are two names for **one** thing on the heap. Lists, dictionaries and objects in Python, JavaScript and Java behave this way. This is called **aliasing**.
 
+```text
+value semantics:      y = x           reference semantics:   b = a
+
+x [ 5 ]                               a ----+
+y [ 5 ]   two boxes                          +--> [1, 2, 3]   one list, two names
+                                      b ----+
+```
+
 Changing the thing through one alias is visible through every other.
 
 <Tabs>
@@ -168,10 +176,10 @@ In C the pointer `b` is spelled out: you can see it is not an array but the addr
 
 When you pass a list to a function, the parameter receives a copy of the **reference**, so the function and the caller share one list. A function that changes the list in place changes the caller's data. A function that merely re-points its parameter at a new list has no effect on the caller.
 
-```python title="memory_extras.py"
-import copy
+<Tabs>
+<Tab label="Python">
 
-
+```python title="alias_function.py"
 def add_item(items):
     items.append("new")            # changes the caller's list
 
@@ -183,21 +191,234 @@ def replace_all(items):
 
 basket = ["apple"]
 add_item(basket)
-print(basket)
+print("[" + ", ".join(basket) + "]")
 replace_all(basket)
-print(basket)
+print("[" + ", ".join(basket) + "]")
+```
 
-# A shallow copy duplicates the outer list but shares the inner ones.
-team = [["Ada", "Grace"], ["Linus"]]
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="alias_function.js"
+function addItem(items) {
+  items.push("new");               // changes the caller's array
+}
+
+function replaceAll(items) {
+  items = ["replaced"];            // re-points the local name only
+  return items;
+}
+
+const basket = ["apple"];
+addItem(basket);
+console.log("[" + basket.join(", ") + "]");
+replaceAll(basket);
+console.log("[" + basket.join(", ") + "]");
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="AliasFunction.java"
+import java.util.ArrayList;
+import java.util.List;
+
+public class AliasFunction {
+    static void addItem(List<String> items) {
+        items.add("new");                          // changes the caller's list
+    }
+
+    static List<String> replaceAll(List<String> items) {
+        items = new ArrayList<>(List.of("replaced"));   // re-points the local name only
+        return items;
+    }
+
+    public static void main(String[] args) {
+        List<String> basket = new ArrayList<>(List.of("apple"));
+        addItem(basket);
+        System.out.println(basket);
+        replaceAll(basket);
+        System.out.println(basket);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="alias_function.c"
+#include <stdio.h>
+
+static void add_item(const char **items, int *count) {
+    items[*count] = "new";             /* changes the caller's array */
+    (*count)++;
+}
+
+static const char **replace_all(const char **items) {
+    static const char *replacement[1] = {"replaced"};
+    items = replacement;               /* re-points the local pointer only */
+    return items;
+}
+
+static void print_basket(const char **items, int count) {
+    printf("[");
+    for (int i = 0; i < count; i++) {
+        printf("%s%s", i > 0 ? ", " : "", items[i]);
+    }
+    printf("]\n");
+}
+
+int main(void) {
+    const char *basket[4] = {"apple"};
+    int count = 1;
+    add_item(basket, &count);
+    print_basket(basket, count);
+    replace_all(basket);
+    print_basket(basket, count);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+[apple, new]
+[apple, new]
+```
+
+`add_item` changed `basket` because both names point at one list. `replace_all` did not, because assigning to the parameter only moves the local name.
+
+### Shallow and deep copies
+
+A **shallow copy** makes a new outer list, but the inner lists are still shared. A **deep copy** duplicates everything all the way down. Here a team is a list of two groups, `[[1, 2], [3]]`. Both copies are taken, then a 9 is added to the first group of the original.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="shallow_deep.py"
+import copy
+
+team = [[1, 2], [3]]
 shallow = team.copy()
 deep = copy.deepcopy(team)
-team[0].append("Alan")
+
+team[0].append(9)
 print("team:   ", team)
 print("shallow:", shallow)
 print("deep:   ", deep)
+```
 
+</Tab>
+<Tab label="JavaScript">
 
-# The classic trap: a default value is created once, then shared by every call.
+```javascript title="shallow_deep.js"
+const show = (rows) => "[" + rows.map((r) => "[" + r.join(", ") + "]").join(", ") + "]";
+
+const team = [[1, 2], [3]];
+const shallow = [...team];
+const deep = structuredClone(team);
+
+team[0].push(9);
+console.log("team:   ", show(team));
+console.log("shallow:", show(shallow));
+console.log("deep:   ", show(deep));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="ShallowDeep.java"
+import java.util.ArrayList;
+import java.util.List;
+
+public class ShallowDeep {
+    public static void main(String[] args) {
+        List<List<Integer>> team = new ArrayList<>();
+        team.add(new ArrayList<>(List.of(1, 2)));
+        team.add(new ArrayList<>(List.of(3)));
+
+        List<List<Integer>> shallow = new ArrayList<>(team);   // new outer list, same inner lists
+        List<List<Integer>> deep = new ArrayList<>();
+        for (List<Integer> row : team) {
+            deep.add(new ArrayList<>(row));                    // copy each level by hand
+        }
+
+        team.get(0).add(9);
+        System.out.println("team:    " + team);
+        System.out.println("shallow: " + shallow);
+        System.out.println("deep:    " + deep);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="shallow_deep.c"
+#include <stdio.h>
+#include <string.h>
+
+typedef struct {
+    int items[4];
+    int count;
+} Row;
+
+static void show(const char *label, Row *const rows[2]) {
+    printf("%s [", label);
+    for (int r = 0; r < 2; r++) {
+        printf("%s[", r > 0 ? ", " : "");
+        for (int i = 0; i < rows[r]->count; i++) {
+            printf("%s%d", i > 0 ? ", " : "", rows[r]->items[i]);
+        }
+        printf("]");
+    }
+    printf("]\n");
+}
+
+int main(void) {
+    Row first = {{1, 2}, 2};
+    Row second = {{3}, 1};
+    Row *team[2] = {&first, &second};
+
+    Row *shallow[2];
+    memcpy(shallow, team, sizeof team);        /* copies the two pointers: the rows are shared */
+
+    Row first_copy = first;                    /* copies the rows themselves */
+    Row second_copy = second;
+    Row *deep[2] = {&first_copy, &second_copy};
+
+    team[0]->items[team[0]->count++] = 9;
+    show("team:   ", team);
+    show("shallow:", shallow);
+    show("deep:   ", deep);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four show the same three lists:
+
+```text
+team:    [[1, 2, 9], [3]]
+shallow: [[1, 2, 9], [3]]
+deep:    [[1, 2], [3]]
+```
+
+Appending to the first group of `team` showed up in `shallow`, because the inner list is the same one. `deep` is unaffected. JavaScript offers `structuredClone(value)` for a deep copy; Java has no built-in one, so you copy each level yourself or use a library; in C you copy each struct yourself.
+
+### A trap with default values
+
+In Python, a default value such as `bucket=[]` is created once, when the function is defined, then shared by every call that omits the argument. Other languages avoid the trap in different ways.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="default_bucket.py"
 def collect(item, bucket=[]):
     bucket.append(item)
     return bucket
@@ -217,39 +438,137 @@ def collect_safe(item, bucket=None):
 
 print(collect_safe("a"))
 print(collect_safe("b"))
-
-# Multiplying a nested list repeats the reference, not the contents.
-grid = [[0] * 2] * 2
-grid[0][0] = 1
-print(grid)
-
-grid = [[0] * 2 for _ in range(2)]
-grid[0][0] = 1
-print(grid)
 ```
 
-Output:
-
-```text
-['apple', 'new']
-['apple', 'new']
-team:    [['Ada', 'Grace', 'Alan'], ['Linus']]
-shallow: [['Ada', 'Grace', 'Alan'], ['Linus']]
-deep:    [['Ada', 'Grace'], ['Linus']]
+```text title="output"
 ['a']
 ['a', 'b']
 ['a']
 ['b']
+```
+
+The second call returns both items: the "empty" default list was shared and kept growing. The `None` form builds a fresh list on every call.
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="default_bucket.js"
+function collect(item, bucket = []) {
+  bucket.push(item);
+  return bucket;
+}
+
+console.log(collect("a"));
+console.log(collect("b"));
+```
+
+```text title="output"
+[ 'a' ]
+[ 'b' ]
+```
+
+JavaScript evaluates a default value again on every call, so a fresh array is made each time and there is no trap.
+
+</Tab>
+<Tab label="Java">
+
+Java has no default arguments, so this trap cannot occur. A method that wants an optional list is written twice (an overload), and the version without a list builds a new one itself.
+
+</Tab>
+<Tab label="C">
+
+C has no default arguments either. The nearest relative of this bug is a function that returns a pointer to a `static` buffer: every call hands back the same memory, so the second call overwrites the first call's result.
+
+</Tab>
+</Tabs>
+
+### Repeating a nested list
+
+The same sharing appears when you build a grid by repeating one row.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="grid_rows.py"
+grid = [[0] * 2] * 2          # two references to the SAME row
+grid[0][0] = 1
+print(grid)
+
+grid = [[0] * 2 for _ in range(2)]   # a fresh row each time
+grid[0][0] = 1
+print(grid)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="grid_rows.js"
+const show = (rows) => "[" + rows.map((r) => "[" + r.join(", ") + "]").join(", ") + "]";
+
+let grid = new Array(2).fill([0, 0]);          // two references to the SAME row
+grid[0][0] = 1;
+console.log(show(grid));
+
+grid = Array.from({ length: 2 }, () => [0, 0]);   // a fresh row each time
+grid[0][0] = 1;
+console.log(show(grid));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="GridRows.java"
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+public class GridRows {
+    public static void main(String[] args) {
+        // nCopies repeats ONE row object, so both entries are the same list.
+        List<List<Integer>> grid = new ArrayList<>(Collections.nCopies(2, new ArrayList<>(List.of(0, 0))));
+        grid.get(0).set(0, 1);
+        System.out.println(grid);
+
+        grid = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            grid.add(new ArrayList<>(List.of(0, 0)));   // a fresh row each time
+        }
+        grid.get(0).set(0, 1);
+        System.out.println(grid);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="grid_rows.c"
+#include <stdio.h>
+
+int main(void) {
+    int row[2] = {0, 0};
+    int *shared[2] = {row, row};            /* two pointers to the SAME row */
+    shared[0][0] = 1;
+    printf("[[%d, %d], [%d, %d]]\n", shared[0][0], shared[0][1], shared[1][0], shared[1][1]);
+
+    int grid[2][2] = {{0, 0}, {0, 0}};      /* a real 2-D array: each row is its own memory */
+    grid[0][0] = 1;
+    printf("[[%d, %d], [%d, %d]]\n", grid[0][0], grid[0][1], grid[1][0], grid[1][1]);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
 [[1, 0], [1, 0]]
 [[1, 0], [0, 0]]
 ```
 
-Read through it slowly, because each block is a bug that has caught countless programmers:
-
-1. `add_item` changed `basket` because both names point at one list. `replace_all` did not, because assigning to the parameter only moves the local name.
-2. A **shallow copy** makes a new outer list, but the inner lists are still shared, so appending to `team[0]` showed up in `shallow`. A **deep copy** duplicates everything all the way down, so `deep` is unaffected. JavaScript offers `structuredClone(value)` for a deep copy; Java has no built-in one, so you copy each level yourself or use a library.
-3. The default argument `bucket=[]` is evaluated once, when the function is defined. Every call that omits the argument shares that one list.
-4. `[[0] * 2] * 2` builds a list holding two references to the *same* inner list, so a change to one row appears in both. The list comprehension creates a fresh row each time.
+The first grid holds the same row twice, so a change to one row appears in both. The second builds each row separately.
 
 ## Giving memory back
 
@@ -257,6 +576,42 @@ Heap memory is finite, so something must free what is no longer used. Languages 
 
 - **Automatic (garbage collection).** The runtime finds heap data that nothing can reach any more and reclaims it. Python tracks how many references each object has and frees it at zero (with an extra pass for cycles); Java and JavaScript periodically trace what is reachable from the live variables. You never free anything, but you do not control exactly when it happens, and a collector costs some time.
 - **Manual.** In C you request memory with `malloc` and must return it with `free`. This gives you total control and no collector pauses, but all the responsibility.
+
+Each program below puts three numbers on the heap and prints them. Only one of them has to give the memory back.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="heap_demo.py"
+values = [10, 20, 30]      # the list lives on the heap
+print("heap:", *values)
+# No cleanup: when nothing refers to the list any more, Python frees it.
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="heap_demo.js"
+const values = [10, 20, 30];   // the array lives on the heap
+console.log("heap:", ...values);
+// No cleanup: the garbage collector frees it once nothing can reach it.
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="HeapDemo.java"
+public class HeapDemo {
+    public static void main(String[] args) {
+        int[] values = {10, 20, 30};   // the array lives on the heap
+        System.out.println("heap: " + values[0] + " " + values[1] + " " + values[2]);
+        // No cleanup: the garbage collector frees it once nothing can reach it.
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
 
 ```c title="heap_demo.c"
 #include <stdio.h>
@@ -278,7 +633,10 @@ int main(void) {
 }
 ```
 
-Output:
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
 heap: 10 20 30
@@ -300,28 +658,31 @@ Garbage-collected languages are not immune to memory trouble. A list that keeps 
 - **Shallow copy of nested data.** The inner structures are still shared. Use a deep copy, or copy each level.
 - **Mutating an argument by accident.** A function that sorts or appends to a parameter changes the caller's data. Document it, or copy first.
 - **Mutable default arguments** in Python (`def f(x, items=[])`).
-- **Repeating a nested list with `*`.** Build each row separately.
+- **Repeating a nested list** (`[row] * n`, `fill(row)`, `nCopies`). Build each row separately.
 - **In C, using memory after freeing it,** or freeing it twice, or never freeing it.
 
 <Exercise title="Predict the aliasing">
 
-Without running them, say what each snippet prints (Python).
+Without running them, say what each snippet prints. The five snippets are described in words; the code in the solution is in all four languages (C has no growable text, so it skips snippet 3).
 
-1. `a = [1, 2]`, `b = a`, `b.append(3)`, `print(a)`
-2. `a = [1, 2]`, `b = a`, `b = b + [3]`, `print(a)`
-3. `a = "hi"`, `b = a`, `b += "!"`, `print(a)`
-4. `a = [[1], [2]]`, `b = a.copy()`, `b[0].append(9)`, `print(a)`
-5. `a = [[1], [2]]`, `b = a.copy()`, `b[0] = [9]`, `print(a)`
+1. Two names for one list `[1, 2]`; add 3 through the second name; print the first.
+2. Two names for one list `[1, 2]`; point the second name at a **new** list made by adding 3 to the old one; print the first.
+3. Two names for the text `"hi"`; add `"!"` to the second name; print the first.
+4. A list of two lists `[[1], [2]]`; make a shallow copy; add 9 to the first inner list through the copy; print the original.
+5. A list of two lists `[[1], [2]]`; make a shallow copy; replace the copy's first inner list with `[9]`; print the original.
 
 <Solution>
 
-1. `[1, 2, 3]`. `append` changes the one shared list.
-2. `[1, 2]`. `b + [3]` builds a **new** list, and `b = ...` re-points `b` at it. The original is untouched.
-3. `hi`. Strings are immutable, so `+=` builds a new string and rebinds `b`.
-4. `[[1, 9], [2]]`. The copy is shallow, so `b[0]` and `a[0]` are the same inner list.
-5. `[[1], [2]]`. Replacing `b[0]` changes which list the outer copy holds, not the inner list `a[0]` still holds.
+1. `[1, 2, 3]`. Adding to the list changes the one shared list.
+2. `[1, 2]`. Building a new list and re-pointing the second name leaves the original untouched.
+3. `hi`. Text is immutable, so `+=` builds a new string and re-points the second name.
+4. `[[1, 9], [2]]`. The copy is shallow, so the copy's first inner list and the original's are the same list.
+5. `[[1], [2]]`. Replacing the copy's first entry changes which list the outer copy holds, not the inner list the original still holds.
 
 Checking them:
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="aliasing_puzzles.py"
 a = [1, 2]
@@ -350,12 +711,144 @@ b[0] = [9]
 print(a)
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="aliasing_puzzles.js"
+const show = (rows) => "[" + rows.map((r) => (Array.isArray(r) ? "[" + r.join(", ") + "]" : r)).join(", ") + "]";
+
+let a = [1, 2];
+let b = a;
+b.push(3);
+console.log(show(a));
+
+a = [1, 2];
+b = a;
+b = [...b, 3];
+console.log(show(a));
+
+let s = "hi";
+let t = s;
+t += "!";
+console.log(s);
+
+a = [[1], [2]];
+b = [...a];
+b[0].push(9);
+console.log(show(a));
+
+a = [[1], [2]];
+b = [...a];
+b[0] = [9];
+console.log(show(a));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="AliasingPuzzles.java"
+import java.util.ArrayList;
+import java.util.List;
+
+public class AliasingPuzzles {
+    public static void main(String[] args) {
+        List<Integer> a = new ArrayList<>(List.of(1, 2));
+        List<Integer> b = a;
+        b.add(3);
+        System.out.println(a);
+
+        a = new ArrayList<>(List.of(1, 2));
+        b = a;
+        b = new ArrayList<>(b);
+        b.add(3);
+        System.out.println(a);
+
+        String s = "hi";
+        String t = s;
+        t += "!";
+        System.out.println(s);
+
+        List<List<Integer>> outer = new ArrayList<>();
+        outer.add(new ArrayList<>(List.of(1)));
+        outer.add(new ArrayList<>(List.of(2)));
+        List<List<Integer>> copy = new ArrayList<>(outer);
+        copy.get(0).add(9);
+        System.out.println(outer);
+
+        outer = new ArrayList<>();
+        outer.add(new ArrayList<>(List.of(1)));
+        outer.add(new ArrayList<>(List.of(2)));
+        copy = new ArrayList<>(outer);
+        copy.set(0, new ArrayList<>(List.of(9)));
+        System.out.println(outer);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="aliasing_puzzles.c"
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    /* 1: a pointer is a second name for the same array */
+    int a1[3] = {1, 2, 0};
+    int *b1 = a1;
+    b1[2] = 3;
+    printf("[%d, %d, %d]\n", a1[0], a1[1], a1[2]);
+
+    /* 2: pointing the second name somewhere new leaves the original alone */
+    int a2[3] = {1, 2, 0};
+    int new_list[3] = {1, 2, 3};
+    int *b2 = a2;
+    b2 = new_list;
+    (void)b2;
+    printf("[%d, %d]\n", a2[0], a2[1]);
+
+    /* 4: copying an array of pointers shares the rows they point at */
+    int row_a[2] = {1, 0};
+    int row_b[2] = {2, 0};
+    int *outer4[2] = {row_a, row_b};
+    int *copy4[2];
+    memcpy(copy4, outer4, sizeof outer4);
+    copy4[0][1] = 9;
+    printf("[[%d, %d], [%d]]\n", outer4[0][0], outer4[0][1], outer4[1][0]);
+
+    /* 5: replacing the copy's pointer changes only the copy */
+    int row_c[2] = {1, 0};
+    int row_d[2] = {2, 0};
+    int replacement[2] = {9, 0};
+    int *outer5[2] = {row_c, row_d};
+    int *copy5[2];
+    memcpy(copy5, outer5, sizeof outer5);
+    copy5[0] = replacement;
+    printf("[[%d], [%d]]\n", outer5[0][0], outer5[1][0]);
+    return 0;
+}
+```
+
+The C program has no snippet 3, because plain C text cannot grow.
+
+</Tab>
+</Tabs>
+
+Python, JavaScript and Java print:
 
 ```text
 [1, 2, 3]
 [1, 2]
 hi
+[[1, 9], [2]]
+[[1], [2]]
+```
+
+The C program prints the same lines for snippets 1, 2, 4 and 5, with no `hi` line:
+
+```text
+[1, 2, 3]
+[1, 2]
 [[1, 9], [2]]
 [[1], [2]]
 ```
@@ -366,7 +859,10 @@ hi
 
 <Exercise title="Fix the shared rows">
 
-This is meant to be a 3-by-3 board of zeros where setting one cell changes only that cell. It does not work. Why, and what is the fix?
+This is meant to be a 3-by-3 board of zeros where setting one cell changes only that cell. The first attempt does not work. Why, and what is the fix? Expected result after setting row 1, column 1 to 5: `[[0, 0, 0], [0, 5, 0], [0, 0, 0]]`.
+
+<Tabs>
+<Tab label="Python">
 
 ```python
 board = [[0] * 3] * 3
@@ -374,14 +870,82 @@ board[1][1] = 5
 print(board)       # shows 5 in every row
 ```
 
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+const board = new Array(3).fill(new Array(3).fill(0));
+board[1][1] = 5;
+console.log(board);       // shows 5 in every row
+```
+
+</Tab>
+</Tabs>
+
+Java and C arrays of arrays do not have this trap by default (`new int[3][3]` and `int board[3][3]` give three separate rows), so the fix below is the way to write it in all four languages.
+
 <Solution>
 
-`[[0] * 3] * 3` repeats the reference to a single inner list three times, so all three rows are the same list. Build each row separately:
+`[[0] * 3] * 3` and `fill(row)` repeat the reference to a single inner list three times, so all three rows are the same list. Build each row separately:
 
-```python
+<Tabs>
+<Tab label="Python">
+
+```python title="board_fixed.py"
 board = [[0] * 3 for _ in range(3)]
 board[1][1] = 5
-print(board)       # [[0, 0, 0], [0, 5, 0], [0, 0, 0]]
+print(board)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="board_fixed.js"
+const board = Array.from({ length: 3 }, () => new Array(3).fill(0));
+board[1][1] = 5;
+console.log("[" + board.map((row) => "[" + row.join(", ") + "]").join(", ") + "]");
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="BoardFixed.java"
+import java.util.Arrays;
+
+public class BoardFixed {
+    public static void main(String[] args) {
+        int[][] board = new int[3][3];   // three separate rows
+        board[1][1] = 5;
+        System.out.println(Arrays.deepToString(board));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="board_fixed.c"
+#include <stdio.h>
+
+int main(void) {
+    int board[3][3] = {{0}};   /* three separate rows */
+    board[1][1] = 5;
+    printf("[");
+    for (int r = 0; r < 3; r++) {
+        printf("%s[%d, %d, %d]", r > 0 ? ", " : "", board[r][0], board[r][1], board[r][2]);
+    }
+    printf("]\n");
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+[[0, 0, 0], [0, 5, 0], [0, 0, 0]]
 ```
 
 </Solution>
@@ -390,7 +954,7 @@ print(board)       # [[0, 0, 0], [0, 5, 0], [0, 0, 0]]
 
 <Exercise title="Name the memory bug">
 
-In a C program, which of these is a leak, a use after free, or a double free? (a) `free(p); printf("%d", *p);` (b) `p = malloc(100); p = malloc(200);` with no `free` in between. (c) `free(p); free(p);`
+In a C program, which of these is a leak, a use after free, or a double free? (a) `free(p); printf("%d", *p);` (b) `p = malloc(100); p = malloc(200);` with no `free` in between. (c) `free(p); free(p);` Expected: one label for each of the three.
 
 <Solution>
 

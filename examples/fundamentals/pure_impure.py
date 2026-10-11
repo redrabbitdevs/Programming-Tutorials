@@ -1,20 +1,17 @@
-running = 0
+calls = 0
 
 
-def add_impure(n):
-    global running
-    running += n
-    return running
+def add(a, b):
+    return a + b
 
 
-def add_pure(total, n):
-    return total + n
+def add_and_count(a, b):
+    global calls   # lets the function change the outer variable; see the scope lesson
+    calls += 1
+    return a + b
 
 
-first = add_impure(5)
-second = add_impure(5)
-print("impure:", first, second)
-
-first = add_pure(0, 5)
-second = add_pure(0, 5)
-print("pure:", first, second)
+print(add(2, 3), add(2, 3))
+print(add_and_count(2, 3))
+print(add_and_count(2, 3))
+print("calls:", calls)

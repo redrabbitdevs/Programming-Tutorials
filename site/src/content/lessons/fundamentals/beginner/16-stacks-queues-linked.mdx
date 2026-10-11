@@ -163,6 +163,11 @@ A **queue** works like a line at a shop. New arrivals join at the back (**enqueu
 
 A list is a poor queue, because removing from the front shifts every remaining element along. Libraries therefore provide a **deque** (double-ended queue, pronounced "deck") that adds and removes quickly at both ends: `collections.deque` in Python, `ArrayDeque` in Java. JavaScript's `array.shift()` does the job and is fine for small queues.
 
+Three documents arrive, then the printer works through them:
+
+<Tabs>
+<Tab label="Python">
+
 ```python title="print_queue.py"
 from collections import deque
 
@@ -173,13 +178,118 @@ for doc in ["report.pdf", "photo.png", "notes.txt"]:
     queue.append(doc)                # enqueue at the back
     print("queued:", doc)
 
-print("waiting:", list(queue))
+print("waiting: [" + ", ".join(queue) + "]")
 
 while queue:
     doc = queue.popleft()            # dequeue from the front
     print("printing:", doc)
+```
 
-# The same deque also works as a stack, because it is open at both ends.
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="print_queue.js"
+const queue = [];
+
+// Documents arrive in this order.
+for (const doc of ["report.pdf", "photo.png", "notes.txt"]) {
+  queue.push(doc);                   // enqueue at the back
+  console.log("queued:", doc);
+}
+
+console.log("waiting: [" + queue.join(", ") + "]");
+
+while (queue.length > 0) {
+  const doc = queue.shift();         // dequeue from the front
+  console.log("printing:", doc);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="PrintQueue.java"
+import java.util.ArrayDeque;
+import java.util.Deque;
+
+public class PrintQueue {
+    public static void main(String[] args) {
+        Deque<String> queue = new ArrayDeque<>();
+
+        // Documents arrive in this order.
+        for (String doc : new String[] {"report.pdf", "photo.png", "notes.txt"}) {
+            queue.addLast(doc);                  // enqueue at the back
+            System.out.println("queued: " + doc);
+        }
+
+        System.out.println("waiting: " + queue);
+
+        while (!queue.isEmpty()) {
+            String doc = queue.pollFirst();      // dequeue from the front
+            System.out.println("printing: " + doc);
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="print_queue.c"
+#include <stdio.h>
+
+#define CAPACITY 8
+
+int main(void) {
+    const char *queue[CAPACITY];
+    int head = 0;    /* index of the front item */
+    int tail = 0;    /* index where the next arrival goes */
+
+    /* Documents arrive in this order. */
+    const char *arrivals[] = {"report.pdf", "photo.png", "notes.txt"};
+    for (int i = 0; i < 3; i++) {
+        queue[tail++] = arrivals[i];         /* enqueue at the back */
+        printf("queued: %s\n", arrivals[i]);
+    }
+
+    printf("waiting: [");
+    for (int i = head; i < tail; i++) {
+        printf("%s%s", i > head ? ", " : "", queue[i]);
+    }
+    printf("]\n");
+
+    while (head < tail) {
+        printf("printing: %s\n", queue[head++]);   /* dequeue from the front */
+    }
+    return 0;
+}
+```
+
+This version only moves `head` forward and never reuses the freed slots. A real C queue wraps `head` and `tail` around the end of the array (a ring buffer).
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+queued: report.pdf
+queued: photo.png
+queued: notes.txt
+waiting: [report.pdf, photo.png, notes.txt]
+printing: report.pdf
+printing: photo.png
+printing: notes.txt
+```
+
+The printer handles the documents in exactly the order they arrived. Now take from the *other* end instead, and the same data behaves as a stack. An undo history records two actions and undoes them most recent first:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="undo_stack.py"
+from collections import deque
+
 undo = deque()
 undo.append("type a")
 undo.append("type b")
@@ -187,21 +297,64 @@ print("undo:", undo.pop())           # most recent first
 print("undo:", undo.pop())
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="undo_stack.js"
+const undo = [];
+undo.push("type a");
+undo.push("type b");
+console.log("undo:", undo.pop());    // most recent first
+console.log("undo:", undo.pop());
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="UndoStack.java"
+import java.util.ArrayDeque;
+import java.util.Deque;
+
+public class UndoStack {
+    public static void main(String[] args) {
+        Deque<String> undo = new ArrayDeque<>();
+        undo.push("type a");
+        undo.push("type b");
+        System.out.println("undo: " + undo.pop());   // most recent first
+        System.out.println("undo: " + undo.pop());
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="undo_stack.c"
+#include <stdio.h>
+
+int main(void) {
+    const char *undo[8];
+    int top = 0;                     /* number of items on the stack */
+
+    undo[top++] = "type a";
+    undo[top++] = "type b";
+    printf("undo: %s\n", undo[--top]);   /* most recent first */
+    printf("undo: %s\n", undo[--top]);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
-queued: report.pdf
-queued: photo.png
-queued: notes.txt
-waiting: ['report.pdf', 'photo.png', 'notes.txt']
-printing: report.pdf
-printing: photo.png
-printing: notes.txt
 undo: type b
 undo: type a
 ```
 
-The printer handles the documents in exactly the order they arrived, while `pop()` from the other end gives the stack behaviour. The data is the same in both cases. What differs is **which end you take from**.
+The data is the same in both cases. What differs is **which end you take from**.
 
 ## Linked lists: nodes that point
 
@@ -361,11 +514,14 @@ In practice arrays win far more often than the table suggests, because modern co
 
 <Exercise title="Balanced brackets, extended">
 
-Extend `is_balanced` to ignore all characters other than brackets (it already does), and test it on `"f(a[1], {b: 2})"`, `"if (x { y }"` and the empty string `""`. Which should be balanced?
+Extend `is_balanced` to ignore all characters other than brackets (it already does), and test it on `"f(a[1], {b: 2})"`, `"if (x { y }"` and the empty string `""`. Which should be balanced? Expected: the first and the empty string are balanced, the second is not.
 
 <Solution>
 
 The function from the lesson already skips non-bracket characters, so only the test inputs change:
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="brackets_extra.py"
 PAIRS = {")": "(", "]": "[", "}": "{"}
@@ -383,10 +539,104 @@ def is_balanced(text):
 
 
 for t in ["f(a[1], {b: 2})", "if (x { y }", ""]:
-    print(repr(t), "->", "balanced" if is_balanced(t) else "not balanced")
+    print(f"'{t}' ->", "balanced" if is_balanced(t) else "not balanced")
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="brackets_extra.js"
+const PAIRS = { ")": "(", "]": "[", "}": "{" };
+
+function isBalanced(text) {
+  const stack = [];
+  for (const ch of text) {
+    if ("([{".includes(ch)) {
+      stack.push(ch);
+    } else if (ch in PAIRS) {
+      if (stack.length === 0 || stack.pop() !== PAIRS[ch]) {
+        return false;
+      }
+    }
+  }
+  return stack.length === 0;
+}
+
+for (const t of ["f(a[1], {b: 2})", "if (x { y }", ""]) {
+  console.log(`'${t}' ->`, isBalanced(t) ? "balanced" : "not balanced");
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="BracketsExtra.java"
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Map;
+
+public class BracketsExtra {
+    static final Map<Character, Character> PAIRS = Map.of(')', '(', ']', '[', '}', '{');
+
+    static boolean isBalanced(String text) {
+        Deque<Character> stack = new ArrayDeque<>();
+        for (char ch : text.toCharArray()) {
+            if ("([{".indexOf(ch) >= 0) {
+                stack.push(ch);
+            } else if (PAIRS.containsKey(ch)) {
+                if (stack.isEmpty() || !stack.pop().equals(PAIRS.get(ch))) {
+                    return false;
+                }
+            }
+        }
+        return stack.isEmpty();
+    }
+
+    public static void main(String[] args) {
+        for (String t : new String[] {"f(a[1], {b: 2})", "if (x { y }", ""}) {
+            System.out.println("'" + t + "' -> " + (isBalanced(t) ? "balanced" : "not balanced"));
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="brackets_extra.c"
+#include <stdio.h>
+#include <string.h>
+
+int is_balanced(const char *text) {
+    char stack[100];
+    int top = 0;
+    for (const char *p = text; *p != '\0'; p++) {
+        char ch = *p;
+        if (strchr("([{", ch) != NULL) {
+            stack[top++] = ch;
+        } else if (ch == ')' || ch == ']' || ch == '}') {
+            char open = (ch == ')') ? '(' : (ch == ']') ? '[' : '{';
+            if (top == 0 || stack[--top] != open) {
+                return 0;
+            }
+        }
+    }
+    return top == 0;
+}
+
+int main(void) {
+    const char *tests[] = {"f(a[1], {b: 2})", "if (x { y }", ""};
+    for (int i = 0; i < 3; i++) {
+        printf("'%s' -> %s\n", tests[i], is_balanced(tests[i]) ? "balanced" : "not balanced");
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
 'f(a[1], {b: 2})' -> balanced
@@ -402,11 +652,20 @@ In the second input the `(` is still open when the `}` arrives, so the `}` does 
 
 <Exercise title="Print queue simulation">
 
-Three people submit print jobs, each with a number of pages: Ana 3, Ben 1, Cy 2. Simulate a printer that prints one page per tick, serving jobs strictly in arrival order, and report on which tick each job finished.
+Three people submit print jobs, each with a number of pages: Ana 3, Ben 1, Cy 2. Simulate a printer that prints one page per tick, serving jobs strictly in arrival order, and report on which tick each job finished. Expected output:
+
+```text
+Ana's job finished at tick 3
+Ben's job finished at tick 4
+Cy's job finished at tick 6
+```
 
 <Solution>
 
-Use a deque of `(owner, pages)` pairs. The printer takes the job at the front and spends one tick per page.
+Keep the jobs in a queue of (owner, pages) pairs. The printer takes the job at the front and spends one tick per page.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="print_sim.py"
 from collections import deque
@@ -420,15 +679,76 @@ while jobs:
     print(f"{owner}'s job finished at tick {tick}")
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
 
-```text
-Ana's job finished at tick 3
-Ben's job finished at tick 4
-Cy's job finished at tick 6
+```javascript title="print_sim.js"
+const jobs = [["Ana", 3], ["Ben", 1], ["Cy", 2]];
+
+let tick = 0;
+while (jobs.length > 0) {
+  const [owner, pages] = jobs.shift();
+  tick += pages;
+  console.log(`${owner}'s job finished at tick ${tick}`);
+}
 ```
 
-Ben's single page waits for Ana's three, which is the nature of a plain FIFO queue.
+</Tab>
+<Tab label="Java">
+
+```java title="PrintSim.java"
+import java.util.ArrayDeque;
+import java.util.Deque;
+
+public class PrintSim {
+    record Job(String owner, int pages) {}
+
+    public static void main(String[] args) {
+        Deque<Job> jobs = new ArrayDeque<>();
+        jobs.addLast(new Job("Ana", 3));
+        jobs.addLast(new Job("Ben", 1));
+        jobs.addLast(new Job("Cy", 2));
+
+        int tick = 0;
+        while (!jobs.isEmpty()) {
+            Job job = jobs.pollFirst();
+            tick += job.pages();
+            System.out.println(job.owner() + "'s job finished at tick " + tick);
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="print_sim.c"
+#include <stdio.h>
+
+typedef struct {
+    const char *owner;
+    int pages;
+} Job;
+
+int main(void) {
+    Job jobs[] = {{"Ana", 3}, {"Ben", 1}, {"Cy", 2}};
+    int head = 0;
+    int tail = 3;
+
+    int tick = 0;
+    while (head < tail) {
+        Job job = jobs[head++];
+        tick += job.pages;
+        printf("%s's job finished at tick %d\n", job.owner, tick);
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print the three lines above. Ben's single page waits for Ana's three, which is the nature of a plain FIFO queue.
 
 </Solution>
 

@@ -34,46 +34,129 @@ The string `"42"` and the integer `42` look alike on screen and behave nothing a
 
 Null deserves a note. It marks "no value": a lookup that found nothing, an optional field left blank. It is not zero, and it is not an empty string. Its inventor, Tony Hoare, later called it a billion-dollar mistake because programs forget to check for it, so treat any value that might be null with suspicion.
 
+Languages also differ in how many types they offer. JavaScript has a single `number` type for both whole and fractional values. Python, Java and C separate integers from floats. C goes further and has no string type at all: text is a run of single characters ending in a zero byte.
+
 ### Seeing a value's type
 
-Every language lets you ask. This Python program prints the type of several values, then tries four mixed operations:
+Every language lets you find out a value's type, but each one goes about it differently, because the type lives in a different place. In Python and JavaScript it travels with the value, so you ask the value. In Java and C it is fixed by the declaration, so the program already knows it.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="types_demo.py"
-literals = [42, 3.14, "42", True, None, [1, 2], 2**100]
-for value in literals:
-    print(f"{value!r:>34}  {type(value).__name__}")
-
-for label, make in [
-    ('"5" + 3', lambda: "5" + 3),
-    ('"5" * 3', lambda: "5" * 3),
-    ("5 + 3.0", lambda: 5 + 3.0),
-    ("True + 1", lambda: True + 1),
-]:
-    try:
-        print(label, "->", repr(make()))
-    except TypeError as error:
-        print(label, "-> TypeError:", error)
+print(42, type(42).__name__)
+print(3.14, type(3.14).__name__)
+print("42", type("42").__name__)
+print(True, type(True).__name__)
+print(None, type(None).__name__)
+print(2**100, type(2**100).__name__)
 ```
 
 ```text title="output"
-                                42  int
-                              3.14  float
-                              '42'  str
-                              True  bool
-                              None  NoneType
-                            [1, 2]  list
-   1267650600228229401496703205376  int
-"5" + 3 -> TypeError: can only concatenate str (not "int") to str
-"5" * 3 -> '555'
-5 + 3.0 -> 8.0
-True + 1 -> 2
+42 int
+3.14 float
+42 str
+True bool
+None NoneType
+1267650600228229401496703205376 int
 ```
 
-Two details worth noticing. `2**100` is an `int` in Python however large; in many languages it would overflow (the lesson on operators covers this). And `"5" * 3` is allowed: repeating a string is a defined operation, so what looks like arithmetic is really "repeat this text three times".
+Python's `int` has no size limit, so `2**100` is still an `int`.
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="types_demo.js"
+console.log(42, typeof 42);
+console.log(3.14, typeof 3.14);
+console.log("42", typeof "42");
+console.log(true, typeof true);
+console.log(null, typeof null);
+console.log(2 ** 100, typeof (2 ** 100));
+```
+
+```text title="output"
+42 number
+3.14 number
+42 string
+true boolean
+null object
+1.2676506002282294e+30 number
+```
+
+Whole and fractional values share one type, `number`. That `typeof null` says `object` is a well-known historical mistake in the language, kept for compatibility. And `2 ** 100` is only an approximation, as the exponent form hints.
+
+</Tab>
+<Tab label="Java">
+
+```java title="TypesDemo.java"
+import java.math.BigInteger;
+
+public class TypesDemo {
+    static void show(Object value) {
+        System.out.println(value + " " + value.getClass().getSimpleName());
+    }
+
+    public static void main(String[] args) {
+        show(42);
+        show(3.14);
+        show("42");
+        show(true);
+        show('x');
+        show(BigInteger.TWO.pow(100));
+    }
+}
+```
+
+```text title="output"
+42 Integer
+3.14 Double
+42 String
+true Boolean
+x Character
+1267650600228229401496703205376 BigInteger
+```
+
+The class names (`Integer`, `Double`) are the boxed forms of Java's `int` and `double`. The built-in `int` stops at about 2.1 billion, so a huge value needs the library type `BigInteger`. `null` has no type of its own, which is why it is not in the list.
+
+</Tab>
+<Tab label="C">
+
+```c title="types_demo.c"
+#include <stdbool.h>
+#include <stdio.h>
+
+int main(void) {
+    int count = 42;
+    double ratio = 3.14;
+    char letter = '4';
+    bool done = true;
+
+    printf("%d int, %zu bytes\n", count, sizeof count);
+    printf("%.2f double, %zu bytes\n", ratio, sizeof ratio);
+    printf("%d char, %zu byte\n", letter, sizeof letter);
+    printf("%d bool, %zu byte\n", done, sizeof done);
+    printf("\"42\" is %zu bytes\n", sizeof "42");
+    return 0;
+}
+```
+
+```text title="output"
+42 int, 4 bytes
+3.14 double, 8 bytes
+52 char, 1 byte
+1 bool, 1 byte
+"42" is 3 bytes
+```
+
+The type is whatever you declared, and `sizeof` shows how much memory it takes. The character `'4'` is stored as the number 52, its character code. The text `"42"` takes 3 bytes: two characters and the zero byte that ends the text.
+
+</Tab>
+</Tabs>
 
 ## Mixing types
 
-What happens when you combine different types depends on the language. Here is the same idea, the text `"5"` combined with the number `3`, in four languages.
+What happens when you combine different types depends on the language. Here is the same idea, the text `"5"` combined with the number `3`.
 
 <Tabs>
 <Tab label="Python">
@@ -82,24 +165,37 @@ What happens when you combine different types depends on the language. Here is t
 print("5" + 3)
 ```
 
-Raises `TypeError: can only concatenate str (not "int") to str`. Python refuses to guess.
+Raises `TypeError: can only concatenate str (not "int") to str`. Python refuses to guess. Repeating text is defined, though: `"5" * 3` gives `'555'`.
 
 </Tab>
 <Tab label="JavaScript">
 
-```javascript
-console.log("5" + 3);   // 53
-console.log("5" * 3);   // 15
+```javascript title="mix.js"
+console.log("5" + 3);
+console.log("5" * 3);
 ```
 
-JavaScript converts silently. With `+` it treats the 3 as text and joins them; with `*` it treats the "5" as a number and multiplies.
+```text title="output"
+53
+15
+```
+
+JavaScript converts silently. With `+` it treats the 3 as text and joins them; with `*` it treats the `"5"` as a number and multiplies.
 
 </Tab>
 <Tab label="Java">
 
-```java
-System.out.println("5" + 3);   // 53
-// int n = "5";                // compile error: String cannot be converted to int
+```java title="Mix.java"
+public class Mix {
+    public static void main(String[] args) {
+        System.out.println("5" + 3);
+        // int n = "5";   // compile error: String cannot be converted to int
+    }
+}
+```
+
+```text title="output"
+53
 ```
 
 Java accepts the `+` because joining text and a number is a defined operation, but it will not assign a string to an integer variable, and reports that before the program runs.
@@ -107,16 +203,20 @@ Java accepts the `+` because joining text and a number is a defined operation, b
 </Tab>
 <Tab label="C">
 
-```c
+```c title="mix.c"
 #include <stdio.h>
 
 int main(void) {
-    printf("%d\n", '5' + 3);   // 56
+    printf("%d\n", '5' + 3);
     return 0;
 }
 ```
 
-C has no built-in string type. A character such as `'5'` is a small integer holding its character code (53), so adding 3 gives 56, not 8 and not "53". The language converts freely between character and integer types and does not object.
+```text title="output"
+56
+```
+
+C has no built-in string type. A character such as `'5'` is a small integer holding its character code (53), so adding 3 gives 56, not 8 and not `"53"`. The language converts freely between character and integer types and does not object.
 
 </Tab>
 </Tabs>
@@ -156,36 +256,74 @@ The two axes are independent. Python is dynamic and strong. JavaScript is dynami
 
 ## Converting on purpose
 
-When you want a conversion, ask for it explicitly. That is called **casting** or **conversion**. Reading a number from a user always gives you a string first, so you will convert constantly.
+When you want a conversion, ask for it explicitly. That is called **casting** or **conversion**. Reading a number from a user always gives you a string first, so you will convert constantly. Each program converts the text `"42"` to a number and the number 42 to text, then proves it by adding 1 to the number and appending `!` to the text.
 
 <Tabs>
 <Tab label="Python">
 
-```python
-age = int("42")      # 42
-text = str(42)       # "42"
+```python title="convert.py"
+age = int("42")
+text = str(42)
+print(age + 1, text + "!")
 ```
 
 </Tab>
 <Tab label="JavaScript">
 
-```javascript
-const age = Number("42");   // 42
-const text = String(42);    // "42"
+```javascript title="convert.js"
+const age = Number("42");
+const text = String(42);
+console.log(age + 1, text + "!");
 ```
 
 </Tab>
 <Tab label="Java">
 
-```java
-int age = Integer.parseInt("42");   // 42
-String text = String.valueOf(42);   // "42"
+```java title="Convert.java"
+public class Convert {
+    public static void main(String[] args) {
+        int age = Integer.parseInt("42");
+        String text = String.valueOf(42);
+        System.out.println((age + 1) + " " + text + "!");
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="convert.c"
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    int age = atoi("42");
+    char text[12];
+    snprintf(text, sizeof text, "%d", 42);
+    printf("%d %s!\n", age + 1, text);
+    return 0;
+}
 ```
 
 </Tab>
 </Tabs>
 
-A conversion can fail: `int("forty")` has no sensible answer. That is an error you must plan for, covered in the lesson on errors.
+All four print:
+
+```text
+43 42!
+```
+
+A conversion can fail: `"forty"` has no sensible numeric answer. What happens next is one of the clearest differences between languages.
+
+| Language | Converting `"forty"` to a number |
+|---|---|
+| Python | `int("forty")` raises `ValueError` |
+| JavaScript | `Number("forty")` gives `NaN` ("not a number") and carries on |
+| Java | `Integer.parseInt("forty")` throws `NumberFormatException` |
+| C | `atoi("forty")` silently returns `0` |
+
+The first and third stop the program unless you handle the error, which the lesson on errors covers. The last two hand you a bad value that looks like a normal result, which is harder to notice.
 
 ## Common pitfalls
 
@@ -196,7 +334,7 @@ A conversion can fail: `int("forty")` has no sensible answer. That is an error y
 
 <Exercise title="Sort the literals">
 
-Give the type of each literal: `7`, `7.0`, `"7"`, `"true"`, `true`, `-0.25`, `""`, `null`, `1e3`, `"3.14"`, `0`, `False`, `'x'`, `100000000000`, `"None"`.
+Give the type of each literal: `7`, `7.0`, `"7"`, `"true"`, `true`, `-0.25`, `""`, `null`, `1e3`, `"3.14"`, `0`, `False`, `'x'`, `100000000000`, `"None"`. Treat `'x'` as text for this exercise.
 
 <Solution>
 
@@ -206,7 +344,7 @@ Give the type of each literal: `7`, `7.0`, `"7"`, `"true"`, `true`, `-0.25`, `""
 - Boolean: `true`, `False`
 - Null: `null`
 
-Anything inside quotes is a string, whatever it looks like.
+Anything inside quotes is a string, whatever it looks like. (In Java and C, single quotes make a one-character `char` instead, which is a number underneath.)
 
 </Solution>
 
@@ -214,7 +352,7 @@ Anything inside quotes is a string, whatever it looks like.
 
 <Exercise title="Will it fail?">
 
-For each, say whether Python raises an error, and what JavaScript would do: (a) `"10" - 4`, (b) `"10" + 4`, (c) `10 + 4.5`, (d) `"ab" * 2`.
+For each expression, say what Python does and what JavaScript does: (a) `"10" - 4`, (b) `"10" + 4`, (c) `10 + 4.5`, (d) `"ab" * 2`. Write each as "result" or "error".
 
 <Solution>
 
@@ -227,10 +365,82 @@ For each, say whether Python raises an error, and what JavaScript would do: (a) 
 
 </Exercise>
 
+<Exercise title="Add two typed-in numbers">
+
+A program receives two pieces of text, `"7"` and `"8"`, as if typed by a user. Convert them and print their sum, then print what you would get if you forgot to convert. Expected output: `15` for the sum. Without converting, text `"7"` joined to text `"8"` gives `78` in Python, JavaScript and Java.
+
+<Solution>
+
+<Tabs>
+<Tab label="Python">
+
+```python title="add_typed.py"
+first = "7"
+second = "8"
+print(int(first) + int(second))
+print(first + second)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="add_typed.js"
+const first = "7";
+const second = "8";
+console.log(Number(first) + Number(second));
+console.log(first + second);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="AddTyped.java"
+public class AddTyped {
+    public static void main(String[] args) {
+        String first = "7";
+        String second = "8";
+        System.out.println(Integer.parseInt(first) + Integer.parseInt(second));
+        System.out.println(first + second);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="add_typed.c"
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    const char *first = "7";
+    const char *second = "8";
+    printf("%d\n", atoi(first) + atoi(second));
+    printf("%s%s\n", first, second);
+    return 0;
+}
+```
+
+C has no `+` for text, so the unconverted case is shown by printing the two strings one after the other.
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+15
+78
+```
+
+</Solution>
+
+</Exercise>
+
 ## Summary
 
 - Every value has a type, and `"42"` (text) differs from `42` (number).
 - Static typing checks before running and dynamic typing checks while running; strong typing refuses implicit conversions and weak typing performs them.
-- Convert explicitly, and expect conversions to fail sometimes.
+- Convert explicitly, and expect conversions to fail sometimes, in a different way in each language.
 
 Next: Variables and assignment.

@@ -27,42 +27,178 @@ Every program meets trouble sooner or later: a file that is missing, a user who 
 
 **Logic errors** are the dangerous ones. The program runs without complaint and gives the wrong answer, because you told it to do the wrong thing. No message appears. Only testing, and thinking, will find them.
 
-```python
-# Syntax error: the program cannot even be read. compile() lets us catch one safely.
-try:
-    compile("print(", "<example>", "exec")
-except SyntaxError:
-    print("syntax error caught")
+### Syntax errors
 
-# Runtime error: valid code that fails while running.
+Take the line that prints `hi` but forgets the closing bracket. Every language refuses it, in its own words and at its own moment:
+
+| Language | Incomplete line | What happens |
+|---|---|---|
+| Python | `print("hi"` | `SyntaxError` when the file is first read, before any line runs |
+| JavaScript | `console.log("hi"` | `SyntaxError` when the file is first parsed, before any line runs |
+| Java | `System.out.println("hi"` | the compiler reports an error and produces no program |
+| C | `printf("hi"` | the compiler reports an error and produces no program |
+
+In every case nothing runs at all, which is why these are the cheapest errors to fix.
+
+### Runtime errors
+
+Valid code can still fail while it runs. Dividing a whole number by zero is the classic case, and the four languages disagree about it:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="runtime_error.py"
 try:
     print(10 / 0)
 except ZeroDivisionError as err:
     print("runtime error caught:", err)
+```
 
+```text title="output"
+runtime error caught: division by zero
+```
 
-# Logic error: runs fine, answers wrongly. No exception will ever tell you.
+Python raises an exception, which the `except` block catches.
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="runtime_error.js"
+console.log(10 / 0);
+```
+
+```text title="output"
+Infinity
+```
+
+JavaScript does not treat this as an error at all: floating-point division by zero is defined to give `Infinity`. Bad results can pass silently here, so check the divisor yourself.
+
+</Tab>
+<Tab label="Java">
+
+```java title="RuntimeError.java"
+public class RuntimeError {
+    public static void main(String[] args) {
+        int divisor = 0;
+        try {
+            System.out.println(10 / divisor);
+        } catch (ArithmeticException err) {
+            System.out.println("runtime error caught: " + err.getMessage());
+        }
+    }
+}
+```
+
+```text title="output"
+runtime error caught: / by zero
+```
+
+Java throws an `ArithmeticException` for whole-number division by zero, which the `catch` block handles.
+
+</Tab>
+<Tab label="C">
+
+```c title="runtime_error.c"
+#include <stdio.h>
+
+int main(void) {
+    int divisor = 0;
+    if (divisor == 0) {
+        printf("runtime error avoided: divisor is zero\n");
+    } else {
+        printf("%d\n", 10 / divisor);
+    }
+    return 0;
+}
+```
+
+```text title="output"
+runtime error avoided: divisor is zero
+```
+
+C has no exceptions. Dividing by zero is undefined behaviour and usually crashes the program, so the only defence is to test the divisor first.
+
+</Tab>
+</Tabs>
+
+### Logic errors
+
+A logic error produces no message. This function should average two numbers, but the precedence mistake `a + b / 2` divides only `b`:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="logic_error.py"
 def average(a, b):
     return a + b / 2   # bug: should be (a + b) / 2
 
 
 print(average(10, 20), "but the average of 10 and 20 is 15")
+```
 
+</Tab>
+<Tab label="JavaScript">
 
-# Fail fast: refuse bad input at the door with a clear message.
-def set_age(age):
-    if age < 0 or age > 150:
-        raise ValueError(f"age must be between 0 and 150, got {age}")
-    return age
+```javascript title="logic_error.js"
+function average(a, b) {
+  return a + b / 2;   // bug: should be (a + b) / 2
+}
 
+console.log(average(10, 20), "but the average of 10 and 20 is 15");
+```
 
-try:
-    set_age(-3)
-except ValueError as err:
-    print("rejected:", err)
+</Tab>
+<Tab label="Java">
 
+```java title="LogicError.java"
+public class LogicError {
+    static double average(double a, double b) {
+        return a + b / 2;   // bug: should be (a + b) / 2
+    }
 
-# Error values instead of exceptions: return None when there is no answer.
+    public static void main(String[] args) {
+        System.out.println(average(10, 20) + " but the average of 10 and 20 is 15");
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="logic_error.c"
+#include <stdio.h>
+
+double average(double a, double b) {
+    return a + b / 2;   /* bug: should be (a + b) / 2 */
+}
+
+int main(void) {
+    printf("%g but the average of 10 and 20 is 15\n", average(10, 20));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+The output is `20.0 but the average of 10 and 20 is 15` in Python and Java, and `20 but ...` in JavaScript and C. No exception will ever warn you about it: the code is valid, runs to the end and returns the wrong number.
+
+## Two ways to report a problem
+
+When a function cannot do what it was asked, it has to tell its caller somehow. There are two main styles.
+
+**Error values.** The function returns a special value meaning "that did not work": `None`, `-1`, `NaN`, a null pointer, or a result object that records success or failure. C usually works this way. The caller must remember to check, and nothing forces it to.
+
+**Exceptions.** The function **raises** (throws) an exception, an object describing the problem. Normal execution stops at once and the runtime unwinds the call stack, frame by frame, looking for code that has said it can **catch** that kind of exception. If none does, the program ends with an error message and a stack trace. Python, Java and JavaScript all have exceptions.
+
+Exceptions have a big advantage: an error can't be silently ignored, because an uncaught one stops the program. They also let the code that detects the problem be far away from the code that knows what to do about it. Error values are simple and visible in the code, but forgetting to check one leads to subtle bugs.
+
+Here is an error-value function: find the position of an item in a list, and report "not found" with a special value. Python returns `None`; the other three have no such value for a number, so they return `-1`, a position that cannot exist.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="find_index.py"
 def find_index(items, wanted):
     for i, item in enumerate(items):
         if item == wanted:
@@ -74,35 +210,100 @@ print(find_index(["a", "b", "c"], "b"))
 print(find_index(["a", "b", "c"], "z"))
 ```
 
-Output:
-
-```text
-syntax error caught
-runtime error caught: division by zero
-20.0 but the average of 10 and 20 is 15
-rejected: age must be between 0 and 150, got -3
+```text title="output"
 1
 None
 ```
 
-The `average` function above is a logic error: the precedence mistake `a + b / 2` is valid code that quietly returns 20.0 for the average of 10 and 20. (Python's `compile` function lets us trigger a syntax error safely inside a running program; normally one would stop the whole file.)
+</Tab>
+<Tab label="JavaScript">
 
-## Two ways to report a problem
+```javascript title="find_index.js"
+function findIndex(items, wanted) {
+  for (let i = 0; i < items.length; i++) {
+    if (items[i] === wanted) {
+      return i;
+    }
+  }
+  return -1;
+}
 
-When a function cannot do what it was asked, it has to tell its caller somehow. There are two main styles.
+console.log(findIndex(["a", "b", "c"], "b"));
+console.log(findIndex(["a", "b", "c"], "z"));
+```
 
-**Error values.** The function returns a special value meaning "that did not work": `None`, `-1`, `NaN`, a null pointer, or a result object that records success or failure. C usually works this way. The caller must remember to check, and nothing forces it to. `find_index` in the file above returns `None` for "not found".
+```text title="output"
+1
+-1
+```
 
-**Exceptions.** The function **raises** (throws) an exception, an object describing the problem. Normal execution stops at once and the runtime unwinds the call stack, frame by frame, looking for code that has said it can **catch** that kind of exception. If none does, the program ends with an error message and a stack trace. Python, Java and JavaScript all have exceptions.
+</Tab>
+<Tab label="Java">
 
-Exceptions have a big advantage: an error can't be silently ignored, because an uncaught one stops the program. They also let the code that detects the problem be far away from the code that knows what to do about it. Error values are simple and visible in the code, but forgetting to check one leads to subtle bugs.
+```java title="FindIndex.java"
+public class FindIndex {
+    static int findIndex(String[] items, String wanted) {
+        for (int i = 0; i < items.length; i++) {
+            if (items[i].equals(wanted)) {
+                return i;
+            }
+        }
+        return -1;
+    }
 
-Here is the same task in four languages: convert text to a whole number and cope with bad input. Notice that each language uses a different mechanism.
+    public static void main(String[] args) {
+        String[] items = {"a", "b", "c"};
+        System.out.println(findIndex(items, "b"));
+        System.out.println(findIndex(items, "z"));
+    }
+}
+```
+
+```text title="output"
+1
+-1
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="find_index.c"
+#include <stdio.h>
+#include <string.h>
+
+int find_index(const char *items[], int count, const char *wanted) {
+    for (int i = 0; i < count; i++) {
+        if (strcmp(items[i], wanted) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int main(void) {
+    const char *items[] = {"a", "b", "c"};
+    printf("%d\n", find_index(items, 3, "b"));
+    printf("%d\n", find_index(items, 3, "z"));
+    return 0;
+}
+```
+
+```text title="output"
+1
+-1
+```
+
+</Tab>
+</Tabs>
+
+Nothing forces the caller to look at that `-1`. Use it as a position and you get a bug, or in C, a read from outside the array.
+
+Now the other style. The same task in four languages: convert text to a whole number and cope with bad input. Notice that each language uses a different mechanism.
 
 <Tabs>
 <Tab label="Python">
 
-```python
+```python title="errors_parse.py"
 for text in ["42", "forty-two"]:
     try:
         n = int(text)
@@ -115,7 +316,7 @@ for text in ["42", "forty-two"]:
 </Tab>
 <Tab label="JavaScript">
 
-```javascript
+```javascript title="errors_parse.js"
 for (const text of ["42", "forty-two"]) {
   const n = Number(text); // no exception: bad input gives the error value NaN
   if (Number.isNaN(n)) {
@@ -129,7 +330,7 @@ for (const text of ["42", "forty-two"]) {
 </Tab>
 <Tab label="Java">
 
-```java
+```java title="ErrParse.java"
 public class ErrParse {
     public static void main(String[] args) {
         String[] inputs = {"42", "forty-two"};
@@ -148,7 +349,7 @@ public class ErrParse {
 </Tab>
 <Tab label="C">
 
-```c
+```c title="errors_parse.c"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -195,7 +396,98 @@ Having a way to catch errors does not mean you should catch everything. Some gui
 
 ## Validate input and fail fast
 
-Treat anything coming from outside your program (user typing, files, network, other programs) as untrusted. **Validate** it at the boundary, where it enters, and reject bad data immediately with a clear message. **Fail fast** means detecting a problem as close as possible to where it begins, rather than letting wrong data travel through ten functions and explode far from its source. The `set_age` function above does this: it states what is allowed and refuses anything else, with a message that includes the offending value.
+Treat anything coming from outside your program (user typing, files, network, other programs) as untrusted. **Validate** it at the boundary, where it enters, and reject bad data immediately with a clear message. **Fail fast** means detecting a problem as close as possible to where it begins, rather than letting wrong data travel through ten functions and explode far from its source.
+
+This function states what an age may be and refuses anything else, with a message that includes the offending value. Python, JavaScript and Java raise an exception; C has none, so it returns an error code that the caller must check.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="set_age.py"
+def set_age(age):
+    if age < 0 or age > 150:
+        raise ValueError(f"age must be between 0 and 150, got {age}")
+    return age
+
+
+try:
+    set_age(-3)
+except ValueError as err:
+    print("rejected:", err)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="set_age.js"
+function setAge(age) {
+  if (age < 0 || age > 150) {
+    throw new RangeError(`age must be between 0 and 150, got ${age}`);
+  }
+  return age;
+}
+
+try {
+  setAge(-3);
+} catch (err) {
+  console.log("rejected:", err.message);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="SetAge.java"
+public class SetAge {
+    static int setAge(int age) {
+        if (age < 0 || age > 150) {
+            throw new IllegalArgumentException("age must be between 0 and 150, got " + age);
+        }
+        return age;
+    }
+
+    public static void main(String[] args) {
+        try {
+            setAge(-3);
+        } catch (IllegalArgumentException err) {
+            System.out.println("rejected: " + err.getMessage());
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="set_age.c"
+#include <stdio.h>
+
+/* Returns 0 on success, -1 if the age is out of range. */
+int set_age(int age, int *result) {
+    if (age < 0 || age > 150) {
+        return -1;
+    }
+    *result = age;
+    return 0;
+}
+
+int main(void) {
+    int stored;
+    if (set_age(-3, &stored) != 0) {
+        printf("rejected: age must be between 0 and 150, got %d\n", -3);
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+rejected: age must be between 0 and 150, got -3
+```
 
 Good error messages say what happened, what was expected and, if possible, what to do about it. "age must be between 0 and 150, got -3" is far more useful than "invalid input".
 
@@ -203,14 +495,14 @@ Good error messages say what happened, what was expected and, if possible, what 
 
 - **Catching everything** (`except:` or `catch (Exception e)`) and carrying on as if nothing happened.
 - **Empty handlers** that silently discard the error.
-- **Forgetting to check an error value,** such as using the result of `strtol` or a `None` without testing it.
+- **Forgetting to check an error value,** such as using the result of `strtol` or a `None` or `-1` without testing it.
 - **Validating late,** so that bad data has already been stored or used before anyone checks.
 - **Vague messages** that say something failed but not what, where or why.
 - **Treating a logic error as a runtime one.** Wrapping buggy arithmetic in `try` does not make the answer correct.
 
 <Exercise title="Classify the errors">
 
-Say whether each is a syntax error, runtime error or logic error: (a) `print("hi"` with no closing bracket; (b) `total = a - b` where you meant to add; (c) opening `data.txt` when no such file exists; (d) `limit = 10 / n` where `n` is 0.
+Say whether each is a syntax error, runtime error or logic error: (a) `print("hi"` with no closing bracket; (b) `total = a - b` where you meant to add; (c) opening `data.txt` when no such file exists; (d) `limit = 10 / n` where `n` is 0 (answer for a language where this raises an error). Expected: one label for each of the four.
 
 <Solution>
 
@@ -222,11 +514,23 @@ Say whether each is a syntax error, runtime error or logic error: (a) `print("hi
 
 <Exercise title="A robust calculator">
 
-Write `calculate(text)` for input like `"6 / 3"` (number, operator, number). It must return the result for good input and a clear error message (not a crash) for each of these bad inputs: a divisor of zero, non-numeric operands, an unknown operator, and the wrong number of parts. Try it on `6 / 3`, `4 / 0`, `abc + 1`, `5 *`, `2 ^ 3` and `1.5 * 4`.
+Write `calculate(text)` for input like `"6 / 3"` (number, operator, number). It must return the result for good input and a clear error message (not a crash) for each of these bad inputs: a divisor of zero, non-numeric operands, an unknown operator, and the wrong number of parts. Try it on these six inputs:
+
+| Input | Expected |
+|---|---|
+| `6 / 3` | `2` (shown as `2.0` in Python and Java) |
+| `4 / 0` | `error: division by zero` |
+| `abc + 1` | `error: operands must be numbers` |
+| `5 *` | `error: expected 'number operator number'` |
+| `2 ^ 3` | `error: unknown operator '^'` |
+| `1.5 * 4` | `6` (shown as `6.0` in Python and Java) |
 
 <Solution>
 
-The function validates the shape first, converts the numbers inside a `try`, and checks for the one runtime failure we can predict (zero) with an ordinary `if`. Each failure returns a specific message.
+The function validates the shape first, converts the numbers with the language's own parsing tool, and checks for the one runtime failure we can predict (zero) with an ordinary `if`. Each failure returns a specific message.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="safe_calc.py"
 def calculate(text):
@@ -256,7 +560,139 @@ for line in ["6 / 3", "4 / 0", "abc + 1", "5 *", "2 ^ 3", "1.5 * 4"]:
     print(f"{line!r} -> {calculate(line)}")
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="safe_calc.js"
+function calculate(text) {
+  const parts = text.trim().split(/\s+/);
+  if (parts.length !== 3) {
+    return "error: expected 'number operator number'";
+  }
+  const [left, op, right] = parts;
+  const a = Number(left);
+  const b = Number(right);
+  if (Number.isNaN(a) || Number.isNaN(b)) {
+    return "error: operands must be numbers";
+  }
+  if (op === "+") return a + b;
+  if (op === "-") return a - b;
+  if (op === "*") return a * b;
+  if (op === "/") {
+    if (b === 0) {
+      return "error: division by zero";
+    }
+    return a / b;
+  }
+  return `error: unknown operator '${op}'`;
+}
+
+for (const line of ["6 / 3", "4 / 0", "abc + 1", "5 *", "2 ^ 3", "1.5 * 4"]) {
+  console.log(`'${line}' -> ${calculate(line)}`);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="SafeCalc.java"
+public class SafeCalc {
+    static String calculate(String text) {
+        String[] parts = text.trim().split("\\s+");
+        if (parts.length != 3) {
+            return "error: expected 'number operator number'";
+        }
+        double a;
+        double b;
+        try {
+            a = Double.parseDouble(parts[0]);
+            b = Double.parseDouble(parts[2]);
+        } catch (NumberFormatException e) {
+            return "error: operands must be numbers";
+        }
+        String op = parts[1];
+        switch (op) {
+            case "+": return String.valueOf(a + b);
+            case "-": return String.valueOf(a - b);
+            case "*": return String.valueOf(a * b);
+            case "/":
+                if (b == 0) {
+                    return "error: division by zero";
+                }
+                return String.valueOf(a / b);
+            default:
+                return "error: unknown operator '" + op + "'";
+        }
+    }
+
+    public static void main(String[] args) {
+        String[] lines = {"6 / 3", "4 / 0", "abc + 1", "5 *", "2 ^ 3", "1.5 * 4"};
+        for (String line : lines) {
+            System.out.println("'" + line + "' -> " + calculate(line));
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="safe_calc.c"
+#include <stdio.h>
+#include <stdlib.h>
+
+/* Parse a whole token as a number; return 1 on success. */
+static int parse_number(const char *token, double *out) {
+    char *end;
+    *out = strtod(token, &end);
+    return end != token && *end == '\0';
+}
+
+static void calculate(const char *text, char *result, size_t size) {
+    char left[32], right[32];
+    char op;
+    if (sscanf(text, "%31s %c %31s", left, &op, right) != 3) {
+        snprintf(result, size, "error: expected 'number operator number'");
+        return;
+    }
+    double a, b;
+    if (!parse_number(left, &a) || !parse_number(right, &b)) {
+        snprintf(result, size, "error: operands must be numbers");
+        return;
+    }
+    switch (op) {
+        case '+': snprintf(result, size, "%g", a + b); break;
+        case '-': snprintf(result, size, "%g", a - b); break;
+        case '*': snprintf(result, size, "%g", a * b); break;
+        case '/':
+            if (b == 0) {
+                snprintf(result, size, "error: division by zero");
+            } else {
+                snprintf(result, size, "%g", a / b);
+            }
+            break;
+        default:
+            snprintf(result, size, "error: unknown operator '%c'", op);
+    }
+}
+
+int main(void) {
+    const char *lines[] = {"6 / 3", "4 / 0", "abc + 1", "5 *", "2 ^ 3", "1.5 * 4"};
+    for (int i = 0; i < 6; i++) {
+        char result[80];
+        calculate(lines[i], result, sizeof result);
+        printf("'%s' -> %s\n", lines[i], result);
+    }
+    return 0;
+}
+```
+
+C fills a buffer that the caller supplies, because returning text from a function needs memory management that comes later in the track.
+
+</Tab>
+</Tabs>
+
+Python and Java print:
 
 ```text
 '6 / 3' -> 2.0
@@ -267,7 +703,9 @@ Output:
 '1.5 * 4' -> 6.0
 ```
 
-Returning message strings keeps the example short; in a larger program you would more likely raise a `ValueError` for bad input and catch it at the place that talks to the user.
+JavaScript and C print the same lines, except that the first and last results are `2` and `6` (they do not add a `.0`).
+
+Returning message strings keeps the example short; in a larger program you would more likely raise an exception (or return an error code) for bad input and handle it at the place that talks to the user.
 
 </Solution>
 
@@ -275,11 +713,11 @@ Returning message strings keeps the example short; in a larger program you would
 
 <Exercise title="Exceptions or error values?">
 
-A function `find_user(id)` looks up a user in a database. A missing user is a normal, expected outcome. A broken database connection is not. How would you report each?
+A function `find_user(id)` looks up a user in a database. A missing user is a normal, expected outcome. A broken database connection is not. How would you report each? Expected: one sentence for each case, naming the style (error value or exception).
 
 <Solution>
 
-For the missing user, an ordinary return value (such as `None` or an empty result) works well, since callers expect it and checking it is routine. For the broken connection, raise an exception: it's unexpected, the caller of `find_user` probably can't fix it, and it must not be silently ignored.
+For the missing user, an ordinary return value (such as `None`, `null` or an empty result) works well, since callers expect it and checking it is routine. For the broken connection, raise an exception (or, in C, return a distinct error code that cannot be mistaken for a user): it's unexpected, the caller of `find_user` probably can't fix it, and it must not be silently ignored.
 
 </Solution>
 

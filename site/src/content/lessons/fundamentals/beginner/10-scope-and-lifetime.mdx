@@ -26,7 +26,19 @@ A name is **in scope** in the region of code where it can be used.
 - **Global scope**: names created at the top level of the file are visible everywhere in it, including inside functions (for reading, at least).
 - **Block scope**: in some languages, a name created inside a pair of braces, such as an `if` body or a loop body, is visible only within those braces.
 
-When a name is used, the language looks for it in the innermost scope first, then moves outward one level at a time until it finds a match. If nothing matches, you get an error such as `NameError` or "cannot find symbol".
+When a name is used, the language looks for it in the innermost scope first, then moves outward one level at a time until it finds a match. If nothing matches, you get an error such as `NameError`, `ReferenceError` or "cannot find symbol".
+
+```text
+lookup of x inside show():
+
+  show()   ---- has its own x?  yes -> use it, stop
+     |
+     v  no
+  file     ---- has an x?       yes -> use it, stop
+     |
+     v  no
+  error: the name is not defined
+```
 
 ### Shadowing
 
@@ -35,7 +47,7 @@ If an inner scope creates a variable with the same name as one outside, the inne
 <Tabs>
 <Tab label="Python">
 
-```python
+```python title="scope_basic.py"
 x = "global"
 
 
@@ -51,7 +63,7 @@ print("outside:", x)
 </Tab>
 <Tab label="JavaScript">
 
-```javascript
+```javascript title="scope_basic.js"
 let x = "global";
 
 function show() {
@@ -66,7 +78,7 @@ console.log("outside:", x);
 </Tab>
 <Tab label="Java">
 
-```java
+```java title="ScopeBasic.java"
 public class ScopeBasic {
     static String x = "global";
 
@@ -85,7 +97,7 @@ public class ScopeBasic {
 </Tab>
 <Tab label="C">
 
-```c
+```c title="scope_basic.c"
 #include <stdio.h>
 
 const char *x = "global";
@@ -123,26 +135,38 @@ Python has only function scope. A variable created inside an `if` or a loop is s
 <Tabs>
 <Tab label="Python">
 
-```python
+```python title="scope_block.py"
 if True:
     inner = 42
-print(inner)  # 42: Python has no block scope, only function scope
+print(inner)
 ```
+
+```text title="output"
+42
+```
+
+Python has no block scope, only function scope, so `inner` is still there after the `if`.
 
 </Tab>
 <Tab label="JavaScript">
 
-```javascript
+```javascript title="scope_block.js"
 if (true) {
   let inner = 42;
 }
-console.log(typeof inner); // "undefined": let is confined to its block
+console.log(typeof inner);
 ```
+
+```text title="output"
+undefined
+```
+
+`let` is confined to its block. Using `typeof` on a name that does not exist is the one safe way to ask about it; any other use would throw a `ReferenceError`.
 
 </Tab>
 <Tab label="Java">
 
-```java
+```java title="ScopeBlock.java"
 public class ScopeBlock {
     public static void main(String[] args) {
         if (true) {
@@ -154,10 +178,16 @@ public class ScopeBlock {
 }
 ```
 
+```text title="output"
+42
+```
+
+The only legal use of `inner` is inside its block. The commented-out line shows what the compiler would reject.
+
 </Tab>
 <Tab label="C">
 
-```c
+```c title="scope_block.c"
 #include <stdio.h>
 
 int main(void) {
@@ -170,18 +200,25 @@ int main(void) {
 }
 ```
 
+```text title="output"
+42
+```
+
+As in Java, `inner` exists only inside its braces, and the commented-out line would not compile.
+
 </Tab>
 </Tabs>
-
-Python prints `42` and JavaScript prints `undefined` (looking up a name that does not exist with `typeof` is the one safe way to ask). In Java and C the only legal use of `inner` is inside its block, so those programs print `42` from within it, and the commented-out line shows what the compiler would reject.
 
 JavaScript has a historical oddity: the older `var` keyword is function-scoped, not block-scoped, like Python. Modern code uses `let` and `const`, which are block-scoped.
 
 ## Assigning to a global from inside a function
 
-Reading a global from a function is fine. Assigning is different: in Python, an assignment inside a function creates a new local variable unless you say otherwise.
+Reading a global from a function is fine. Assigning is where the languages differ. In JavaScript, Java and C, an assignment to a name that has no local declaration changes the global. In Python, an assignment inside a function creates a new local variable unless you say otherwise.
 
-```python
+<Tabs>
+<Tab label="Python">
+
+```python title="scope_global.py"
 counter = 0
 
 
@@ -195,7 +232,66 @@ increment()
 print(counter)
 ```
 
-Without the `global` line, `counter += 1` would fail, since Python sees that the function assigns to `counter`, decides it is local, and finds it has no value yet. Output:
+Without the `global` line, `counter += 1` would fail, since Python sees that the function assigns to `counter`, decides it is local, and finds it has no value yet.
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="scope_global.js"
+let counter = 0;
+
+function increment() {
+  counter += 1;   // no local declaration, so this changes the global
+}
+
+increment();
+increment();
+console.log(counter);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="ScopeGlobal.java"
+public class ScopeGlobal {
+    static int counter = 0;
+
+    static void increment() {
+        counter += 1;   // no local declaration, so this changes the static field
+    }
+
+    public static void main(String[] args) {
+        increment();
+        increment();
+        System.out.println(counter);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="scope_global.c"
+#include <stdio.h>
+
+int counter = 0;
+
+void increment(void) {
+    counter += 1;   /* no local declaration, so this changes the global */
+}
+
+int main(void) {
+    increment();
+    increment();
+    printf("%d\n", counter);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
 2
@@ -213,12 +309,12 @@ They can come apart. A global variable lives for the whole program. And a variab
 
 ## Closures (a first look)
 
-A function defined inside another can use the outer function's variables. When the inner function is returned or stored, it takes those variables with it. That bundle, a function plus the variables it captured, is a **closure**.
+A function defined inside another can use the outer function's variables. When the inner function is returned or stored, it takes those variables with it. That bundle, a function plus the variables it captured, is a **closure**. Each program below makes two independent counters, calls the first three times and the second once.
 
 <Tabs>
 <Tab label="Python">
 
-```python
+```python title="closure.py"
 def make_counter():
     count = 0
 
@@ -239,7 +335,7 @@ print(b())            # 1: each counter has its own count
 </Tab>
 <Tab label="JavaScript">
 
-```javascript
+```javascript title="closure.js"
 function makeCounter() {
   let count = 0;
   return function () {
@@ -255,20 +351,75 @@ console.log(b());           // 1: each counter has its own count
 ```
 
 </Tab>
+<Tab label="Java">
+
+```java title="Closure.java"
+import java.util.function.IntSupplier;
+
+public class Closure {
+    static IntSupplier makeCounter() {
+        int[] count = {0};   // a one-slot array, because a lambda cannot change a plain local
+        return () -> {
+            count[0] += 1;
+            return count[0];
+        };
+    }
+
+    public static void main(String[] args) {
+        IntSupplier a = makeCounter();
+        IntSupplier b = makeCounter();
+        System.out.println(a.getAsInt() + " " + a.getAsInt() + " " + a.getAsInt());
+        System.out.println(b.getAsInt());
+    }
+}
+```
+
+Java lambdas can capture only variables that never change after being set, so the changing count lives inside a small array that the lambda holds on to.
+
+</Tab>
+<Tab label="C">
+
+```c title="closure.c"
+#include <stdio.h>
+
+typedef struct {
+    int count;
+} Counter;
+
+int next_value(Counter *counter) {
+    counter->count += 1;
+    return counter->count;
+}
+
+int main(void) {
+    Counter a = {0};
+    Counter b = {0};
+    int first = next_value(&a);
+    int second = next_value(&a);
+    int third = next_value(&a);
+    printf("%d %d %d\n", first, second, third);
+    printf("%d\n", next_value(&b));
+    return 0;
+}
+```
+
+C has no closures. The same effect is achieved by keeping the state in a struct and passing it to the function explicitly every time. (The calls are made in separate statements because C does not promise in what order the arguments of one `printf` are evaluated.)
+
+</Tab>
 </Tabs>
 
-Both print:
+All four print:
 
 ```text
 1 2 3
 1
 ```
 
-`count` is local to `make_counter`, and `make_counter` has long since returned, yet `a` still increments it. The captured variable lives as long as some function can still reach it, so scope and lifetime are not the same thing. Each call to `make_counter` creates a fresh `count`, which is why `b` starts from 1. (Python's `nonlocal` plays the role for the enclosing function that `global` plays for the top level.) Java and C do not have this kind of closure over mutable locals in the same way; Java lambdas can capture only variables that never change after being set.
+In the languages with closures, `count` is local to `make_counter`, and `make_counter` has long since returned, yet `a` still increments it. The captured variable lives as long as some function can still reach it, so scope and lifetime are not the same thing. Each call to `make_counter` creates a fresh `count`, which is why `b` starts from 1. (Python's `nonlocal` plays the role for the enclosing function that `global` plays for the top level.)
 
 ## Common pitfalls
 
-- **Assuming an assignment inside a function changes the outer variable.** It creates a new local one (shadowing).
+- **Assuming an assignment inside a function changes the outer variable.** In Python it creates a new local one (shadowing).
 - **Using a variable outside the block that created it,** in a language with block scope.
 - **Using a variable before it is set.** Python raises `UnboundLocalError`; C silently reads garbage from uninitialised locals.
 - **Reusing a loop variable name** like `i` in a nested loop and clobbering the outer one.
@@ -277,9 +428,12 @@ Both print:
 
 <Exercise title="Six scope puzzles">
 
-Predict what each of these six puzzles prints, then run the file to check. (Puzzle 4 uses `try` and `except`, covered in the errors lesson: if the `try` block fails, the `except` block runs instead.)
+Predict what each of these six puzzles prints in your language, then run the file to check. Puzzle 4 and puzzle 5 try to use a name outside the scope that created it, so the languages react differently, and in Java and C those lines would not compile and are commented out. Puzzle 6 needs nested functions, which C does not have. Expected: your prediction for every puzzle that prints a line.
 
-```python
+<Tabs>
+<Tab label="Python">
+
+```python title="scope_puzzles.py"
 # Puzzle 1
 x = 1
 
@@ -346,42 +500,370 @@ def outer():
 outer()
 ```
 
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="scope_puzzles.js"
+// Puzzle 1
+let x = 1;
+function f1() {
+  let x = 2;
+}
+f1();
+console.log(x);
+
+// Puzzle 2
+let y = 1;
+function f2() {
+  console.log(y);
+}
+f2();
+
+// Puzzle 3
+let z = 1;
+function f3() {
+  z = 2;
+}
+f3();
+console.log(z);
+
+// Puzzle 4
+function f4() {
+  let secret = 5;
+}
+f4();
+try {
+  console.log(secret);
+} catch (error) {
+  console.log(error.name);
+}
+
+// Puzzle 5
+for (let i = 0; i < 3; i++) {}
+console.log(typeof i);
+
+// Puzzle 6
+let name = "a";
+function outer() {
+  let name = "b";
+  function inner() {
+    console.log(name);
+  }
+  inner();
+}
+outer();
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="ScopePuzzles.java"
+public class ScopePuzzles {
+    static int x = 1;
+    static int y = 1;
+    static int z = 1;
+    static String name = "a";
+
+    static void f1() {
+        int x = 2;
+    }
+
+    static void f2() {
+        System.out.println(y);
+    }
+
+    static void f3() {
+        z = 2;
+    }
+
+    static void f4() {
+        int secret = 5;
+    }
+
+    static void outer() {
+        String name = "b";
+        Runnable inner = () -> System.out.println(name);
+        inner.run();
+    }
+
+    public static void main(String[] args) {
+        // Puzzle 1
+        f1();
+        System.out.println(x);
+
+        // Puzzle 2
+        f2();
+
+        // Puzzle 3
+        f3();
+        System.out.println(z);
+
+        // Puzzle 4
+        f4();
+        // System.out.println(secret);   // would not compile
+
+        // Puzzle 5
+        for (int i = 0; i < 3; i++) {}
+        // System.out.println(i);        // would not compile
+
+        // Puzzle 6
+        outer();
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="scope_puzzles.c"
+#include <stdio.h>
+
+int x = 1;
+int y = 1;
+int z = 1;
+
+void f1(void) {
+    int x = 2;
+    (void)x;
+}
+
+void f2(void) {
+    printf("%d\n", y);
+}
+
+void f3(void) {
+    z = 2;
+}
+
+void f4(void) {
+    int secret = 5;
+    (void)secret;
+}
+
+int main(void) {
+    /* Puzzle 1 */
+    f1();
+    printf("%d\n", x);
+
+    /* Puzzle 2 */
+    f2();
+
+    /* Puzzle 3 */
+    f3();
+    printf("%d\n", z);
+
+    /* Puzzle 4 */
+    f4();
+    /* printf("%d\n", secret);   would not compile */
+
+    /* Puzzle 5 */
+    for (int i = 0; i < 3; i++) {}
+    /* printf("%d\n", i);        would not compile */
+
+    /* Puzzle 6: C has no nested functions, so there is no puzzle here. */
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
 <Solution>
 
-The output is, in order: `1`, `1`, `2`, `NameError`, `2`, `b`.
+Each language prints a different list, because of the scope rules above.
 
-1. `f1` assigns to `x`, which creates a local. The global is untouched, so `print(x)` prints 1.
-2. `f2` only reads `y`. There is no local `y`, so the lookup moves out to the global and finds 1.
-3. `f3` declares `z` as global, so the assignment changes the global to 2.
-4. `secret` exists only while `f4` runs. Outside it, the name is unknown, and the `except` branch prints `NameError`.
-5. Python has no block scope: after the loop, `i` still exists and holds its last value, 2.
+| Puzzle | Python | JavaScript | Java | C |
+|---|---|---|---|---|
+| 1 | `1` | `1` | `1` | `1` |
+| 2 | `1` | `1` | `1` | `1` |
+| 3 | `2` | `2` | `2` | `2` |
+| 4 | `NameError` | `ReferenceError` | does not compile | does not compile |
+| 5 | `2` | `undefined` | does not compile | does not compile |
+| 6 | `b` | `b` | `b` | not applicable |
+
+1. The function assigns to `x`, which creates a local (in Python, JavaScript, Java and C alike). The global is untouched, so `x` prints 1.
+2. The function only reads `y`. There is no local `y`, so the lookup moves out to the global and finds 1.
+3. In Python the function must declare `z` as global; in the other languages plain assignment already reaches the global. Either way `z` becomes 2.
+4. `secret` exists only while `f4` runs. Outside it, the name is unknown: Python and JavaScript fail at run time, and Java and C refuse to compile.
+5. Python has no block scope: after the loop, `i` still exists and holds its last value, 2. In JavaScript `let` confines `i` to the loop, so `typeof` reports `undefined`. Java and C reject the use.
 6. `inner` looks up `name`, finds none locally, and checks the enclosing function next, where it finds `"b"`, before it would reach the global `"a"`.
 
+Output by language:
+
 ```text
-1
-1
-2
-NameError
-2
-b
+Python:       1 1 2 NameError 2 b          (one per line)
+JavaScript:   1 1 2 ReferenceError undefined b
+Java:         1 1 2 b
+C:            1 1 2
 ```
 
 </Solution>
 
 </Exercise>
 
-<Exercise title="Predict the JavaScript">
+<Exercise title="Predict the loop variable">
 
-What does this print, and what would change if `let` were replaced by `var`?
+Each program runs an empty loop three times and then asks about the loop variable `i`. What does each print, and how would the JavaScript result change if `let` were replaced by `var`? Expected: one line per program that prints.
 
-```javascript
+<Tabs>
+<Tab label="Python">
+
+```python title="loop_var.py"
+for i in range(3):
+    pass
+print(i)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="loop_var.js"
 for (let i = 0; i < 3; i++) {}
 console.log(typeof i);
 ```
 
+</Tab>
+<Tab label="Java">
+
+```java title="LoopVar.java"
+public class LoopVar {
+    public static void main(String[] args) {
+        for (int i = 0; i < 3; i++) {}
+        // System.out.println(i);   // does this compile?
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="loop_var.c"
+#include <stdio.h>
+
+int main(void) {
+    for (int i = 0; i < 3; i++) {}
+    /* printf("%d\n", i);   does this compile? */
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
 <Solution>
 
-It prints `undefined`, because `let` confines `i` to the loop. With `var`, the variable belongs to the whole enclosing function, so it would print `number`.
+Python prints `2`, because the loop variable belongs to the whole function and keeps its last value. JavaScript prints `undefined`, because `let` confines `i` to the loop. With `var` instead, the variable belongs to the whole enclosing function, so it would print `number`. In Java and C, removing the comment makes the program fail to compile, because `i` ends at the closing brace of the loop.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Independent counters">
+
+Write a counter that starts at 0 and goes up by 1 each time it is used, and make two independent counters. Use the first counter twice and the second once, and print each result on its own line. Expected output: `1`, `2`, `1`. Use whichever tool your language gives you.
+
+<Solution>
+
+The closure example above is the model: each counter needs its own hidden state. These versions print each value on its own line.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="two_counters.py"
+def make_counter():
+    count = 0
+
+    def next_value():
+        nonlocal count
+        count += 1
+        return count
+
+    return next_value
+
+
+first = make_counter()
+second = make_counter()
+print(first())
+print(first())
+print(second())
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="two_counters.js"
+function makeCounter() {
+  let count = 0;
+  return () => {
+    count += 1;
+    return count;
+  };
+}
+
+const first = makeCounter();
+const second = makeCounter();
+console.log(first());
+console.log(first());
+console.log(second());
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="TwoCounters.java"
+import java.util.function.IntSupplier;
+
+public class TwoCounters {
+    static IntSupplier makeCounter() {
+        int[] count = {0};
+        return () -> ++count[0];
+    }
+
+    public static void main(String[] args) {
+        IntSupplier first = makeCounter();
+        IntSupplier second = makeCounter();
+        System.out.println(first.getAsInt());
+        System.out.println(first.getAsInt());
+        System.out.println(second.getAsInt());
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="two_counters.c"
+#include <stdio.h>
+
+typedef struct {
+    int count;
+} Counter;
+
+static int next_value(Counter *counter) {
+    counter->count += 1;
+    return counter->count;
+}
+
+int main(void) {
+    Counter first = {0};
+    Counter second = {0};
+    printf("%d\n", next_value(&first));
+    printf("%d\n", next_value(&first));
+    printf("%d\n", next_value(&second));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+1
+2
+1
+```
 
 </Solution>
 
