@@ -2,8 +2,8 @@
 slug: "picolisp"
 name: "Picolisp"
 tier: 3
-paradigm: ["functional", "procedural", "object-oriented", "declarative", "reflective", "meta"]
+paradigm: ["functional", "procedural", "object-oriented", "declarative", "reflective", "metaprogramming"]
 firstAppeared: 1988
-summary: "Picolisp is a functional language first appeared in 1988."
+summary: "Picolisp is a functional and procedural programming language that first appeared in 1988."
 status: planned
 ---

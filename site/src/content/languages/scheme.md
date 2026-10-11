@@ -2,8 +2,8 @@
 slug: "scheme"
 name: "Scheme"
 tier: 3
-paradigm: ["multi-paradigm", "functional", "imperative", "meta"]
+paradigm: ["multi-paradigm", "functional", "imperative", "metaprogramming"]
 firstAppeared: 1975
-summary: "Scheme is a multi-paradigm language first appeared in 1975."
+summary: "Scheme is a multi-paradigm and functional programming language that first appeared in 1975."
 status: planned
 ---

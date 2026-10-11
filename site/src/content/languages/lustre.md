@@ -2,7 +2,7 @@
 slug: "lustre"
 name: "Lustre"
 tier: 3
-paradigm: ["dataflow", "declarative", "synchronous"]
-summary: "Lustre is a dataflow language."
+paradigm: ["dataflow", "declarative", "concurrent"]
+summary: "Lustre is a dataflow and declarative programming language."
 status: planned
 ---

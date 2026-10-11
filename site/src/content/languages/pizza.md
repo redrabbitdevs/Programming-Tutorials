@@ -2,7 +2,7 @@
 slug: "pizza"
 name: "Pizza"
 tier: 3
-paradigm: ["generics", "algebraic types"]
-summary: "Pizza is a generics language."
+paradigm: ["generic", "functional"]
+summary: "Pizza is a generic and functional programming language."
 status: planned
 ---

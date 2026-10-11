@@ -3,6 +3,6 @@ slug: "mimic"
 name: "MIMIC"
 tier: 3
 paradigm: ["unclassified"]
-summary: "MIMIC is a programming language."
+summary: "MIMIC is a programming language. A full overview has not been written yet."
 status: planned
 ---

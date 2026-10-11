@@ -2,8 +2,8 @@
 slug: "modula-2"
 name: "Modula-2"
 tier: 3
-paradigm: ["imperative", "structured", "modular", "data", "procedure hiding", "concurrent"]
+paradigm: ["imperative", "structured", "markup-adjacent", "procedural", "concurrent"]
 firstAppeared: 1978
-summary: "Modula-2 is an imperative language first appeared in 1978."
+summary: "Modula-2 is an imperative and structured programming language that first appeared in 1978."
 status: planned
 ---

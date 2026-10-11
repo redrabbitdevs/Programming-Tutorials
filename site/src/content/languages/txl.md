@@ -2,7 +2,7 @@
 slug: "txl"
 name: "TXL"
 tier: 3
-paradigm: ["pattern-matching", "term-rewriting"]
-summary: "TXL is a pattern-matching language."
+paradigm: ["functional"]
+summary: "TXL is a functional programming language."
 status: planned
 ---

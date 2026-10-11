@@ -2,8 +2,8 @@
 slug: "ttm"
 name: "TTM"
 tier: 3
-paradigm: ["general-purpose macro processor"]
+paradigm: ["metaprogramming"]
 firstAppeared: 1968
-summary: "TTM is a general-purpose macro processor language first appeared in 1968."
+summary: "TTM is a metaprogramming programming language that first appeared in 1968."
 status: planned
 ---

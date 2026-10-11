@@ -2,8 +2,8 @@
 slug: "joule"
 name: "Joule"
 tier: 3
-paradigm: ["multi-paradigm", "object-oriented", "distributed", "dataflow"]
+paradigm: ["multi-paradigm", "object-oriented", "concurrent", "dataflow"]
 firstAppeared: 1996
-summary: "Joule is a multi-paradigm language first appeared in 1996."
+summary: "Joule is a multi-paradigm and object-oriented programming language that first appeared in 1996."
 status: planned
 ---

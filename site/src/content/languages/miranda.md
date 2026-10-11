@@ -2,8 +2,8 @@
 slug: "miranda"
 name: "Miranda"
 tier: 3
-paradigm: ["lazy", "functional", "declarative"]
+paradigm: ["functional", "declarative"]
 firstAppeared: 1985
-summary: "Miranda is a lazy language first appeared in 1985."
+summary: "Miranda is a functional and declarative programming language that first appeared in 1985."
 status: planned
 ---

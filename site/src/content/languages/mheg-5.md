@@ -3,6 +3,6 @@ slug: "mheg-5"
 name: "MHEG-5"
 tier: 3
 paradigm: ["unclassified"]
-summary: "MHEG-5 is a programming language."
+summary: "MHEG-5 is a programming language. A full overview has not been written yet."
 status: planned
 ---

@@ -3,6 +3,6 @@ slug: "jcl"
 name: "JCL"
 tier: 3
 paradigm: ["unclassified"]
-summary: "JCL is a programming language."
+summary: "JCL is a programming language. A full overview has not been written yet."
 status: planned
 ---

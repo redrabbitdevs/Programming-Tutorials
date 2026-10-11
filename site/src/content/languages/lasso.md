@@ -2,8 +2,8 @@
 slug: "lasso"
 name: "Lasso"
 tier: 3
-paradigm: ["multi-paradigm", "structured object-oriented", "multi-dis", "imperative", "procedural", "concurrent", "exp-oriented", "meta", "reflective"]
+paradigm: ["multi-paradigm", "object-oriented", "imperative", "procedural", "concurrent", "metaprogramming", "reflective"]
 firstAppeared: 1995
-summary: "Lasso is a multi-paradigm language first appeared in 1995."
+summary: "Lasso is a multi-paradigm and object-oriented programming language that first appeared in 1995."
 status: planned
 ---
