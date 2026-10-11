@@ -1,0 +1,493 @@
+---
+language: fundamentals
+level: beginner
+module: Working like a programmer
+order: 25
+title: The testing mindset
+description: Write small automated tests that check your code against expected results, choose cases that expose bugs, and meet test-driven development.
+objectives:
+  - Write a test as a call, an expected value and a comparison that reports pass or fail
+  - Structure a test as arrange, act and assert
+  - Choose test cases that cover normal input, boundaries and edge cases
+  - Explain test-driven development and why a bug should become a regression test
+estimatedMinutes: 60
+fundamentals:
+  - fundamentals/beginner/07-conditionals
+  - fundamentals/beginner/09-functions
+  - fundamentals/beginner/24-debugging
+---
+
+In the [debugging lesson](../debugging/) you tracked down a bug by hand: run the program, look at the output, form a guess. That works, but it is slow and it does not last. Tomorrow you will change the code and have to check everything again. A **test** is a small program that does the checking for you, every time, in a fraction of a second.
+
+## What a test is
+
+A test has three parts: call some code with a known input, state the output you expect, and compare the two. If they match, the test passes. If not, it fails and says what it saw.
+
+You do not need a special library to start. All you need is a function that does the comparison and reports the result. The function `clamp` below forces a number to lie between a low and a high limit, so `clamp(15, 0, 10)` is 10. Each `check` call is one test.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="test_clamp.py"
+def clamp(x, low, high):
+    if x < low:
+        return low
+    if x > high:
+        return high
+    return x
+
+
+failures = 0
+
+
+def check(name, actual, expected):
+    global failures
+    if actual == expected:
+        print("PASS", name)
+    else:
+        failures += 1
+        print("FAIL", name, "- expected", expected, "but got", actual)
+
+
+check("below the range", clamp(-5, 0, 10), 0)
+check("inside the range", clamp(7, 0, 10), 7)
+check("above the range", clamp(15, 0, 10), 10)
+check("on the upper boundary", clamp(10, 0, 10), 10)
+print(failures, "failed")
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="test_clamp.js"
+function clamp(x, low, high) {
+  if (x < low) return low;
+  if (x > high) return high;
+  return x;
+}
+
+let failures = 0;
+
+function check(name, actual, expected) {
+  if (actual === expected) {
+    console.log("PASS", name);
+  } else {
+    failures += 1;
+    console.log("FAIL", name, "- expected", expected, "but got", actual);
+  }
+}
+
+check("below the range", clamp(-5, 0, 10), 0);
+check("inside the range", clamp(7, 0, 10), 7);
+check("above the range", clamp(15, 0, 10), 10);
+check("on the upper boundary", clamp(10, 0, 10), 10);
+console.log(failures, "failed");
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="TestClamp.java"
+public class TestClamp {
+    static int failures = 0;
+
+    static int clamp(int x, int low, int high) {
+        if (x < low) return low;
+        if (x > high) return high;
+        return x;
+    }
+
+    static void check(String name, int actual, int expected) {
+        if (actual == expected) {
+            System.out.println("PASS " + name);
+        } else {
+            failures += 1;
+            System.out.println("FAIL " + name + " - expected " + expected + " but got " + actual);
+        }
+    }
+
+    public static void main(String[] args) {
+        check("below the range", clamp(-5, 0, 10), 0);
+        check("inside the range", clamp(7, 0, 10), 7);
+        check("above the range", clamp(15, 0, 10), 10);
+        check("on the upper boundary", clamp(10, 0, 10), 10);
+        System.out.println(failures + " failed");
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="test_clamp.c"
+#include <stdio.h>
+
+static int failures = 0;
+
+static int clamp(int x, int low, int high) {
+    if (x < low) return low;
+    if (x > high) return high;
+    return x;
+}
+
+static void check(const char *name, int actual, int expected) {
+    if (actual == expected) {
+        printf("PASS %s\n", name);
+    } else {
+        failures += 1;
+        printf("FAIL %s - expected %d but got %d\n", name, expected, actual);
+    }
+}
+
+int main(void) {
+    check("below the range", clamp(-5, 0, 10), 0);
+    check("inside the range", clamp(7, 0, 10), 7);
+    check("above the range", clamp(15, 0, 10), 10);
+    check("on the upper boundary", clamp(10, 0, 10), 10);
+    printf("%d failed\n", failures);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+PASS below the range
+PASS inside the range
+PASS above the range
+PASS on the upper boundary
+0 failed
+```
+
+Now suppose a copy-and-paste slip makes the "above" branch return `low` instead of `high`. A test for each branch catches it at once, and the message tells you the input, what you expected and what you got:
+
+```python title="test_clamp_bug.py"
+def clamp(x, low, high):
+    if x < low:
+        return low
+    if x > high:
+        return low  # copy-and-paste slip: should return high
+    return x
+
+
+failures = 0
+
+
+def check(name, actual, expected):
+    global failures
+    if actual == expected:
+        print("PASS", name)
+    else:
+        failures += 1
+        print("FAIL", name, "- expected", expected, "but got", actual)
+
+
+check("below the range", clamp(-5, 0, 10), 0)
+check("inside the range", clamp(7, 0, 10), 7)
+check("above the range", clamp(15, 0, 10), 10)
+print(failures, "failed")
+```
+
+Output:
+
+```text
+PASS below the range
+PASS inside the range
+FAIL above the range - expected 10 but got 0
+1 failed
+```
+
+Notice that the first two tests still pass. Passing tests do not prove a program is correct; they only show it is correct for the cases you thought to check. A test suite is a collection of questions, and a bug hides in the question nobody asked.
+
+## Real test frameworks
+
+Hand-written `check` functions are good for learning, but every language has a standard way to write tests that adds the useful extras: running every test even when one fails, a summary, and a non-zero exit code when anything failed so that automated systems notice.
+
+| Language | Common test tools |
+|---|---|
+| Python | `unittest` (in the standard library), `pytest` |
+| JavaScript | `node:test` (built into Node.js), Jest, Vitest |
+| Java | JUnit |
+| C | No standard framework; `assert` from `<assert.h>`, or libraries such as Unity and Check |
+
+All of them are built on the same idea you just wrote: a call, an expected value, a comparison. Once you know the idea, learning a framework is just learning its names. The language tracks cover each one.
+
+Many languages also have a plain `assert` statement, which stops the program with an error if a condition is false. Python's `assert x == 3` and C's `assert(x == 3)` are checked by default. Java's `assert` statements are **switched off** unless you run the program with the `-ea` flag, so a Java test that relies on them can silently check nothing.
+
+## Arrange, act, assert
+
+A readable test follows three steps, in order:
+
+1. **Arrange.** Set up the inputs and any objects the test needs.
+2. **Act.** Call the one piece of code you are testing.
+3. **Assert.** Check that the result is what you expected.
+
+Keeping the steps separate makes each test short and focused: it tests one behaviour and its name says which. When a test fails, the name should tell you what broke without opening the code. The example below tests a small function, `initials`, and labels the steps in the first test:
+
+```python title="tdd_initials.py"
+def initials(name):
+    letters = []
+    for word in name.split():
+        letters.append(word[0].upper())
+    return "".join(letters)
+
+
+def test_two_words():
+    # Arrange
+    name = "Ada Lovelace"
+    # Act
+    result = initials(name)
+    # Assert
+    assert result == "AL", result
+
+
+def test_lowercase_input():
+    assert initials("grace hopper") == "GH"
+
+
+def test_extra_spaces():
+    assert initials("  alan   turing ") == "AT"
+
+
+def test_empty_string():
+    assert initials("") == ""
+
+
+tests = [test_two_words, test_lowercase_input, test_extra_spaces, test_empty_string]
+for test in tests:
+    test()
+    print("PASS", test.__name__)
+```
+
+Output:
+
+```text
+PASS test_two_words
+PASS test_lowercase_input
+PASS test_extra_spaces
+PASS test_empty_string
+```
+
+The second argument to `assert` (`, result`) is the message shown when the assertion fails, so you see the actual value. Each test checks one thing, so a failure points to one cause.
+
+## Choosing test cases
+
+You cannot test every possible input, so choose inputs that are most likely to reveal a bug. Three groups cover most of the value:
+
+- **Typical cases.** An ordinary input that should work. `"Ada Lovelace"`.
+- **Boundaries.** Values at the edge where behaviour changes. If the rule is "18 or older", test 17, 18 and 19. Off-by-one errors live here, which is why `on the upper boundary` was in the clamp tests.
+- **Edge cases.** Unusual but valid input: the empty string, an empty list, zero, one item, a negative number, duplicates, extra whitespace, very large values. In the `initials` tests, `""` and the extra spaces are edge cases, and they are the ones a first draft usually gets wrong.
+
+Also test the **error cases**: what should happen with invalid input? If a function should reject a negative weight, write a test that checks it does.
+
+Unit tests and integration tests answer different questions. A **unit test** checks one small piece, such as a single function, in isolation. An **integration test** checks that several pieces work together, such as a function that reads a file and a function that parses what it read. Write many unit tests (fast, and a failure points at one place) and a smaller number of integration tests (slower, but they catch mistakes in how the parts connect).
+
+## Test-driven development
+
+**Test-driven development** (TDD) turns the order around: write the test first, then the code.
+
+1. **Red.** Write a test for behaviour that does not exist yet. Run it and watch it fail. (A test that has never failed might not be testing anything.)
+2. **Green.** Write the simplest code that makes the test pass.
+3. **Refactor.** Tidy the code, rerunning the tests to make sure nothing broke.
+
+Then repeat with the next small behaviour. TDD gives you a test for every feature and forces you to think about what the function should do before you write it, which is the same discipline as writing pseudocode in the [algorithmic thinking lesson](../algorithmic-thinking/). You do not have to use it all the time. Many programmers use it when the requirements are clear, and write tests just after the code when exploring. What matters is that tests exist and are written close to the code.
+
+## Regression tests
+
+When you find a bug, do not only fix it. First write a test that fails because of the bug, then fix the code until the test passes. That test is a **regression test**. It guards against the same bug returning later when someone edits the code. The `above the range` test in `test_clamp_bug.py` is a regression test: the bug has been seen once, and the test will keep it from coming back unnoticed.
+
+## Common pitfalls
+
+- **Testing the implementation instead of the behaviour.** A test should say what the function returns, not how it computes it. Tests that depend on internals break every time you refactor.
+- **Never seeing a test fail.** If you have never watched a test fail, you do not know it can. Break the code on purpose once and check.
+- **Only testing the happy path.** Bugs cluster at boundaries and edge cases.
+- **Several behaviours in one test.** When it fails you will not know which part broke.
+- **Tests that depend on each other or on the clock.** A test should pass whatever order the others run in, and not depend on today's date or on random numbers.
+- **Floating-point equality.** `0.1 + 0.2 == 0.3` is false in most languages (see the [operators lesson](../expressions-and-operators/)). Compare with a small tolerance.
+- **Treating green as proof.** Passing tests mean "none of the cases I wrote failed", not "there are no bugs".
+
+<Exercise title="Write tests that expose every bug">
+
+Here is a shipping-cost function and its specification:
+
+- A weight of 0 or less is invalid and must raise an error.
+- Up to and including 1 kg costs 5.
+- Over 1 kg and up to and including 5 kg costs 8.
+- Over 5 kg costs 12.
+
+```python
+def shipping(w):
+    if w < 0:
+        raise ValueError("weight must be positive")
+    if w < 1:
+        return 5
+    if w <= 5:
+        return 8
+    return 10
+```
+
+This function has three bugs. Write test cases (an input and the expected result for each) until you have found all three. Give at least one test per bug, and say which bug it exposes.
+
+<Solution>
+
+These six cases are enough. The input `0` should raise an error.
+
+| Test | Input | Expected | Buggy result |
+|---|---|---|---|
+| light parcel | 0.5 | 5 | 5 (passes) |
+| exactly 1 kg | 1 | 5 | 8 (fails) |
+| medium parcel | 3 | 8 | 8 (passes) |
+| exactly 5 kg | 5 | 8 | 8 (passes) |
+| heavy parcel | 6 | 12 | 10 (fails) |
+| zero weight | 0 | error | returns 5, no error (fails) |
+
+The three bugs: the check `w < 0` should be `w <= 0`, so zero is accepted; the check `w < 1` should be `w <= 1`, so exactly 1 kg is charged as medium; and the heavy price is 10 where it should be 12. Boundary values (0, 1, 5) found two of the bugs, and only one typical heavy parcel was needed for the third.
+
+A program that runs the same cases on the buggy and fixed versions:
+
+```python title="shipping_tests.py"
+def shipping_buggy(w):
+    if w < 0:
+        raise ValueError("weight must be positive")
+    if w < 1:
+        return 5
+    if w <= 5:
+        return 8
+    return 10
+
+
+def shipping_fixed(w):
+    if w <= 0:
+        raise ValueError("weight must be positive")
+    if w <= 1:
+        return 5
+    if w <= 5:
+        return 8
+    return 12
+
+
+def raises_value_error(func, arg):
+    try:
+        func(arg)
+    except ValueError:
+        return True
+    return False
+
+
+def run_tests(func):
+    failures = []
+    cases = [
+        ("light parcel", 0.5, 5),
+        ("exactly 1 kg", 1, 5),
+        ("medium parcel", 3, 8),
+        ("exactly 5 kg", 5, 8),
+        ("heavy parcel", 6, 12),
+    ]
+    for name, weight, expected in cases:
+        actual = func(weight)
+        if actual != expected:
+            failures.append(f"{name}: expected {expected}, got {actual}")
+    if not raises_value_error(func, 0):
+        failures.append("zero weight: expected ValueError")
+    return failures
+
+
+for label, func in [("buggy", shipping_buggy), ("fixed", shipping_fixed)]:
+    failures = run_tests(func)
+    print(label + ":", len(failures), "failed")
+    for line in failures:
+        print("  " + line)
+```
+
+Output:
+
+```text
+buggy: 3 failed
+  exactly 1 kg: expected 5, got 8
+  heavy parcel: expected 12, got 10
+  zero weight: expected ValueError
+fixed: 0 failed
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Test cases before code">
+
+You will write `last_word(text)`, which returns the last whitespace-separated word of `text`, or the empty string if there are no words. Before writing any code, list four test cases (input and expected output): one typical, one with extra spaces, one with a single word and one empty.
+
+Then write the function and run your cases.
+
+<Solution>
+
+| Input | Expected |
+|---|---|
+| `"the quick fox"` | `"fox"` |
+| `"  hi  "` | `"hi"` |
+| `"one"` | `"one"` |
+| `""` | `""` |
+
+```python title="last_word_tests.py"
+def last_word(text):
+    words = text.split()
+    if not words:
+        return ""
+    return words[-1]
+
+
+cases = [
+    ("the quick fox", "fox"),
+    ("one", "one"),
+    ("  hi  ", "hi"),
+    ("", ""),
+]
+for text, expected in cases:
+    actual = last_word(text)
+    status = "PASS" if actual == expected else "FAIL"
+    print(status, repr(text), "->", repr(actual))
+```
+
+Output:
+
+```text
+PASS 'the quick fox' -> 'fox'
+PASS 'one' -> 'one'
+PASS '  hi  ' -> 'hi'
+PASS '' -> ''
+```
+
+`text.split()` with no argument splits on any run of whitespace and ignores leading and trailing space, which handles the second case. Without the `if not words` guard, the empty string would fail with an index error, which is the edge case the fourth test exists to catch.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Spot the missing test">
+
+A function `is_leap_year(year)` follows these rules: a year divisible by 4 is a leap year, except years divisible by 100, which are not, except years divisible by 400, which are. A colleague tests it only with 2024 (expect true) and 2023 (expect false). Name three more inputs to test, give the expected result of each, and say why each is worth adding.
+
+<Solution>
+
+- **1900, expect false.** Divisible by 100 but not by 400. It tests the first exception.
+- **2000, expect true.** Divisible by 400. It tests the exception to the exception.
+- **2100, expect false.** A second year of the first kind, which guards against a function that hard-codes only 1900.
+
+The two original tests are both ordinary years, so a function that ignores the century rules would pass them and still be wrong.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- A test is a call with a known input, an expected value, and a comparison that reports pass or fail. Frameworks add running, summaries and exit codes, but the idea stays the same.
+- Arrange, act, assert keeps each test short and focused on one behaviour.
+- Choose typical cases, boundaries and edge cases, and test the error cases too. Passing tests never prove the absence of bugs.
+- In test-driven development you watch a test fail, make it pass with the simplest code, then refactor.
+- Turn every bug you find into a regression test before you fix it.
+
+Next you will learn the tool that keeps all your changes, and your tests, safe: [version control with Git](../version-control/).

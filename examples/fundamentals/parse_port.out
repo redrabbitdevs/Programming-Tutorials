@@ -1,0 +1,6 @@
+'8080' -> 8080
+' 22 ' -> 22
+'0' -> error: port out of range: 0
+'abc' -> error: not a whole number: 'abc'
+'70000' -> error: port out of range: 70000
+'-5' -> error: not a whole number: '-5'

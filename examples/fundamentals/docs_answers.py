@@ -1,0 +1,5 @@
+print("1:", "hello".find("z"))
+print("2:", "a b  c".split(), "a b  c".split(" "))
+print("3:", [3, 1, 2].sort())
+print("4:", round(2.675, 2))
+print("5:", max([], default=0))

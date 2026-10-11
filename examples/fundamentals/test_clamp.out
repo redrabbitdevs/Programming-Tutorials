@@ -1,0 +1,5 @@
+PASS below the range
+PASS inside the range
+PASS above the range
+PASS on the upper boundary
+0 failed

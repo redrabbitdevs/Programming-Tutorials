@@ -1,0 +1,369 @@
+---
+language: fundamentals
+level: beginner
+module: Working like a programmer
+order: 24
+title: Debugging
+description: Find bugs systematically by reproducing them, isolating them and testing hypotheses, using print statements, debuggers and stack traces.
+objectives:
+  - Reproduce a bug reliably before trying to fix it
+  - Narrow a bug down by isolation and by stating a hypothesis you can test
+  - Use print debugging and name the debugger commands that do the same job
+  - Read a stack trace from the bottom up and find the line that matters
+estimatedMinutes: 60
+fundamentals:
+  - fundamentals/beginner/02-tools-of-the-trade
+  - fundamentals/beginner/09-functions
+  - fundamentals/beginner/12-errors-and-exceptions
+---
+
+Every program you write will contain bugs, and most of the time you spend programming will go on finding them. Debugging is a skill with a method, and the method matters more than cleverness. People who debug well are not guessing faster. They are guessing less: they gather evidence, make one claim at a time, and check it.
+
+In the [errors lesson](../errors-and-exceptions/) you met three kinds of error. Syntax errors are caught before the program runs, and runtime errors announce themselves with a message. This lesson is mostly about the third kind, **logic errors**, where the program runs happily and gives the wrong answer.
+
+## The loop: reproduce, isolate, hypothesise, test
+
+Debugging goes in four steps, and you will repeat them until the bug is gone.
+
+1. **Reproduce.** Find an input that makes the bug happen every time. A bug you cannot trigger on demand is a bug you cannot know you have fixed. Write down the exact input, the output you got and the output you expected.
+2. **Isolate.** Make the problem smaller. Remove the parts of the program that are not involved. Shrink the input from 10,000 records to the shortest one that still fails. Often the bug becomes obvious halfway through shrinking.
+3. **Hypothesise.** State a specific, checkable guess: "the loop stops one item early", not "something is wrong with the loop". A good hypothesis predicts something you can observe.
+4. **Test.** Observe the program (with a print statement or a debugger) and compare what you see to what the hypothesis predicted. If the evidence contradicts the guess, discard the guess and form another. Only change the code once you understand the cause.
+
+A useful rule is to change one thing at a time. If you change three lines and the bug disappears, you do not know which change fixed it, or whether you have hidden it.
+
+## Print debugging
+
+The simplest tool is to print values while the program runs. It works in every language, needs no setup, and answers the question "what is this variable at this moment?".
+
+The function below should add the whole numbers from 1 to `n`, so `sum_to(4)` should be 10. It returns 6. The reproduction is `n = 4`, and we expect 10 but get 6. Here is the hypothesis: the loop adds the wrong set of numbers. Printing inside the loop will test it.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="debug_sum.py"
+def sum_to(n):
+    total = 0
+    for i in range(1, n):
+        total += i
+        print("i =", i, "total =", total)
+    return total
+
+
+print("result:", sum_to(4))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="debug_sum.js"
+function sumTo(n) {
+  let total = 0;
+  for (let i = 1; i < n; i++) {
+    total += i;
+    console.log("i =", i, "total =", total);
+  }
+  return total;
+}
+
+console.log("result:", sumTo(4));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="DebugSum.java"
+public class DebugSum {
+    static int sumTo(int n) {
+        int total = 0;
+        for (int i = 1; i < n; i++) {
+            total += i;
+            System.out.println("i = " + i + " total = " + total);
+        }
+        return total;
+    }
+
+    public static void main(String[] args) {
+        System.out.println("result: " + sumTo(4));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="debug_sum.c"
+#include <stdio.h>
+
+int sum_to(int n) {
+    int total = 0;
+    for (int i = 1; i < n; i++) {
+        total += i;
+        printf("i = %d total = %d\n", i, total);
+    }
+    return total;
+}
+
+int main(void) {
+    printf("result: %d\n", sum_to(4));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+i = 1 total = 1
+i = 2 total = 3
+i = 3 total = 6
+result: 6
+```
+
+The evidence is clear: `i` takes the values 1, 2 and 3 but never 4. The loop stops one item early, which is the off-by-one error from the [loops lesson](../loops/). The fix is to make the upper bound include `n`: `range(1, n + 1)` in Python, `i <= n` in the other three. Re-run with the same input and confirm you now get 10.
+
+Good print statements have a few habits in common:
+
+- **Label what you print.** `i = 3` is readable; a bare `3` is not.
+- **Print at the boundaries.** Print the inputs on the way into a function and the result on the way out. This tells you which side of the function the bug lives on.
+- **Print the type when in doubt.** A value that looks like `5` may be the string `"5"`.
+- **Remove the prints afterwards.** Leftover debug output is noise, and sometimes a leak of private data.
+
+## Debuggers
+
+A **debugger** lets you pause a running program and look inside it. You do not have to guess in advance where to print. Four ideas cover most uses:
+
+| Idea | What it does |
+|---|---|
+| **Breakpoint** | Marks a line where the program should pause before running it |
+| **Step over** | Runs the current line completely, including any function it calls, then pauses again |
+| **Step into** | If the current line calls a function, moves into that function's first line |
+| **Inspect** | Shows the current value of variables, and the chain of function calls that led here (the call stack) |
+
+Every language has one. Command-line debuggers are less pretty than the ones built into editors, but they are always available:
+
+| Language | Start it with | Notes |
+|---|---|---|
+| Python | `python -m pdb script.py` | `b 4` sets a breakpoint, `n` steps over, `s` steps into, `p total` prints a value, `c` continues |
+| JavaScript | `node inspect script.js` | Same idea; most people use the debugger in their editor or browser |
+| Java | `jdb ClassName` | Compile with `javac -g` so variable names are kept |
+| C | `gdb ./program` | Compile with `gcc -g` so line numbers are kept; `break`, `next`, `step`, `print` |
+
+Which should you use, prints or a debugger? Use prints when you already have a hunch and want a quick check. Reach for the debugger when you do not know where to look, or when the program is long and you want to examine many variables at one moment. Both are fine.
+
+## Reading a stack trace
+
+When a runtime error is not handled, most languages print a **stack trace**: the list of function calls that were active when the error happened. It is the program telling you exactly where it failed, so read it before doing anything else.
+
+Here is a small Python program that reads a name and an age from a line of text:
+
+```python title="trace.py"
+def parse_age(text):
+    return int(text)
+
+
+def read_user(line):
+    name, age = line.split(",")
+    return name, parse_age(age)
+
+
+print(read_user("Ada,thirty"))
+```
+
+Running it produces this output (the exact file path on your machine will differ):
+
+```text
+Traceback (most recent call last):
+  File "trace.py", line 10, in <module>
+    print(read_user("Ada,thirty"))
+  File "trace.py", line 7, in read_user
+    return name, parse_age(age)
+  File "trace.py", line 2, in parse_age
+    return int(text)
+ValueError: invalid literal for int() with base 10: 'thirty'
+```
+
+Recent Python versions also draw `~~~^^^` markers under the exact part of each line that failed; they are left out above to keep it short. Read it in this order:
+
+1. **The last line first.** It names the kind of error (`ValueError`) and says what was wrong: `'thirty'` is not a whole number.
+2. **The frame just above it.** This is the line that raised the error: line 2, inside `parse_age`.
+3. **Then walk upwards.** Each earlier frame is the caller. `parse_age` was called from line 7 of `read_user`, which was called from the top level on line 10. The frames show how the program got to the failure.
+
+The bug is not necessarily on the line that raised the error. Here `int(text)` did its job correctly. The real question is why `parse_age` received `"thirty"`, and the answer is in the input or in the code that supplied it. Look at the failing line first, then at the callers.
+
+Other languages differ in layout but not in meaning. JavaScript and Java print the error and then the frames, with the **most recent call at the top**, the reverse of Python's order, so always check which end the error message is on. C has no stack trace of its own: a crash such as a segmentation fault gives little more than a message, which is where a debugger such as `gdb` earns its keep, because it can print the call stack at the moment of the crash.
+
+## Other techniques
+
+- **Rubber duck debugging.** Explain the code, line by line, out loud to a rubber duck, a colleague or a blank page. Saying exactly what each line does makes you notice where it does not match what you assumed.
+- **Binary search the problem.** If the bug lies somewhere in 200 lines, check the state at the halfway point. If it is already wrong there, the bug is in the first half; if not, in the second. Repeat. You will find it in about 8 checks. The same idea works over time: if the program worked last week, search the history of changes for the one that broke it (the [version control lesson](../version-control/) shows a Git tool for this).
+- **Check your assumptions.** Most bugs live where you were certain nothing could be wrong. Print the thing you "know" is true.
+- **Read the error message.** It is easy to skip, but it is often the answer.
+- **Take a break.** A fresh mind sees what a tired one cannot.
+
+## Common pitfalls
+
+- **Changing code before understanding the bug.** Random edits can hide a bug, move it, or add a second one.
+- **Fixing the symptom.** If a function returns a negative number it should not, clamping the result to zero hides the problem. Find out why it went negative.
+- **Trusting your memory of the code.** Read what the code says, not what you meant it to say.
+- **Debugging a different bug.** Re-run the original failing input after every change to make sure it is still the bug you are chasing.
+- **Not recording what you tried.** After an hour you will forget which ideas you already ruled out. Keep brief notes.
+
+<Exercise title="Fix five seeded bugs">
+
+Each function below has one bug. For each, write down your hypothesis in a sentence (what is wrong and why it produces the wrong output), then fix it. Re-run the failing input to check.
+
+```python
+# 1.  last_n([1, 2, 3, 4, 5], 2)   should return [4, 5]; it returns [5]
+def last_n(items, n):
+    return items[len(items) - n + 1:]
+
+# 2.  is_adult(18)   should return True; it returns False
+def is_adult(age):
+    return age > 18
+
+# 3.  add_tag("a") then add_tag("b")   should give ["b"] for the second call; it gives ["a", "b"]
+def add_tag(tag, tags=[]):
+    tags.append(tag)
+    return tags
+
+# 4.  percent(1, 4)   should return 25.0; it returns 0
+def percent(part, whole):
+    return part // whole * 100
+
+# 5.  count_vowels("banana")   should return 3; it returns 1
+def count_vowels(text):
+    count = 0
+    for ch in text:
+        if ch in "aeiou":
+            count = 1
+    return count
+```
+
+<Solution>
+
+1. The slice starts one position too late, so it skips an item (an off-by-one error). Start the slice at `len(items) - n`.
+2. The comparison excludes the boundary value 18. The rule is "18 or older", so use `>=`.
+3. The default list `[]` is created once, when the function is defined, and every call that omits `tags` shares it. This is the aliasing problem from the [memory lesson](../memory-and-references/). Use `None` as the default and create a fresh list inside the function.
+4. `//` is integer division, so `1 // 4` is 0 before the multiplication happens. Use `/` to get `0.25`, then multiply to get `25.0`.
+5. `count = 1` overwrites the count instead of adding to it, so the answer can only be 0 or 1. Use `count += 1`.
+
+The corrected code is in `debug_fixed.py`:
+
+```python title="debug_fixed.py"
+def last_n(items, n):
+    return items[len(items) - n:]
+
+
+def is_adult(age):
+    return age >= 18
+
+
+def add_tag(tag, tags=None):
+    if tags is None:
+        tags = []
+    tags.append(tag)
+    return tags
+
+
+def percent(part, whole):
+    return part / whole * 100
+
+
+def count_vowels(text):
+    count = 0
+    for ch in text:
+        if ch in "aeiou":
+            count += 1
+    return count
+
+
+print(last_n([1, 2, 3, 4, 5], 2))
+print(is_adult(18))
+add_tag("a")
+print(add_tag("b"))
+print(percent(1, 4))
+print(count_vowels("banana"))
+```
+
+Output:
+
+```text
+[4, 5]
+True
+['b']
+25.0
+3
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Print your way to the bug">
+
+The function `product_to(n)` should multiply the numbers 1 to `n`, so `product_to(4)` should return 24. This version returns 0.
+
+```python
+def product_to(n):
+    result = 0
+    for i in range(1, n + 1):
+        result *= i
+    return result
+```
+
+Add a print statement inside the loop, run it with `n = 4`, and say what you see. Then fix it.
+
+<Solution>
+
+With a line such as `print("i =", i, "result =", result)` inside the loop, the output is:
+
+```text
+i = 1 result = 0
+i = 2 result = 0
+i = 3 result = 0
+i = 4 result = 0
+```
+
+`result` is 0 from the start, and anything times 0 is 0. The hypothesis "the starting value is wrong" is confirmed. A product must start at 1, the identity for multiplication (0 is the identity for addition). Change `result = 0` to `result = 1`, and `product_to(4)` returns 24.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Read a stack trace">
+
+A trace ends with these lines (most recent call last, as in Python):
+
+```text
+  File "report.py", line 20, in <module>
+    print(average_score(scores))
+  File "report.py", line 12, in average_score
+    return total / len(scores)
+ZeroDivisionError: division by zero
+```
+
+Answer: (a) what kind of error is it? (b) which line raised it? (c) what is a likely cause, and how would you reproduce it?
+
+<Solution>
+
+(a) A `ZeroDivisionError`: something was divided by zero.
+
+(b) Line 12 of `report.py`, in `average_score`.
+
+(c) `len(scores)` is 0, so `scores` is an empty list. To reproduce it, call `average_score([])`. The fix is a decision about what an empty list should mean: raise a clearer error, or return a default such as 0, whichever the program needs. The input check is in the [errors lesson](../errors-and-exceptions/).
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Debug in a loop: reproduce the bug, isolate it, state a checkable hypothesis, test it. Change one thing at a time.
+- Print statements are the quickest tool; debuggers (breakpoints, stepping, inspecting) are better when you do not know where to look.
+- Read a stack trace by starting at the error message, then the line that raised it, then the callers. The cause may be in a caller or in the input.
+- Do not fix symptoms. Understand the cause, fix it, and re-run the original failing input.
+
+Finding bugs is slow. The next lesson is about catching them earlier, by writing [tests](../testing-mindset/).

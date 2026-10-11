@@ -1,0 +1,400 @@
+---
+language: fundamentals
+level: beginner
+module: Working like a programmer
+order: 28
+title: Clean code and security basics
+description: Write code other people can read, and avoid the beginner security mistakes that cause most real breaches, then choose your language track.
+objectives:
+  - Improve a messy program with better names, small functions and named constants
+  - Write comments that explain why, and leave the what to the code
+  - Treat all outside input as untrusted and validate it
+  - Keep secrets out of source code and know why SQL should use parameters
+  - Choose a language track to continue with
+estimatedMinutes: 65
+fundamentals:
+  - fundamentals/beginner/09-functions
+  - fundamentals/beginner/12-errors-and-exceptions
+  - fundamentals/beginner/26-version-control
+---
+
+Code is read far more often than it is written. You will read your own code in three months and not remember it. Teammates will read it to fix a bug in a hurry. Code that works but cannot be understood is a liability, because nobody can change it safely. This lesson covers the habits that make code readable, and then the basic security habits that stop a small oversight from becoming a break-in.
+
+## Clean code
+
+Clean code does not mean clever code. It means code that says clearly what it does. Four habits cover most of it.
+
+### Name things for what they mean
+
+A name is the cheapest documentation there is. Prefer a longer name that says what a thing is over a short one that makes the reader decode it.
+
+- Name variables for the value they hold: `unpaid_invoices`, not `list2`.
+- Name functions for what they do or answer, usually with a verb: `calculate_tax`, `is_valid_email`.
+- Avoid single letters except for short loop counters such as `i`.
+- Avoid names that differ by one character, and avoid abbreviations your teammates would have to guess.
+- Follow your language's convention. Python uses `snake_case`, Java and JavaScript use `camelCase` for variables and functions, and C code commonly uses `snake_case`. Consistency matters more than which style you pick.
+
+### Keep functions small and focused
+
+A function should do one thing, and you should be able to say what it does in one short sentence without using the word "and". Small functions are easier to name, to test and to reuse, as you saw in the [functions lesson](../functions/). If a function needs a comment to mark off sections, each section probably wants to be its own function.
+
+### Replace magic numbers with named constants
+
+A **magic number** is a bare value whose meaning is not obvious. What does `* 1.2` mean? Is it a tax rate, a markup or a conversion factor? A named constant answers that question and gives you exactly one place to change the value.
+
+### Do not repeat yourself
+
+The **DRY** principle (don't repeat yourself) says each piece of knowledge should live in one place. If the same calculation is pasted in three places, a change must be made three times, and someone will miss one. When you see repeated code, give it a name and call it from each place.
+
+DRY has a limit. Two blocks that merely look alike today but represent different ideas should not be forced into one function; if they will change independently, a little repetition is the cheaper choice.
+
+### A before and after
+
+Here is a short program written badly. It computes an order total where food and toys carry 20 percent tax and books carry none. It works, and nobody can tell that from reading it.
+
+```python title="messy_before.py"
+def f(d):
+    # loop over d
+    t = 0
+    for x in d:
+        if x[1] == "food":
+            t = t + x[0] * 1.2
+        elif x[1] == "book":
+            t = t + x[0] * 1.0
+        else:
+            t = t + x[0] * 1.2
+    return t
+
+
+print(f([(10, "food"), (20, "book"), (5, "toy")]))
+```
+
+Output:
+
+```text
+38.0
+```
+
+The names say nothing, `x[0]` and `x[1]` are positions the reader must remember, the comment states the obvious, and the `food` and the default branch repeat the same calculation. Here is the same behaviour, cleaned up:
+
+```python title="messy_after.py"
+STANDARD_TAX_RATE = 0.2
+TAX_FREE_CATEGORIES = {"book"}
+
+
+def price_with_tax(price, category):
+    if category in TAX_FREE_CATEGORIES:
+        return price
+    return price * (1 + STANDARD_TAX_RATE)
+
+
+def order_total(items):
+    total = 0
+    for price, category in items:
+        total += price_with_tax(price, category)
+    return total
+
+
+print(order_total([(10, "food"), (20, "book"), (5, "toy")]))
+```
+
+Output:
+
+```text
+38.0
+```
+
+The result is identical, and that matters: **refactoring** means changing the structure of code without changing what it does. Run your tests before and after to prove it (see the [testing lesson](../testing-mindset/)). The new version has named constants, a function for the tax rule that can be tested alone, a loop that unpacks each item into `price` and `category`, and no duplicated branch. When the tax rate changes, one line changes.
+
+### Comments and documentation
+
+A comment is for what the code cannot say. Do not explain *what* the code does when the code already says it (`# loop over d`). Explain *why*: the business rule, the workaround, the surprising choice.
+
+```python
+# The payment service rejects amounts above 10,000, so split large orders.
+MAX_PAYMENT = 10_000
+```
+
+If you need a comment to explain what a block does, first try renaming or extracting a function so the code explains itself. A comment that no longer matches the code is worse than none, so keep them short and close to what they describe.
+
+A **docstring** or doc comment, placed at the top of a function, tells users what the function takes and returns without making them read the body. Each language has its own form: Python docstrings, JavaScript JSDoc, Java Javadoc and C comments above the function in a header. Those tools turn them into the reference pages discussed in the [previous lesson](../reading-docs-and-code/).
+
+## Security basics
+
+Most breaches are not caused by exotic attacks. They come from a handful of simple mistakes, and a beginner can avoid all of them. The mindset behind them is one sentence: **never trust input**.
+
+### Never trust input
+
+Input is anything that comes from outside your code: what a user types, the contents of a file, a web request, a command-line argument, a value read from a network. Assume it is wrong, malformed or hostile until you have checked it. Sometimes it is wrong by accident, and sometimes by design.
+
+**Validate** input at the boundary, where it enters the program. Check the type, the range, the length and the format, and reject what does not fit rather than trying to repair it. Prefer an **allow-list** (accept only what is known to be good) to a deny-list (reject known-bad things, which misses the next trick). This is the input checking from the [errors lesson](../errors-and-exceptions/), applied with care.
+
+```python title="parse_port.py"
+def parse_port(text):
+    text = text.strip()
+    if not text.isdigit():
+        raise ValueError(f"not a whole number: {text!r}")
+    port = int(text)
+    if not 1 <= port <= 65535:
+        raise ValueError(f"port out of range: {port}")
+    return port
+
+
+for text in ["8080", " 22 ", "0", "abc", "70000", "-5"]:
+    try:
+        print(repr(text), "->", parse_port(text))
+    except ValueError as error:
+        print(repr(text), "-> error:", error)
+```
+
+Output:
+
+```text
+'8080' -> 8080
+' 22 ' -> 22
+'0' -> error: port out of range: 0
+'abc' -> error: not a whole number: 'abc'
+'70000' -> error: port out of range: 70000
+'-5' -> error: not a whole number: '-5'
+```
+
+The function accepts exactly what a port number can be and nothing else, and it explains each refusal.
+
+### Do not build commands out of input
+
+The most famous consequence of trusting input is **injection**: the input is pasted into text that will be run as code, and the attacker's input becomes part of the program. The classic case is SQL. Here a program looks up a user by name, and an attacker supplies the name `nobody' OR '1'='1`:
+
+```python title="sql_injection.py"
+import sqlite3
+
+db = sqlite3.connect(":memory:")
+db.execute("CREATE TABLE users (name TEXT, secret TEXT)")
+db.execute("INSERT INTO users VALUES ('ada', 'ada-secret')")
+db.execute("INSERT INTO users VALUES ('bob', 'bob-secret')")
+
+attacker_input = "nobody' OR '1'='1"
+
+# Unsafe: the input becomes part of the SQL text.
+unsafe = "SELECT name FROM users WHERE name = '" + attacker_input + "'"
+print("unsafe query:", unsafe)
+print("unsafe rows:", db.execute(unsafe).fetchall())
+
+# Safe: the input is passed separately as data.
+safe = "SELECT name FROM users WHERE name = ?"
+print("safe rows:", db.execute(safe, (attacker_input,)).fetchall())
+```
+
+Output:
+
+```text
+unsafe query: SELECT name FROM users WHERE name = 'nobody' OR '1'='1'
+unsafe rows: [('ada',), ('bob',)]
+safe rows: []
+```
+
+The attacker's quote characters closed the string early, and `OR '1'='1'` made the condition true for every row, so the unsafe query returned every user. The safe version sends the query text and the value separately with a placeholder (`?`), so the database always treats the value as data, never as SQL. Every language's database library offers this: **parameterised queries**. Use them. The same rule applies to running shell commands and to building web pages: do not join untrusted text into something that will be interpreted. Also never pass untrusted text to functions such as `eval` that run it as code.
+
+### Keep secrets out of code
+
+A **secret** is anything that grants access: passwords, API keys, tokens, private keys. Never write one into source code. Source code is copied, shared, committed to version control and read by many people, and once a secret is in the [Git history](../version-control/) it stays there even after you delete it. Search engines and bots scan public repositories for leaked keys within minutes.
+
+Instead, read secrets from the environment or a secrets service when the program starts. The environment variable below is read by each language in one line, and the program handles the case where it is missing.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="secret_env.py"
+import os
+
+key = os.environ.get("TUTORIAL_API_KEY")
+if key is None:
+    print("TUTORIAL_API_KEY is not set")
+else:
+    print("key loaded, length", len(key))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="secret_env.js"
+const key = process.env.TUTORIAL_API_KEY;
+if (key === undefined) {
+  console.log("TUTORIAL_API_KEY is not set");
+} else {
+  console.log("key loaded, length", key.length);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="SecretEnv.java"
+public class SecretEnv {
+    public static void main(String[] args) {
+        String key = System.getenv("TUTORIAL_API_KEY");
+        if (key == null) {
+            System.out.println("TUTORIAL_API_KEY is not set");
+        } else {
+            System.out.println("key loaded, length " + key.length());
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="secret_env.c"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int main(void) {
+    const char *key = getenv("TUTORIAL_API_KEY");
+    if (key == NULL) {
+        printf("TUTORIAL_API_KEY is not set\n");
+    } else {
+        printf("key loaded, length %zu\n", strlen(key));
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+With the variable unset, all four print:
+
+```text
+TUTORIAL_API_KEY is not set
+```
+
+On Linux and macOS, `TUTORIAL_API_KEY=abc123 python secret_env.py` sets the variable for one run, and all four programs would then print `key loaded, length 6`. Note that the program prints the length and never the key itself: do not write secrets to logs or error messages either. For local development, people often keep secrets in a `.env` file, which must be listed in `.gitignore`.
+
+If a secret does leak, the fix is not to delete it from the code. **Revoke it and create a new one**, because someone may already have copied it.
+
+### Other basics
+
+- **Least privilege.** Give a program, a user or a key only the access it needs.
+- **Keep dependencies current.** Most programs rely on code written by others, and flaws are found in it. Use a dependency only if you need it, take it from the official source, pin its version, and update it when security fixes appear.
+- **Never invent your own cryptography.** Use the well-tested libraries of your language, and never store passwords as plain text. Store a salted hash made by a purpose-built password-hashing function.
+- **Fail safely.** When something goes wrong, deny access rather than grant it, and do not show internal details such as stack traces to users. Log them where you can read them instead.
+- **Test the unhappy paths.** Security bugs hide in the inputs nobody tried.
+
+## Common pitfalls
+
+- **Clever one-liners.** If you need a minute to read it, so will everyone else.
+- **Comments that restate code, or lie.** Delete them or fix them.
+- **Over-abstracting.** Splitting a three-line function into six tiny ones with grand names does not make it cleaner.
+- **Validating only in the user interface.** Check again on the side that does the work, since anyone can bypass the form.
+- **"It's only a test key, I'll remove it later."** You will forget. Keep every key out of the code from the first commit.
+- **Fixing the leak by deleting the line.** The old commit still has it. Revoke the secret.
+- **Trusting data because it came from your own database.** It originally came from some user.
+
+<Exercise title="Refactor a messy function">
+
+Rewrite this function so that it has a clear name, clear variable names and no needless pieces. It must give the same results: `x([1, 2, 3, 4])` returns 20, and `x([])` returns 0.
+
+```python
+def x(a):
+    r = []
+    for i in a:
+        if i % 2 == 0:
+            r.append(i * i)  # square evens
+    s = 0
+    for j in r:
+        s = s + j
+    return s
+```
+
+<Solution>
+
+The function adds up the squares of the even numbers. It builds an intermediate list `r` and then loops over it, which can be merged into a single pass, and every name is a single letter.
+
+```python title="refactor_exercise.py"
+def sum_of_even_squares(numbers):
+    total = 0
+    for n in numbers:
+        if n % 2 == 0:
+            total += n * n
+    return total
+
+
+print(sum_of_even_squares([1, 2, 3, 4]))
+print(sum_of_even_squares([]))
+```
+
+Output:
+
+```text
+20
+0
+```
+
+The name states the purpose, so the comment `# square evens` is no longer needed. The extra list is gone. Running the two example calls before and after shows the behaviour is unchanged, which is what makes it a refactoring.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Find the security smells">
+
+This Python snippet has at least three security problems. Find three and say how to fix each.
+
+```python
+API_KEY = "sk-live-8f3a9c1d"
+
+def login(db, user, password):
+    query = "SELECT * FROM users WHERE name='" + user + "' AND password='" + password + "'"
+    print("login attempt:", user, password)
+    return db.execute(query).fetchone()
+
+def calculate(expression):
+    return eval(expression)
+```
+
+<Solution>
+
+There are five:
+
+1. **Hard-coded secret.** `API_KEY` is in the source. Read it from an environment variable instead, and revoke this one if the code was ever shared.
+2. **SQL injection.** The query joins user input into the SQL text. Use a parameterised query: `db.execute("SELECT * FROM users WHERE name = ? AND password_hash = ?", (user, hashed))`.
+3. **Logging a password.** The `print` writes the plain password to the log. Log the user name only.
+4. **Plain-text passwords.** The query compares a raw password against a stored value, which means passwords are stored unhashed. Store a salted hash, and compare hashes with the library's verify function.
+5. **`eval` on input.** `calculate` runs whatever text it is given as code. Parse the expression with a restricted parser, or support only the operations you need.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Validate a command-line argument">
+
+Write `parse_port(text)` that returns the port number as an integer for a string such as `"8080"`, and raises a `ValueError` for anything that is not a whole number from 1 to 65535. Surrounding spaces are allowed. Test it with these inputs and expected results:
+
+- `"8080"` gives 8080
+- `" 22 "` gives 22
+- `"0"` is rejected (out of range)
+- `"abc"` is rejected (not a number)
+- `"70000"` is rejected (out of range)
+- `"-5"` is rejected
+
+<Solution>
+
+The solution is the `parse_port.py` program shown earlier in this lesson. It strips spaces, rejects text that is not all digits (which also rejects `"-5"` and `"abc"`), converts, and then checks the range. Checking the format before converting means `int` never sees text it cannot handle, and each failure gives its own message.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Readable code uses meaningful names, small single-purpose functions, named constants and no repetition. Refactoring changes the structure and keeps the behaviour, so run your tests before and after.
+- Comments explain why, not what. When a comment is needed to explain what, improve the code first.
+- Never trust input. Validate it at the boundary with an allow-list, use parameterised queries, and never run input as code.
+- Keep secrets out of source and out of logs. If one leaks, revoke it.
+
+## You have finished the fundamentals track
+
+Across 28 lessons you have gone from asking what a program is to writing, testing, debugging and sharing real ones. You know values and types, control flow, functions, the core data structures, how to reason about speed, and the daily habits of working programmers. None of this was tied to one language, which is the point: the ideas carry over to every language you will meet.
+
+The next step is to apply them in a language. Each language track assumes what you have learned here and teaches only that language's syntax, idioms and special features. Start with the [Python track](../../../python/), and return to these lessons whenever a concept needs a refresher. As more language tracks are published they will appear on the site's language list.

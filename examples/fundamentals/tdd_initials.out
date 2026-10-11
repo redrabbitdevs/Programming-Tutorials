@@ -1,0 +1,4 @@
+PASS test_two_words
+PASS test_lowercase_input
+PASS test_extra_spaces
+PASS test_empty_string

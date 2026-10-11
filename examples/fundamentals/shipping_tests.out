@@ -1,0 +1,5 @@
+buggy: 3 failed
+  exactly 1 kg: expected 5, got 8
+  heavy parcel: expected 12, got 10
+  zero weight: expected ValueError
+fixed: 0 failed

@@ -1,0 +1,4 @@
+PASS 'the quick fox' -> 'fox'
+PASS 'one' -> 'one'
+PASS '  hi  ' -> 'hi'
+PASS '' -> ''

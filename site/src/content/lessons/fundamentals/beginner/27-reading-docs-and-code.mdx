@@ -1,0 +1,324 @@
+---
+language: fundamentals
+level: beginner
+module: Working like a programmer
+order: 27
+title: Reading documentation and other people's code
+description: Find reliable answers in official documentation, read function signatures, and make sense of unfamiliar code by searching and tracing it.
+objectives:
+  - Tell reference documentation from tutorials and know when to use each
+  - Read a function signature and the parts of a reference entry
+  - Match documentation to the version you are actually running
+  - Search an unfamiliar codebase and trace how a value flows through it
+estimatedMinutes: 55
+fundamentals:
+  - fundamentals/beginner/09-functions
+  - fundamentals/beginner/24-debugging
+  - fundamentals/beginner/26-version-control
+---
+
+Nobody remembers every function of a language, and nobody writes programs from a blank page. Professional programming is mostly reading: reading the documentation of tools you use, reading the code your team wrote last year, reading the error that just appeared. This lesson teaches how to read well, because it is faster than guessing and more reliable than a half-remembered forum answer.
+
+## Kinds of documentation
+
+Documentation comes in several kinds, and each answers a different question.
+
+| Kind | Answers | Example |
+|---|---|---|
+| **Tutorial** | "How do I get started?" Teaches in order, with explanations | A language's official tutorial |
+| **How-to guide** | "How do I do this specific task?" | "How to read a file line by line" |
+| **Reference** | "What exactly does this function do?" Complete, precise and dry | The page for `str.split` |
+| **Explanation** | "Why is it designed this way?" | A design document, a language specification |
+
+When you are new to a topic, start with a tutorial. When you know roughly what you need and want the exact rules, go to the reference. Reference pages are not meant to be read from start to finish. You look something up, read that entry carefully, and leave.
+
+The most trustworthy source is the **official documentation** for the language or library: the one published by the people who maintain it. Blog posts and forum answers can be helpful, but they may be wrong, incomplete or out of date. Use them to find the name of the thing you need, then confirm the details in the official reference.
+
+Where to find it for the four languages in this track:
+
+| Language | Official reference | From the terminal |
+|---|---|---|
+| Python | The Python documentation: the Library Reference and the Language Reference | `help(sorted)` inside the Python REPL, or `python -m pydoc sorted` |
+| JavaScript | The ECMAScript specification is the formal source; most people read MDN Web Docs | No standard command |
+| Java | The Java API documentation (Javadoc) for your Java version | `javap java.lang.Math` lists the members of a class |
+| C | The C standard, and the manual pages of your system | `man 3 round` |
+
+## Anatomy of a reference entry
+
+A good reference entry has a regular shape. Here is the Python function `sorted`, asked for its signature:
+
+```python title="docs_signature.py"
+import inspect
+
+print("sorted", inspect.signature(sorted))
+print("str.split", inspect.signature(str.split))
+print("round", inspect.signature(round))
+
+words = ["pear", "fig", "banana"]
+print(sorted(words, key=len, reverse=True))
+print("a,b,c,d".split(",", 2))
+print(round(3.14159, 2))
+```
+
+Output:
+
+```text
+sorted (iterable, /, *, key=None, reverse=False)
+str.split (self, /, sep=None, maxsplit=-1)
+round (number, ndigits=None)
+['banana', 'pear', 'fig']
+['a', 'b', 'c,d']
+3.14
+```
+
+The exact text of a signature can change a little between Python versions, which is a good example of why you read the documentation for the version you run. A signature is a compact summary, and you can learn to read it:
+
+- **The name** says what it does: `sorted`.
+- **Parameters** in order: `sorted` takes an `iterable` (anything you can loop over), which it reads.
+- **Defaults.** A parameter with `=` is optional. `key=None` means you may omit it; `None` means "no custom key". `reverse=False` means ascending order unless you ask otherwise. A parameter without a default, like `iterable`, is required.
+- **Special markers.** In Python, `/` and `*` control how arguments may be passed: parameters before `/` must be given by position, and those after `*` must be given by name. That is why `sorted(words, key=len)` works but `sorted(words, len)` does not.
+- **Return type.** Signatures in typed languages state it directly; in Python the entry's text says it ("Return a new sorted list from the items in iterable").
+
+The calls below show the three signatures at work. `sorted(words, key=len, reverse=True)` sorts by length, longest first. `"a,b,c,d".split(",", 2)` passes `maxsplit=2`, so it makes at most two splits and the last piece keeps its comma. `round(3.14159, 2)` keeps two digits.
+
+After the signature, read the description for what happens in the unusual cases: empty input, missing values, out-of-range values. Then read the notes, exceptions raised and examples. Finally, look for a "See also" section, which often leads to the function you really wanted.
+
+## The same name, different rules
+
+Never assume a function behaves the same way in another language because it has the same name. Here is a famous trap: rounding. The program rounds four numbers, each exactly halfway between two whole numbers, so the language's tie-breaking rule decides the answer.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="docs_round.py"
+for x in [0.5, 1.5, 2.5, -2.5]:
+    print(f"{x} -> {round(x)}")
+```
+
+Output:
+
+```text
+0.5 -> 0
+1.5 -> 2
+2.5 -> 2
+-2.5 -> -2
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="docs_round.js"
+for (const x of [0.5, 1.5, 2.5, -2.5]) {
+  console.log(`${x} -> ${Math.round(x)}`);
+}
+```
+
+Output:
+
+```text
+0.5 -> 1
+1.5 -> 2
+2.5 -> 3
+-2.5 -> -2
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="DocsRound.java"
+public class DocsRound {
+    public static void main(String[] args) {
+        double[] values = {0.5, 1.5, 2.5, -2.5};
+        for (double x : values) {
+            System.out.println(x + " -> " + Math.round(x));
+        }
+    }
+}
+```
+
+Output:
+
+```text
+0.5 -> 1
+1.5 -> 2
+2.5 -> 3
+-2.5 -> -2
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="docs_round.c"
+#include <math.h>
+#include <stdio.h>
+
+int main(void) {
+    double values[] = {0.5, 1.5, 2.5, -2.5};
+    for (int i = 0; i < 4; i++) {
+        printf("%.1f -> %.0f\n", values[i], round(values[i]));
+    }
+    return 0;
+}
+```
+
+On some systems you must link the math library: `gcc docs_round.c -lm`.
+
+Output:
+
+```text
+0.5 -> 1
+1.5 -> 2
+2.5 -> 3
+-2.5 -> -3
+```
+
+</Tab>
+</Tabs>
+
+Four languages, one name, three different answers. Python's `round` rounds halves to the nearest **even** number (so 0.5 becomes 0 and 2.5 becomes 2). JavaScript's `Math.round` and Java's `Math.round` round halves **towards positive infinity** (so -2.5 becomes -2). C's `round` rounds halves **away from zero** (so -2.5 becomes -3). Each language documents its rule on the page for the function. Only the documentation of the language you are writing in tells you what your code does, so when behaviour matters, read the entry.
+
+## Match the version
+
+Documentation describes a specific version. A function can be added, changed or removed between releases, and an answer written for an older version may not work on yours. Check which version you run (`python --version`, `node --version`, `java -version`, `gcc --version`) and use the matching documentation. Most documentation sites have a version picker, and the pages usually note when a feature appeared ("New in version 3.9") or was removed. The language tracks mark this with a `Since` tag wherever it matters.
+
+## Reading other people's code
+
+The skills for reading code are different from those for writing it. You are not trying to understand every line. You are trying to answer a question: how does this feature work? Where is this value set? Why does this return nothing?
+
+1. **Start from the entry point.** Find where the program starts (`main` in C and Java, the top-level script in Python and JavaScript). Read the outline before the detail.
+2. **Search, do not scroll.** Search for the name of the function, the error message or the text you see on screen. From a terminal, `grep -rn "parse_age" .` lists every line in every file below the current folder that contains `parse_age`, with file name and line number. Your editor's "find in files" and "go to definition" do the same. Version control can also tell you who changed a line and why: `git log -p filename` shows the commit messages and diffs of a file.
+3. **Read the tests.** Tests show how the code is meant to be used, with example inputs and outputs, and they are often clearer than the code.
+4. **Read the signature and the name before the body.** Good names tell you what a function takes and returns.
+5. **Trace a value.** Pick one input and follow it through the code, as in the hand-tracing of the first lesson, writing the variables down as they change.
+6. **Run it.** Add a print, or run the function in a REPL with a small input and look at the result. Observing is quicker than reasoning when the code is unfamiliar.
+7. **Take notes as you go.** Write down what each function does in your own words. When you can explain it without looking at it, you understand it.
+
+Here is a short function with no comments. The signature suggests a list and a size, but read the body and trace a call to find out what it does:
+
+```python title="read_mystery.py"
+def mystery(items, size):
+    result = []
+    for start in range(0, len(items), size):
+        result.append(items[start:start + size])
+    return result
+
+
+print(mystery([1, 2, 3, 4, 5, 6, 7], 3))
+print(mystery([], 3))
+print(mystery(["a", "b"], 5))
+```
+
+Output:
+
+```text
+[[1, 2, 3], [4, 5, 6], [7]]
+[]
+[['a', 'b']]
+```
+
+Tracing the first call: `start` takes the values 0, 3 and 6, and each time the slice of up to 3 items is appended. The function cuts a list into chunks of at most `size` items; the last chunk may be shorter, and an empty list gives an empty result. A better name would be `chunks`. When you understand code like this, rename it or write a short comment, so the next reader does not have to repeat the work.
+
+## Asking for help well
+
+Sometimes you do need to ask a person or a forum. A good question gets a good answer quickly. State what you are trying to do, show the **smallest** code that reproduces the problem (the isolation step from the [debugging lesson](../debugging/)), give the exact error message, the language and version, and what you have already tried. Never paste only a screenshot of a stack trace when you can paste the text.
+
+## Common pitfalls
+
+- **Trusting the first search result.** Check the date, the version and whether it is official.
+- **Copying code you do not understand.** If you cannot explain it, you cannot debug it.
+- **Assuming a name means the same thing everywhere.** `Math.round`, `split` and `sort` differ between languages in the details that cause bugs.
+- **Reading the wrong version.** An answer for an old version can fail on the new one, and the other way round.
+- **Skipping the description.** The signature gives the shape, but the text gives the edge cases, such as what happens with empty input.
+- **Reading everything.** Stay focused on your question. You do not need to understand a whole codebase to fix one bug in it.
+
+<Exercise title="Answer five questions from the docs">
+
+Use only the official Python documentation (for example the page for each method named) to predict what each of these expressions gives. Then check the prediction by running the code.
+
+1. `"hello".find("z")`
+2. `"a b  c".split()` and `"a b  c".split(" ")`
+3. `[3, 1, 2].sort()`
+4. `round(2.675, 2)`
+5. `max([], default=0)`
+
+<Solution>
+
+```python title="docs_answers.py"
+print("1:", "hello".find("z"))
+print("2:", "a b  c".split(), "a b  c".split(" "))
+print("3:", [3, 1, 2].sort())
+print("4:", round(2.675, 2))
+print("5:", max([], default=0))
+```
+
+Output:
+
+```text
+1: -1
+2: ['a', 'b', 'c'] ['a', 'b', '', 'c']
+3: None
+4: 2.67
+5: 0
+```
+
+1. The `str.find` entry says it returns -1 if the substring is not found.
+2. The `str.split` entry says that with no separator, runs of whitespace count as a single separator. With `" "` as the separator, each space splits, which produces an empty string between the two spaces.
+3. `list.sort` sorts the list in place and returns `None`. It is a common mistake to write `x = items.sort()`. The function `sorted` returns a new list instead.
+4. 2.675 cannot be stored exactly as a binary float; the stored value is slightly below 2.675, so it rounds down to 2.67. The `round` entry has a note about this; it is the imprecision from the [operators lesson](../expressions-and-operators/).
+5. The `max` entry says `default` is the value returned when the iterable is empty. Without it, `max([])` raises a `ValueError`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Read a signature">
+
+Use this signature for a made-up function: `def send(message, to, *, retries=3, urgent=False)`. Which of these calls are valid? Which are not, and why?
+
+1. `send("hi", "Ada")`
+2. `send("hi", "Ada", urgent=True)`
+3. `send("hi", "Ada", 5)`
+4. `send("hi")`
+5. `send(to="Ada", message="hi", retries=0)`
+
+<Solution>
+
+1. Valid. `message` and `to` are given, and the other two use their defaults.
+2. Valid. `urgent` is a keyword argument.
+3. Invalid. The `*` means the parameters after it can only be passed by name, so a third positional argument is rejected (`retries=5` would work).
+4. Invalid. `to` has no default, so it is required.
+5. Valid. Parameters before the `*` may be passed by name in any order, and `retries` is passed by name.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Explain the code">
+
+Read this function and write one sentence describing what it does. Then say what it returns for `[3, 1, 4, 1, 5]`, and for `[]`.
+
+```python
+def mystery2(numbers):
+    best = None
+    for n in numbers:
+        if best is None or n > best:
+            best = n
+    return best
+```
+
+<Solution>
+
+It returns the largest number in the list, or `None` if the list is empty. For `[3, 1, 4, 1, 5]` it returns `5`: `best` starts as `None`, becomes 3, stays 3 while 1 is skipped, becomes 4, skips 1, then becomes 5. For `[]` the loop never runs and it returns `None`. A better name is `largest`. The built-in `max` does the same job but raises an error on an empty list unless you pass `default`.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Match the kind of documentation to your question: tutorials to learn, reference to look up exact behaviour. Prefer the official source and the version you run.
+- A signature tells you the parameters, their order, which are optional, and how they may be passed. The description tells you the edge cases.
+- The same function name can behave differently across languages (the rounding of halves is different in Python, JavaScript, Java and C), so confirm in the docs.
+- To read unfamiliar code: start at the entry point, search instead of scrolling, read the tests, trace one value, and run it.
+
+The final lesson draws the module together: [clean code and security basics](../clean-code-and-security-basics/).
