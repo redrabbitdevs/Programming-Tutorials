@@ -1,12 +1,12 @@
 ---
-interface Props { items: { label: string; href?: string }[] }
-const { items } = Astro.props;
+interface Props { items: { label: string; href?: string }[]; current?: boolean }
+const { items, current = true } = Astro.props;
 ---
 
 <nav class="crumbs" aria-label="Breadcrumb">
   <ol>
     {items.map((it, i) => (
-      <li>{it.href && i < items.length - 1 ? <a href={it.href}>{it.label}</a> : <span aria-current={i === items.length - 1 ? 'page' : undefined}>{it.label}</span>}</li>
+      <li>{it.href && i < items.length - 1 ? <a href={it.href}>{it.label}</a> : <span aria-current={current && i === items.length - 1 ? 'page' : undefined}>{it.label}</span>}</li>
     ))}
   </ol>
 </nav>

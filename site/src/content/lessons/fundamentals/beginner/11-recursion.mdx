@@ -105,7 +105,7 @@ Two checks to make about any recursive function: does every call move *toward* t
 
 ## Tracing the stack
 
-The [call stack](/Programming-Tutorials/learn/fundamentals/beginner/functions/) from the functions lesson is what makes recursion work. Each call gets its own frame with its own copy of `n`, so `factorial(3)` and the `factorial(2)` it calls do not interfere. The calls pile up on the way down, then answers flow back on the way up. This version prints indented lines to show it.
+The [call stack](../functions/) from the functions lesson is what makes recursion work. Each call gets its own frame with its own copy of `n`, so `factorial(3)` and the `factorial(2)` it calls do not interfere. The calls pile up on the way down, then answers flow back on the way up. This version prints indented lines to show it.
 
 ```python
 # Tracing the stack: indentation shows how deep each call is.
@@ -296,4 +296,4 @@ There is no base case, so the calls continue through 0, -1, -2 and so on until t
 - Missing the base case, or going too deep, causes a stack overflow.
 - Use recursion for nested structures and loops for simple repetition.
 
-Next: [When things go wrong](/Programming-Tutorials/learn/fundamentals/beginner/errors-and-exceptions/), on error kinds and handling them deliberately.
+Next: [When things go wrong](../errors-and-exceptions/), on error kinds and handling them deliberately.

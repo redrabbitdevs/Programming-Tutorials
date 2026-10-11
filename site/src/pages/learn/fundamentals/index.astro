@@ -1,0 +1,22 @@
+---
+// Lessons live under /learn/fundamentals/beginner/..., but the track landing
+// page is /fundamentals/. A static page (not Astro `redirects`) keeps the
+// GitHub Pages base path handled by url().
+import { url } from '../../../lib/url';
+const target = url('/fundamentals/');
+const canonical = new URL(target, Astro.site).href;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Fundamentals</title>
+    <meta name="robots" content="noindex" />
+    <link rel="canonical" href={canonical} />
+    <meta http-equiv="refresh" content={`0; url=${target}`} />
+  </head>
+  <body>
+    <p>Redirecting to <a href={target}>Fundamentals</a>.</p>
+  </body>
+</html>
