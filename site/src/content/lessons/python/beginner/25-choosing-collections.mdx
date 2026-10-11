@@ -1,0 +1,212 @@
+---
+language: python
+level: beginner
+module: Collections
+order: 25
+title: Choosing the right collection
+description: Pick between list, tuple, dict, set and deque by the operations you need, and measure the difference with timeit.
+minVersion: "3.8"
+objectives:
+  - Choose a collection from the questions your code asks of it
+  - State the rough cost of common list, dict and set operations
+  - Measure a membership test on a list and on a set
+  - Recognise when a deque fits better than a list
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/14-maps-and-sets", "fundamentals/beginner/16-stacks-queues-linked"]
+---
+
+You now have five ways to hold many values: lists, tuples, dicts, sets, and the `frozenset` and `frozendict` variants. Picking the wrong one rarely breaks a program, but it can make it clumsy or painfully slow. The trick is to choose by **what you will do with the data**, not by what it looks like.
+
+## Ask what the code needs
+
+| You need to... | Reach for |
+|---|---|
+| Keep items in order, allow repeats, change them | `list` |
+| Group a few fixed values, or use the group as a key | `tuple` |
+| Look a value up by a name or id | `dict` |
+| Ask "is it here?" or remove duplicates | `set` |
+| Add and remove at both ends | `collections.deque` |
+| The same as a set or dict, but unchangeable and hashable | `frozenset`, `frozendict` (3.15) |
+
+```python title="choose_demo.py"
+students = ["Ada", "Ben", "Cy"]
+grades = {"Ada": "A", "Ben": "B", "Cy": "A"}
+tags = {"python", "tutorial"}
+origin = (0, 0)
+
+# Ordered, may repeat, will change: list
+students.append("Dee")
+
+# Look up by name: dict
+print(grades["Ben"])
+
+# Does it exist, ignoring repeats: set
+print("python" in tags)
+
+# Fixed group, usable as a key: tuple
+distances = {origin: 0, (1, 1): 2}
+print(distances[(1, 1)])
+
+# Group by a key, then count distinct members
+by_grade = {}
+for student, grade in grades.items():
+    by_grade.setdefault(grade, set()).add(student)
+print({g: sorted(s) for g, s in sorted(by_grade.items())})
+```
+
+```text
+B
+True
+2
+{'A': ['Ada', 'Cy'], 'B': ['Ben']}
+```
+
+Real programs nest these freely: a dict of sets, a list of tuples, a dict of lists. The last lines above build a dict whose values are sets, which answers "which students got each grade, without repeats?".
+
+## What operations cost
+
+The shared fundamentals track introduces Big-O, which describes how the work grows as the data grows. Here is the short version for Python's built-in collections, in typical cases.
+
+| Operation | list | dict | set |
+|---|---|---|---|
+| Read by index or key | fast, constant | fast, constant | not applicable |
+| `x in c` | **slow**: scans the items | fast, constant | fast, constant |
+| Add at the end / add a key | fast | fast | fast |
+| Insert or delete at the front | **slow**: shifts everything | not applicable | not applicable |
+| Remove by value | slow | fast | fast |
+
+"Constant" means the time barely changes whether the collection holds ten items or ten million. "Scans" means the time grows in step with the length. Dicts and sets get their speed from hashing: the item's hash value says roughly where to look, so Python does not have to check every entry. That is also why their keys must be hashable.
+
+The practical rule: if you test `in` repeatedly on a large collection, make it a set (or a dict). If you only test a few times, or the collection is tiny, a list is fine and often simpler.
+
+## Measuring it
+
+```python title="membership_benchmark.py"
+from timeit import timeit
+
+size = 100_000
+as_list = list(range(size))
+as_set = set(as_list)
+missing = -1  # worst case for the list: scan everything
+
+list_time = timeit(lambda: missing in as_list, number=200)
+set_time = timeit(lambda: missing in as_set, number=200)
+
+print(f"list is slower: {list_time > set_time}")
+print(f"set is at least 100x faster: {list_time / set_time > 100}")
+```
+
+```text
+list is slower: True
+set is at least 100x faster: True
+```
+
+`timeit` runs the small function `number` times and returns the total seconds. We look for a value that is not present, which is the worst case for the list because it must check all 100,000 items before giving up, while the set answers with one hash lookup. The program prints comparisons rather than raw times because times differ from machine to machine. Print the two numbers yourself to see the gap: on typical hardware it is several orders of magnitude.
+
+## deque, a preview
+
+A list is fast at the end and slow at the front. When you add and remove at both ends, as in a queue of people waiting, the standard library offers `collections.deque` (pronounced "deck").
+
+```python title="deque_preview.py"
+from collections import deque
+
+line = deque(["Ada", "Ben"])
+line.append("Cy")
+line.appendleft("VIP")
+print(line)
+print(line.popleft())
+print(line.pop())
+print(list(line), len(line))
+
+recent = deque(maxlen=3)
+for n in range(1, 6):
+    recent.append(n)
+print(recent)
+```
+
+```text
+deque(['VIP', 'Ada', 'Ben', 'Cy'])
+VIP
+Cy
+['Ada', 'Ben'] 2
+deque([3, 4, 5], maxlen=3)
+```
+
+`append` and `pop` work on the right, `appendleft` and `popleft` on the left, and all four are fast. With `maxlen`, the deque discards from the opposite end when full, which makes a neat "last N items" buffer: only 3, 4 and 5 remain. The data-structures track in the shared fundamentals covers queues in general, and a later lesson returns to `collections` in depth. For now, remember the name.
+
+## Common pitfalls
+
+- **Searching a big list over and over.** Repeated `x in big_list` inside a loop turns a quick job into a slow one. Build a set once, outside the loop.
+- **Using `list.pop(0)` as a queue.** Every pop shifts all the remaining items. Use a `deque`.
+- **Using a set when order matters.** Sets do not keep a meaningful order. Use a list, or a dict with its insertion order.
+- **Using a dict or set when you need duplicates.** Both collapse repeats. A list keeps every occurrence.
+- **Optimising too early.** For a few dozen items, any collection is fast enough. Choose for clarity first, and measure before you tune.
+- **Timing a best case.** Searching for an item at the front of a list looks fast. Test absent and late items too.
+
+<Exercise title="Benchmark membership tests">
+
+Measure `in` on a list and on a set of 100,000 integers, searching for a value that is not present. Print whether the set is faster, and by what factor at least.
+
+<Solution>
+
+```python title="membership_benchmark.py"
+from timeit import timeit
+
+size = 100_000
+as_list = list(range(size))
+as_set = set(as_list)
+missing = -1  # worst case for the list: scan everything
+
+list_time = timeit(lambda: missing in as_list, number=200)
+set_time = timeit(lambda: missing in as_set, number=200)
+
+print(f"list is slower: {list_time > set_time}")
+print(f"set is at least 100x faster: {list_time / set_time > 100}")
+```
+
+```text
+list is slower: True
+set is at least 100x faster: True
+```
+
+Searching for a missing value forces the list to scan everything, which is the case where the gap is widest. To explore, change `size` and watch the list time grow in step while the set time barely moves.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Group anagrams">
+
+Group the words `listen`, `silent`, `enlist`, `google`, `gogole`, `cat` and `act` so that words made of the same letters end up together. Which collections do you need?
+
+<Solution>
+
+```python title="anagram_groups.py"
+words = ["listen", "silent", "enlist", "google", "gogole", "cat", "act"]
+
+groups = {}
+for word in words:
+    key = tuple(sorted(word))
+    groups.setdefault(key, []).append(word)
+
+for group in groups.values():
+    print(group)
+```
+
+```text
+['listen', 'silent', 'enlist']
+['google', 'gogole']
+['cat', 'act']
+```
+
+Three collections cooperate. `sorted(word)` returns a list of letters, which cannot be a dict key, so `tuple(...)` turns it into a hashable key. The dict maps each letter-signature to a list of words, since the words in a group are ordered and may in principle repeat.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Choose by operation: list for ordered and changeable, tuple for fixed groups, dict for lookup by key, set for membership and uniqueness, deque for both ends.
+- `in` scans a list but hashes into a set or dict, so repeated membership tests belong in a set.
+- Measure with `timeit` rather than guessing, and test the worst case.
+
+This completes the collections module. Next up is functions, where these structures become arguments and return values.

@@ -1,0 +1,10 @@
+10 [20, 30, 40]
+['a', 'b', 'c'] d
+1 [2, 3, 4] 5
+7 []
+Ada 1815
+Alan 1912
+1 2 3
+1 2 3
+[0, 1, 2, 3, 4]
+ValueError: too many values to unpack (expected 2, got 3)

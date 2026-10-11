@@ -1,0 +1,195 @@
+---
+language: python
+level: beginner
+module: Collections
+order: 23
+title: Slicing in depth
+description: Cut lists, strings and tuples with start, stop and step, use negative indexes, and change lists with slice assignment.
+minVersion: "3.8"
+objectives:
+  - Read any slice of the form [start:stop:step]
+  - Use negative indexes and steps, including to reverse a sequence
+  - Copy a list with a slice
+  - Replace, insert and delete list items with slice assignment
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/13-sequences-and-arrays"]
+---
+
+You have used `items[0]` to get one element. A **slice** gets a stretch of them: the first three, the last two, every other one, the whole thing backwards. Slices work the same way on lists, strings, tuples and ranges, and once the rule clicks you will stop reaching for loops to do these jobs.
+
+## The slice rule
+
+```python title="slice_basics.py"
+letters = ["a", "b", "c", "d", "e", "f"]
+
+print(letters[1:4])
+print(letters[:2], letters[4:])
+print(letters[-2:], letters[:-2])
+print(letters[::2])
+print(letters[::-1])
+print(letters[4:1:-1])
+print(letters[10:20])
+
+text = "Python"
+print(text[1:4], text[::-1])
+print((10, 20, 30, 40)[1:3])
+
+# A slice is a copy
+copy = letters[:]
+copy[0] = "z"
+print(letters[0], copy[0])
+
+# slice objects can be named
+middle = slice(1, -1)
+print(letters[middle])
+```
+
+```text
+['b', 'c', 'd']
+['a', 'b'] ['e', 'f']
+['e', 'f'] ['a', 'b', 'c', 'd']
+['a', 'c', 'e']
+['f', 'e', 'd', 'c', 'b', 'a']
+['e', 'd', 'c']
+[]
+yth nohtyP
+(20, 30)
+a z
+['b', 'c', 'd', 'e']
+```
+
+`seq[start:stop:step]` takes the items from `start` up to, but **not including**, `stop`, moving by `step`. This is the same half-open rule as `range`. Every part is optional:
+
+- Leave out `start` and it begins at the start (or the end, when the step is negative).
+- Leave out `stop` and it runs to the end (or to the beginning, for a negative step).
+- Leave out `step` and it is 1.
+
+Think of the indexes as sitting *between* the items. In `letters[1:4]`, index 1 is the gap before `"b"` and index 4 the gap before `"e"`, so you get `b`, `c`, `d`. A handy consequence is that `letters[:k]` and `letters[k:]` split the list at `k` into two parts with nothing lost or repeated.
+
+## Negative indexes and steps
+
+Negative numbers count from the end: `-1` is the last item, `-2` the one before. So `letters[-2:]` is "the last two" and `letters[:-2]` is "everything except the last two". A negative **step** walks backwards, and `[::-1]` is the standard way to reverse a sequence. When going backwards, `start` should be the larger index: `letters[4:1:-1]` gives `e`, `d`, `c`, stopping before index 1.
+
+Slices are forgiving. Out-of-range bounds are clipped rather than raising `IndexError`, so `letters[10:20]` is just an empty list. A single index like `letters[10]` is not so lenient.
+
+A slice of a list is a **new list**, which is why `letters[:]` is a common way to copy one. Remember that it is a shallow copy, as the lists lesson showed. Strings and tuples slice too, and give back a string or a tuple. Since strings are immutable, you build a new one rather than editing in place.
+
+## Slice assignment
+
+Lists, being mutable, let you assign to a slice and change several items at once.
+
+```python title="slice_assign.py"
+nums = [0, 1, 2, 3, 4, 5]
+nums[1:3] = [10, 20, 30]
+print(nums)
+nums[::2] = ["w", "x", "y", "z"]
+print(nums)
+del nums[1:3]
+print(nums)
+nums[2:2] = ["new"]
+print(nums)
+
+try:
+    nums[::2] = [1]
+except ValueError as error:
+    print("ValueError:", error)
+```
+
+```text
+[0, 10, 20, 30, 3, 4, 5]
+['w', 10, 'x', 30, 'y', 4, 'z']
+['w', 30, 'y', 4, 'z']
+['w', 30, 'new', 'y', 4, 'z']
+ValueError: attempt to assign sequence of size 1 to extended slice of size 3
+```
+
+With a plain slice (no step), the replacement can be any length, so the list grows or shrinks to fit: two items became three. `del nums[1:3]` deletes a stretch, and assigning to an empty slice such as `nums[2:2]` **inserts** without removing anything. With an extended slice (a step other than 1), the sizes must match exactly, or you get the `ValueError` shown.
+
+## Common pitfalls
+
+- **Forgetting that stop is excluded.** `items[0:3]` has three items, indexes 0 to 2.
+- **Reversing with a wrong start.** `items[1:5:-1]` is empty because it walks backwards from a smaller index. Use `items[::-1]` or put the larger index first.
+- **Thinking `a = b[:]` is a deep copy.** It copies one level. Nested lists are still shared.
+- **Expecting slice errors on bad bounds.** Slices clip silently, which can hide an off-by-one mistake. Single indexes raise `IndexError`.
+- **Trying to assign into a string slice.** `text[0:2] = "ab"` raises `TypeError`, because strings are immutable.
+
+<Exercise title="Rotate and reverse with slices">
+
+Write `rotate_left(items, k)` and `rotate_right(items, k)` that return rotated copies. They should cope with `k` larger than the length and with an empty list. Then reverse a list in place.
+
+<Solution>
+
+```python title="rotate_reverse.py"
+def rotate_left(items, k):
+    if not items:
+        return []
+    k %= len(items)
+    return items[k:] + items[:k]
+
+
+def rotate_right(items, k):
+    return rotate_left(items, -k)
+
+
+data = [1, 2, 3, 4, 5]
+print(rotate_left(data, 2))
+print(rotate_right(data, 2))
+print(rotate_left(data, 7))
+print(rotate_left([], 3))
+print(data[::-1])
+print(data)
+
+# In place, using slice assignment
+data[:] = data[::-1]
+print(data)
+```
+
+```text
+[3, 4, 5, 1, 2]
+[4, 5, 1, 2, 3]
+[3, 4, 5, 1, 2]
+[]
+[5, 4, 3, 2, 1]
+[1, 2, 3, 4, 5]
+[5, 4, 3, 2, 1]
+```
+
+`k %= len(items)` wraps big values around, and Python's `%` returns a non-negative result for a positive divisor, so a negative `k` (used for rotating right) also works. Moving the first `k` items to the back is `items[k:] + items[:k]`. Note that `data[::-1]` makes a reversed copy and leaves `data` alone. `data[:] = ...` writes the result back into the same list, so any other name for that list sees the change.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Split into chunks">
+
+Write `chunks(items, size)` that splits a sequence into pieces of at most `size` items.
+
+<Solution>
+
+```python title="chunks.py"
+def chunks(items, size):
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+print(chunks([1, 2, 3, 4, 5, 6, 7], 3))
+print(chunks("abcdef", 2))
+print(chunks([], 3))
+```
+
+```text
+[[1, 2, 3], [4, 5, 6], [7]]
+['ab', 'cd', 'ef']
+[]
+```
+
+`range(0, len(items), size)` gives the start of each chunk, and the slice takes `size` items from there. The last slice is clipped automatically, so the short final chunk needs no special case. The same function works on strings.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `seq[start:stop:step]` excludes `stop`, accepts negative numbers, and clips out-of-range bounds.
+- `seq[::-1]` reverses, and `seq[:]` makes a shallow copy of a list.
+- Assigning to a list slice can replace, insert or delete. An extended slice needs a replacement of equal size.
+
+Next: [comprehensions](../comprehensions/).
