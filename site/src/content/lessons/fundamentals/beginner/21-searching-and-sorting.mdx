@@ -1,0 +1,923 @@
+---
+language: fundamentals
+level: beginner
+module: Algorithms and complexity
+order: 21
+title: Searching and sorting
+description: Implement linear and binary search, then insertion sort and merge sort, and learn what stability means and why you will usually call the built-in sort.
+objectives:
+  - Implement linear search and binary search, and state when binary search is allowed
+  - Write insertion sort and merge sort, and explain their costs using Big-O
+  - Explain what a stable sort guarantees and why it matters
+  - Choose the built-in sort in real code, and know how it behaves in each language
+estimatedMinutes: 70
+fundamentals:
+  - fundamentals/beginner/08-loops
+  - fundamentals/beginner/11-recursion
+  - fundamentals/beginner/13-sequences-and-arrays
+  - fundamentals/beginner/20-big-o
+---
+
+Finding things and putting them in order are two of the oldest jobs in computing, and they are closely linked: ordering data is mostly what makes it fast to search. They are also where the growth rates from the [previous lesson](../big-o/) first pay off in practice.
+
+## Searching
+
+**Searching** means finding where a value sits in a collection, or learning that it is absent. We will have each search return the **index** of the value, or `-1` when it is not there. (A language might instead return a null value or throw an error. Returning `-1` works because no valid index is negative.)
+
+### Linear search
+
+The simplest method is to look at each item in order until you find the target or run out of items.
+
+```text
+procedure linear_search(items, target)
+    for each position i from 0 to the last
+        if items[i] equals target
+            return i
+    return -1
+```
+
+It needs no preparation and works on any list, ordered or not. In the worst case it looks at every item, so it is O(n).
+
+### Binary search
+
+If the list is **already sorted**, you can do much better, the way you find a word in a dictionary: open near the middle, see whether you went too far or not far enough, and discard the half that cannot contain the word. Repeat on what remains.
+
+Searching for 23 in a sorted list of ten numbers, with `low`, `high` and `mid` marking the live range:
+
+| Step | low | high | mid | items[mid] | Decision |
+|---|---|---|---|---|---|
+| 1 | 0 | 9 | 4 | 16 | 16 < 23, so the target is to the right: low = 5 |
+| 2 | 5 | 9 | 7 | 56 | 56 > 23, so the target is to the left: high = 6 |
+| 3 | 5 | 6 | 5 | 23 | found at index 5 |
+
+Each probe throws away half of what is left, so the number of probes is the number of halvings: O(log n). For a million sorted items that is about 20 probes instead of up to a million. The price is the precondition: **binary search gives wrong answers on unsorted data**, with no warning.
+
+Both searches, in four languages:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="search_demo.py"
+def linear_search(items, target):
+    for i in range(len(items)):
+        if items[i] == target:
+            return i
+    return -1
+
+
+def binary_search(items, target):
+    low = 0
+    high = len(items) - 1
+    while low <= high:
+        mid = (low + high) // 2
+        if items[mid] == target:
+            return mid
+        if items[mid] < target:
+            low = mid + 1
+        else:
+            high = mid - 1
+    return -1
+
+
+data = [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]
+print("linear 23:", linear_search(data, 23))
+print("linear 7:", linear_search(data, 7))
+print("binary 23:", binary_search(data, 23))
+print("binary 7:", binary_search(data, 7))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="search_demo.js"
+function linearSearch(items, target) {
+  for (let i = 0; i < items.length; i++) {
+    if (items[i] === target) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function binarySearch(items, target) {
+  let low = 0;
+  let high = items.length - 1;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    if (items[mid] === target) {
+      return mid;
+    }
+    if (items[mid] < target) {
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return -1;
+}
+
+const data = [2, 5, 8, 12, 16, 23, 38, 56, 72, 91];
+console.log("linear 23:", linearSearch(data, 23));
+console.log("linear 7:", linearSearch(data, 7));
+console.log("binary 23:", binarySearch(data, 23));
+console.log("binary 7:", binarySearch(data, 7));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="SearchDemo.java"
+public class SearchDemo {
+    static int linearSearch(int[] items, int target) {
+        for (int i = 0; i < items.length; i++) {
+            if (items[i] == target) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    static int binarySearch(int[] items, int target) {
+        int low = 0;
+        int high = items.length - 1;
+        while (low <= high) {
+            int mid = low + (high - low) / 2;   // avoids overflow for huge arrays
+            if (items[mid] == target) {
+                return mid;
+            }
+            if (items[mid] < target) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return -1;
+    }
+
+    public static void main(String[] args) {
+        int[] data = {2, 5, 8, 12, 16, 23, 38, 56, 72, 91};
+        System.out.println("linear 23: " + linearSearch(data, 23));
+        System.out.println("linear 7: " + linearSearch(data, 7));
+        System.out.println("binary 23: " + binarySearch(data, 23));
+        System.out.println("binary 7: " + binarySearch(data, 7));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="search_demo.c"
+#include <stdio.h>
+
+static int linear_search(const int *items, int count, int target) {
+    for (int i = 0; i < count; i++) {
+        if (items[i] == target) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int binary_search(const int *items, int count, int target) {
+    int low = 0;
+    int high = count - 1;
+    while (low <= high) {
+        int mid = low + (high - low) / 2;   /* avoids overflow for huge arrays */
+        if (items[mid] == target) {
+            return mid;
+        }
+        if (items[mid] < target) {
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    return -1;
+}
+
+int main(void) {
+    int data[] = {2, 5, 8, 12, 16, 23, 38, 56, 72, 91};
+    printf("linear 23: %d\n", linear_search(data, 10, 23));
+    printf("linear 7: %d\n", linear_search(data, 10, 7));
+    printf("binary 23: %d\n", binary_search(data, 10, 23));
+    printf("binary 7: %d\n", binary_search(data, 10, 7));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+linear 23: 5
+linear 7: -1
+binary 23: 5
+binary 7: -1
+```
+
+Both agree, as they must on sorted data. The `mid` line is spelled two ways. `(low + high) / 2` is fine in Python and JavaScript. In Java and C, `int` has a fixed range, and for an array with over a billion items `low + high` can exceed it and wrap to a negative number. Writing `low + (high - low) / 2` computes the same value without that risk. It is the kind of detail that stayed hidden in widely used library code for years.
+
+Binary search is famous for being easy to get nearly right. The usual mistakes are `<` instead of `<=` in the loop condition (missing the last candidate), and `mid` instead of `mid + 1` or `mid - 1` when shrinking the range (an infinite loop). Test it at both ends of the list and with a value that is absent.
+
+## Sorting
+
+**Sorting** puts items in order. Almost every language gives you a fast sort, and in real code you should use it. Writing sorts yourself is still worthwhile, because it is where the ideas of this module meet: loops, invariants, recursion and growth rates, all in a small space.
+
+### Insertion sort
+
+Insertion sort works like arranging playing cards in your hand. Keep the left part of the list sorted. Take the next item, slide larger sorted items one place right to open a gap, and drop the item in.
+
+```text
+procedure insertion_sort(items)
+    for each position i from 1 to the last
+        set current to items[i]
+        set j to i - 1
+        while j >= 0 and items[j] is greater than current
+            move items[j] one place right
+            decrease j
+        put current into items[j + 1]
+```
+
+The code prints the list after each insertion so you can watch the sorted region grow:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="insertion_sort_demo.py"
+def insertion_sort(items):
+    for i in range(1, len(items)):
+        current = items[i]
+        j = i - 1
+        while j >= 0 and items[j] > current:
+            items[j + 1] = items[j]      # shift the bigger value right
+            j -= 1
+        items[j + 1] = current           # drop current into the gap
+        print(items)
+
+
+data = [5, 2, 9, 1, 5, 6]
+insertion_sort(data)
+print("sorted:", data)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="insertion_sort_demo.js"
+function show(items) {
+  return `[${items.join(", ")}]`;
+}
+
+function insertionSort(items) {
+  for (let i = 1; i < items.length; i++) {
+    const current = items[i];
+    let j = i - 1;
+    while (j >= 0 && items[j] > current) {
+      items[j + 1] = items[j];         // shift the bigger value right
+      j -= 1;
+    }
+    items[j + 1] = current;            // drop current into the gap
+    console.log(show(items));
+  }
+}
+
+const data = [5, 2, 9, 1, 5, 6];
+insertionSort(data);
+console.log("sorted:", show(data));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="InsertionSortDemo.java"
+import java.util.Arrays;
+
+public class InsertionSortDemo {
+    static void insertionSort(int[] items) {
+        for (int i = 1; i < items.length; i++) {
+            int current = items[i];
+            int j = i - 1;
+            while (j >= 0 && items[j] > current) {
+                items[j + 1] = items[j];     // shift the bigger value right
+                j -= 1;
+            }
+            items[j + 1] = current;          // drop current into the gap
+            System.out.println(Arrays.toString(items));
+        }
+    }
+
+    public static void main(String[] args) {
+        int[] data = {5, 2, 9, 1, 5, 6};
+        insertionSort(data);
+        System.out.println("sorted: " + Arrays.toString(data));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="insertion_sort_demo.c"
+#include <stdio.h>
+
+static void show(const int *items, int count) {
+    printf("[");
+    for (int i = 0; i < count; i++) {
+        printf("%s%d", i > 0 ? ", " : "", items[i]);
+    }
+    printf("]\n");
+}
+
+static void insertion_sort(int *items, int count) {
+    for (int i = 1; i < count; i++) {
+        int current = items[i];
+        int j = i - 1;
+        while (j >= 0 && items[j] > current) {
+            items[j + 1] = items[j];         /* shift the bigger value right */
+            j -= 1;
+        }
+        items[j + 1] = current;              /* drop current into the gap */
+        show(items, count);
+    }
+}
+
+int main(void) {
+    int data[] = {5, 2, 9, 1, 5, 6};
+    insertion_sort(data, 6);
+    printf("sorted: ");
+    show(data, 6);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+[2, 5, 9, 1, 5, 6]
+[2, 5, 9, 1, 5, 6]
+[1, 2, 5, 9, 5, 6]
+[1, 2, 5, 5, 9, 6]
+[1, 2, 5, 5, 6, 9]
+sorted: [1, 2, 5, 5, 6, 9]
+```
+
+Line 2 shows that 9 was already in the right place, so nothing moved. Line 3 shows 1 sliding past three values at once.
+
+How much work is it? In the worst case (a list in reverse order), each new item slides past every item before it, giving `1 + 2 + … + (n − 1)` shifts. That is the same `n(n − 1) / 2` count you met for `pair_steps`, so insertion sort is **O(n²)** in the worst case. On a list that is already sorted, the inner loop never runs, so it is **O(n)**. That makes it a sensible choice for short lists and for lists that are nearly in order, and a poor choice for big, shuffled ones.
+
+### Merge sort
+
+Merge sort uses a different idea, **divide and conquer**: split the list in half, sort each half, then **merge** the two sorted halves into one sorted list. Sorting the halves is the same problem again on smaller input, so you solve it by calling the same procedure, as in the [recursion lesson](../recursion/). A list of zero or one item is already sorted, which is the base case.
+
+```text
+              [38, 27, 43, 3]
+              /              \
+        [38, 27]            [43, 3]
+        /      \            /     \
+     [38]     [27]       [43]     [3]
+        \      /            \     /
+        [27, 38]            [3, 43]
+              \              /
+              [3, 27, 38, 43]
+```
+
+The work happens in the merge. Given two sorted lists, repeatedly compare their front items and take the smaller. Each item is taken exactly once, so merging `n` items in total is O(n).
+
+The list can be halved about log n times, and each level of the diagram does O(n) merging in total, so merge sort is **O(n log n)** in every case. It needs O(n) extra space for the merged results, which is the price you pay for the speed.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="merge_sort_demo.py"
+def merge(left, right):
+    result = []
+    i = 0
+    j = 0
+    while i < len(left) and j < len(right):
+        if left[i] <= right[j]:          # <= keeps equal items in order (stable)
+            result.append(left[i])
+            i += 1
+        else:
+            result.append(right[j])
+            j += 1
+    result.extend(left[i:])
+    result.extend(right[j:])
+    return result
+
+
+def merge_sort(items):
+    if len(items) <= 1:
+        return items
+    mid = len(items) // 2
+    return merge(merge_sort(items[:mid]), merge_sort(items[mid:]))
+
+
+print(merge_sort([38, 27, 43, 3, 9, 82, 10]))
+print(merge_sort([]))
+print(merge_sort([7]))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="merge_sort_demo.js"
+function merge(left, right) {
+  const result = [];
+  let i = 0;
+  let j = 0;
+  while (i < left.length && j < right.length) {
+    if (left[i] <= right[j]) {         // <= keeps equal items in order (stable)
+      result.push(left[i]);
+      i += 1;
+    } else {
+      result.push(right[j]);
+      j += 1;
+    }
+  }
+  return result.concat(left.slice(i), right.slice(j));
+}
+
+function mergeSort(items) {
+  if (items.length <= 1) {
+    return items;
+  }
+  const mid = Math.floor(items.length / 2);
+  return merge(mergeSort(items.slice(0, mid)), mergeSort(items.slice(mid)));
+}
+
+console.log(`[${mergeSort([38, 27, 43, 3, 9, 82, 10]).join(", ")}]`);
+console.log(`[${mergeSort([]).join(", ")}]`);
+console.log(`[${mergeSort([7]).join(", ")}]`);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="MergeSortDemo.java"
+import java.util.Arrays;
+
+public class MergeSortDemo {
+    static int[] merge(int[] left, int[] right) {
+        int[] result = new int[left.length + right.length];
+        int i = 0;
+        int j = 0;
+        int k = 0;
+        while (i < left.length && j < right.length) {
+            if (left[i] <= right[j]) {       // <= keeps equal items in order (stable)
+                result[k++] = left[i++];
+            } else {
+                result[k++] = right[j++];
+            }
+        }
+        while (i < left.length) {
+            result[k++] = left[i++];
+        }
+        while (j < right.length) {
+            result[k++] = right[j++];
+        }
+        return result;
+    }
+
+    static int[] mergeSort(int[] items) {
+        if (items.length <= 1) {
+            return items;
+        }
+        int mid = items.length / 2;
+        int[] left = mergeSort(Arrays.copyOfRange(items, 0, mid));
+        int[] right = mergeSort(Arrays.copyOfRange(items, mid, items.length));
+        return merge(left, right);
+    }
+
+    public static void main(String[] args) {
+        System.out.println(Arrays.toString(mergeSort(new int[] {38, 27, 43, 3, 9, 82, 10})));
+        System.out.println(Arrays.toString(mergeSort(new int[] {})));
+        System.out.println(Arrays.toString(mergeSort(new int[] {7})));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="merge_sort_demo.c"
+#include <stdio.h>
+
+static void show(const int *items, int count) {
+    printf("[");
+    for (int i = 0; i < count; i++) {
+        printf("%s%d", i > 0 ? ", " : "", items[i]);
+    }
+    printf("]\n");
+}
+
+/* Sorts items[low .. high-1]; spare is scratch space of the same size. */
+static void merge_sort(int *items, int *spare, int low, int high) {
+    if (high - low <= 1) {
+        return;
+    }
+    int mid = low + (high - low) / 2;
+    merge_sort(items, spare, low, mid);
+    merge_sort(items, spare, mid, high);
+
+    int i = low;
+    int j = mid;
+    int k = low;
+    while (i < mid && j < high) {
+        if (items[i] <= items[j]) {          /* <= keeps equal items in order (stable) */
+            spare[k++] = items[i++];
+        } else {
+            spare[k++] = items[j++];
+        }
+    }
+    while (i < mid) {
+        spare[k++] = items[i++];
+    }
+    while (j < high) {
+        spare[k++] = items[j++];
+    }
+    for (k = low; k < high; k++) {
+        items[k] = spare[k];
+    }
+}
+
+int main(void) {
+    int a[] = {38, 27, 43, 3, 9, 82, 10};
+    int spare[7];
+    merge_sort(a, spare, 0, 7);
+    show(a, 7);
+    show(a, 0);
+    int one[] = {7};
+    int spare_one[1];
+    merge_sort(one, spare_one, 0, 1);
+    show(one, 1);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+[3, 9, 10, 27, 38, 43, 82]
+[]
+[7]
+```
+
+The Python, JavaScript and Java versions build and return new lists. The C version sorts the array in place and borrows a scratch array, since slicing is not something C does for you. The empty list and the one-item list are the base cases, and they are worth testing explicitly, as the [algorithmic thinking lesson](../algorithmic-thinking/) taught.
+
+To put numbers on the difference: for 100,000 items, insertion sort's worst case is about 5 billion steps, while merge sort needs roughly 1.7 million (100,000 times about 17 halvings). The quadratic algorithm is not slightly slower; at that size it is thousands of times slower.
+
+## Stability
+
+A sort is **stable** if items that compare as equal keep the order they had before sorting. It matters when you sort by more than one criterion. Suppose a list of people is already in name order, and you now sort by age. A stable sort leaves people of equal age in name order, which is usually what you want. An unstable sort may shuffle them.
+
+Both of the sorts above are stable. Insertion sort only shifts items that are strictly greater than the one being inserted (`>`, not `>=`), so equal items never pass each other. Merge sort takes from the left half when the two front items are equal (`<=`), so the earlier item comes out first.
+
+## Built-in sorts
+
+In real programs, call the sort the language provides. It is faster than anything you will write, and well tested. Each of the four handles stability differently, so check before you rely on it:
+
+| Language | Call | Stable? |
+|---|---|---|
+| Python | `sorted(items, key=...)` or `items.sort()` | Yes, guaranteed |
+| JavaScript | `array.sort(compare)` | Yes, guaranteed since ES2019 |
+| Java | `Arrays.sort(objects, comparator)` | Yes for objects (the sort for primitive arrays is not, but equal numbers are indistinguishable) |
+| C | `qsort` | No promise. Break ties yourself |
+
+Sorting four people by age; Ana and Cy are both 30, Ben and Di are both 25, and the input is in the order Ana, Ben, Cy, Di:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="stable_sort_demo.py"
+def age_of(person):
+    return person[1]
+
+
+people = [("Ana", 30), ("Ben", 25), ("Cy", 30), ("Di", 25)]
+for name, age in sorted(people, key=age_of):
+    print(name, age)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="stable_sort_demo.js"
+const people = [
+  { name: "Ana", age: 30 },
+  { name: "Ben", age: 25 },
+  { name: "Cy", age: 30 },
+  { name: "Di", age: 25 },
+];
+
+const sorted = [...people].sort((a, b) => a.age - b.age);
+for (const person of sorted) {
+  console.log(person.name, person.age);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="StableSortDemo.java"
+import java.util.Arrays;
+import java.util.Comparator;
+
+public class StableSortDemo {
+    record Person(String name, int age) {}      // a record: a small immutable data holder
+
+    public static void main(String[] args) {
+        Person[] people = {
+            new Person("Ana", 30), new Person("Ben", 25),
+            new Person("Cy", 30), new Person("Di", 25),
+        };
+        // Sorting objects with Arrays.sort is documented to be stable.
+        Arrays.sort(people, Comparator.comparingInt(Person::age));
+        for (Person p : people) {
+            System.out.println(p.name() + " " + p.age());
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="stable_sort_demo.c"
+#include <stdio.h>
+#include <stdlib.h>
+
+struct person {
+    const char *name;
+    int age;
+    int original_index;     /* qsort is not guaranteed stable, so we break ties ourselves */
+};
+
+static int by_age_then_position(const void *a, const void *b) {
+    const struct person *p = a;
+    const struct person *q = b;
+    if (p->age != q->age) {
+        return p->age < q->age ? -1 : 1;
+    }
+    return p->original_index - q->original_index;
+}
+
+int main(void) {
+    struct person people[] = {
+        {"Ana", 30, 0}, {"Ben", 25, 1}, {"Cy", 30, 2}, {"Di", 25, 3},
+    };
+    qsort(people, 4, sizeof people[0], by_age_then_position);
+    for (int i = 0; i < 4; i++) {
+        printf("%s %d\n", people[i].name, people[i].age);
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+Ben 25
+Di 25
+Ana 30
+Cy 30
+```
+
+Ben still comes before Di, and Ana before Cy: the original order survives within each age. In C the stability had to be added by hand, by remembering each item's original position and using it to break ties.
+
+## Common pitfalls
+
+- **Binary search on unsorted data.** It runs without complaint and returns garbage. Sort first, or use linear search.
+- **Sorting numbers as text in JavaScript.** `[10, 9, 1].sort()` with no comparator compares items as strings and returns `[1, 10, 9]`. Always pass a comparison such as `(a, b) => a - b`.
+- **Mixing up in-place and copying sorts.** Python's `items.sort()` changes the list and returns `None`; `sorted(items)` returns a new list and leaves the original alone. Writing `items = items.sort()` throws your list away.
+- **Writing your own sort for production code.** It will be slower and less trustworthy than the standard one.
+- **Assuming a sort is stable** without checking the language's guarantee, as with `qsort`.
+- **Sorting just to find the smallest or largest item.** A single linear pass is O(n); a full sort is O(n log n).
+
+<Exercise title="Trace a binary search by hand">
+
+Using the sorted list `[2, 5, 8, 12, 16, 23, 38, 56, 72, 91]` (indices 0 to 9), trace `binary_search` by hand and write the `low`, `high` and `mid` of each step for the two searches below.
+
+| Target | Expected result | Probes |
+|---|---|---|
+| 56 | index 7 | 2 |
+| 7 | -1 (absent) | 3 |
+
+<Solution>
+
+Searching for 56:
+
+| Step | low | high | mid | items[mid] | Decision |
+|---|---|---|---|---|---|
+| 1 | 0 | 9 | 4 | 16 | 16 < 56: low = 5 |
+| 2 | 5 | 9 | 7 | 56 | found, return 7 |
+
+Searching for 7:
+
+| Step | low | high | mid | items[mid] | Decision |
+|---|---|---|---|---|---|
+| 1 | 0 | 9 | 4 | 16 | 16 > 7: high = 3 |
+| 2 | 0 | 3 | 1 | 5 | 5 < 7: low = 2 |
+| 3 | 2 | 3 | 2 | 8 | 8 > 7: high = 1 |
+| end | 2 | 1 | | | low > high, return -1 |
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Count the probes at scale">
+
+Modify binary search so that it returns how many times its loop ran, instead of the index. Run it over the sorted list `0, 1, 2, ..., 999` (a thousand items) for three targets and check your results against the table.
+
+| Target | Expected loop count |
+|---|---|
+| 499 | 1 |
+| 999 | 10 |
+| 1000 (absent) | 10 |
+
+<Solution>
+
+The first probe lands on index 499 exactly, so that is the best case: one loop. The last item and an absent value both take about log₂(1000) ≈ 10 probes, the worst case, which is why a thousand items cost ten steps instead of a thousand.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="binary_count.py"
+def binary_search_count(items, target):
+    loops = 0
+    low = 0
+    high = len(items) - 1
+    while low <= high:
+        loops += 1
+        mid = (low + high) // 2
+        if items[mid] == target:
+            return loops
+        if items[mid] < target:
+            low = mid + 1
+        else:
+            high = mid - 1
+    return loops
+
+
+items = list(range(1000))        # 0, 1, 2, ... 999, already sorted
+print("find 499:", binary_search_count(items, 499))
+print("find 999:", binary_search_count(items, 999))
+print("find 1000 (absent):", binary_search_count(items, 1000))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="binary_count.js"
+function binarySearchCount(items, target) {
+  let loops = 0;
+  let low = 0;
+  let high = items.length - 1;
+  while (low <= high) {
+    loops += 1;
+    const mid = Math.floor((low + high) / 2);
+    if (items[mid] === target) {
+      return loops;
+    }
+    if (items[mid] < target) {
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return loops;
+}
+
+const items = Array.from({ length: 1000 }, (_, i) => i);   // 0, 1, 2, ... 999
+console.log("find 499:", binarySearchCount(items, 499));
+console.log("find 999:", binarySearchCount(items, 999));
+console.log("find 1000 (absent):", binarySearchCount(items, 1000));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="BinaryCount.java"
+public class BinaryCount {
+    static int binarySearchCount(int[] items, int target) {
+        int loops = 0;
+        int low = 0;
+        int high = items.length - 1;
+        while (low <= high) {
+            loops += 1;
+            int mid = low + (high - low) / 2;
+            if (items[mid] == target) {
+                return loops;
+            }
+            if (items[mid] < target) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return loops;
+    }
+
+    public static void main(String[] args) {
+        int[] items = new int[1000];            // 0, 1, 2, ... 999
+        for (int i = 0; i < items.length; i++) {
+            items[i] = i;
+        }
+        System.out.println("find 499: " + binarySearchCount(items, 499));
+        System.out.println("find 999: " + binarySearchCount(items, 999));
+        System.out.println("find 1000 (absent): " + binarySearchCount(items, 1000));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="binary_count.c"
+#include <stdio.h>
+
+static int binary_search_count(const int *items, int count, int target) {
+    int loops = 0;
+    int low = 0;
+    int high = count - 1;
+    while (low <= high) {
+        loops += 1;
+        int mid = low + (high - low) / 2;
+        if (items[mid] == target) {
+            return loops;
+        }
+        if (items[mid] < target) {
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    return loops;
+}
+
+int main(void) {
+    int items[1000];                    /* 0, 1, 2, ... 999 */
+    for (int i = 0; i < 1000; i++) {
+        items[i] = i;
+    }
+    printf("find 499: %d\n", binary_search_count(items, 1000, 499));
+    printf("find 999: %d\n", binary_search_count(items, 1000, 999));
+    printf("find 1000 (absent): %d\n", binary_search_count(items, 1000, 1000));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+Output:
+
+```text
+find 499: 1
+find 999: 10
+find 1000 (absent): 10
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Count the shifts">
+
+Insertion sort moves a value one place to the right each time it shifts. For the input `[4, 3, 2, 1]` (the worst case), count the total number of shifts across all passes, and compare with the formula `n(n − 1) / 2`.
+
+Expected answer: 6 shifts, matching the formula for n = 4.
+
+<Solution>
+
+| Pass | Item inserted | Values it slides past | Shifts |
+|---|---|---|---|
+| i = 1 | 3 | 4 | 1 |
+| i = 2 | 2 | 4, 3 | 2 |
+| i = 3 | 1 | 4, 3, 2 | 3 |
+
+Total: 1 + 2 + 3 = 6, and `4 × 3 / 2 = 6`. For a list of 100,000 reversed items the same formula gives nearly five billion shifts, which is why insertion sort is only for small or nearly sorted input.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Linear search works on any list and costs O(n). Binary search needs a sorted list and costs O(log n), by discarding half the range at each probe.
+- Insertion sort is simple, stable, O(n²) in the worst case and O(n) on sorted input. Merge sort splits, sorts and merges recursively, is stable, and is O(n log n) in every case at the cost of extra space.
+- A stable sort keeps equal items in their original order, which makes sorting by several keys in turn work.
+- In practice, use the built-in sort, and check its stability guarantee and its default comparison (JavaScript's compares as text unless you pass a function).
+
+Next, [Common problem-solving patterns](../problem-patterns/) shows five reusable ideas, including the divide-and-conquer move you just saw, that turn slow solutions into fast ones.

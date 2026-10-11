@@ -1,0 +1,634 @@
+---
+language: fundamentals
+level: beginner
+module: Algorithms and complexity
+order: 23
+title: Programming paradigms
+description: Compare the imperative, object-oriented, functional and declarative styles by solving one task in each, and learn what each style is good at.
+objectives:
+  - Describe the imperative, object-oriented, functional and declarative paradigms in a sentence each
+  - Recognise each style in code, in all four languages of this track
+  - Explain mutable state, pure functions and higher-order functions
+  - Choose a style for a small task and justify the choice
+estimatedMinutes: 60
+fundamentals:
+  - fundamentals/beginner/09-functions
+  - fundamentals/beginner/15-records-and-objects
+  - fundamentals/beginner/20-big-o
+---
+
+A **paradigm** is a style of organising a program: a habit of thinking about what the pieces are and how they fit. It is not the same as a language. Python, JavaScript and Java support several paradigms at once; C is mostly one, but you can write in other styles with effort. Learning the paradigms gives you more than one way to see a problem, and the ability to read code that was written a different way from yours.
+
+## The four styles in brief
+
+| Paradigm | The program is... | Central idea | Typical tools |
+|---|---|---|---|
+| Imperative | a sequence of commands | Change variables step by step | Loops, assignment, `if` |
+| Object-oriented | objects that hold data and the behaviour that goes with it | Bundle state with the code that manages it | Classes, methods, encapsulation |
+| Functional | a composition of functions | Compute new values; avoid changing old ones | Pure functions, `map`, `filter`, `reduce` |
+| Declarative | a description of the result wanted | Say *what*, and let the system decide *how* | SQL, HTML, configuration, regular expressions |
+
+These overlap. Most real programs mix them: an object-oriented design whose methods use loops (imperative) and call `map` (functional) on a database result (declarative).
+
+## One task, four styles
+
+To compare the styles fairly, we give them the same job: **add up the squares of the even numbers from 1 to 10.** The answer is `4 + 16 + 36 + 64 + 100 = 220`. Every program below prints `total: 220`.
+
+### Imperative
+
+The imperative style is the one you have been writing since the first module. You give the computer commands in order and change variables as you go. The variable `total` is **mutable state**: it holds a different value at different moments, and the program's meaning is the sequence of its changes.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="paradigm_imperative.py"
+numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+total = 0
+for n in numbers:
+    if n % 2 == 0:
+        total += n * n
+print("total:", total)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="paradigm_imperative.js"
+const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+let total = 0;
+for (const n of numbers) {
+  if (n % 2 === 0) {
+    total += n * n;
+  }
+}
+console.log("total:", total);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="ParadigmImperative.java"
+public class ParadigmImperative {
+    public static void main(String[] args) {
+        int[] numbers = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+
+        int total = 0;
+        for (int n : numbers) {
+            if (n % 2 == 0) {
+                total += n * n;
+            }
+        }
+        System.out.println("total: " + total);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="paradigm_imperative.c"
+#include <stdio.h>
+
+int main(void) {
+    int numbers[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+
+    int total = 0;
+    for (int i = 0; i < 10; i++) {
+        if (numbers[i] % 2 == 0) {
+            total += numbers[i] * numbers[i];
+        }
+    }
+    printf("total: %d\n", total);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+total: 220
+```
+
+Imperative code is direct and close to how the machine works, which makes it easy to trace by hand and usually fast. Its weakness is that, as programs grow, any piece of code can change any variable, and it becomes hard to know what state the program is in at a given line.
+
+### Object-oriented
+
+Object-oriented programming (OOP) groups data with the functions that operate on it. In the [records and objects lesson](../records-and-objects/) you saw an object as a record with methods and a hidden interior. Here, an `EvenSquares` object holds the numbers, and asks its own `total` method for the answer. Callers do not need to know how it works inside, and the object can protect its own data. This is **encapsulation**.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="paradigm_oop.py"
+class EvenSquares:
+    def __init__(self, numbers):
+        self.numbers = numbers
+
+    def total(self):
+        result = 0
+        for n in self.numbers:
+            if n % 2 == 0:
+                result += n * n
+        return result
+
+
+report = EvenSquares([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+print("total:", report.total())
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="paradigm_oop.js"
+class EvenSquares {
+  constructor(numbers) {
+    this.numbers = numbers;
+  }
+
+  total() {
+    let result = 0;
+    for (const n of this.numbers) {
+      if (n % 2 === 0) {
+        result += n * n;
+      }
+    }
+    return result;
+  }
+}
+
+const report = new EvenSquares([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+console.log("total:", report.total());
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="ParadigmOop.java"
+public class ParadigmOop {
+    static class EvenSquares {
+        private final int[] numbers;
+
+        EvenSquares(int[] numbers) {
+            this.numbers = numbers;
+        }
+
+        int total() {
+            int result = 0;
+            for (int n : numbers) {
+                if (n % 2 == 0) {
+                    result += n * n;
+                }
+            }
+            return result;
+        }
+    }
+
+    public static void main(String[] args) {
+        EvenSquares report = new EvenSquares(new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+        System.out.println("total: " + report.total());
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="paradigm_oop.c"
+#include <stdio.h>
+
+/* C has no classes. A struct plus functions that take it as their first
+   argument is the same idea: data and the behaviour that belongs with it. */
+struct even_squares {
+    const int *numbers;
+    int count;
+};
+
+static int even_squares_total(const struct even_squares *self) {
+    int result = 0;
+    for (int i = 0; i < self->count; i++) {
+        if (self->numbers[i] % 2 == 0) {
+            result += self->numbers[i] * self->numbers[i];
+        }
+    }
+    return result;
+}
+
+int main(void) {
+    int data[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    struct even_squares report = {data, 10};
+    printf("total: %d\n", even_squares_total(&report));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+total: 220
+```
+
+For a task this small, wrapping a loop in a class is more ceremony than it earns, and that is worth saying plainly. Object-oriented style pays off when there are many related values and several operations on them, such as a bank account, a game character or a shopping cart, whose rules need to stay consistent. Notice too that the method body is still imperative. Paradigms nest.
+
+### Functional
+
+Functional programming builds results by passing values through functions, and avoids changing anything in place. Two ideas carry most of the weight.
+
+A **pure function** returns a result that depends only on its arguments, and changes nothing outside itself (no global variables, no printing, no modifying its inputs). Call it twice with the same arguments and you get the same answer. That makes it easy to test, to reason about, and to cache.
+
+A **higher-order function** takes other functions as arguments, or returns one. This works because most modern languages treat functions as ordinary values you can pass around. The three workhorses are:
+
+| Name | What it does | Example |
+|---|---|---|
+| `filter` | Keeps the items for which a test function is true | keep the even numbers |
+| `map` | Applies a function to every item and collects the results | square each number |
+| `reduce` (also called `fold`) | Combines all items into one value | add them up |
+
+Our task is exactly filter, then map, then reduce. Nothing here is modified; each step produces a new sequence.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="paradigm_functional.py"
+def is_even(n):
+    return n % 2 == 0
+
+
+def square(n):
+    return n * n
+
+
+numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+print("total:", sum(map(square, filter(is_even, numbers))))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="paradigm_functional.js"
+const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+const total = numbers
+  .filter((n) => n % 2 === 0)
+  .map((n) => n * n)
+  .reduce((sum, n) => sum + n, 0);
+console.log("total:", total);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="ParadigmFunctional.java"
+import java.util.stream.IntStream;
+
+public class ParadigmFunctional {
+    public static void main(String[] args) {
+        int total = IntStream.rangeClosed(1, 10)
+            .filter(n -> n % 2 == 0)
+            .map(n -> n * n)
+            .sum();
+        System.out.println("total: " + total);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="paradigm_functional.c"
+#include <stdio.h>
+
+/* C has no lambdas or built-in map/filter, but a function pointer lets us pass
+   behaviour as a value. fold applies step to every item, carrying a result. */
+static int fold(const int *items, int count, int start, int (*step)(int, int)) {
+    int result = start;
+    for (int i = 0; i < count; i++) {
+        result = step(result, items[i]);
+    }
+    return result;
+}
+
+static int add_square_if_even(int sum, int n) {
+    return n % 2 == 0 ? sum + n * n : sum;
+}
+
+int main(void) {
+    int numbers[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    printf("total: %d\n", fold(numbers, 10, 0, add_square_if_even));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+total: 220
+```
+
+The Python line reads inside out: filter the even numbers, map `square` over them, sum the result. The arrow functions `(n) => n * n` in JavaScript and `n -> n * n` in Java are small unnamed functions written in place. C cannot do that, so the example makes the idea visible in a different way: `fold` is a general loop, and the behaviour is handed to it as a function pointer. Even there, the call site contains no loop and no variable that changes.
+
+### Declarative
+
+Imperative and functional code still say *how* to get the answer. A **declarative** program says *what* the answer should be, and leaves the method to the system. The best-known example is SQL, the language for querying databases. You do not write a loop over rows; you describe the rows you want:
+
+```sql
+SELECT SUM(n * n) FROM numbers WHERE n % 2 = 0;
+```
+
+Read it aloud: "the sum of n squared, from the numbers table, where n is even". The database decides whether to scan every row, use an index, or run on several processors. The other declarative languages you already know are HTML (which describes a page, not how to draw it) and regular expressions (which describe a pattern, not how to match it).
+
+SQL needs a database to run against. Python ships with a small one, so this program creates a table of 1 to 10, then runs the query:
+
+```python title="paradigm_sql.py"
+import sqlite3
+
+db = sqlite3.connect(":memory:")
+db.execute("CREATE TABLE numbers (n INTEGER)")
+for n in range(1, 11):
+    db.execute("INSERT INTO numbers VALUES (?)", (n,))
+
+# Declarative: describe the result, not the steps.
+row = db.execute("SELECT SUM(n * n) FROM numbers WHERE n % 2 = 0").fetchone()
+print("total:", row[0])
+```
+
+Output:
+
+```text
+total: 220
+```
+
+The setup around the query is ordinary imperative code. Only the quoted query is declarative. That is typical: declarative languages are usually embedded in, and driven by, a general-purpose one.
+
+## State and purity
+
+The deepest difference between the styles is how they treat **state**: data that changes over time. Mutable state makes a program's behaviour depend on its history, not only on its inputs. Compare a function that remembers with one that does not:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="pure_impure.py"
+running = 0
+
+
+def add_impure(n):
+    global running
+    running += n
+    return running
+
+
+def add_pure(total, n):
+    return total + n
+
+
+first = add_impure(5)
+second = add_impure(5)
+print("impure:", first, second)
+
+first = add_pure(0, 5)
+second = add_pure(0, 5)
+print("pure:", first, second)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="pure_impure.js"
+let running = 0;
+
+function addImpure(n) {
+  running += n;
+  return running;
+}
+
+function addPure(total, n) {
+  return total + n;
+}
+
+let first = addImpure(5);
+let second = addImpure(5);
+console.log("impure:", first, second);
+
+first = addPure(0, 5);
+second = addPure(0, 5);
+console.log("pure:", first, second);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="PureImpure.java"
+public class PureImpure {
+    static int running = 0;
+
+    static int addImpure(int n) {
+        running += n;
+        return running;
+    }
+
+    static int addPure(int total, int n) {
+        return total + n;
+    }
+
+    public static void main(String[] args) {
+        int first = addImpure(5);
+        int second = addImpure(5);
+        System.out.println("impure: " + first + " " + second);
+
+        first = addPure(0, 5);
+        second = addPure(0, 5);
+        System.out.println("pure: " + first + " " + second);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="pure_impure.c"
+#include <stdio.h>
+
+static int running = 0;
+
+static int add_impure(int n) {
+    running += n;
+    return running;
+}
+
+static int add_pure(int total, int n) {
+    return total + n;
+}
+
+int main(void) {
+    int first = add_impure(5);
+    int second = add_impure(5);
+    printf("impure: %d %d\n", first, second);
+
+    first = add_pure(0, 5);
+    second = add_pure(0, 5);
+    printf("pure: %d %d\n", first, second);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+impure: 5 10
+pure: 5 5
+```
+
+The same call, `add_impure(5)`, gave 5 and then 10, because it reads and changes a variable outside itself. The pure version gave 5 both times. To understand the impure one, you must know how many times it has been called before. To understand the pure one, you need only read its two arguments. When a bug depends on "what happened earlier", mutable shared state is the first suspect.
+
+Immutability, never changing a value once it is made, is the data-side version of the same idea. Rather than changing a list, you build a new one. It costs some memory and copying, and it buys safety: nobody else's reference to the old value can be disturbed, which is the aliasing problem from the [memory lesson](../memory-and-references/). The caching in the memoisation example of the previous lesson depends on purity for the same reason.
+
+## Which style should you use?
+
+There is no single winner. A rough guide:
+
+| If the task is... | Reach for |
+|---|---|
+| A short script, a loop with a counter, anything close to the hardware | Imperative |
+| Many things with their own data and rules that must stay consistent | Object-oriented |
+| Transforming collections, or logic that must be easy to test | Functional |
+| Asking questions of stored data, or describing structure | Declarative |
+
+In practice, you write the style the language and your teammates favour, and borrow from the others where they make the code shorter or safer. Idiomatic Python leans on comprehensions and functions; idiomatic Java on classes; idiomatic JavaScript on functions passed around; idiomatic C on plain functions and structs.
+
+## Common pitfalls
+
+- **Treating a paradigm as a team to join.** Mixing styles is normal. What matters is that each piece of code is clear.
+- **Using a class when a function would do.** An object with one method and no state is a function wearing a costume.
+- **Hidden state inside a "functional" chain.** A function that updates a global in the middle of a `map` is not pure, and the order of evaluation may surprise you.
+- **Assuming declarative means magic.** `SELECT` still runs somewhere; a badly written query can be as slow as a badly written loop, so Big-O still applies.
+- **Chasing the shortest code.** A three-step chain that nobody can read is worse than a plain loop.
+
+<Exercise title="One task, three styles">
+
+Given the list `["tree", "apple", "fig", "banana", "kiwi"]`, add up the lengths of the words that have **more than 3 letters**. Solve it in the imperative, object-oriented and functional styles. Each version should print the same total.
+
+Expected output (the words that count are tree, apple, banana and kiwi, with 4 + 5 + 6 + 4 letters):
+
+```text
+imperative: 19
+object: 19
+functional: 19
+```
+
+<Solution>
+
+The sample solution is in Python. The structure carries over directly to JavaScript, Java and C using the matching tabs above as templates.
+
+```python title="words_three_styles.py"
+words = ["tree", "apple", "fig", "banana", "kiwi"]
+
+# Imperative: a loop and an accumulator.
+total = 0
+for word in words:
+    if len(word) > 3:
+        total += len(word)
+print("imperative:", total)
+
+
+# Object-oriented: the data and the question live together.
+class WordList:
+    def __init__(self, words):
+        self.words = words
+
+    def long_letters(self):
+        total = 0
+        for word in self.words:
+            if len(word) > 3:
+                total += len(word)
+        return total
+
+
+print("object:", WordList(words).long_letters())
+
+
+# Functional: filter, map, sum; nothing is modified.
+def is_long(word):
+    return len(word) > 3
+
+
+print("functional:", sum(map(len, filter(is_long, words))))
+```
+
+Output:
+
+```text
+imperative: 19
+object: 19
+functional: 19
+```
+
+Notice that the object-oriented version's method body is the imperative code again, and that the functional version has no variable that changes.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Classify the snippets">
+
+Name the main paradigm of each snippet (imperative, object-oriented, functional or declarative), and say what tells you.
+
+1. `SELECT name FROM users WHERE age > 30 ORDER BY name;`
+2. `total = 0` followed by a loop containing `total += price`
+3. `items.filter(isInStock).map(getPrice)`
+4. `account.deposit(50)` where `account` holds its own balance
+5. `<ul><li>One</li><li>Two</li></ul>`
+
+<Solution>
+
+1. **Declarative.** It states the rows wanted, not how to find them.
+2. **Imperative.** A variable is created and changed step by step.
+3. **Functional.** Functions are passed to `filter` and `map`; neither changes the original list.
+4. **Object-oriented.** The balance lives inside the object, and a method changes it.
+5. **Declarative.** HTML describes the structure of a list; the browser decides how to draw it.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict the purity">
+
+For each function, say whether it is pure, and if not, what makes it impure.
+
+1. `def double(n): return n * 2`
+2. `def log_and_double(n): print("doubling", n); return n * 2`
+3. `def next_id(): global counter; counter += 1; return counter`
+4. `def add_item(items, x): items.append(x); return items`
+5. `def total(prices): return sum(prices)`
+
+<Solution>
+
+1. Pure. The result depends only on `n`, and nothing else is touched.
+2. Impure. It prints, which is an effect outside the function. The returned value is still predictable, but the call does more than return it.
+3. Impure. It reads and changes a global, so repeated calls with no arguments give different results.
+4. Impure. It modifies the list it was given, which the caller still holds (see aliasing in the memory lesson). A pure version would return a new list, such as `items + [x]`.
+5. Pure. It reads its argument and returns a number, without changing `prices`.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- A paradigm is a style of organising code, and most languages and programs mix several.
+- Imperative code changes state step by step; object-oriented code bundles state with its behaviour; functional code builds new values from pure functions and higher-order functions such as `map`, `filter` and `reduce`; declarative code describes the result and leaves the method to the system.
+- The same task, summing the squares of the even numbers, came out as 220 in every style and every language. The styles differ in how easy the code is to trace, test and extend, not in what it can compute.
+- Pure functions depend only on their arguments and change nothing else. Mutable shared state is the usual source of "it depends on what ran before" bugs.
+
+That completes the fourth module of the shared track. The final module turns from writing algorithms to the daily practices of programming, starting with debugging.

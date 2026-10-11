@@ -1,0 +1,556 @@
+---
+language: fundamentals
+level: beginner
+module: Algorithms and complexity
+order: 20
+title: Complexity and Big-O
+description: Describe how the work a program does grows with the size of its input, and learn the handful of growth rates that cover almost every program you will write.
+objectives:
+  - Count steps instead of seconds, and explain why that comparison is fair across machines
+  - Name the common growth classes from O(1) to O(2^n) and say which loop shapes produce them
+  - Simplify a step count to its Big-O form by dropping constants and smaller terms
+  - Distinguish best, worst and average case, and explain amortised cost
+estimatedMinutes: 55
+fundamentals:
+  - fundamentals/beginner/08-loops
+  - fundamentals/beginner/13-sequences-and-arrays
+  - fundamentals/beginner/19-algorithmic-thinking
+---
+
+Two programs can give the same answer and still be very different. One finishes a million items in a blink; the other runs for an hour. You usually cannot tell by reading a single result, and you cannot tell by timing on small inputs either. **Complexity analysis** is the tool for predicting the difference without running the program on a huge input.
+
+## Count steps, not seconds
+
+Timing a program in seconds depends on the computer, the language, what else is running, and the day. It is a poor way to compare two ideas. Instead, count how many basic steps the algorithm takes, and ask how that count changes as the input gets bigger. We write `n` for the size of the input: the number of items in a list, the number of characters in a string, the value of a number that sets how long a loop runs.
+
+A "basic step" is anything that takes a roughly fixed amount of time: an addition, a comparison, reading one item by its index. The exact cost of one step does not matter, because the question is about growth. If doubling `n` doubles the steps, that is true on a laptop and on a supercomputer.
+
+## The common growth classes
+
+**Big-O notation** names the growth rate, keeping only the part that dominates for large `n`. The classes you will meet, from slowest growth to fastest:
+
+| Class | Name | What it feels like | Typical source |
+|---|---|---|---|
+| O(1) | constant | Does not depend on `n` | Reading `items[5]`; adding two numbers |
+| O(log n) | logarithmic | Double `n`, add one step | Repeatedly halving the problem |
+| O(n) | linear | Double `n`, double the work | One loop over the input |
+| O(n log n) | linearithmic | A little worse than linear | Efficient sorting |
+| O(n²) | quadratic | Double `n`, four times the work | A loop inside a loop over the same data |
+| O(2ⁿ) | exponential | Add one to `n`, double the work | Trying every subset; naive branching recursion |
+
+The words "log n" mean the number of times you can halve `n` before reaching 1. For 1,000 that is about 10, and for a million it is about 20. That is why O(log n) is so cheap.
+
+To feel the difference, here is roughly how many steps each class needs:
+
+| n | O(1) | O(log n) | O(n) | O(n log n) | O(n²) | O(2ⁿ) |
+|---|---|---|---|---|---|---|
+| 10 | 1 | 3 | 10 | 33 | 100 | 1,024 |
+| 100 | 1 | 7 | 100 | 664 | 10,000 | about 10³⁰ |
+| 1,000 | 1 | 10 | 1,000 | 9,966 | 1,000,000 | about 10³⁰¹ |
+
+The last column is not a typo. An O(2ⁿ) algorithm that is comfortable at `n = 20` is hopeless at `n = 100`, and no hardware improvement will rescue it.
+
+## How to read the growth class off a program
+
+You rarely need an exact formula. A few rules get you to the answer:
+
+1. **Count how many times the innermost work runs**, as a function of `n`.
+2. **Loops over the same data, one after another, add.** Two separate loops of `n` steps are `n + n`, which is still O(n).
+3. **A loop inside a loop multiplies.** A loop of `n` containing a loop of `n` is `n × n`, so O(n²).
+4. **Drop constant factors.** `3n` and `n/2` are both O(n). They matter in practice, but not for the growth class.
+5. **Drop smaller terms.** `n² + n + 7` is O(n²), because for large `n` the `n²` swamps the rest.
+6. **A loop that halves (or doubles) its counter each time** is O(log n).
+
+## Counting steps in code
+
+Rather than trust the rules, count. Each function below does a loop shape and returns how many steps it took. The printed numbers are real counts, not estimates, and they are identical in every language.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="bigo_steps.py"
+def linear_steps(n):
+    steps = 0
+    for _ in range(n):
+        steps += 1
+    return steps
+
+
+def halving_steps(n):
+    steps = 0
+    while n > 0:
+        n = n // 2
+        steps += 1
+    return steps
+
+
+def pair_steps(n):
+    steps = 0
+    for i in range(n):
+        for j in range(i + 1, n):
+            steps += 1
+    return steps
+
+
+for n in [10, 100, 1000]:
+    print(f"n={n} linear={linear_steps(n)} halving={halving_steps(n)} pairs={pair_steps(n)}")
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="bigo_steps.js"
+function linearSteps(n) {
+  let steps = 0;
+  for (let i = 0; i < n; i++) {
+    steps += 1;
+  }
+  return steps;
+}
+
+function halvingSteps(n) {
+  let steps = 0;
+  while (n > 0) {
+    n = Math.floor(n / 2);
+    steps += 1;
+  }
+  return steps;
+}
+
+function pairSteps(n) {
+  let steps = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      steps += 1;
+    }
+  }
+  return steps;
+}
+
+for (const n of [10, 100, 1000]) {
+  console.log(`n=${n} linear=${linearSteps(n)} halving=${halvingSteps(n)} pairs=${pairSteps(n)}`);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="BigoSteps.java"
+public class BigoSteps {
+    static int linearSteps(int n) {
+        int steps = 0;
+        for (int i = 0; i < n; i++) {
+            steps += 1;
+        }
+        return steps;
+    }
+
+    static int halvingSteps(int n) {
+        int steps = 0;
+        while (n > 0) {
+            n = n / 2;
+            steps += 1;
+        }
+        return steps;
+    }
+
+    static int pairSteps(int n) {
+        int steps = 0;
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                steps += 1;
+            }
+        }
+        return steps;
+    }
+
+    public static void main(String[] args) {
+        int[] sizes = {10, 100, 1000};
+        for (int n : sizes) {
+            System.out.println("n=" + n + " linear=" + linearSteps(n)
+                + " halving=" + halvingSteps(n) + " pairs=" + pairSteps(n));
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="bigo_steps.c"
+#include <stdio.h>
+
+static int linear_steps(int n) {
+    int steps = 0;
+    for (int i = 0; i < n; i++) {
+        steps += 1;
+    }
+    return steps;
+}
+
+static int halving_steps(int n) {
+    int steps = 0;
+    while (n > 0) {
+        n = n / 2;
+        steps += 1;
+    }
+    return steps;
+}
+
+static int pair_steps(int n) {
+    int steps = 0;
+    for (int i = 0; i < n; i++) {
+        for (int j = i + 1; j < n; j++) {
+            steps += 1;
+        }
+    }
+    return steps;
+}
+
+int main(void) {
+    int sizes[] = {10, 100, 1000};
+    for (int k = 0; k < 3; k++) {
+        int n = sizes[k];
+        printf("n=%d linear=%d halving=%d pairs=%d\n",
+               n, linear_steps(n), halving_steps(n), pair_steps(n));
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+n=10 linear=10 halving=4 pairs=45
+n=100 linear=100 halving=7 pairs=4950
+n=1000 linear=1000 halving=10 pairs=499500
+```
+
+Read down each column as `n` grows tenfold:
+
+- `linear` grows tenfold too: O(n).
+- `halving` grows from 4 to 7 to 10: three more steps each time `n` is multiplied by 10. That is O(log n).
+- `pairs` grows about a hundredfold each time (45, 4,950, 499,500). The exact count is `n × (n − 1) / 2`, which is `n²/2 − n/2`. Drop the constant and the smaller term and you get O(n²).
+
+The `pairs` shape is the one to remember. Comparing every item with every other item is the most common accidental source of slowness, and it is easy to write without noticing.
+
+## Best, worst and average case
+
+The step count for one algorithm can depend on the particular input, not only its size. Searching a list for a value by looking at each item in turn:
+
+| Case | When it happens | Steps for a list of n |
+|---|---|---|
+| Best | The value is the first item | 1 |
+| Worst | The value is last, or absent | n |
+| Average | The value is somewhere in the middle, typically | about n/2 |
+
+Unless told otherwise, Big-O quotes the **worst case**, because it is a guarantee: the algorithm will never be slower than that. Note that "average" is a statement about a typical input, while "best" and "worst" are about particular inputs. The best case alone is rarely useful, since you cannot choose your input.
+
+## Space complexity
+
+The same notation describes memory. An algorithm that copies its input into a new list uses O(n) extra space; one that uses a few variables regardless of input size uses O(1). Often you can trade one for the other: using more memory to remember answers can save time, a bargain you will see in the problem-patterns lesson.
+
+## Amortised cost
+
+Some operations are cheap almost always and expensive rarely. The classic case is adding to the end of a growable list (a dynamic array, from the [arrays lesson](../sequences-and-arrays/)). It keeps spare room, so most appends cost one step. When it runs out, it allocates a block twice as large and copies every item across, which costs `size` steps.
+
+So is an append O(1) or O(n)? The honest answer is that a single append is occasionally O(n), but over a long run, the average cost per append is constant. That average over a sequence of operations is the **amortised cost**. Count it:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="bigo_amortised.py"
+def copies_for(appends):
+    capacity = 1
+    size = 0
+    copies = 0
+    for _ in range(appends):
+        if size == capacity:
+            copies += size       # moving everything to a bigger block
+            capacity *= 2
+        size += 1
+    return copies
+
+
+for appends in [10, 100, 1000]:
+    print(f"appends={appends} copies={copies_for(appends)}")
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="bigo_amortised.js"
+function copiesFor(appends) {
+  let capacity = 1;
+  let size = 0;
+  let copies = 0;
+  for (let i = 0; i < appends; i++) {
+    if (size === capacity) {
+      copies += size;          // moving everything to a bigger block
+      capacity *= 2;
+    }
+    size += 1;
+  }
+  return copies;
+}
+
+for (const appends of [10, 100, 1000]) {
+  console.log(`appends=${appends} copies=${copiesFor(appends)}`);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="BigoAmortised.java"
+public class BigoAmortised {
+    static int copiesFor(int appends) {
+        int capacity = 1;
+        int size = 0;
+        int copies = 0;
+        for (int i = 0; i < appends; i++) {
+            if (size == capacity) {
+                copies += size;      // moving everything to a bigger block
+                capacity *= 2;
+            }
+            size += 1;
+        }
+        return copies;
+    }
+
+    public static void main(String[] args) {
+        int[] counts = {10, 100, 1000};
+        for (int appends : counts) {
+            System.out.println("appends=" + appends + " copies=" + copiesFor(appends));
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="bigo_amortised.c"
+#include <stdio.h>
+
+static int copies_for(int appends) {
+    int capacity = 1;
+    int size = 0;
+    int copies = 0;
+    for (int i = 0; i < appends; i++) {
+        if (size == capacity) {
+            copies += size;          /* moving everything to a bigger block */
+            capacity *= 2;
+        }
+        size += 1;
+    }
+    return copies;
+}
+
+int main(void) {
+    int counts[] = {10, 100, 1000};
+    for (int k = 0; k < 3; k++) {
+        printf("appends=%d copies=%d\n", counts[k], copies_for(counts[k]));
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+appends=10 copies=15
+appends=100 copies=127
+appends=1000 copies=1023
+```
+
+The total copying never exceeds about twice the number of appends (1,023 copies for 1,000 appends), so each append costs a constant two or so copies on average. Doubling the capacity is what makes this work. Growing by a fixed amount, say 10 slots at a time, would make the total copying quadratic.
+
+## Common pitfalls
+
+- **Treating Big-O as a speed.** It describes growth, not seconds. An O(n) algorithm with a huge constant can lose to an O(n²) one for small inputs. Big-O tells you what happens when the input gets large.
+- **Forgetting that a single call can hide a loop.** In many languages, checking whether a list contains an item, or inserting at the front, is itself O(n). A loop that calls it is then O(n²).
+- **Multiplying when you should add.** Two loops one after the other are O(n + n) = O(n). Only nested loops multiply.
+- **Confusing the size of the input with its value.** A loop `for i in range(n)` is O(n) in the value `n`, but if `n` is the number of digits in the input, the cost is exponential in that size.
+- **Quoting the best case.** "It is O(1) if the value is first" is true and useless. State the worst case.
+
+<Exercise title="Rank eight snippets by growth">
+
+Each snippet below is pseudocode, and `n` is the number of items in the input list. Give each its Big-O class, then order them from slowest-growing to fastest-growing.
+
+| Label | Snippet |
+|---|---|
+| A | return the first item |
+| B | for each item, print it |
+| C | for each item, for each item, print the pair |
+| D | set `k = n`; while `k > 1`, set `k = k / 2` |
+| E | for each item, binary-search a sorted list of `n` items for it |
+| F | print the first 10 items (or all of them if there are fewer) |
+| G | for each `i`, for each `j` from `i` to the end, print the pair |
+| H | `fib(n)`: if `n < 2` return `n`; otherwise return `fib(n-1) + fib(n-2)` |
+
+<Solution>
+
+| Label | Class | Reason |
+|---|---|---|
+| A | O(1) | One step |
+| B | O(n) | One pass |
+| C | O(n²) | Nested loops, `n × n` |
+| D | O(log n) | The counter halves each time |
+| E | O(n log n) | `n` searches, each O(log n) |
+| F | O(1) | At most 10 steps, however large `n` gets |
+| G | O(n²) | About `n²/2` pairs, and the `/2` is a constant |
+| H | O(2ⁿ) | Each call makes two more calls |
+
+From slowest-growing to fastest-growing: A and F (tie) < D < B < E < C and G (tie) < H.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Count the steps of a doubling loop">
+
+A loop starts with `i = 1` and, while `i < n`, doubles `i` and counts one step. Write it and print the step count for these inputs, then state its Big-O class.
+
+| n | Expected steps |
+|---|---|
+| 1 | 0 |
+| 1000 | 10 |
+| 1024 | 10 |
+| 1025 | 11 |
+
+<Solution>
+
+It is O(log n): the counter doubles each time, so the number of steps is the number of doublings needed to reach `n`. Note how 1024 (exactly 2¹⁰) gives 10, and one more gives 11.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="doubling_steps.py"
+def doubling_steps(n):
+    steps = 0
+    i = 1
+    while i < n:
+        i *= 2
+        steps += 1
+    return steps
+
+
+print("n=1:", doubling_steps(1))
+print("n=1000:", doubling_steps(1000))
+print("n=1024:", doubling_steps(1024))
+print("n=1025:", doubling_steps(1025))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="doubling_steps.js"
+function doublingSteps(n) {
+  let steps = 0;
+  let i = 1;
+  while (i < n) {
+    i *= 2;
+    steps += 1;
+  }
+  return steps;
+}
+
+console.log("n=1:", doublingSteps(1));
+console.log("n=1000:", doublingSteps(1000));
+console.log("n=1024:", doublingSteps(1024));
+console.log("n=1025:", doublingSteps(1025));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="DoublingSteps.java"
+public class DoublingSteps {
+    static int doublingSteps(int n) {
+        int steps = 0;
+        int i = 1;
+        while (i < n) {
+            i *= 2;
+            steps += 1;
+        }
+        return steps;
+    }
+
+    public static void main(String[] args) {
+        System.out.println("n=1: " + doublingSteps(1));
+        System.out.println("n=1000: " + doublingSteps(1000));
+        System.out.println("n=1024: " + doublingSteps(1024));
+        System.out.println("n=1025: " + doublingSteps(1025));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="doubling_steps.c"
+#include <stdio.h>
+
+static int doubling_steps(int n) {
+    int steps = 0;
+    int i = 1;
+    while (i < n) {
+        i *= 2;
+        steps += 1;
+    }
+    return steps;
+}
+
+int main(void) {
+    printf("n=1: %d\n", doubling_steps(1));
+    printf("n=1000: %d\n", doubling_steps(1000));
+    printf("n=1024: %d\n", doubling_steps(1024));
+    printf("n=1025: %d\n", doubling_steps(1025));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+Output:
+
+```text
+n=1: 0
+n=1000: 10
+n=1024: 10
+n=1025: 11
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict the quadratic jump">
+
+The `pair_steps` function above counts `n × (n − 1) / 2` steps. Without running anything, work out the count for `n = 2000`, and say how many times larger it is than the count for `n = 1000` (499,500).
+
+<Solution>
+
+For `n = 2000`: `2000 × 1999 / 2 = 1,999,000`. Divided by 499,500 that is just under 4. Doubling the input roughly quadrupled the work, which is the signature of O(n²). You can confirm by calling `pair_steps(2000)`.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Count steps as a function of the input size `n`, not seconds. Big-O keeps only the dominant growth.
+- The classes to know are O(1), O(log n), O(n), O(n log n), O(n²) and O(2ⁿ). A single loop is O(n), nested loops multiply, and a loop that halves its counter is O(log n).
+- Drop constants and smaller terms. Add sequential work; multiply nested work.
+- Quote the worst case by default; remember that best and average are different questions.
+- Amortised cost is the average over a sequence. Appending to a doubling array is O(1) amortised even though an occasional append copies everything.
+
+Next, [Searching and sorting](../searching-and-sorting/) puts these growth rates to work on two of the oldest problems in programming.
