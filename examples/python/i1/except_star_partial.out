@@ -1,0 +1,3 @@
+inner handled: ['a']
+outer got: batch (1 sub-exception)
+["KeyError('b')"]

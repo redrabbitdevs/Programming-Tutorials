@@ -1,0 +1,3 @@
+8
+TypeError: expected an int, got str
+TypeError: expected an int, got float

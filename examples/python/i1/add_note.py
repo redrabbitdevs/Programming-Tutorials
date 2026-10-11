@@ -1,0 +1,12 @@
+lines = ["10", "20", "x3"]
+total = 0
+try:
+    for number, line in enumerate(lines, start=1):
+        try:
+            total += int(line)
+        except ValueError as error:
+            error.add_note(f"on line {number}: {line!r}")
+            raise
+except ValueError as error:
+    print(error)
+    print(error.__notes__)

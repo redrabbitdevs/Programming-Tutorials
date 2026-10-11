@@ -1,0 +1,323 @@
+---
+language: python
+level: intermediate
+module: Errors and files
+order: 4
+title: Paths and folders with pathlib
+description: Build file paths that work on every operating system, read and write whole files in one call, and list or search folders with pathlib.Path.
+minVersion: "3.8"
+objectives:
+  - Build and take apart paths with Path, the / operator and its attributes
+  - Read and write a whole text file with read_text and write_text
+  - List and search folders with iterdir, glob and rglob
+  - Create folders and handle the errors that file-system calls raise
+estimatedMinutes: 40
+fundamentals: []
+---
+
+So far a file has been a string such as `"notes.txt"`. That is fine for one file next to your script. It stops working when you build names from pieces (`"data" + "/" + name`), when you need the extension or the folder, or when the same program must run on Windows, where folders are separated by `\` instead of `/`. The standard library's `pathlib` module gives paths their own type, `Path`, and it has already appeared in passing in the [Unicode and bytes lesson](../../beginner/unicode-bytes/).
+
+## Building paths with the slash
+
+Import `Path`, then join pieces with the `/` operator:
+
+```python title="path_parts.py"
+from pathlib import Path
+
+path = Path("reports") / "2026" / "summary.final.txt"
+print(path)
+print(path.name)
+print(path.stem)
+print(path.suffix)
+print(path.parent)
+print(path.parts)
+```
+
+```text
+reports/2026/summary.final.txt
+summary.final.txt
+summary.final
+.txt
+reports/2026
+('reports', '2026', 'summary.final.txt')
+```
+
+On Windows the first line prints with backslashes, `reports\2026\summary.final.txt`. That is the point: you write the pieces, and `Path` uses the right separator. The attributes take the path apart:
+
+- `name` is the last piece, `parent` is everything before it.
+- `suffix` is the extension, including the dot, and `stem` is the name without it. Only the last dot counts, so `summary.final.txt` has the stem `summary.final`.
+- `parts` is a tuple of all the pieces.
+
+A `Path` never changes. Methods that "change" it return a new one:
+
+```python title="path_parts.py (continued)"
+print(path.with_suffix(".csv"))
+print(path.with_name("notes.txt"))
+```
+
+```text
+reports/2026/summary.final.csv
+reports/2026/notes.txt
+```
+
+Building or editing a path does not touch the disk. The file does not need to exist, and nothing is created or checked until you call a method that says so.
+
+## Where relative paths start
+
+A relative path such as `Path("notes.txt")` is resolved against the **current working directory**, the folder your terminal is in, as the [files lesson](../../beginner/files-first-look/) warned. `Path.cwd()` returns that folder and `Path.home()` returns your home folder. When a data file lives next to your script, it is more reliable to anchor the path to the script itself. Python sets `__file__` to the script's path when you run a file (it does not exist in the interactive prompt):
+
+```python title="script_dir.py"
+from pathlib import Path
+
+here = Path(__file__).resolve().parent
+print(here.is_dir())
+print((here / "script_dir.py").exists())
+```
+
+```text
+True
+True
+```
+
+`resolve()` turns a path into an absolute one, so `here` is the folder holding the script wherever you ran it from. `is_dir()` and `exists()` ask the file system a question and return `True` or `False`.
+
+## Reading and writing a whole file
+
+`write_text` and `read_text` open the file, do the work and close it again in one call. They take the same `encoding` argument as `open`, and you should always give it, for the reasons in the files lesson.
+
+The examples below work in a scratch folder so that they leave nothing behind. `tempfile.TemporaryDirectory()` creates a fresh empty folder, hands you its location as a string, and deletes the folder and everything inside it when the `with` block ends. [The with statement lesson](../context-managers/) returns to it.
+
+```python title="path_readwrite.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    note = Path(folder) / "note.txt"
+    print(note.exists())
+    note.write_text("first line\nsecond line\n", encoding="utf-8")
+    print(note.exists(), note.is_file(), note.stat().st_size)
+    print(note.read_text(encoding="utf-8").splitlines())
+    note.unlink()
+    print(note.exists())
+```
+
+```text
+False
+True True 23
+['first line', 'second line']
+False
+```
+
+`stat().st_size` is the size in bytes: 11 for the first line (ten characters and the newline) and 12 for the second. `unlink()` deletes the file. `write_text` replaces any existing content, just like mode `"w"`.
+
+For a file too big to read at once, or to loop over line by line, use `path.open(encoding="utf-8")`. It takes the same arguments as the built-in `open`, so everything you learned there still applies.
+
+## Folders: listing and searching
+
+Three methods look inside a folder. `iterdir()` yields everything directly inside it. `glob(pattern)` yields the entries that match a pattern, where `*` stands for any run of characters and `?` for one character. `rglob(pattern)` is the same search through the folder and all folders below it. The first snippet builds a small tree and the second searches it. Both belong to one file, `explore_folder.py`.
+
+```python title="explore_folder.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    root = Path(folder)
+    logs = root / "logs" / "2026"
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / "app.log").write_text("a\nb\n", encoding="utf-8")
+    (logs / "db.log").write_text("c\n", encoding="utf-8")
+    (root / "logs" / "readme.txt").write_text("hi\n", encoding="utf-8")
+```
+
+`mkdir(parents=True, exist_ok=True)` creates `logs` and `2026` in one go, and does not complain if they already exist. Now the searches, still inside the `with` block:
+
+```python title="explore_folder.py (continued)"
+    print(sorted(p.name for p in (root / "logs").iterdir()))
+    print(sorted(p.name for p in root.glob("logs/*.txt")))
+    print(sorted(p.relative_to(root).as_posix() for p in root.rglob("*.log")))
+```
+
+```text
+['2026', 'readme.txt']
+['readme.txt']
+['logs/2026/app.log', 'logs/2026/db.log']
+```
+
+Each `p` is a `Path`. `sorted(...)` is there because the file system returns entries in no promised order, and you want the same output on every machine. `relative_to(root)` cuts the shared start off a path, and `as_posix()` writes it with forward slashes whatever the operating system, so the output above is the same on Windows.
+
+## Errors to expect
+
+File-system calls raise members of the `OSError` family from the [exception family lesson](../exception-hierarchy/):
+
+```python title="path_errors.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    target = Path(folder) / "reports"
+    target.mkdir()
+    try:
+        target.mkdir()
+    except FileExistsError:
+        print("already exists")
+    try:
+        (target / "missing.txt").read_text(encoding="utf-8")
+    except FileNotFoundError as error:
+        print(type(error).__name__)
+```
+
+```text
+already exists
+FileNotFoundError
+```
+
+Two arguments save you from many `try` blocks. `mkdir(exist_ok=True)` makes "already there" a success, and `unlink(missing_ok=True)` makes "already gone" one. Use them when the end state is all you care about. When you really do need to react to a missing file, call the method and catch the error rather than asking `exists()` first. Another program could change things between your check and your call.
+
+## Common pitfalls
+
+- **Joining with `+`.** `"data" + "/" + name` bakes in a separator. `Path("data") / name` does not. The `/` operator needs a `Path` on at least one side: `"data" / "x"` is a `TypeError`.
+- **Expecting wildcards in `Path("*.txt")`.** A `Path` is just a name. The star is only expanded by `glob`.
+- **Using the result of `glob` twice.** It is a one-shot iterator, so `len(root.glob("*.log"))` fails and a second loop sees nothing. Wrap it in `list(...)` or `sorted(...)` first.
+
+<Exercise title="Count files by extension">
+Given `names = ["a.txt", "b.csv", "c.txt", "archive.tar.gz", "README"]`, use `Path(name).suffix` to count how many names have each extension. Names with no extension are counted under `(none)`. Print one line per extension, in the order each extension first appears. Expected output:
+
+```text
+.txt 2
+.csv 1
+.gz 1
+(none) 1
+```
+
+<Solution>
+
+```python title="suffix_counts.py"
+from pathlib import Path
+
+names = ["a.txt", "b.csv", "c.txt", "archive.tar.gz", "README"]
+counts = {}
+for name in names:
+    suffix = Path(name).suffix or "(none)"
+    counts[suffix] = counts.get(suffix, 0) + 1
+
+for suffix, count in counts.items():
+    print(suffix, count)
+```
+
+```text
+.txt 2
+.csv 1
+.gz 1
+(none) 1
+```
+
+`Path("README").suffix` is the empty string, which is falsy, so `or "(none)"` replaces it. `archive.tar.gz` counts under `.gz` because only the last suffix is reported. A dictionary remembers insertion order, so the lines come out in first-seen order.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the path pieces">
+What does each line print? Write the five answers down before running the code.
+
+```python title="predict_path.py"
+from pathlib import Path
+
+p = Path("data") / "raw" / "2026.tar.gz"
+print(p.name)
+print(p.stem)
+print(p.suffix)
+print(p.with_suffix(".zip"))
+print(p.parent.name)
+```
+
+<Solution>
+
+```text
+2026.tar.gz
+2026.tar
+.gz
+data/raw/2026.tar.zip
+raw
+```
+
+Only the last dot splits `stem` from `suffix`, so the stem keeps `.tar`. For the same reason `with_suffix(".zip")` replaces just `.gz`, giving `2026.tar.zip`, which is probably not what you wanted. The last line prints the name of the folder one level up. On Windows the fourth line uses a backslash.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Count lines in every log file">
+The script below builds a scratch folder with four files. Add code inside the `with` block that finds every `.log` file in the folder and its sub-folders, in sorted order, and prints the path relative to the folder with a colon and its number of lines. Then print the total. Expected output:
+
+```text
+app.log: 3
+db.log: 2
+old/web.log: 4
+Total: 9
+```
+
+```python title="log_counter.py"
+import tempfile
+from pathlib import Path
+
+files = {
+    "app.log": "start\nwork\nstop\n",
+    "db.log": "open\nclose\n",
+    "notes.txt": "ignore me\n",
+    "old/web.log": "x\ny\nz\nw\n",
+}
+
+with tempfile.TemporaryDirectory() as folder:
+    root = Path(folder)
+    for name, text in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    # your code here
+```
+
+<Solution>
+
+```python title="log_counter.py"
+import tempfile
+from pathlib import Path
+
+files = {
+    "app.log": "start\nwork\nstop\n",
+    "db.log": "open\nclose\n",
+    "notes.txt": "ignore me\n",
+    "old/web.log": "x\ny\nz\nw\n",
+}
+
+with tempfile.TemporaryDirectory() as folder:
+    root = Path(folder)
+    for name, text in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    total = 0
+    for path in sorted(root.rglob("*.log")):
+        count = len(path.read_text(encoding="utf-8").splitlines())
+        print(f"{path.relative_to(root).as_posix()}: {count}")
+        total += count
+    print("Total:", total)
+```
+
+```text
+app.log: 3
+db.log: 2
+old/web.log: 4
+Total: 9
+```
+
+`rglob("*.log")` searches all sub-folders and skips `notes.txt`. Sorting the paths fixes the output order. `splitlines()` counts lines without being fooled by the final newline, and `as_posix()` keeps the separator the same on every system.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `Path("a") / "b"` builds paths without worrying about separators. `name`, `stem`, `suffix`, `parent` and `parts` take them apart, and `with_suffix` and `with_name` return changed copies.
+- `read_text`, `write_text`, `exists`, `is_file`, `is_dir`, `mkdir` and `unlink` act on the disk. Always pass `encoding="utf-8"` to the text methods.
+- `iterdir`, `glob` and `rglob` list folders. Sort the results, and catch `OSError` children such as `FileNotFoundError` rather than checking first.

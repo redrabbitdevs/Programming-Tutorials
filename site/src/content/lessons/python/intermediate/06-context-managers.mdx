@@ -1,0 +1,382 @@
+---
+language: python
+level: intermediate
+module: Errors and files
+order: 6
+title: The with statement in depth
+description: Understand what with guarantees, combine several context managers, and use contextlib and tempfile to clean up after yourself automatically.
+minVersion: "3.10"
+objectives:
+  - Explain what a with statement does on entry and on exit, including when an error occurs
+  - Open several resources in one with statement, including the parenthesised form
+  - Use suppress, redirect_stdout and TemporaryDirectory from the standard library
+  - Manage a number of resources that is only known at run time with ExitStack
+estimatedMinutes: 40
+fundamentals: []
+---
+
+You have written `with open(...) as file:` many times. It is time to look at what the `with` statement promises, because the same promise works for much more than files: temporary folders, locks, database connections, and anything else that must be released.
+
+## The promise
+
+Opening a resource and releasing it are two halves of one job. Done by hand, the safe version needs a `try` and a `finally`, so that the release happens even when something fails in between:
+
+```python title="manual_close.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "a.txt"
+    path.write_text("hello\n", encoding="utf-8")
+
+    file = open(path, encoding="utf-8")
+    try:
+        text = file.read()
+    finally:
+        file.close()
+    print(repr(text), file.closed)
+```
+
+```text
+'hello\n' True
+```
+
+`with` is that pattern with the boilerplate removed. An object that works with `with` is a **context manager**: it has a step that runs on entry (its result is what follows `as`) and a step that runs on exit. The exit step runs when the block ends normally, and also when an error leaves it:
+
+```python title="with_closes.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "a.txt"
+    path.write_text("hello\n", encoding="utf-8")
+
+    try:
+        with open(path, encoding="utf-8") as file:
+            print("inside:", file.closed)
+            raise RuntimeError("boom")
+    except RuntimeError:
+        print("error caught")
+    print("after:", file.closed)
+```
+
+```text
+inside: False
+error caught
+after: True
+```
+
+The file was closed before the `except` clause ran. The exception was not swallowed: it carried on out of the block once the exit step had finished. A context manager can choose to swallow it, as `suppress` below does, but by default it does not.
+
+<Callout type="note">
+
+Writing your own context manager means defining a class with `__enter__` and `__exit__` methods, or writing a generator function and decorating it with `contextlib.contextmanager`. Both need material from later in the course. This lesson shows the managers that the standard library already provides, and these cover most everyday needs.
+
+</Callout>
+
+## Several managers at once
+
+Put the managers in one `with`, separated by commas. This script copies a file and numbers each line:
+
+```python title="numbered.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    src = Path(folder) / "src.txt"
+    dst = Path(folder) / "numbered.txt"
+    src.write_text("red\ngreen\nblue\n", encoding="utf-8")
+
+    with open(src, encoding="utf-8") as source, open(dst, "w", encoding="utf-8") as target:
+        for number, line in enumerate(source, start=1):
+            target.write(f"{number}: {line}")
+    print(dst.read_text(encoding="utf-8").splitlines())
+```
+
+```text
+['1: red', '2: green', '3: blue']
+```
+
+The first manager is entered first, and the exit steps run in the opposite order, so `target` is closed before `source`. If opening the second file fails, the first is still closed properly.
+
+That `with` line is long. <Since v="3.10" /> You can wrap the managers in parentheses and put one on each line, with an optional trailing comma. This replaces the `with` line in the script above, and the body stays the same:
+
+```python title="numbered_paren.py (the with statement)"
+    with (
+        open(src, encoding="utf-8") as source,
+        open(dst, "w", encoding="utf-8") as target,
+    ):
+        for number, line in enumerate(source, start=1):
+            target.write(f"{number}: {line}")
+```
+
+The output is identical. On Python 3.9 and earlier, the parenthesised form is a `SyntaxError`, and you would use a backslash or nested `with` blocks instead.
+
+## Managers from the standard library
+
+### suppress: ignore one expected error
+
+The `contextlib` module collects ready-made managers. `suppress` says "if this block raises one of these, carry on after it":
+
+```python title="suppress_demo.py"
+import tempfile
+from contextlib import suppress
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "cache.txt"
+
+    with suppress(FileNotFoundError):
+        path.unlink()
+    print("no error, even though the file never existed")
+
+    path.write_text("x", encoding="utf-8")
+    with suppress(FileNotFoundError):
+        path.unlink()
+    print("exists after delete:", path.exists())
+```
+
+```text
+no error, even though the file never existed
+exists after delete: False
+```
+
+It is shorthand for `try: ... except FileNotFoundError: pass`, and it states the intention in one line. For this particular job `path.unlink(missing_ok=True)` is even shorter. Use `suppress` for the many cases that have no such argument. Remember that the rest of the block is skipped at the moment the error occurs, which matters in the second exercise.
+
+### redirect_stdout: capture what a function prints
+
+`redirect_stdout` temporarily sends everything `print` writes into another file-like object. `io.StringIO` is a file that lives in memory, which makes it a handy bucket:
+
+```python title="redirect_demo.py"
+import io
+from contextlib import redirect_stdout
+
+buffer = io.StringIO()
+with redirect_stdout(buffer):
+    print("captured line")
+print("buffer holds:", repr(buffer.getvalue()))
+```
+
+```text
+buffer holds: 'captured line\n'
+```
+
+This is useful for testing a function that prints instead of returning. When the block ends, `print` goes back to the screen, even if an error interrupted the block.
+
+### TemporaryDirectory: a folder that cleans up after itself
+
+You have already used it. It creates the folder on entry and removes it, with its contents, on exit:
+
+```python title="tempdir_demo.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    scratch = Path(folder)
+    (scratch / "x.txt").write_text("x", encoding="utf-8")
+    print("inside:", scratch.exists(), len(list(scratch.iterdir())), "file")
+print("after:", scratch.exists())
+```
+
+```text
+inside: True 1 file
+after: False
+```
+
+This is the right tool for tests and for any program that produces intermediate files. Notice that `scratch` still exists as a name after the block: `with` does not create a new scope, so variables made inside it stay available. What disappears is the resource the name pointed to.
+
+## ExitStack: when you do not know how many
+
+A `with` statement names its managers in the source code, so you cannot write one for "all the files in this list". `ExitStack` solves that. It is a manager that collects other managers as you go, and exits all of them, in reverse order, when its own block ends:
+
+```python title="exitstack_files.py"
+import tempfile
+from contextlib import ExitStack
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    paths = [Path(folder) / f"part{n}.txt" for n in (1, 2, 3)]
+    for n, path in enumerate(paths, start=1):
+        path.write_text(f"part {n}\n", encoding="utf-8")
+
+    with ExitStack() as stack:
+        files = [stack.enter_context(open(p, encoding="utf-8")) for p in paths]
+        merged = "".join(file.read() for file in files)
+
+    print(merged.splitlines())
+    print([file.closed for file in files])
+```
+
+```text
+['part 1', 'part 2', 'part 3']
+[True, True, True]
+```
+
+`stack.enter_context(...)` opens a manager, registers it, and returns what `as` would have given you. All three files were open at the same time, and all three were closed at the end. `ExitStack` can also register a plain function with `callback`, which makes the reverse order easy to see:
+
+```python title="exit_order.py"
+from contextlib import ExitStack
+
+with ExitStack() as stack:
+    stack.callback(print, "undo the first step")
+    stack.callback(print, "undo the second step")
+    print("working")
+```
+
+```text
+working
+undo the second step
+undo the first step
+```
+
+Last in, first out is the right order for undoing things: you close the door you opened last.
+
+## Common pitfalls
+
+- **Using the object after the block.** The file is closed once `with` ends, and `file.read()` then raises `ValueError: I/O operation on closed file.` Do all the work inside the block, or keep the data you need, such as the text you read.
+- **Using `with` on something that is not a context manager.** `with 5:` raises `TypeError: 'int' object does not support the context manager protocol`. Check the documentation: some objects need `.open()` or a helper before they can be used with `with`.
+- **Wrapping too much in `suppress`.** `suppress(Exception)` hides every bug in the block, for the same reasons a broad `except` does. Name the one error you expect, and keep the block short.
+
+<Exercise title="Copy a file in capitals">
+Copy a file line by line into a second file, turning each line to upper case. Use one parenthesised `with` statement to open both files. The code below creates `names.txt` in a scratch folder. Add the copy, then print the lines of the new file as a list. Expected output:
+
+```text
+['ALPHA', 'BETA', 'GAMMA']
+```
+
+```python title="copy_upper.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    src = Path(folder) / "names.txt"
+    dst = Path(folder) / "names_upper.txt"
+    src.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+
+    # your with statement here
+
+    print(dst.read_text(encoding="utf-8").splitlines())
+```
+
+<Solution>
+
+```python title="copy_upper.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    src = Path(folder) / "names.txt"
+    dst = Path(folder) / "names_upper.txt"
+    src.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
+
+    with (
+        open(src, encoding="utf-8") as source,
+        open(dst, "w", encoding="utf-8") as target,
+    ):
+        for line in source:
+            target.write(line.upper())
+
+    print(dst.read_text(encoding="utf-8").splitlines())
+```
+
+```text
+['ALPHA', 'BETA', 'GAMMA']
+```
+
+Both files are open together, and both are closed when the block ends. That matters here: the `print` reads `dst` after the block, and the written text is only guaranteed to be on disk once the file has been closed. The newline at the end of each line survives `upper()`, so the output keeps its line structure.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Delete what is there, count what was deleted">
+The code below creates `a.tmp` and `c.tmp` in a scratch folder, but not `b.tmp`. Loop over the three names. Delete each file with `unlink`, ignoring files that are missing, and count only the files that were really deleted. Then print the count and how many files are left. Expected output:
+
+```text
+removed 2
+left: 0
+```
+
+```python title="remove_temps.py"
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    root = Path(folder)
+    (root / "a.tmp").write_text("1", encoding="utf-8")
+    (root / "c.tmp").write_text("3", encoding="utf-8")
+
+    removed = 0
+    # your loop here
+
+    print("removed", removed)
+    print("left:", len(list(root.iterdir())))
+```
+
+<Solution>
+
+```python title="remove_temps.py"
+import tempfile
+from contextlib import suppress
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as folder:
+    root = Path(folder)
+    (root / "a.tmp").write_text("1", encoding="utf-8")
+    (root / "c.tmp").write_text("3", encoding="utf-8")
+
+    removed = 0
+    for name in ["a.tmp", "b.tmp", "c.tmp"]:
+        with suppress(FileNotFoundError):
+            (root / name).unlink()
+            removed += 1
+
+    print("removed", removed)
+    print("left:", len(list(root.iterdir())))
+```
+
+```text
+removed 2
+left: 0
+```
+
+The counter sits after `unlink` inside the `suppress` block. For `b.tmp`, `unlink` raises, the rest of the block is skipped, and `removed` is not increased. That is why the count is 2 and not 3. With `unlink(missing_ok=True)` you could not tell the cases apart.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict what the function returns">
+What does this print? Pay attention to the second value.
+
+```python title="predict_return_with.py"
+import tempfile
+from pathlib import Path
+
+
+def read_first(path):
+    with open(path, encoding="utf-8") as file:
+        line = file.readline().strip()
+        return line, file.closed
+
+
+with tempfile.TemporaryDirectory() as folder:
+    path = Path(folder) / "greeting.txt"
+    path.write_text("hello\nworld\n", encoding="utf-8")
+    print(read_first(path))
+```
+
+<Solution>
+
+```text
+('hello', False)
+```
+
+The `return` expression `line, file.closed` is evaluated first, while the file is still open, so `file.closed` is `False`. Only then does the function leave the `with` block, and the file is closed on the way out. The file is closed by the time the caller gets the tuple, but the tuple already holds the old answer. The lesson: a value computed inside the block is a snapshot, so to see the final state, check after the block.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A `with` statement runs an entry step and then, always, an exit step, even if the block raised. Errors carry on afterwards unless the manager suppresses them.
+- Several managers can share one `with`, separated by commas and exited in reverse order. <Since v="3.10" /> They can be wrapped in parentheses, one per line.
+- `contextlib.suppress`, `contextlib.redirect_stdout` and `tempfile.TemporaryDirectory` cover common clean-up jobs, and `ExitStack` handles a number of resources that is only known at run time.

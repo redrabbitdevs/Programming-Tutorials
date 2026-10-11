@@ -1,0 +1,2 @@
+no error, even though the file never existed
+exists after delete: False

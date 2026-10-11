@@ -1,0 +1,322 @@
+---
+language: python
+level: intermediate
+module: Errors and files
+order: 1
+title: The exception family tree
+description: Use the exception hierarchy to catch whole families of errors, order handlers correctly, and choose between look-first and ask-forgiveness code.
+minVersion: "3.8"
+objectives:
+  - Read the parent classes of an exception to predict which except clause catches it
+  - Order several except clauses so a specific handler is not hidden by a general one
+  - List several exception types in one except clause, with and without parentheses
+  - Choose between checking first (LBYL) and handling the error afterwards (EAFP)
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/12-errors-and-exceptions"]
+---
+
+In the [try and except lesson](../../beginner/try-except/) you caught `ValueError` and `KeyError` by name, and you were told to be as specific as you can. This lesson explains how Python decides whether an `except` clause matches, because that rule is what makes "specific" and "general" mean something.
+
+## Exceptions have parents
+
+Every exception type is built on another one. A handler for a type also catches everything built on that type. Python records the chain of parents on each type, in an attribute called `__mro__`:
+
+```python title="hierarchy.py"
+for cls in KeyError.__mro__:
+    print(cls.__name__)
+```
+
+```text
+KeyError
+LookupError
+Exception
+BaseException
+object
+```
+
+Read it from the top: a `KeyError` is a kind of `LookupError`, which is a kind of `Exception`, which is a kind of `BaseException`. (Every value in Python ends in `object`; you can ignore that line.) An `except LookupError:` clause therefore catches a `KeyError`, and so does `except Exception:`.
+
+Here are the families you will meet most often. Each name in the right-hand column is built on the name on its left.
+
+| Parent | Types built on it |
+|---|---|
+| `LookupError` | `KeyError` (missing dict key), `IndexError` (list index too big) |
+| `ArithmeticError` | `ZeroDivisionError`, `OverflowError` |
+| `OSError` | `FileNotFoundError`, `FileExistsError`, `PermissionError`, `IsADirectoryError` |
+| `ValueError` | `UnicodeError`, which has `UnicodeDecodeError` and `UnicodeEncodeError` below it |
+
+`BaseException` has a few children that are not under `Exception`, such as `KeyboardInterrupt` (the user pressed Ctrl+C) and `SystemExit` (raised by `sys.exit()`). That is the real reason a bare `except:` is dangerous: it also catches the user's attempt to stop the program. `except Exception:` leaves those alone.
+
+## Catching a family
+
+Use a parent type when you want to treat all its children alike. Looking something up by key or by position fails in two different ways, `KeyError` and `IndexError`, but a caller often does not care which:
+
+```python title="lookup_error.py"
+def fetch(container, key):
+    try:
+        return container[key]
+    except LookupError as error:
+        return f"missing ({type(error).__name__})"
+
+
+print(fetch({"a": 1}, "b"))
+print(fetch([10, 20], 5))
+print(fetch({"a": 1}, "a"))
+```
+
+```text
+missing (KeyError)
+missing (IndexError)
+1
+```
+
+`type(error).__name__` gives the name of the exact type that was raised, so you can still report which child it was.
+
+## Order matters
+
+Python checks the `except` clauses from top to bottom and runs the **first** one that matches. It does not look for the best match. If a parent comes first, it takes everything, and the child's clause can never run:
+
+```python title="handler_order.py"
+try:
+    {}["x"]
+except LookupError:
+    print("general handler")
+except KeyError:
+    print("specific handler")
+```
+
+```text
+general handler
+```
+
+Python does not warn you about this. Put the most specific type first and the family after it:
+
+```python title="handler_order_fixed.py"
+try:
+    {}["x"]
+except KeyError:
+    print("specific handler")
+except LookupError:
+    print("general handler")
+```
+
+```text
+specific handler
+```
+
+## Several types in one clause
+
+When two unrelated types need the same response, list them in a tuple. This works in every version of Python:
+
+```python title="tuple_clause.py"
+try:
+    number = int(None)
+except (ValueError, TypeError):
+    number = 0
+print(number)
+```
+
+```text
+0
+```
+
+`int(None)` raises `TypeError`, while `int("x")` raises `ValueError`. One clause covers both.
+
+### Without the parentheses <Since v="3.14" />
+
+[PEP 758](https://peps.python.org/pep-0758/) allows the parentheses to be left out when the clause has no `as` name:
+
+```python title="no_parens.py"
+for text in ["12", "x", None]:
+    try:
+        print(int(text))
+    except ValueError, TypeError:
+        print("cannot convert", repr(text))
+```
+
+```text
+12
+cannot convert 'x'
+cannot convert None
+```
+
+Two limits are worth remembering. If you want the exception object with `as`, the parentheses are required again: `except (ValueError, TypeError) as error:`. And on Python 3.13 and earlier the unparenthesised form is a `SyntaxError`, so code that has to run on older versions should keep the parentheses. Many teams do anyway, because the parenthesised form is harder to misread.
+
+## Look first, or handle it afterwards
+
+There are two styles for dealing with something that might fail. **LBYL** ("look before you leap") checks the condition first. **EAFP** ("easier to ask forgiveness than permission") just does the thing and handles the failure. Counting words shows both:
+
+```python title="eafp_counts.py"
+words = ["tea", "milk", "tea"]
+
+counts = {}
+for word in words:
+    if word in counts:
+        counts[word] += 1
+    else:
+        counts[word] = 1
+print("look first:", counts)
+
+counts = {}
+for word in words:
+    try:
+        counts[word] += 1
+    except KeyError:
+        counts[word] = 1
+print("ask forgiveness:", counts)
+```
+
+```text
+look first: {'tea': 2, 'milk': 1}
+ask forgiveness: {'tea': 2, 'milk': 1}
+```
+
+Both are correct, and for a dictionary the first is the clearer one. EAFP earns its place in two situations. The first is when the world can change between the check and the action. Files are the usual case:
+
+```python title="eafp_file.py"
+try:
+    with open("no_such_settings.txt", encoding="utf-8") as file:
+        settings = file.read()
+except FileNotFoundError:
+    settings = "defaults"
+print(settings)
+```
+
+```text
+defaults
+```
+
+Checking "does the file exist?" first would not make this safe: another program could delete the file in the moment between your check and your `open`, and you would still need the `try`. So you may as well use only the `try`.
+
+The second situation is when the check is as hard as the work. There is no cheap test for "will `int(text)` succeed?" other than calling `int(text)`. The [fundamentals lesson on errors](../../../fundamentals/beginner/errors-and-exceptions/) discusses this trade-off in general terms. Python's own habit is to lean towards EAFP, but treat it as a tool, not a rule.
+
+## Common pitfalls
+
+- **Catching `OSError` when you meant one case.** `FileNotFoundError` and `PermissionError` are both `OSError`. A handler for the parent treats "not there" and "not allowed" the same, which usually hides a real problem. Catch the child you can actually deal with.
+- **EAFP around code that half-finishes.** If the `try` body appends to a list and then fails, the list stays changed. Use EAFP when the risky step is the first or only step that changes anything.
+- **Using exceptions when failure is the common case.** Raising and catching is cheap when it is rare and noticeably slower when most iterations fail. If most of your keys are new, `if word in counts` is the better fit.
+- **Writing `except A, B as e:` on 3.14.** It is a `SyntaxError` ("multiple exception types must be parenthesized when using 'as'"). Add the parentheses.
+
+<Exercise title="Rewrite a check as EAFP">
+This loop looks before it leaps. Rewrite it with `try` and `except KeyError`, so that it prints exactly the same two lines:
+
+```python
+settings = {"theme": "dark"}
+for key in ["theme", "font"]:
+    if key in settings:
+        print(key, "=", settings[key])
+    else:
+        print(key, "is not set")
+```
+
+Expected output:
+
+```text
+theme = dark
+font is not set
+```
+
+<Solution>
+
+```python title="eafp_rewrite.py"
+settings = {"theme": "dark"}
+for key in ["theme", "font"]:
+    try:
+        print(key, "=", settings[key])
+    except KeyError:
+        print(key, "is not set")
+```
+
+```text
+theme = dark
+font is not set
+```
+
+The lookup `settings[key]` is the only thing that can raise `KeyError`, so it is safe to put the `print` in the same `try`. Note that `print` runs only after the lookup succeeded, because its argument is evaluated first.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict which handler runs">
+What does this print? Write down all four lines before you run it. The calls are `lookup([1], 3)`, `lookup({}, "k")`, `lookup(None, 0)` and `lookup([1, 2], 1)`.
+
+```python title="predict_handlers.py"
+def lookup(data, key):
+    try:
+        return data[key]
+    except IndexError:
+        return "index"
+    except LookupError:
+        return "lookup"
+    except Exception:
+        return "other"
+
+
+print(lookup([1], 3))
+print(lookup({}, "k"))
+print(lookup(None, 0))
+print(lookup([1, 2], 1))
+```
+
+<Solution>
+
+```text
+index
+lookup
+other
+2
+```
+
+`[1][3]` raises `IndexError`, so the first clause matches. `{}["k"]` raises `KeyError`, which is not an `IndexError` but is a `LookupError`, so the second clause matches. `None[0]` raises `TypeError` ("'NoneType' object is not subscriptable"), which is neither, so `except Exception` catches it. The last call succeeds and returns `2`, so no handler runs.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A forgiving number parser">
+Write `parse_number(value)` that returns an `int` if the value reads as a whole number, a `float` if it reads as a decimal, and `None` otherwise (including when `value` is `None`). Try `int` first and `float` second. For the inputs `"42"`, `"3.5"`, `" 7 "`, `"abc"`, `None` and `"1e3"`, print `repr(item), "->", parse_number(item)`. Expected output:
+
+```text
+'42' -> 42
+'3.5' -> 3.5
+' 7 ' -> 7
+'abc' -> None
+None -> None
+'1e3' -> 1000.0
+```
+
+<Solution>
+
+```python title="parse_number.py"
+def parse_number(value):
+    for convert in (int, float):
+        try:
+            return convert(value)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+for item in ["42", "3.5", " 7 ", "abc", None, "1e3"]:
+    print(repr(item), "->", parse_number(item))
+```
+
+```text
+'42' -> 42
+'3.5' -> 3.5
+' 7 ' -> 7
+'abc' -> None
+None -> None
+'1e3' -> 1000.0
+```
+
+The loop tries `int` and then `float`. A failed conversion raises `ValueError` (for text like `"abc"`) or `TypeError` (for `None`), so the clause names both, and `continue` moves on to the next converter. `int` ignores the spaces around `" 7 "`. `"1e3"` is not a valid `int`, but `float` reads it as scientific notation. If neither converter works, the loop ends and the function returns `None`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Every exception has parents, and an `except` clause catches its type and everything built on it. `LookupError` covers `KeyError` and `IndexError`; `OSError` covers the file errors.
+- Python runs the first matching clause from the top, so put specific types before general ones.
+- List several types as `except (A, B):`. <Since v="3.14" /> `except A, B:` also works when there is no `as`.
+- Check first when the check is cheap and decisive; handle the error afterwards when the situation can change or the check is as hard as the work.

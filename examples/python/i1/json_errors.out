@@ -1,0 +1,3 @@
+Expecting property name enclosed in double quotes | line 1 column 2
+Object of type set is not JSON serializable
+{"tags": ["x", "y"]}

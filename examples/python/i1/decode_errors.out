@@ -1,0 +1,4 @@
+b'caf\xe9 au lait'
+failed: invalid continuation byte at byte 3
+caf� au lait
+café au lait
