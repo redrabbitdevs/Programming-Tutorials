@@ -62,33 +62,31 @@ const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
 
       <article class="lesson-main">
         <header class="lesson-head">
-          <Crumbs items={[
+          <Crumbs current={false} items={[
             { label: langName, href: homeHref },
             { label: d.module },
-            { label: d.title },
           ]} />
-          <div class="lesson-badges">
-            <LevelBadge level={d.level} />
-            <span class="badge">{d.estimatedMinutes} min</span>
-            {d.minVersion && <span class="badge">{langName} {d.minVersion}+</span>}
-          </div>
           <h1>{d.title}</h1>
+          <p class="lesson-meta">
+            <LevelBadge level={d.level} compact />
+            <span>{d.estimatedMinutes} min</span>
+            {d.minVersion && <span>{langName} {d.minVersion}+</span>}
+          </p>
           <p class="lede">{d.description}</p>
           {builds.length > 0 && (
             <div class="builds-on">
-              Builds on:
+              Builds on
               <ul>
                 {builds.map((b) => (
                   <li>{b.lesson ? <a href={lessonHref(b.lesson)}>{b.lesson.data.title}</a> : <span>{b.id.split('/').pop()}</span>}</li>
                 ))}
               </ul>
-              <span> (shared fundamentals)</span>
             </div>
           )}
-          <section class="objectives" aria-labelledby="obj-h">
-            <h2 id="obj-h">By the end you can</h2>
+          <details class="objectives">
+            <summary>What you will learn</summary>
             <ul>{d.objectives.map((o) => <li>{o}</li>)}</ul>
-          </section>
+          </details>
         </header>
 
         {toc.length > 0 && (

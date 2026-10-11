@@ -1,10 +1,11 @@
 ---
 import { levelInfo, type LevelId } from '../lib/lessons';
-interface Props { level: LevelId }
-const info = levelInfo(Astro.props.level);
+interface Props { level: LevelId; compact?: boolean }
+const { level, compact = false } = Astro.props;
+const info = levelInfo(level);
 ---
 
-<span class="badge" title={`Level ${info.rank} of 4`}>
+<span class:list={[compact ? 'level-compact' : 'badge']} title={`Level ${info.rank} of 4`}>
   <span class="pips" aria-hidden="true">
     {[1, 2, 3, 4].map((n) => <i class={n <= info.rank ? 'on' : ''}></i>)}
   </span>

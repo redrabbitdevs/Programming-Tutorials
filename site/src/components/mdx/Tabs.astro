@@ -2,7 +2,9 @@
 /**
  * <Tabs> <Tab label="macOS">...</Tab> <Tab label="Windows">...</Tab> </Tabs>
  * Without JavaScript every panel is shown under its label. With JavaScript
- * it becomes a WAI-ARIA tabs widget (arrow keys, Home, End).
+ * it becomes a WAI-ARIA tabs widget (arrow keys, Home, End). Groups that share
+ * a label switch together, and the choice is remembered in localStorage.
+ * OS labels (Windows, macOS, Linux) sync separately from language labels.
  */
 ---
 
@@ -10,6 +12,16 @@
 
 <script>
   let uid = 0;
+  type Group = { key: string; select: (label: string) => boolean };
+  const groups: Group[] = [];
+  const OS = new Set(['windows', 'macos', 'linux']);
+  const store = {
+    get(k: string) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k: string, v: string) { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } },
+  };
+  const syncAll = (key: string, label: string, except?: Group) => {
+    groups.forEach((g) => { if (g !== except && g.key === key) g.select(label); });
+  };
   document.querySelectorAll<HTMLElement>('[data-tabs]').forEach((root) => {
     const panels = Array.from(root.querySelectorAll<HTMLElement>(':scope > .tab-panel'));
     if (panels.length < 2) return;
@@ -17,6 +29,8 @@
     const list = document.createElement('div');
     list.setAttribute('role', 'tablist');
     const tabs: HTMLButtonElement[] = [];
+    const labels = panels.map((p) => p.dataset.tabLabel ?? '');
+    const key = 'tabs:' + (labels.some((l) => OS.has(l.toLowerCase())) ? 'os' : 'lang');
 
     const select = (i: number, focus = false) => {
       tabs.forEach((t, j) => {
@@ -28,6 +42,22 @@
       if (focus) tabs[i].focus();
     };
 
+    const self: Group = {
+      key,
+      select: (label) => {
+        const i = labels.indexOf(label);
+        if (i < 0) return false;
+        select(i);
+        return true;
+      },
+    };
+    groups.push(self);
+    const choose = (i: number, focus = false) => {
+      select(i, focus);
+      store.set(key, labels[i]);
+      syncAll(key, labels[i], self);
+    };
+
     panels.forEach((p, i) => {
       const t = document.createElement('button');
       t.type = 'button';
@@ -35,14 +65,14 @@
       t.id = `${id}-t${i}`;
       t.setAttribute('aria-controls', `${id}-p${i}`);
       t.textContent = p.dataset.tabLabel ?? `Tab ${i + 1}`;
-      t.addEventListener('click', () => select(i));
+      t.addEventListener('click', () => choose(i));
       t.addEventListener('keydown', (e) => {
         const n = tabs.length;
         const k = e.key;
-        if (k === 'ArrowRight') select((i + 1) % n, true);
-        else if (k === 'ArrowLeft') select((i - 1 + n) % n, true);
-        else if (k === 'Home') select(0, true);
-        else if (k === 'End') select(n - 1, true);
+        if (k === 'ArrowRight') choose((i + 1) % n, true);
+        else if (k === 'ArrowLeft') choose((i - 1 + n) % n, true);
+        else if (k === 'Home') choose(0, true);
+        else if (k === 'End') choose(n - 1, true);
         else return;
         e.preventDefault();
       });
@@ -55,6 +85,6 @@
 
     root.prepend(list);
     root.classList.add('is-enhanced');
-    select(0);
+    select(Math.max(0, labels.indexOf(store.get(key) ?? '')));
   });
 </script>

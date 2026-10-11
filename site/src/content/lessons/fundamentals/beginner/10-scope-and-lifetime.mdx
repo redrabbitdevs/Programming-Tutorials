@@ -207,7 +207,7 @@ Even when a language allows it, modifying globals from inside functions makes co
 
 **Scope** is about *where in the source code* a name can be used. **Lifetime** is about *when, while the program runs*, the variable's storage exists.
 
-Usually they line up. A local variable is created when the function is called (its frame is pushed on the call stack) and destroyed when the function returns (the frame is popped). Two calls to the same function get two separate sets of locals, which is also what makes [recursion](/Programming-Tutorials/learn/fundamentals/beginner/recursion/) work.
+Usually they line up. A local variable is created when the function is called (its frame is pushed on the call stack) and destroyed when the function returns (the frame is popped). Two calls to the same function get two separate sets of locals, which is also what makes [recursion](../recursion/) work.
 
 They can come apart. A global variable lives for the whole program. And a variable can outlive its function's execution if something still refers to it, as in the next section.
 
@@ -394,4 +394,4 @@ It prints `undefined`, because `let` confines `i` to the loop. With `var`, the v
 - Lifetime is about when the variable exists; usually it ends with its scope, but a closure can keep a variable alive longer.
 - Keep scopes small, pass data through parameters and return values, and avoid assigning to globals.
 
-Next: [Recursion](/Programming-Tutorials/learn/fundamentals/beginner/recursion/), where a function calls itself.
+Next: [Recursion](../recursion/), where a function calls itself.
