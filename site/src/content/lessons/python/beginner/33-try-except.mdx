@@ -1,0 +1,318 @@
+---
+language: python
+level: beginner
+module: Putting it together
+order: 33
+title: Handling errors with try and except
+description: Catch the errors you expect with try, except, else and finally, ask again after bad input, and leave unexpected bugs visible.
+minVersion: "3.8"
+objectives:
+  - Wrap risky code in try and catch a specific exception with except
+  - Use as to see the error, else for the success path and finally for clean-up
+  - Re-ask for input until the user types something valid
+  - Avoid catching too much, and know why a bare except hides bugs
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/12-errors-and-exceptions"]
+---
+
+You have probably noticed that `int(input())` crashes the moment someone types a letter. You have also seen `try` and `except` in a few earlier lessons, in places like `except KeyError as error:`, without a proper explanation. This is that explanation.
+
+The [errors and exceptions lesson](../../../fundamentals/beginner/errors-and-exceptions/) in the fundamentals track covers when to handle an error and when to let it stop the program. This lesson covers Python's syntax, using what you learned in [reading tracebacks](../reading-tracebacks/): an exception has a type, such as `ValueError`, and a message.
+
+## try and except
+
+Put the code that might fail in a `try` block. If an exception of the named type happens inside it, Python skips the rest of the block and runs the matching `except` block instead.
+
+```python title="parse_number.py"
+text = "forty-two"
+try:
+    number = int(text)
+    print("Converted:", number)
+except ValueError:
+    print("That is not a whole number:", text)
+print("The program carries on")
+```
+
+```text
+That is not a whole number: forty-two
+The program carries on
+```
+
+`int("forty-two")` raises `ValueError`. The `print("Converted:", ...)` line never runs, because Python leaves the `try` block at the exact line that failed. After the `except` block, the program continues normally. Without the `try`, the program would have stopped with a traceback.
+
+If the text had been `"42"`, no error would have happened, the `except` block would have been skipped, and `Converted: 42` would have been printed.
+
+## else and finally
+
+Two optional blocks complete the picture. `else` runs only when the `try` block finished **without** an error. `finally` runs **always**, whether or not an error happened.
+
+```python title="try_flow.py"
+for text in ["12", "twelve"]:
+    print("Trying", repr(text))
+    try:
+        number = int(text)
+    except ValueError:
+        print("  except: not a number")
+    else:
+        print("  else: got", number)
+    finally:
+        print("  finally: finished with", repr(text))
+```
+
+```text
+Trying '12'
+  else: got 12
+  finally: finished with '12'
+Trying 'twelve'
+  except: not a number
+  finally: finished with 'twelve'
+```
+
+The order in the file is `try`, `except`, `else`, `finally`. For `"12"`, the path is `try` then `else` then `finally`. For `"twelve"`, it is `try` (stopped early), `except`, then `finally`.
+
+Why use `else` rather than putting the success code at the end of the `try` block? Because `try` should contain as little as possible. An error raised in code you did not expect to fail should not be caught by an `except` meant for something else. Keep only the risky line in `try`, and put the work that depends on its success in `else`.
+
+`finally` is for clean-up that must happen either way, such as closing a file. The [next lessons](../files-first-look/) use it that way. For now, you only need to know that it runs.
+
+## Catching several kinds
+
+A `try` can have more than one `except`, each for a different exception type. Python uses the first one that matches. Add `as error` to give the exception a name, so you can print its message.
+
+```python title="which_except.py"
+prices = {"apple": 0.5, "pear": 0.75}
+
+
+def price_per_item(name, total_cost, count):
+    try:
+        base = prices[name]
+        return total_cost / count - base
+    except KeyError as error:
+        print("No such fruit:", error)
+    except ZeroDivisionError:
+        print("Count cannot be zero")
+
+
+print(price_per_item("apple", 3.0, 4))
+print(price_per_item("plum", 3.0, 4))
+print(price_per_item("pear", 3.0, 0))
+```
+
+```text
+0.25
+No such fruit: 'plum'
+None
+Count cannot be zero
+None
+```
+
+Three calls, three paths. The first succeeds and returns `0.25`. The second raises `KeyError`, whose message is the missing key, so `error` prints as `'plum'`. The third raises `ZeroDivisionError`. In the last two cases the function reaches the end without a `return`, so it gives back `None`, as you saw in the [defining functions lesson](../defining-functions/).
+
+To handle two types the same way, put them in a tuple: `except (ValueError, TypeError):`. The name from `as error` exists only inside its `except` block, as the [scope lesson](../scope-legb/) warned.
+
+## Asking again
+
+Here is the pattern that fixes `int(input())`. A loop keeps asking until the answer is good, and `break` leaves it.
+
+```python title="ask_age.py"
+while True:
+    answer = input("How old are you? ")
+    try:
+        age = int(answer)
+    except ValueError:
+        print("Please type digits only, such as 34.")
+    else:
+        if age < 0:
+            print("Age cannot be negative.")
+        else:
+            break
+
+print("You are", age)
+```
+
+Typing `abc`, then `-5`, then `34`, a session looks like this:
+
+```text
+How old are you? abc
+Please type digits only, such as 34.
+How old are you? -5
+Age cannot be negative.
+How old are you? 34
+You are 34
+```
+
+Notice that the check for a negative age is ordinary `if` logic. `try` and `except` catch things that raise errors, such as `int("abc")`. A value that is valid for Python but wrong for your program, like `-5`, needs an `if`.
+
+<Callout type="note">
+
+This also lets you drop the "type sensible answers when you test" advice from the [first programs](../hello-print-input/). A program that survives bad input is a better program.
+
+</Callout>
+
+## Do not catch too much
+
+It is tempting to write `except Exception:` or a bare `except:` so that nothing ever crashes. That also hides your own mistakes. Here a typo, `totl`, sits inside the `try`:
+
+```python title="too_broad.py"
+scores = ["8", "9", "x"]
+total = 0
+for score in scores:
+    try:
+        total = totl + int(score)
+    except Exception:
+        print("skipped", score)
+print("Total:", total)
+```
+
+```text
+skipped 8
+skipped 9
+skipped x
+Total: 0
+```
+
+Every score is "skipped", including the two good ones, and the answer is silently wrong. The `NameError` from the typo was swallowed. The version below catches only `ValueError`, and keeps the `try` to the one risky call:
+
+```python title="too_broad_fixed.py"
+scores = ["8", "9", "x"]
+total = 0
+for score in scores:
+    try:
+        value = int(score)
+    except ValueError:
+        print("skipped", score)
+    else:
+        total = total + value
+print("Total:", total)
+```
+
+```text
+skipped x
+Total: 17
+```
+
+Had the typo been present here, Python would have stopped with a clear `NameError` and the line number, which is what you want while developing.
+
+## Common pitfalls
+
+- **A bare `except:` or `except Exception:`.** It catches typos and real bugs along with the error you expected. Name the exception you mean.
+- **A `try` block that is too large.** Wrap one risky line, not the whole program. Move the rest to `else`.
+- **An empty handler.** `except ValueError: pass` throws the problem away. Print a message, use a default, or ask again.
+- **Using `try` where `if` is clearer.** If you can check cheaply first, such as `if name in prices`, that is often simpler and easier to read.
+- **Expecting `finally` to stop an error.** It runs, but the error carries on afterwards unless an `except` handled it.
+- **Using the `as` name after the block.** Python deletes it when the `except` block ends.
+
+<Exercise title="A division that does not crash">
+
+Write `safe_divide(a, b)` that returns `a / b`, or `None` when `b` is zero. Use it on these inputs and expect these results.
+
+- `safe_divide(10, 4)` gives `2.5`
+- `safe_divide(7, 0)` gives `None`
+- `safe_divide(0, 5)` gives `0.0`
+
+<Solution>
+
+```python title="safe_divide.py"
+def safe_divide(a, b):
+    try:
+        return a / b
+    except ZeroDivisionError:
+        return None
+
+
+print(safe_divide(10, 4))
+print(safe_divide(7, 0))
+print(safe_divide(0, 5))
+```
+
+```text
+2.5
+None
+0.0
+```
+
+Only the division is inside the `try`, and only `ZeroDivisionError` is caught. Passing a string would still raise `TypeError`, which is right: that is a bug in the caller, not an expected condition.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Add up the valid entries">
+
+Given `entries = ["4", "x", "10", "2.5", "7"]`, add up the entries that are whole numbers and count the ones that are not. Expected output:
+
+```text
+Total: 21
+Skipped: 2
+```
+
+Use `else` for the addition.
+
+<Solution>
+
+```python title="sum_valid.py"
+entries = ["4", "x", "10", "2.5", "7"]
+total = 0
+skipped = 0
+for entry in entries:
+    try:
+        number = int(entry)
+    except ValueError:
+        skipped += 1
+    else:
+        total += number
+
+print("Total:", total)
+print("Skipped:", skipped)
+```
+
+```text
+Total: 21
+Skipped: 2
+```
+
+`"2.5"` is skipped as well as `"x"`, because `int` cannot read a decimal point. The sum is 4 + 10 + 7 = 21.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the output">
+
+What does this print? Write down all four lines before running it.
+
+```python title="predict_try.py"
+def check(values):
+    for value in values:
+        try:
+            result = 10 // value
+        except ZeroDivisionError:
+            print("zero")
+        else:
+            print("result", result)
+        finally:
+            print("checked", value)
+
+
+check([5, 0])
+```
+
+<Solution>
+
+```text
+result 2
+checked 5
+zero
+checked 0
+```
+
+For `5`, the division works, so `else` prints `result 2`, then `finally` prints `checked 5`. For `0`, the division fails, so `except` prints `zero`, then `finally` still prints `checked 0`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `try` holds the risky code, `except SomeError` handles that one type, `else` runs when nothing went wrong, and `finally` always runs.
+- `except SomeError as error` gives you the exception to print. Several `except` blocks can follow one `try`.
+- Combine `while True`, `try` and `break` to keep asking until the input is valid.
+- Catch specific exceptions and keep `try` small. A broad `except` hides bugs.
+
+Next: [modules and the import statement](../modules-and-imports/).

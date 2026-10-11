@@ -1,0 +1,269 @@
+---
+language: python
+level: beginner
+module: Putting it together
+order: 35
+title: Reading and writing text files
+description: Open a text file with with open and encoding utf-8, read it whole or line by line, write and append, and handle a missing file.
+minVersion: "3.8"
+objectives:
+  - Open a file with with open(..., encoding="utf-8") and read it with read() and by looping over lines
+  - Write and append text with the "w" and "a" modes
+  - Explain why with closes the file for you
+  - Handle a missing file with FileNotFoundError
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/12-errors-and-exceptions"]
+---
+
+Until now every program you wrote forgot everything the moment it ended. Files fix that. A program can write results to disk and read them back the next time it runs, or read data someone else prepared. This lesson covers plain text files: the simplest and most useful kind.
+
+The examples read a small file called `notes.txt`, which sits in the same folder as the scripts. Its content is three lines:
+
+```text
+Ada Lovelace wrote the first program.
+Café au lait costs 3 euros.
+Pi is roughly 3.14159.
+```
+
+Python looks for a file name like `notes.txt` in the **current working directory**, which is the folder your terminal is in when you run the script. If you get a `FileNotFoundError`, check where your terminal is first.
+
+## Open, read, close
+
+The standard way to read a whole file is `with open(...)`.
+
+```python title="read_all.py"
+with open("notes.txt", encoding="utf-8") as file:
+    text = file.read()
+
+print(text)
+print(len(text), "characters")
+print(repr(text[:12]))
+```
+
+```text
+Ada Lovelace wrote the first program.
+Café au lait costs 3 euros.
+Pi is roughly 3.14159.
+
+89 characters
+'Ada Lovelace'
+```
+
+Three things are going on:
+
+- `open("notes.txt", encoding="utf-8")` opens the file for reading, since reading is the default mode. It returns a **file object**.
+- `with ... as file:` gives that object the name `file` and guarantees the file is **closed when the indented block ends**, even if an error happens inside. This is the job a `finally` block would do by hand, as the [try and except lesson](../try-except/) mentioned.
+- `file.read()` returns the whole content as one string, including the newline character `\n` at the end of each line. That is why `print(text)` ends with a blank line: the text already ends in a newline and `print` adds another.
+
+### The encoding argument
+
+A file stores bytes, and the **encoding** says how bytes map to characters. The [Unicode and bytes lesson](../unicode-bytes/) explained this. The `é` in `Café` takes two bytes in UTF-8, so reading it with the wrong encoding gives garbled text such as `CafÃ©`.
+
+<Since v="3.15" /> UTF-8 is now the default for `open()` on every platform (PEP 686). Before 3.15 the default came from the operating system, and on many Windows machines it was not UTF-8, so the same program could read a file correctly on one computer and garble it on another. You can still switch the default off with `PYTHONUTF8=0` or `-X utf8=0`.
+
+Even so, keep writing `encoding="utf-8"`. It costs nothing, your code then behaves the same on Python 3.14 and earlier, and the reader can see the intention. The examples in this course always include it.
+
+## Reading line by line
+
+A file object is **iterable**: looping over it gives one line at a time. For big files, this is better than `read()`, because it does not load everything at once.
+
+```python title="read_lines.py"
+with open("notes.txt", encoding="utf-8") as file:
+    for number, line in enumerate(file, start=1):
+        print(number, line.rstrip("\n"))
+```
+
+```text
+1 Ada Lovelace wrote the first program.
+2 Café au lait costs 3 euros.
+3 Pi is roughly 3.14159.
+```
+
+`enumerate(file, start=1)` numbers the lines from 1, as in the [for loops lesson](../for-loops-range/). `rstrip("\n")` removes the newline from the end of each line, so `print` does not add a second one. Two related methods are worth knowing: `file.readline()` reads one line, and `file.readlines()` returns a list of all lines.
+
+## Writing and appending
+
+The second argument of `open` is the **mode**:
+
+| Mode | Meaning |
+|---|---|
+| `"r"` | Read. This is the default. The file must exist. |
+| `"w"` | Write. Creates the file, or **erases** it if it already exists. |
+| `"a"` | Append. Adds to the end, creating the file if needed. |
+
+```python title="write_read.py"
+import os
+
+with open("shopping.txt", "w", encoding="utf-8") as file:
+    file.write("milk\n")
+    file.write("café crème\n")
+    print("bread", file=file)
+
+with open("shopping.txt", "a", encoding="utf-8") as file:
+    file.write("eggs\n")
+
+with open("shopping.txt", encoding="utf-8") as file:
+    items = file.read().splitlines()
+
+print(items)
+print(len("café crème"), "characters,", len("café crème".encode("utf-8")), "bytes")
+os.remove("shopping.txt")
+```
+
+```text
+['milk', 'café crème', 'bread', 'eggs']
+10 characters, 12 bytes
+```
+
+`file.write` writes exactly the string you give it, so you must add `\n` yourself. Passing `file=file` to `print` is a neat alternative: `print` adds the newline for you. The second `with` block uses mode `"a"`, so `eggs` goes at the end rather than replacing the content. `splitlines()` turns the text back into a list without the newline characters. The final lines show that the two accented letters each take two bytes in UTF-8, so ten characters occupy twelve bytes on disk. `os.remove` deletes the file again, so you can rerun the example. It comes from the `os` module, brought in with `import` as in the [previous lesson](../modules-and-imports/).
+
+<Callout type="warning">
+
+Mode `"w"` destroys the old content the moment the file is opened, before you write anything. Double-check the file name before you use it.
+
+</Callout>
+
+## When the file is missing
+
+Opening a file that does not exist raises `FileNotFoundError`. It is an error you can expect, so it is a good fit for `try` and `except`.
+
+```python title="missing_file.py"
+def count_lines(filename):
+    try:
+        with open(filename, encoding="utf-8") as file:
+            return len(file.readlines())
+    except FileNotFoundError:
+        print("Cannot find", filename)
+        return 0
+
+
+print(count_lines("notes.txt"))
+print(count_lines("nothing_here.txt"))
+```
+
+```text
+3
+Cannot find nothing_here.txt
+0
+```
+
+The `with` sits inside the `try`: if `open` fails, there is no file to close, and the handler runs. A `return` inside `with` is fine, because the file still closes on the way out.
+
+## Common pitfalls
+
+- **Forgetting `encoding="utf-8"`.** On Python 3.14 and earlier this can corrupt accented letters on Windows. Always include it.
+- **Using `"w"` when you meant `"a"`.** It silently erases the file.
+- **Forgetting the newline.** `write("milk")` followed by `write("eggs")` produces `milkeggs` on one line.
+- **Reading a file twice with one `read()`.** After `read()` the position is at the end, so a second `read()` returns `""`. Open the file again, or loop once.
+- **Wrong working directory.** `FileNotFoundError` for a file you can see usually means the terminal is in another folder.
+- **Leaving out `with`.** A file you open by hand must be closed by hand, and an error in between leaves it open.
+
+<Exercise title="Count lines and find the longest">
+
+Read `notes.txt` (the three lines shown at the top) into a list of lines without their newlines, and print the number of lines, the longest line and its length. Expected output:
+
+```text
+Lines: 3
+Longest: Ada Lovelace wrote the first program.
+Length: 37
+```
+
+Hint: `max(lines, key=len)` returns the longest item.
+
+<Solution>
+
+```python title="longest_line.py"
+with open("notes.txt", encoding="utf-8") as file:
+    lines = [line.rstrip("\n") for line in file]
+
+longest = max(lines, key=len)
+print("Lines:", len(lines))
+print("Longest:", longest)
+print("Length:", len(longest))
+```
+
+```text
+Lines: 3
+Longest: Ada Lovelace wrote the first program.
+Length: 37
+```
+
+The comprehension from the [comprehensions lesson](../comprehensions/) works on the file object because it is iterable. The `key=len` argument comes from the [lambdas lesson](../lambdas-higher-order/).
+
+</Solution>
+</Exercise>
+
+<Exercise title="Write squares, read them back">
+
+Write the squares of 1 to 5, one per line, to a file called `squares.txt`. Then read the file back, convert each line to an integer and print the total. Delete the file at the end. Expected output:
+
+```text
+Total: 55
+```
+
+<Solution>
+
+```python title="squares_file.py"
+import os
+
+with open("squares.txt", "w", encoding="utf-8") as file:
+    for n in range(1, 6):
+        file.write(f"{n * n}\n")
+
+total = 0
+with open("squares.txt", encoding="utf-8") as file:
+    for line in file:
+        total += int(line)
+
+print("Total:", total)
+os.remove("squares.txt")
+```
+
+```text
+Total: 55
+```
+
+A file holds text only, so the numbers were written as text and converted back with `int`. `int("4\n")` works because `int` ignores the surrounding whitespace, including the newline. The sum is 1 + 4 + 9 + 16 + 25 = 55.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Spot the bug">
+
+This program is meant to print the three lines of `notes.txt` twice, but the second pass prints nothing. Why? Fix it so that each line is printed twice, once per pass.
+
+```python
+with open("notes.txt", encoding="utf-8") as file:
+    for line in file:
+        print("first pass:", line.rstrip("\n"))
+    for line in file:
+        print("second pass:", line.rstrip("\n"))
+```
+
+<Solution>
+
+The first loop reads the file to the end. The file object remembers its position, so the second loop starts at the end and finds no lines. Fix it by reading the lines into a list once, then looping over the list twice:
+
+```python
+with open("notes.txt", encoding="utf-8") as file:
+    lines = file.read().splitlines()
+
+for line in lines:
+    print("first pass:", line)
+for line in lines:
+    print("second pass:", line)
+```
+
+A list can be looped over any number of times, a file object only once.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Use `with open(name, encoding="utf-8") as file:`. The block closes the file for you, even after an error.
+- `file.read()` gives the whole text, looping over the file gives lines, and `"w"` and `"a"` write and append. `write` does not add a newline.
+- <Since v="3.15" /> UTF-8 is the default encoding for `open()`, but write `encoding="utf-8"` anyway so your code behaves the same on older versions.
+- A missing file raises `FileNotFoundError`, which you can catch with `try` and `except`.
+
+Next: [debugging habits](../debugging-habits/).

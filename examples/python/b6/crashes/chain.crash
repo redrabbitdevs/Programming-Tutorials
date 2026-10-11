@@ -1,0 +1,9 @@
+def parse_age(text):
+    return int(text)
+
+
+def read_ages(lines):
+    return [parse_age(line) for line in lines]
+
+
+print(read_ages(["31", "n/a", "27"]))

@@ -1,0 +1,2 @@
+price = 4
+print("Total:" price * 3)

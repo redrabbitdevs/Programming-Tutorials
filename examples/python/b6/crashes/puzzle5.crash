@@ -1,0 +1,2 @@
+height = int("1.75")
+print(height)
