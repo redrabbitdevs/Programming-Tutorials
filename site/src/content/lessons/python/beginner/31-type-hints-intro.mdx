@@ -1,0 +1,257 @@
+---
+language: python
+level: beginner
+module: Functions
+order: 31
+title: Type hints (intro)
+description: Annotate function parameters and return values, and use a type checker to catch mistakes Python itself will not.
+minVersion: "3.10"
+objectives:
+  - Annotate parameters, return values and variables with built-in types
+  - Write list[int], dict[str, int] and X | None
+  - Explain that hints are not enforced at run time, and run a type checker
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/09-functions"]
+---
+
+A function signature like `def area(width, height)` does not say whether `width` should be a number, a string or a list. You can find out by reading the body, but a reader (or an editor) would rather be told. Type hints add that information to the signature. This lesson covers the basics; the Advanced track returns to typing in depth.
+
+Everything here runs on Python 3.10 or later, because of the `X | None` syntax. That version is the minimum for this lesson.
+
+## Annotating a function
+
+Put a colon and a type after each parameter, and `->` and a type before the final colon for the return value.
+
+```python title="hints_basic.py"
+def area(width: float, height: float) -> float:
+    return width * height
+
+
+def greet(name: str, times: int = 1) -> str:
+    return ", ".join(["Hello " + name] * times)
+
+
+def average(numbers: list[int]) -> float:
+    return sum(numbers) / len(numbers)
+
+
+def find_user(users: dict[str, int], name: str) -> int | None:
+    return users.get(name)
+
+
+def log(message: str) -> None:
+    print("log:", message)
+
+
+count: int = 0
+names: list[str] = ["Ada", "Grace"]
+
+print(area(3, 4.5))
+print(greet("Ada", 2))
+print(average([1, 2, 3, 4]))
+print(find_user({"ada": 1}, "ada"), find_user({"ada": 1}, "bob"))
+log("done")
+print(area.__annotations__)
+```
+
+```text
+13.5
+Hello Ada, Hello Ada
+2.5
+1 None
+log: done
+{'width': <class 'float'>, 'height': <class 'float'>, 'return': <class 'float'>}
+```
+
+Here is what each hint says:
+
+- `float` and `str` and `int` name the expected type. Where a function accepts `float`, type checkers also accept an `int`, so `area(3, 4.5)` is fine.
+- `list[int]` is a list whose items are ints, and `dict[str, int]` maps strings to ints. The square brackets on built-in types such as `list` and `dict` work from Python 3.9 (PEP 585). Older code imports `List` and `Dict` from `typing`; you do not need them now.
+- `int | None` means "an int, or `None`". Writing a union with `|` works from Python 3.10 (PEP 604) and replaces the older `Optional[int]`. A function that can return `None` on some path, as `find_user` can, should say so, which is the honest version of the missing-return pitfall from the first lesson of this module.
+- `-> None` marks a function that returns nothing useful, like `log`.
+- `count: int = 0` annotates a variable. This is optional: checkers infer the type from the value.
+
+The last line shows that annotations are stored on the function in `__annotations__`. Python records them, and that is all it does with them.
+
+## Hints are not enforced
+
+Python does not check hints when the program runs. They are information for people and tools.
+
+```python title="hints_not_enforced.py"
+def double(n: int) -> int:
+    return n * 2
+
+
+print(double(4))
+print(double("ab"))
+print(double(2.5))
+```
+
+```text
+8
+abab
+5.0
+```
+
+Both wrong calls run happily. `"ab" * 2` is valid Python, and so is `2.5 * 2`. Nothing in the language stops the call; the hint is a promise the programmer makes.
+
+To have the promise checked, run a **type checker**, a separate tool that reads your code without running it. Common choices are mypy and pyright, and newer ones such as ty and pyrefly exist too. Install one in a virtual environment (for example `pip install mypy`) and point it at your file:
+
+```text
+$ mypy hints_not_enforced.py
+hints_not_enforced.py:6: error: Argument 1 to "double" has incompatible type "str"; expected "int"  [arg-type]
+hints_not_enforced.py:7: error: Argument 1 to "double" has incompatible type "float"; expected "int"  [arg-type]
+Found 2 errors in 1 file (checked 1 source file)
+```
+
+The checker finds both bad calls before the program ever runs, which is the point. Editors such as VS Code and PyCharm run a checker as you type and underline problems. Adding hints costs little and helps most on functions other people will call.
+
+<Callout type="note">
+
+Hints can be added gradually. A checker treats a function with no annotations as unchecked, so you can annotate the public functions first and leave the rest.
+
+</Callout>
+
+## Referring to a class from its own methods
+
+You will meet this once you write classes. A hint that names a class that does not exist yet, such as the class currently being defined, used to need quotes:
+
+```python title="forward_ref.py"
+class Point:
+    def merge(self, other: "Point") -> "Point":
+        return self
+
+
+p = Point()
+print(p.merge(p) is p)
+```
+
+```text
+True
+```
+
+<Since v="3.14" /> Python 3.14 evaluates annotations lazily (PEP 649 and PEP 749), so the quotes are no longer needed there. Keep them if your code must run on 3.13 or earlier.
+
+## Common pitfalls
+
+- **Believing hints are enforced.** They are not. A wrong argument type runs normally, and may fail much later or not at all.
+- **Forgetting `| None`.** If a function can return `None`, say so, or the checker will assume callers can use the result directly.
+- **Hinting a bare `list`.** `list` alone means a list of anything; `list[int]` is more useful.
+- **Using the old `typing.List`, `Dict` and `Optional`.** They still work but the built-in forms are shorter and now standard.
+- **Annotating a default wrongly.** `def f(x: int = None)` contradicts itself. Write `x: int | None = None`.
+- **Treating hints as documentation only.** A hint can go out of date like a comment. Running the checker, ideally automatically, keeps it honest.
+
+<Exercise title="Annotate five functions and run a type checker">
+
+Add parameter and return annotations to these five functions, then run a type checker such as mypy on the file. All five should pass.
+
+```python
+def full_name(first, last):
+    return f"{first} {last}"
+
+
+def mean(values):
+    return sum(values) / len(values)
+
+
+def first_word(text):
+    words = text.split()
+    if not words:
+        return None
+    return words[0]
+
+
+def word_lengths(words):
+    return {word: len(word) for word in words}
+
+
+def announce(message, repeat=1):
+    for _ in range(repeat):
+        print(message)
+```
+
+<Solution>
+
+```python title="annotated_five.py"
+def full_name(first: str, last: str) -> str:
+    return f"{first} {last}"
+
+
+def mean(values: list[float]) -> float:
+    return sum(values) / len(values)
+
+
+def first_word(text: str) -> str | None:
+    words = text.split()
+    if not words:
+        return None
+    return words[0]
+
+
+def word_lengths(words: list[str]) -> dict[str, int]:
+    return {word: len(word) for word in words}
+
+
+def announce(message: str, repeat: int = 1) -> None:
+    for _ in range(repeat):
+        print(message)
+
+
+print(full_name("Ada", "Lovelace"))
+print(mean([1.5, 2.5, 5.0]))
+print(first_word("hello there"), first_word("   "))
+print(word_lengths(["a", "bcd"]))
+announce("hi", 2)
+```
+
+```text
+Ada Lovelace
+3.0
+hello None
+{'a': 1, 'bcd': 3}
+hi
+hi
+```
+
+`first_word` returns `None` when there are no words, so its return type is `str | None`. `announce` prints and returns nothing, so it is `-> None`. Running `mypy annotated_five.py` reports no issues. Try adding a bad call such as `full_name(1, 2)` and see the checker object.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Make the checker catch a bug">
+
+Give `average` in this snippet a parameter hint and a return hint, then write one call that a type checker would reject but that still runs. Explain what Python does at run time.
+
+```python
+def average(numbers):
+    return sum(numbers) / len(numbers)
+```
+
+<Solution>
+
+```python title="average_hinted.py"
+def average(numbers: list[int]) -> float:
+    return sum(numbers) / len(numbers)
+
+
+print(average([2, 4, 6]))
+print(average((2, 4, 6)))
+```
+
+```text
+4.0
+4.0
+```
+
+The tuple call on the last line is rejected by a checker, because the hint says `list[int]`, yet Python runs it without complaint since `sum` and `len` work on tuples as well. That gap between what the hint says and what the code allows is exactly what hints are for: they record the intent, and the checker enforces it. (If you want to accept any sequence, a later lesson shows a wider hint.)
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Annotate with `name: type` and `-> type`. Use `list[int]` (3.9 and later) and `int | None` (3.10 and later).
+- Python stores hints but never enforces them; a type checker such as mypy or pyright does the checking.
+- <Since v="3.14" /> Forward references in annotations no longer need quotes.
+
+You have finished the Beginner track. Next up is the Intermediate track, which starts with errors and files.

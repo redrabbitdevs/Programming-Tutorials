@@ -1,0 +1,9 @@
+project/
+  docs/
+    index.md
+  README.md
+  src/
+    main.py
+    pkg/
+      util.py
+files: 4

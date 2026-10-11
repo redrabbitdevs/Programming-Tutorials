@@ -1,0 +1,224 @@
+---
+language: python
+level: beginner
+module: Functions
+order: 26
+title: Defining functions
+description: Write Python functions with def, return values from them, and document them with docstrings.
+minVersion: "3.8"
+objectives:
+  - Define and call a function with def
+  - Return one or several values, and explain why a function without return gives back None
+  - Write a docstring and read it back
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/09-functions"]
+---
+
+You have been calling functions since your first `print`. Now you will write your own, so that a piece of logic you need twice has one name and one place to fix. The [functions lesson in the fundamentals track](../../../fundamentals/beginner/functions/) covers what functions are for, parameters versus arguments, and the call stack. This lesson covers Python's way of writing them.
+
+## def and return
+
+A function definition is a `def` statement: the keyword, a name, parenthesised parameters, a colon, and an indented body.
+
+```python title="define_basics.py"
+def greet(name):
+    """Return a greeting for name."""
+    return "Hello, " + name + "!"
+
+
+def show(name):
+    print("Hello, " + name + "!")
+
+
+message = greet("Ada")
+print(message)
+print(len(message))
+
+result = show("Grace")
+print(result)
+print(result is None)
+
+print(greet.__doc__)
+print(greet.__name__)
+```
+
+```text
+Hello, Ada!
+11
+Hello, Grace!
+None
+True
+Return a greeting for name.
+greet
+```
+
+`greet` hands a string back with `return`, so the caller can store it, measure it or pass it on. `show` only prints. It has no `return`, so calling it produces its side effect (the printed line) and then evaluates to `None`. That is the difference the fundamentals lesson calls returning versus printing, and in Python it is easy to see: `result` really is `None`.
+
+`def` is an ordinary statement that runs when execution reaches it. It creates a function object and binds it to the name. That means a function must be defined *before* the line that calls it executes, though not necessarily before it appears in the file: a function body can mention a function defined further down, as long as that function exists by the time the call happens.
+
+## Returning values
+
+A `return` ends the function at once, and several `return` statements are fine. Guard clauses at the top, followed by the main result, keep functions flat.
+
+```python title="early_return.py"
+def sign(n):
+    if n < 0:
+        return "negative"
+    if n == 0:
+        return "zero"
+    return "positive"
+
+
+def min_max(numbers):
+    return min(numbers), max(numbers)
+
+
+def classify(n):
+    if n > 0:
+        return "positive"
+
+
+print(sign(-4), sign(0), sign(9))
+
+low, high = min_max([3, 9, 1, 7])
+print(low, high)
+print(min_max([3, 9, 1, 7]))
+
+print(classify(5))
+print(classify(-5))
+```
+
+```text
+negative zero positive
+1 9
+(1, 9)
+positive
+None
+```
+
+Python functions return exactly one object. `min_max` appears to return two, but `return a, b` builds a tuple, and `low, high = ...` unpacks it. The tuples lesson in the collections module covers that idiom in full.
+
+The last function shows the classic trap. If execution reaches the end of the body without hitting a `return`, Python quietly returns `None`. `classify(-5)` printed `None` rather than an error, which can surface far from the cause. When a function returns a value on some paths, make sure every path returns something.
+
+## Docstrings
+
+A string literal as the very first statement of a function body is its **docstring**. Tools, editors and `help()` read it. Convention (PEP 257) is triple double quotes and a first line that is a short sentence in the imperative: "Return ...", "Convert ...".
+
+```python title="temperature.py"
+def celsius_to_fahrenheit(celsius):
+    """Convert degrees Celsius to degrees Fahrenheit."""
+    return celsius * 9 / 5 + 32
+
+
+def fahrenheit_to_celsius(fahrenheit):
+    """Convert degrees Fahrenheit to degrees Celsius."""
+    return (fahrenheit - 32) * 5 / 9
+
+
+for c in (-40, 0, 37, 100):
+    f = celsius_to_fahrenheit(c)
+    print(f"{c:>4} C = {f:>5.1f} F")
+
+print(f"{fahrenheit_to_celsius(98.6):.1f}")
+print(round(fahrenheit_to_celsius(celsius_to_fahrenheit(21.5)), 6))
+```
+
+```text
+ -40 C = -40.0 F
+   0 C =  32.0 F
+  37 C =  98.6 F
+ 100 C = 212.0 F
+37.0
+21.5
+```
+
+The last line is a handy habit: convert there and back and check you land where you started. Rounding hides the tiny float error discussed in the numbers lesson.
+
+Type `help(celsius_to_fahrenheit)` in the REPL and the docstring appears. For longer functions, add a blank line after the summary and describe the parameters and the return value in plain sentences.
+
+## Common pitfalls
+
+- **Forgetting the parentheses.** `greet` is the function object; `greet("Ada")` calls it. Writing `x = greet` and expecting a greeting binds `x` to the function itself.
+- **Printing instead of returning.** A function that only prints cannot be reused in `total = price("a") + price("b")`. Return the value and let the caller decide whether to print it.
+- **Falling off the end.** A path with no `return` gives back `None`. Then `None + 1` fails with a `TypeError` somewhere else entirely.
+- **Code after `return`.** Anything below a `return` on the same path never runs.
+- **Calling before defining.** A call that executes before the `def` has run raises `NameError`.
+- **Reusing a built-in's name** such as `max` or `sum` for your own function. The scope lesson in this module explains why that bites.
+
+<Exercise title="Temperature conversion functions">
+
+Write `celsius_to_fahrenheit` and `fahrenheit_to_celsius`, each with a docstring, then print a small table for -40, 0, 37 and 100 degrees Celsius. Check that converting a value there and back returns the original.
+
+<Solution>
+
+```python title="temperature.py"
+def celsius_to_fahrenheit(celsius):
+    """Convert degrees Celsius to degrees Fahrenheit."""
+    return celsius * 9 / 5 + 32
+
+
+def fahrenheit_to_celsius(fahrenheit):
+    """Convert degrees Fahrenheit to degrees Celsius."""
+    return (fahrenheit - 32) * 5 / 9
+
+
+for c in (-40, 0, 37, 100):
+    f = celsius_to_fahrenheit(c)
+    print(f"{c:>4} C = {f:>5.1f} F")
+
+print(f"{fahrenheit_to_celsius(98.6):.1f}")
+print(round(fahrenheit_to_celsius(celsius_to_fahrenheit(21.5)), 6))
+```
+
+```text
+ -40 C = -40.0 F
+   0 C =  32.0 F
+  37 C =  98.6 F
+ 100 C = 212.0 F
+37.0
+21.5
+```
+
+Each function takes one number and returns one number, with no printing inside, so the loop and the round-trip check can both reuse them. Minus 40 is the point where the two scales agree, which makes it a good test value.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Spot the missing return">
+
+`classify(n)` in the lesson returns `"positive"` for positive numbers and `None` otherwise. Rewrite it so it returns `"positive"`, `"zero"` or `"negative"` on every path, then make it use `sign` from the lesson instead of repeating the checks.
+
+<Solution>
+
+```python title="classify_fixed.py"
+def sign(n):
+    if n < 0:
+        return "negative"
+    if n == 0:
+        return "zero"
+    return "positive"
+
+
+def classify(n):
+    return sign(n)
+
+
+print(classify(5), classify(0), classify(-5))
+```
+
+```text
+positive zero negative
+```
+
+The fix is to cover every case, and the best version of `classify` is no longer needed at all because `sign` already does the job. Functions can call other functions, which is how larger programs are built.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `def name(parameters):` defines a function; `return` hands a value back and ends the call.
+- A function with no `return`, or a path that skips it, returns `None`. Several values returned together form a tuple.
+- The first string in a function body is its docstring, available through `help()` and `__doc__`.
+
+Next: parameters in depth, including defaults, `*args`, `**kwargs` and keyword-only arguments.

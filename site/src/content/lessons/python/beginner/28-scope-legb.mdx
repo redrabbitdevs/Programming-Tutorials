@@ -1,0 +1,395 @@
+---
+language: python
+level: beginner
+module: Functions
+order: 28
+title: Scope and the LEGB rule
+description: Predict which variable a name refers to in Python, use global and nonlocal correctly, and stop shadowing built-ins.
+minVersion: "3.8"
+objectives:
+  - Resolve a name using the Local, Enclosing, Global, Built-in order
+  - Explain why assigning to a name inside a function makes it local, and fix UnboundLocalError
+  - Use global and nonlocal only when rebinding is really needed
+  - Avoid shadowing built-in names
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/10-scope-and-lifetime"]
+---
+
+A name in a program is only visible in some places. The [scope and lifetime lesson](../../../fundamentals/beginner/scope-and-lifetime/) in the fundamentals track explains local and global scope, shadowing and closures in general terms. This lesson is about the specific rules Python uses, because one of them surprises nearly everyone once.
+
+## The LEGB rule
+
+When Python meets a name, it looks in up to four places, in order, and uses the first match:
+
+1. **L**ocal: names assigned inside the current function.
+2. **E**nclosing: names in any function that this function is nested inside.
+3. **G**lobal: names assigned at the top level of the module (the file).
+4. **B**uilt-in: names Python provides everywhere, such as `len`, `print` and `sum`.
+
+```python title="legb.py"
+x = "global x"
+
+
+def outer():
+    x = "enclosing x"
+
+    def inner():
+        x = "local x"
+        print("inner sees:", x)
+
+    inner()
+    print("outer sees:", x)
+
+
+outer()
+print("module sees:", x)
+
+y = "global y"
+
+
+def outer2():
+    z = "enclosing z"
+
+    def inner2():
+        w = "local w"
+        print(w, "|", z, "|", y, "|", len("abc"))
+
+    inner2()
+
+
+outer2()
+```
+
+```text
+inner sees: local x
+outer sees: enclosing x
+module sees: global x
+local w | enclosing z | global y | 3
+```
+
+The first half shows three different variables all called `x`. Each `x = ...` creates a new name in its own function, and a lookup stops at the nearest one. The second half uses one name from each layer: `w` is local, `z` is enclosing, `y` is global, and `len` is found last, in the built-ins.
+
+Scope in Python is decided by functions (and modules and classes), not by blocks. A variable first assigned inside an `if` or `for` body belongs to the whole function, and a loop variable is still there after the loop ends.
+
+## Assignment makes a name local
+
+The rule that causes trouble is this: **if a function assigns to a name anywhere in its body, that name is local to the whole function.** Python decides this before running a single line of the body.
+
+```python title="global_nonlocal.py"
+counter = 0
+
+
+def broken():
+    counter = counter + 1
+    return counter
+
+
+try:
+    broken()
+except UnboundLocalError as error:
+    print("UnboundLocalError:", error)
+
+
+def with_global():
+    global counter
+    counter = counter + 1
+
+
+with_global()
+with_global()
+print(counter)
+
+
+def make_counter():
+    count = 0
+
+    def step():
+        nonlocal count
+        count += 1
+        return count
+
+    return step
+
+
+first = make_counter()
+print(first(), first(), first())
+second = make_counter()
+print(second())
+```
+
+```text
+UnboundLocalError: cannot access local variable 'counter' where it is not associated with a value
+2
+1 2 3
+1
+```
+
+In `broken`, the assignment `counter = ...` marks `counter` as local. On the right-hand side the function then tries to *read* that local before it has a value, so Python raises `UnboundLocalError`. The global `counter` was never consulted. Reading a global without assigning to it works fine; it is the assignment that flips the name.
+
+Two statements let a function rebind a name that lives elsewhere:
+
+- `global counter` says "this name is the module-level one".
+- `nonlocal count` says "this name is the one in the nearest enclosing function". It only works for names that already exist there, which is why `make_counter` defines `count` first.
+
+`make_counter` is a **closure**: `step` keeps using `count` after `make_counter` has returned, and each call to `make_counter` creates its own separate `count`, which is why `second()` starts again at 1.
+
+<Callout type="note">
+
+Prefer to avoid `global`. A function that reads and writes module-level variables is hard to test and hard to reason about. Pass values in as parameters and return results. Reach for `nonlocal` only for small closures like the counter above.
+
+</Callout>
+
+## Mutating is not rebinding
+
+`global` is needed only to *rebind* a name, meaning to make it point at a different object. Changing the contents of an object that the name already refers to needs no declaration.
+
+```python title="mutate_vs_rebind.py"
+items = []
+
+
+def add(x):
+    items.append(x)
+
+
+add(1)
+add(2)
+print(items)
+
+
+def rebind():
+    items = ["new"]
+    return items
+
+
+print(rebind())
+print(items)
+```
+
+```text
+[1, 2]
+['new']
+[1, 2]
+```
+
+`add` calls a method on the global list, which only reads the name `items`, so it works. `rebind` assigns `items = ...`, which creates a brand-new local and leaves the global untouched. If you want the second behaviour to change the global you need `global items`, though returning the new list is usually better.
+
+## Shadowing built-ins
+
+Because built-ins come last in the lookup, any name you define earlier hides them. This is legal but rarely wise.
+
+```python title="shadow_builtin.py"
+numbers = [3, 1, 2]
+print(sum(numbers))
+
+sum = 100
+try:
+    print(sum(numbers))
+except TypeError as error:
+    print("TypeError:", error)
+
+del sum
+print(sum(numbers))
+```
+
+```text
+6
+TypeError: 'int' object is not callable
+6
+```
+
+Assigning `sum = 100` at module level put a new `sum` in the global scope, and the global scope is searched before the built-ins. The built-in function is still there; it is just hidden. `del sum` removes the global name, and the lookup falls through to the built-in again. The classic version of this bug is a variable called `list`, `max`, `str` or `input`, which then breaks a later call to the built-in of the same name, sometimes dozens of lines away. Choose names such as `numbers`, `highest` or `text` instead. Linters such as ruff warn about it.
+
+## Common pitfalls
+
+- **Assigning to a global without `global`.** The assignment creates a local, and reads of the name earlier in the function fail with `UnboundLocalError`.
+- **A variable assigned on only one branch.** `if flag: result = "yes"` followed by `return result` fails when `flag` is false, because `result` is local but was never given a value.
+- **Reading a variable before a later assignment in the same function.** `print(label)` followed by `label = "ready"` is an `UnboundLocalError`, even though a global `label` might exist.
+- **`nonlocal` for a name that does not exist.** `nonlocal` needs the name to be defined in an enclosing function already, and it cannot reach module-level names (use `global` for those).
+- **Shadowing built-ins** such as `list`, `sum`, `max`, `id` and `input`.
+- **Thinking an `except ... as error` name survives.** Python deletes `error` at the end of the `except` block, so using it afterwards is an `UnboundLocalError` inside a function.
+
+<Exercise title="Debug five UnboundLocalError puzzles">
+
+Each function below fails with `UnboundLocalError`. Run the file to see the five messages, then fix every function without changing what it is meant to do.
+
+```python title="unbound_puzzles.py"
+total = 10
+
+
+def puzzle1():
+    total += 5
+    return total
+
+
+def puzzle2(flag):
+    if flag:
+        result = "yes"
+    return result
+
+
+def puzzle3():
+    print(label)
+    label = "ready"
+
+
+def puzzle4():
+    count = 0
+
+    def bump():
+        count += 1
+
+    bump()
+    return count
+
+
+def puzzle5():
+    try:
+        int("x")
+    except ValueError as error:
+        pass
+    return error
+
+
+def attempt(name, func, *args):
+    try:
+        func(*args)
+    except UnboundLocalError as error:
+        print(name, "->", error)
+
+
+attempt("puzzle1", puzzle1)
+attempt("puzzle2", puzzle2, False)
+attempt("puzzle3", puzzle3)
+attempt("puzzle4", puzzle4)
+attempt("puzzle5", puzzle5)
+```
+
+```text
+puzzle1 -> cannot access local variable 'total' where it is not associated with a value
+puzzle2 -> cannot access local variable 'result' where it is not associated with a value
+puzzle3 -> cannot access local variable 'label' where it is not associated with a value
+puzzle4 -> cannot access local variable 'count' where it is not associated with a value
+puzzle5 -> cannot access local variable 'error' where it is not associated with a value
+```
+
+<Solution>
+
+```python title="unbound_fixed.py"
+total = 10
+
+
+def puzzle1():
+    global total
+    total += 5
+    return total
+
+
+def puzzle2(flag):
+    result = "no"
+    if flag:
+        result = "yes"
+    return result
+
+
+def puzzle3():
+    label = "ready"
+    print(label)
+
+
+def puzzle4():
+    count = 0
+
+    def bump():
+        nonlocal count
+        count += 1
+
+    bump()
+    return count
+
+
+def puzzle5():
+    message = ""
+    try:
+        int("x")
+    except ValueError as error:
+        message = str(error)
+    return message
+
+
+print(puzzle1())
+print(puzzle2(False), puzzle2(True))
+puzzle3()
+print(puzzle4())
+print(puzzle5())
+```
+
+```text
+15
+no yes
+ready
+1
+invalid literal for int() with base 10: 'x'
+```
+
+Puzzle 1 needs `global`, because `+=` is an assignment. Puzzle 2 gives `result` a value on every path. Puzzle 3 assigns before reading. Puzzle 4 needs `nonlocal` so `bump` rebinds the outer `count` instead of creating its own. Puzzle 5 copies what it needs out of `error` while it still exists. In real code, puzzle 1 would be better written as `def puzzle1(total): return total + 5`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the output">
+
+Without running it, say what this prints, then check.
+
+```python
+level = "global"
+
+
+def show():
+    print(level)
+
+
+def change():
+    level = "local"
+    show()
+
+
+change()
+print(level)
+```
+
+<Solution>
+
+```python title="predict_scope.py"
+level = "global"
+
+
+def show():
+    print(level)
+
+
+def change():
+    level = "local"
+    show()
+
+
+change()
+print(level)
+```
+
+```text
+global
+global
+```
+
+`show` looks up `level` in its own scope, then in the global scope, where it finds `"global"`. It does not matter that it was *called* from inside `change`. Python resolves names by where the function is written (lexical scope), not by who called it. The `level` inside `change` is a separate local that `show` cannot see.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Names are looked up Local, Enclosing, Global, Built-in, and the first match wins.
+- Assigning to a name anywhere in a function makes it local to that function. Use `global` or `nonlocal` to rebind an outer name, and avoid them where a parameter and a return value will do.
+- Do not name your variables after built-ins such as `list`, `sum` or `max`.
+
+Next: lambdas and higher-order functions, where functions themselves become values.
