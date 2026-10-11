@@ -87,49 +87,257 @@ quantity = quantity + 1
 
 Note that `total` stays 60 on line 4. It was computed once, from the values at that moment. It does not track `quantity`. Beginners often expect a variable to behave like a spreadsheet formula; it does not.
 
+The same four lines as a program, which prints the variables after the last line:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="trace_vars.py"
+price = 20
+quantity = 3
+total = price * quantity
+quantity = quantity + 1
+print(price, quantity, total)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="trace_vars.js"
+let price = 20;
+let quantity = 3;
+let total = price * quantity;
+quantity = quantity + 1;
+console.log(price, quantity, total);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="TraceVars.java"
+public class TraceVars {
+    public static void main(String[] args) {
+        int price = 20;
+        int quantity = 3;
+        int total = price * quantity;
+        quantity = quantity + 1;
+        System.out.println(price + " " + quantity + " " + total);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="trace_vars.c"
+#include <stdio.h>
+
+int main(void) {
+    int price = 20;
+    int quantity = 3;
+    int total = price * quantity;
+    quantity = quantity + 1;
+    printf("%d %d %d\n", price, quantity, total);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print the last row of the table:
+
+```text
+20 4 60
+```
+
 ## Swapping two variables
 
-The classic puzzle: exchange the values of `a` and `b`. You cannot just write `a = b` then `b = a`, because the first line destroys the original `a`. Three working approaches:
+The classic puzzle: exchange the values of `a` and `b`. You cannot just write `a = b` then `b = a`, because the first line destroys the original `a`. The method that works in every language is a **temporary variable**: park one value, overwrite, then restore.
 
-```python title="variables_demo.py"
-# Three ways to swap two variables
-a, b = 1, 2
+```text
+a        b        temp
+1        2        -          start
+1        2        1          temp = a
+2        2        1          a = b
+2        1        1          b = temp
+```
+
+<Tabs>
+<Tab label="Python">
+
+```python title="swap_temp.py"
+a = 1
+b = 2
 temp = a
 a = b
 b = temp
-print("temp:", a, b)
+print(a, b)
+```
 
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="swap_temp.js"
+let a = 1;
+let b = 2;
+const temp = a;
+a = b;
+b = temp;
+console.log(a, b);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="SwapTemp.java"
+public class SwapTemp {
+    public static void main(String[] args) {
+        int a = 1;
+        int b = 2;
+        int temp = a;
+        a = b;
+        b = temp;
+        System.out.println(a + " " + b);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="swap_temp.c"
+#include <stdio.h>
+
+int main(void) {
+    int a = 1;
+    int b = 2;
+    int temp = a;
+    a = b;
+    b = temp;
+    printf("%d %d\n", a, b);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+2 1
+```
+
+Some languages can skip the temporary with **simultaneous assignment**, which evaluates the whole right side before storing anything. Java and C have no such syntax, so they always use the temporary.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="swap_tuple.py"
 a, b = 1, 2
 a, b = b, a
-print("tuple:", a, b)
+print(a, b)
+```
 
-a, b = 1, 2
-a = a + b
-b = a - b
-a = a - b
-print("arithmetic:", a, b)
+</Tab>
+<Tab label="JavaScript">
 
-# Binding versus copying
+```javascript title="swap_destructure.js"
+let a = 1;
+let b = 2;
+[a, b] = [b, a];
+console.log(a, b);
+```
+
+</Tab>
+<Tab label="Java">
+
+Java has no simultaneous assignment. Use the temporary variable shown above.
+
+</Tab>
+<Tab label="C">
+
+C has no simultaneous assignment. Use the temporary variable shown above.
+
+</Tab>
+</Tabs>
+
+Both programs print `2 1`.
+
+A third trick swaps numbers with arithmetic and no spare variable: `a = a + b`, then `b = a - b`, then `a = a - b`. It only works for numbers, and it can overflow in languages with fixed-size integers. Treat it as a curiosity.
+
+## Rebinding versus mutating
+
+After one variable is assigned to another, something surprising can happen. Take a list, give it a second name, and change the list through the second name:
+
+```text
+x -----> [1, 2]
+y = x    (now both names point at the same list)
+
+x ---+
+     +--> [1, 2, 3]     after adding 3 through y
+y ---+
+```
+
+<Tabs>
+<Tab label="Python">
+
+```python title="alias_list.py"
 x = [1, 2]
 y = x
 y.append(3)
 print(x, y, x is y)
 ```
 
-```text title="output"
-temp: 2 1
-tuple: 2 1
-arithmetic: 2 1
-[1, 2, 3] [1, 2, 3] True
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="alias_list.js"
+const x = [1, 2];
+const y = x;
+y.push(3);
+console.log(x, y, x === y);
 ```
 
-- The **temporary variable** is the universal method and works in every language.
-- **Simultaneous assignment** (`a, b = b, a`) evaluates the whole right side before storing anything. Python and JavaScript (`[a, b] = [b, a]`) support it.
-- The **arithmetic trick** uses no spare variable but only works for numbers, and can overflow in languages with fixed-size integers. Treat it as a curiosity.
+</Tab>
+<Tab label="Java">
 
-## Rebinding versus mutating
+```java title="AliasList.java"
+import java.util.ArrayList;
+import java.util.List;
 
-The last four lines of that example show something that trips up almost everyone. After `y = x`, both names refer to the same list. Appending through `y` changes the thing both names point at, so `x` changes too. The `x is y` check confirms they are one object.
+public class AliasList {
+    public static void main(String[] args) {
+        List<Integer> x = new ArrayList<>(List.of(1, 2));
+        List<Integer> y = x;
+        y.add(3);
+        System.out.println(x + " " + y + " " + (x == y));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+C arrays cannot grow, so this version changes an existing slot instead of appending. The pointer `y` holds the address of `x`'s first element.
+
+```c title="alias_list.c"
+#include <stdio.h>
+
+int main(void) {
+    int x[3] = {1, 2, 0};
+    int *y = x;
+    y[2] = 3;
+    printf("%d %d %d, same place: %d\n", x[0], x[1], x[2], x == y);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+Python prints `[1, 2, 3] [1, 2, 3] True`, JavaScript prints `[ 1, 2, 3 ] [ 1, 2, 3 ] true`, Java prints `[1, 2, 3] [1, 2, 3] true`, and C prints `1 2 3, same place: 1`. In every language the change made through `y` shows up in `x`, because there is only one list and two names for it. The identity check at the end confirms it.
 
 - **Rebinding**: `y = something_else` points the name `y` at a different value. Other names are unaffected.
 - **Mutation**: changing the contents of the value itself. Every name pointing at it sees the change.
@@ -190,7 +398,7 @@ For naming in general:
 
 <Exercise title="Trace a variable table">
 
-Trace this program and give the final values of `a`, `b` and `c`.
+Trace this program and give the final values of `a`, `b` and `c`. There is no input.
 
 ```text
 a = 5
@@ -199,6 +407,8 @@ a = a + b
 c = a - b
 b = c
 ```
+
+Expected: three whole numbers, one for each variable.
 
 <Solution>
 
@@ -218,7 +428,7 @@ Final values: `a` is 15, `b` is 5, `c` is 5. Line 5 copies the value of `c` into
 
 <Exercise title="Spot the broken swap">
 
-Why does this fail to swap `a` and `b`? Trace it with `a = 1` and `b = 2`.
+Why does this fail to swap `a` and `b`? Trace it with `a = 1` and `b = 2`. Expected: the values of `a` and `b` after the two lines.
 
 ```text
 a = b
@@ -235,7 +445,7 @@ After `a = b`, both `a` and `b` hold 2, and the original 1 is gone. Then `b = a`
 
 <Exercise title="Two names, one list">
 
-After this runs, what do `x` and `y` contain? Explain why.
+After this runs, what do `x` and `y` contain? Explain why. Expected: the contents of each name.
 
 ```text
 x = [1, 2]
@@ -247,6 +457,92 @@ x = [9]
 <Solution>
 
 `y` is `[1, 2, 3]` and `x` is `[9]`. The `append` mutates the one shared list, which is why both names would have shown `[1, 2, 3]` at that point. The last line rebinds `x` to a brand-new list, which leaves `y` still pointing at the old one.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Rotate three values">
+
+Start with `a = 1`, `b = 2`, `c = 3`. Using only assignments and one temporary variable, rotate the values so `a` holds 2, `b` holds 3 and `c` holds 1. Print the three values on one line. Expected output: `2 3 1`.
+
+<Solution>
+
+Park the first value, then shift each one into the place before it, then put the parked value last.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="rotate_three.py"
+a = 1
+b = 2
+c = 3
+temp = a
+a = b
+b = c
+c = temp
+print(a, b, c)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="rotate_three.js"
+let a = 1;
+let b = 2;
+let c = 3;
+const temp = a;
+a = b;
+b = c;
+c = temp;
+console.log(a, b, c);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="RotateThree.java"
+public class RotateThree {
+    public static void main(String[] args) {
+        int a = 1;
+        int b = 2;
+        int c = 3;
+        int temp = a;
+        a = b;
+        b = c;
+        c = temp;
+        System.out.println(a + " " + b + " " + c);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="rotate_three.c"
+#include <stdio.h>
+
+int main(void) {
+    int a = 1;
+    int b = 2;
+    int c = 3;
+    int temp = a;
+    a = b;
+    b = c;
+    c = temp;
+    printf("%d %d %d\n", a, b, c);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+2 3 1
+```
 
 </Solution>
 

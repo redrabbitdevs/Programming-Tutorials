@@ -1,2 +1,4 @@
-impure: 5 10
-pure: 5 5
+5 5
+5
+5
+calls: 2

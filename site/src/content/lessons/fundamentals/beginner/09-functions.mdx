@@ -28,10 +28,20 @@ A function has a **name**, a list of **parameters** (the inputs it expects), a *
 
 When you call a function, the arguments are matched to the parameters, the body runs, and the call expression is replaced by the returned value. That last point is why you can write `print(to_fahrenheit(100))` or `to_fahrenheit(c) + 1`: a call is an expression.
 
+```text
+call:        to_fahrenheit(100)
+                  |
+                  v   argument 100 is matched to parameter celsius
+body:        return celsius * 9 / 5 + 32      ->  212.0
+                  |
+                  v   the call is replaced by the returned value
+use:         print(212.0)
+```
+
 <Tabs>
 <Tab label="Python">
 
-```python
+```python title="functions_basic.py"
 def to_fahrenheit(celsius):
     return celsius * 9 / 5 + 32
 
@@ -43,7 +53,7 @@ for c in [100, 37, -40]:
 </Tab>
 <Tab label="JavaScript">
 
-```javascript
+```javascript title="functions_basic.js"
 function toFahrenheit(celsius) {
   return celsius * 9 / 5 + 32;
 }
@@ -56,7 +66,7 @@ for (const c of [100, 37, -40]) {
 </Tab>
 <Tab label="Java">
 
-```java
+```java title="FunctionsBasic.java"
 public class FunctionsBasic {
     static double toFahrenheit(double celsius) {
         return celsius * 9 / 5 + 32;
@@ -74,7 +84,7 @@ public class FunctionsBasic {
 </Tab>
 <Tab label="C">
 
-```c
+```c title="functions_basic.c"
 #include <stdio.h>
 
 double to_fahrenheit(double celsius) {
@@ -105,36 +115,225 @@ Python and JavaScript need no type declarations. Java and C name the type of eve
 
 ## Return versus print
 
-New programmers often mix these up. `print` sends text to the screen for a human to read, and the program cannot use it afterwards. `return` hands a value back to the calling code, which can store it, compute with it or print it. A function that computes should normally **return**, and the caller decides what to do with the result. That makes the function reusable: the same `to_fahrenheit` works in a program that prints, one that draws a chart and one that writes a file.
+New programmers often mix these up. Printing sends text to the screen for a human to read, and the program cannot use it afterwards. `return` hands a value back to the calling code, which can store it, compute with it or print it. A function that computes should normally **return**, and the caller decides what to do with the result. That makes the function reusable: the same `to_fahrenheit` works in a program that prints, one that draws a chart and one that writes a file.
 
-A function with no `return` statement gives back a special empty value (`None` in Python, `undefined` in JavaScript). Java and C have a `void` return type for this case.
+A function with no `return` statement gives back a special empty value, and the languages handle that differently.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="shout.py"
+def shout(text):
+    print(text.upper())
+
+
+result = shout("hi")
+print(result)
+```
+
+```text title="output"
+HI
+None
+```
+
+A function with no `return` gives back `None`.
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="shout.js"
+function shout(text) {
+  console.log(text.toUpperCase());
+}
+
+const result = shout("hi");
+console.log(result);
+```
+
+```text title="output"
+HI
+undefined
+```
+
+A function with no `return` gives back `undefined`.
+
+</Tab>
+<Tab label="Java">
+
+```java title="Shout.java"
+public class Shout {
+    static void shout(String text) {
+        System.out.println(text.toUpperCase());
+    }
+
+    public static void main(String[] args) {
+        shout("hi");
+        // String result = shout("hi");   // compile error: a void method has no value
+    }
+}
+```
+
+```text title="output"
+HI
+```
+
+The return type `void` says "no value". Trying to store the result is a compile error, so the mistake cannot happen at run time.
+
+</Tab>
+<Tab label="C">
+
+```c title="shout.c"
+#include <ctype.h>
+#include <stdio.h>
+
+void shout(const char *text) {
+    for (; *text; text++) {
+        putchar(toupper((unsigned char)*text));
+    }
+    putchar('\n');
+}
+
+int main(void) {
+    shout("hi");
+    /* int result = shout("hi");   compile error: void value not ignored */
+    return 0;
+}
+```
+
+```text title="output"
+HI
+```
+
+C also uses `void`, and storing a `void` result is a compile error.
+
+</Tab>
+</Tabs>
 
 ## Side effects and pure functions
 
 A **side effect** is any change a function makes beyond returning a value: printing, modifying a global variable, writing a file, changing an argument that was passed in. A **pure function** has none, and its result depends only on its arguments. Call it twice with the same arguments and you get the same answer.
 
-```python
-# A pure function: the result depends only on the arguments, nothing else changes.
+In this program `add` is pure. `add_and_count` returns the same number but also bumps a counter that lives outside the function.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="pure_impure.py"
+calls = 0
+
+
 def add(a, b):
     return a + b
 
 
-# An impure function: it changes something outside itself.
-log = []
-
-
-def add_and_log(a, b):
-    log.append(f"adding {a} and {b}")
+def add_and_count(a, b):
+    global calls   # lets the function change the outer variable; see the scope lesson
+    calls += 1
     return a + b
 
 
 print(add(2, 3), add(2, 3))
-print(add_and_log(2, 3))
-print(add_and_log(2, 3))
-print(log)
+print(add_and_count(2, 3))
+print(add_and_count(2, 3))
+print("calls:", calls)
+```
 
+</Tab>
+<Tab label="JavaScript">
 
-# The call stack: each call waits for the one above it to finish.
+```javascript title="pure_impure.js"
+let calls = 0;
+
+function add(a, b) {
+  return a + b;
+}
+
+function addAndCount(a, b) {
+  calls += 1;
+  return a + b;
+}
+
+console.log(add(2, 3), add(2, 3));
+console.log(addAndCount(2, 3));
+console.log(addAndCount(2, 3));
+console.log("calls:", calls);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="PureImpure.java"
+public class PureImpure {
+    static int calls = 0;
+
+    static int add(int a, int b) {
+        return a + b;
+    }
+
+    static int addAndCount(int a, int b) {
+        calls += 1;
+        return a + b;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(add(2, 3) + " " + add(2, 3));
+        System.out.println(addAndCount(2, 3));
+        System.out.println(addAndCount(2, 3));
+        System.out.println("calls: " + calls);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="pure_impure.c"
+#include <stdio.h>
+
+static int calls = 0;
+
+static int add(int a, int b) {
+    return a + b;
+}
+
+static int add_and_count(int a, int b) {
+    calls += 1;
+    return a + b;
+}
+
+int main(void) {
+    printf("%d %d\n", add(2, 3), add(2, 3));
+    printf("%d\n", add_and_count(2, 3));
+    printf("%d\n", add_and_count(2, 3));
+    printf("calls: %d\n", calls);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+5 5
+5
+5
+calls: 2
+```
+
+`add` leaves nothing behind. `add_and_count` returns the same number but also changes `calls`, so calling it has a visible effect elsewhere. Neither is wrong; programs need side effects, since printing is one. But pure functions are far easier to test and to reason about, so a good habit is to keep the calculating parts pure and push the printing and file-writing to the edges.
+
+## The call stack
+
+When a function calls another, the first must wait for the second to finish. The computer tracks this with the **call stack**: a pile of **frames**, one per active call, each holding that call's parameters and local variables. A new call pushes a frame on top; a return pops it off and execution resumes in the frame below.
+
+Here three functions call each other in a chain. Each prints a line when it starts and when it ends, indented to show its depth.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="call_stack.py"
 def outer():
     print("outer starts")
     middle()
@@ -152,40 +351,102 @@ def inner():
 
 
 outer()
-
-
-# A function with no return statement gives back None.
-def shout(text):
-    print(text.upper())
-
-
-result = shout("hi")
-print(result)
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="call_stack.js"
+function outer() {
+  console.log("outer starts");
+  middle();
+  console.log("outer ends");
+}
+
+function middle() {
+  console.log("  middle starts");
+  inner();
+  console.log("  middle ends");
+}
+
+function inner() {
+  console.log("    inner runs");
+}
+
+outer();
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="CallStack.java"
+public class CallStack {
+    static void outer() {
+        System.out.println("outer starts");
+        middle();
+        System.out.println("outer ends");
+    }
+
+    static void middle() {
+        System.out.println("  middle starts");
+        inner();
+        System.out.println("  middle ends");
+    }
+
+    static void inner() {
+        System.out.println("    inner runs");
+    }
+
+    public static void main(String[] args) {
+        outer();
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="call_stack.c"
+#include <stdio.h>
+
+static void inner(void) {
+    printf("    inner runs\n");
+}
+
+static void middle(void) {
+    printf("  middle starts\n");
+    inner();
+    printf("  middle ends\n");
+}
+
+static void outer(void) {
+    printf("outer starts\n");
+    middle();
+    printf("outer ends\n");
+}
+
+int main(void) {
+    outer();
+    return 0;
+}
+```
+
+C needs each function defined before it is called, so the order is reversed: `inner` first, `outer` last.
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
-5 5
-5
-5
-['adding 2 and 3', 'adding 2 and 3']
 outer starts
   middle starts
     inner runs
   middle ends
 outer ends
-HI
-None
 ```
 
-`add` is pure. `add_and_log` returns the same number but also changes `log`, so calling it has a visible effect elsewhere. Neither is wrong; programs need side effects, since printing is one. But pure functions are far easier to test and to reason about, so a good habit is to keep the calculating parts pure and push the printing and file-writing to the edges.
-
-## The call stack
-
-When a function calls another, the first must wait for the second to finish. The computer tracks this with the **call stack**: a pile of **frames**, one per active call, each holding that call's parameters and local variables. A new call pushes a frame on top; a return pops it off and execution resumes in the frame below.
-
-For the `outer`, `middle`, `inner` example in the file above:
+Here is the stack at five moments. Read each column from the bottom up.
 
 ```text
  (1)         (2)         (3)         (4)         (5)
@@ -195,7 +456,7 @@ For the `outer`, `middle`, `inner` example in the file above:
  main        main        main        main        main
 ```
 
-Read each column from the bottom up. In (1) `main` has called `outer`. In (2) `outer` has called `middle`, and in (3) `middle` has called `inner`, the deepest point. When `inner` returns, its frame is removed (4), then `middle`'s (5), and `outer` carries on. This explains the order of the output (`outer starts`, `middle starts`, `inner runs`, `middle ends`, `outer ends`) and, later, what a stack trace in an error message is showing you: the pile of frames at the moment something went wrong.
+In (1) `main` has called `outer`. In (2) `outer` has called `middle`, and in (3) `middle` has called `inner`, the deepest point. When `inner` returns, its frame is removed (4), then `middle`'s (5), and `outer` carries on. This explains the order of the output (`outer starts`, `middle starts`, `inner runs`, `middle ends`, `outer ends`) and, later, what a stack trace in an error message is showing you: the pile of frames at the moment something went wrong.
 
 ## Designing good functions
 
@@ -207,7 +468,7 @@ Read each column from the bottom up. In (1) `main` has called `outer`. In (2) `o
 
 ## Common pitfalls
 
-- **Printing instead of returning,** then trying to use the result and finding it empty (`None`).
+- **Printing instead of returning,** then trying to use the result and finding it empty (`None` or `undefined`).
 - **Forgetting the parentheses.** `to_fahrenheit` refers to the function; `to_fahrenheit(100)` calls it.
 - **Mismatched argument counts or order.** `report("Ana", scores)` and `report(scores, "Ana")` are different calls.
 - **Expecting a function to change your variable.** In most languages numbers and strings passed in are copies; reassigning the parameter inside does not affect the caller. (More on this in the memory lesson later in the track.)
@@ -216,7 +477,20 @@ Read each column from the bottom up. In (1) `main` has called `outer`. In (2) `o
 
 <Exercise title="Refactor a script into functions">
 
-This script computes an average and a letter grade for three students. The same block of code appears three times. Rewrite it using three functions, `average`, `letter_grade` and `report`, so that each rule appears once.
+This script computes an average and a letter grade for three students. The same block of code appears three times, once per student. Rewrite it using three functions, `average`, `letter_grade` and `report`, so that each rule appears once.
+
+The data: Ana scored 80, 90, 70; Ben scored 60, 65, 90; Chi scored 95, 92, 98. A grade is `A` for an average of at least 85, `B` for at least 70, otherwise `C`. Expected output:
+
+```text
+Ana 80.0 B
+Ben 71.7 B
+Chi 95.0 A
+```
+
+Here is the block for Ana in each language. The blocks for Ben and Chi are copies with different numbers and names.
+
+<Tabs>
+<Tab label="Python">
 
 ```python
 a = (80 + 90 + 70) / 3
@@ -227,29 +501,65 @@ elif a >= 70:
 else:
     ga = "C"
 print("Ana", f"{a:.1f}", ga)
-
-b = (60 + 65 + 90) / 3
-if b >= 85:
-    gb = "A"
-elif b >= 70:
-    gb = "B"
-else:
-    gb = "C"
-print("Ben", f"{b:.1f}", gb)
-
-c = (95 + 92 + 98) / 3
-if c >= 85:
-    gc = "A"
-elif c >= 70:
-    gc = "B"
-else:
-    gc = "C"
-print("Chi", f"{c:.1f}", gc)
 ```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+const a = (80 + 90 + 70) / 3;
+let ga;
+if (a >= 85) {
+  ga = "A";
+} else if (a >= 70) {
+  ga = "B";
+} else {
+  ga = "C";
+}
+console.log("Ana", a.toFixed(1), ga);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+double a = (80 + 90 + 70) / 3.0;
+String ga;
+if (a >= 85) {
+    ga = "A";
+} else if (a >= 70) {
+    ga = "B";
+} else {
+    ga = "C";
+}
+System.out.printf("Ana %.1f %s%n", a, ga);
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+double a = (80 + 90 + 70) / 3.0;
+const char *ga;
+if (a >= 85) {
+    ga = "A";
+} else if (a >= 70) {
+    ga = "B";
+} else {
+    ga = "C";
+}
+printf("Ana %.1f %s\n", a, ga);
+```
+
+</Tab>
+</Tabs>
 
 <Solution>
 
 Each function does one job. `average` and `letter_grade` are pure; only `report` prints.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="functions_refactored.py"
 def average(scores):
@@ -274,7 +584,120 @@ report("Ben", [60, 65, 90])
 report("Chi", [95, 92, 98])
 ```
 
-Both versions print the same thing, which is the test that a refactoring has changed the structure but not the behaviour:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="functions_refactored.js"
+function average(scores) {
+  let sum = 0;
+  for (const s of scores) {
+    sum += s;
+  }
+  return sum / scores.length;
+}
+
+function letterGrade(avg) {
+  if (avg >= 85) {
+    return "A";
+  }
+  if (avg >= 70) {
+    return "B";
+  }
+  return "C";
+}
+
+function report(name, scores) {
+  const avg = average(scores);
+  console.log(name, avg.toFixed(1), letterGrade(avg));
+}
+
+report("Ana", [80, 90, 70]);
+report("Ben", [60, 65, 90]);
+report("Chi", [95, 92, 98]);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="FunctionsRefactored.java"
+public class FunctionsRefactored {
+    static double average(int[] scores) {
+        int sum = 0;
+        for (int s : scores) {
+            sum += s;
+        }
+        return (double) sum / scores.length;
+    }
+
+    static String letterGrade(double avg) {
+        if (avg >= 85) {
+            return "A";
+        }
+        if (avg >= 70) {
+            return "B";
+        }
+        return "C";
+    }
+
+    static void report(String name, int[] scores) {
+        double avg = average(scores);
+        System.out.printf("%s %.1f %s%n", name, avg, letterGrade(avg));
+    }
+
+    public static void main(String[] args) {
+        report("Ana", new int[] {80, 90, 70});
+        report("Ben", new int[] {60, 65, 90});
+        report("Chi", new int[] {95, 92, 98});
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="functions_refactored.c"
+#include <stdio.h>
+
+static double average(const int *scores, int count) {
+    int sum = 0;
+    for (int i = 0; i < count; i++) {
+        sum += scores[i];
+    }
+    return (double)sum / count;
+}
+
+static const char *letter_grade(double avg) {
+    if (avg >= 85) {
+        return "A";
+    }
+    if (avg >= 70) {
+        return "B";
+    }
+    return "C";
+}
+
+static void report(const char *name, const int *scores, int count) {
+    double avg = average(scores, count);
+    printf("%s %.1f %s\n", name, avg, letter_grade(avg));
+}
+
+int main(void) {
+    int ana[] = {80, 90, 70};
+    int ben[] = {60, 65, 90};
+    int chi[] = {95, 92, 98};
+    report("Ana", ana, 3);
+    report("Ben", ben, 3);
+    report("Chi", chi, 3);
+    return 0;
+}
+```
+
+In C an array does not carry its length, so each function also takes a `count`.
+
+</Tab>
+</Tabs>
+
+All four print the same three lines as the original script, which is the test that a refactoring has changed the structure but not the behaviour:
 
 ```text
 Ana 80.0 B
@@ -290,7 +713,10 @@ If you now want to change the grade boundary from 85 to 90, there is exactly one
 
 <Exercise title="Return or print?">
 
-What does `result` hold after this code runs, and why?
+What does `result` hold after this code runs, and why? Expected: say what is printed, and what `result` holds, in Python and in JavaScript.
+
+<Tabs>
+<Tab label="Python">
 
 ```python
 def double(n):
@@ -299,9 +725,45 @@ def double(n):
 result = double(4)
 ```
 
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+function double(n) {
+  console.log(n * 2);
+}
+
+const result = double(4);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+static void doubleIt(int n) {
+    System.out.println(n * 2);
+}
+
+// int result = doubleIt(4);   // does this compile?
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+void double_it(int n) {
+    printf("%d\n", n * 2);
+}
+
+/* int result = double_it(4);   does this compile? */
+```
+
+</Tab>
+</Tabs>
+
 <Solution>
 
-`result` is `None`. The function prints 8 but never returns anything, so the call expression has no value to store. Replace `print(n * 2)` with `return n * 2` to get 8 into `result`.
+In Python `result` is `None`, and in JavaScript it is `undefined`. Either way, 8 is printed to the screen but the function never returns anything, so the call expression has no value to store. In Java and C the line with `result` does not compile, because a `void` function has no value to assign. Replace the print with `return n * 2` (and change `void` to `int` in Java and C) to get 8 into `result`.
 
 </Solution>
 
@@ -309,22 +771,103 @@ result = double(4)
 
 <Exercise title="Draw the stack">
 
-Draw the call stack at the deepest point of this program, and say what it prints.
+Draw the call stack at the deepest point of this program, and say what it prints. There is no input. Expected: three lines.
 
-```python
+<Tabs>
+<Tab label="Python">
+
+```python title="stack_abc.py"
 def c():
     print("c")
+
 
 def b():
     c()
     print("b")
 
+
 def a():
     b()
     print("a")
 
+
 a()
 ```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="stack_abc.js"
+function c() {
+  console.log("c");
+}
+
+function b() {
+  c();
+  console.log("b");
+}
+
+function a() {
+  b();
+  console.log("a");
+}
+
+a();
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="StackAbc.java"
+public class StackAbc {
+    static void c() {
+        System.out.println("c");
+    }
+
+    static void b() {
+        c();
+        System.out.println("b");
+    }
+
+    static void a() {
+        b();
+        System.out.println("a");
+    }
+
+    public static void main(String[] args) {
+        a();
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="stack_abc.c"
+#include <stdio.h>
+
+static void c(void) {
+    printf("c\n");
+}
+
+static void b(void) {
+    c();
+    printf("b\n");
+}
+
+static void a(void) {
+    b();
+    printf("a\n");
+}
+
+int main(void) {
+    a();
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
 
 <Solution>
 

@@ -153,22 +153,25 @@ Notes on the differences:
 
 A true **array** is a block of memory big enough for a fixed number of elements, all side by side. Because every element has the same size, the computer finds element `i` by simple arithmetic (start address plus `i` times the element size), which makes reading by index fast whatever the length. The price is that the size is fixed when the array is created. Java's `int[]` and C's `int[]` are arrays in this sense.
 
-Most of the time you do not know in advance how many items you will have. A **dynamic array** (a *list* in Python, an *array* in JavaScript, `ArrayList` in Java) solves this by keeping a true array inside and replacing it with a bigger one, copying the elements across, when it fills up. You get the convenience of "add to the end" and still have fast access by index. Python and JavaScript use dynamic arrays as their everyday sequence, so you will rarely meet a fixed-size array there.
+Most of the time you do not know in advance how many items you will have. A **dynamic array** (a *list* in Python, an *array* in JavaScript, `ArrayList` in Java) solves this by keeping a true array inside and replacing it with a bigger one, copying the elements across, when it fills up. You get the convenience of "add to the end" and still have fast access by index. Python and JavaScript use dynamic arrays as their everyday sequence, so you will rarely meet a fixed-size array there. C has no built-in dynamic array; programs allocate and grow one by hand, which a later lesson covers.
 
 The common operations, and their usual cost:
 
-| Operation | Python | Cost |
-|---|---|---|
-| Read or write by index | `a[i]`, `a[i] = x` | fast, independent of length |
-| Add to the end | `a.append(x)` | fast on average |
-| Insert or remove in the middle or at the front | `a.insert(i, x)`, `a.pop(i)` | slower: later elements must shift |
-| Search for a value | `x in a` | looks at elements one by one |
+| Operation | Python | JavaScript | Java (`ArrayList`) | C (fixed array) | Cost |
+|---|---|---|---|---|---|
+| Read or write by index | `a[i]`, `a[i] = x` | `a[i]`, `a[i] = x` | `a.get(i)`, `a.set(i, x)` | `a[i]`, `a[i] = x` | fast, independent of length |
+| Add to the end | `a.append(x)` | `a.push(x)` | `a.add(x)` | not possible: size is fixed | fast on average |
+| Insert or remove in the middle or at the front | `a.insert(i, x)`, `a.pop(i)` | `a.splice(i, 0, x)`, `a.splice(i, 1)` | `a.add(i, x)`, `a.remove(i)` | shift elements by hand | slower: later elements must shift |
+| Search for a value | `x in a` | `a.includes(x)` | `a.contains(x)` | loop over the elements | looks at elements one by one |
 
 A later lesson on Big-O makes "fast" and "slower" precise. For now, remember that shifting elements is the expensive part.
 
 ## Mutation: in place or a new sequence?
 
-A sequence is usually **mutable**: you can change it after creating it. The important question for every operation is whether it changes the sequence **in place** or returns a **new** one. Mixing the two up causes some of the most common beginner bugs.
+A sequence is usually **mutable**: you can change it after creating it. The important question for every operation is whether it changes the sequence **in place** or returns a **new** one. Mixing the two up causes some of the most common beginner bugs. Start with sorting. Each program adds 4 to `[3, 1, 2]`, sorts it in place, then builds a separate sorted copy of `[3, 1, 2]`.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="seq_demo.py"
 nums = [3, 1, 2]
@@ -179,54 +182,291 @@ print(nums)
 
 ordered = sorted([3, 1, 2])  # builds a new list; the original is untouched
 print(ordered)
-
-wrong = nums.sort()      # a classic mistake: sort() returns None
-print(wrong)
-
-# Slicing copies. The copy and the original are separate lists.
-original = [1, 2, 3, 4, 5]
-middle = original[1:4]
-middle[0] = 99
-print(original, middle)
-
-# Negative indexes count from the end in Python.
-print(original[-1], original[-2])
-
-# Looping with the position as well as the value.
-for i, value in enumerate(["a", "b", "c"]):
-    print(i, value)
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="seq_demo.js"
+const nums = [3, 1, 2];
+
+nums.push(4);                        // in place: nums is now [3, 1, 2, 4]
+nums.sort((a, b) => a - b);          // in place
+console.log(`[${nums.join(", ")}]`);
+
+const ordered = [3, 1, 2].toSorted((a, b) => a - b);  // builds a new array (ES2023)
+console.log(`[${ordered.join(", ")}]`);
+```
+
+JavaScript's `sort` compares items as text unless you pass a comparison function, so `[10, 9, 1].sort()` gives `[1, 10, 9]`. The `(a, b) => a - b` makes it compare numbers.
+
+</Tab>
+<Tab label="Java">
+
+```java title="SeqDemo.java"
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Stream;
+
+public class SeqDemo {
+    public static void main(String[] args) {
+        List<Integer> nums = new ArrayList<>(List.of(3, 1, 2));
+
+        nums.add(4);                  // in place: nums is now [3, 1, 2, 4]
+        Collections.sort(nums);       // in place: returns nothing
+        System.out.println(nums);
+
+        List<Integer> ordered = Stream.of(3, 1, 2).sorted().toList();   // a new list
+        System.out.println(ordered);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="seq_demo.c"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static int compare(const void *a, const void *b) {
+    return *(const int *)a - *(const int *)b;
+}
+
+static void print_array(const int *items, int count) {
+    printf("[");
+    for (int i = 0; i < count; i++) {
+        printf("%s%d", i > 0 ? ", " : "", items[i]);
+    }
+    printf("]\n");
+}
+
+int main(void) {
+    int nums[] = {3, 1, 2, 4};       /* a C array cannot grow, so 4 is already included */
+    qsort(nums, 4, sizeof nums[0], compare);   /* in place */
+    print_array(nums, 4);
+
+    int original[] = {3, 1, 2};
+    int ordered[3];
+    memcpy(ordered, original, sizeof original);   /* copy first, then sort the copy */
+    qsort(ordered, 3, sizeof ordered[0], compare);
+    print_array(ordered, 3);
+    return 0;
+}
+```
+
+C's `qsort` always sorts in place, so a sorted copy means copying first.
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
 [1, 2, 3, 4]
 [1, 2, 3]
+```
+
+Sorting in place changes the list and returns nothing useful, while building a new one leaves the original alone. That difference sets a trap:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="sort_returns_none.py"
+nums = [3, 1, 2]
+wrong = nums.sort()      # a classic mistake: sort() returns None
+print(wrong)
+```
+
+```text title="output"
 None
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="sort_returns_same.js"
+const nums = [3, 1, 2];
+const wrong = nums.sort((a, b) => a - b);   // returns the SAME array, not a copy
+console.log(wrong === nums);
+```
+
+```text title="output"
+true
+```
+
+Here the mistake is the opposite one: `sort` hands back the very same array, so `wrong` is not an independent copy.
+
+</Tab>
+<Tab label="Java">
+
+```java
+List<Integer> wrong = Collections.sort(nums);   // compile error: sort returns void
+```
+
+The compiler stops this one, because `Collections.sort` is declared to return nothing.
+
+</Tab>
+<Tab label="C">
+
+```c
+int *wrong = qsort(nums, 3, sizeof nums[0], compare);   /* compile error: qsort returns void */
+```
+
+The compiler stops this one too, because `qsort` returns nothing.
+
+</Tab>
+</Tabs>
+
+The next question is whether slicing gives you a copy. Take elements 1 to 3 of `[1, 2, 3, 4, 5]`, change the first slice element to 99, and look at both.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="slice_copy.py"
+original = [1, 2, 3, 4, 5]
+middle = original[1:4]
+middle[0] = 99
+print(original, middle)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="slice_copy.js"
+const original = [1, 2, 3, 4, 5];
+const middle = original.slice(1, 4);
+middle[0] = 99;
+console.log(`[${original.join(", ")}] [${middle.join(", ")}]`);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="SliceCopy.java"
+import java.util.Arrays;
+
+public class SliceCopy {
+    public static void main(String[] args) {
+        int[] original = {1, 2, 3, 4, 5};
+        int[] middle = Arrays.copyOfRange(original, 1, 4);
+        middle[0] = 99;
+        System.out.println(Arrays.toString(original) + " " + Arrays.toString(middle));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="slice_copy.c"
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    int original[] = {1, 2, 3, 4, 5};
+    int middle[3];
+    memcpy(middle, &original[1], sizeof middle);   /* copy 3 elements starting at index 1 */
+    middle[0] = 99;
+    printf("[%d, %d, %d, %d, %d] [%d, %d, %d]\n",
+           original[0], original[1], original[2], original[3], original[4],
+           middle[0], middle[1], middle[2]);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
 [1, 2, 3, 4, 5] [99, 3, 4]
-5 4
+```
+
+Slicing builds a new sequence, so changing `middle` did not touch `original`.
+
+Last, a loop that needs the position as well as the value. Python has `enumerate` for it, JavaScript has `entries`, and Java and C use the index directly.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="enumerate_demo.py"
+for i, value in enumerate(["a", "b", "c"]):
+    print(i, value)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="entries_demo.js"
+for (const [i, value] of ["a", "b", "c"].entries()) {
+  console.log(i, value);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="IndexLoop.java"
+public class IndexLoop {
+    public static void main(String[] args) {
+        String[] letters = {"a", "b", "c"};
+        for (int i = 0; i < letters.length; i++) {
+            System.out.println(i + " " + letters[i]);
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="index_loop.c"
+#include <stdio.h>
+
+int main(void) {
+    const char *letters[] = {"a", "b", "c"};
+    for (int i = 0; i < 3; i++) {
+        printf("%d %s\n", i, letters[i]);
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
 0 a
 1 b
 2 c
 ```
 
-`sort()` changes the list and returns nothing useful, while `sorted()` leaves the list alone and gives back a new one. Slicing builds a new list, so changing `middle` did not touch `original`. (Python also allows negative indexes: `-1` is the last element. JavaScript and Java do not, apart from the JavaScript `.at(-1)` method.)
+Python also allows negative indexes: `-1` is the last element and `-2` the one before. JavaScript and Java do not, apart from the JavaScript `.at(-1)` method.
 
 ## Common pitfalls
 
-- **Off-by-one errors.** The valid indexes are `0` to `length - 1`. Looping `for i in range(len(a) + 1)` goes one too far.
+- **Off-by-one errors.** The valid indexes are `0` to `length - 1`. Looping to `length + 1` goes one too far.
 - **Out-of-range access.** Python raises `IndexError`, Java raises `ArrayIndexOutOfBoundsException`, JavaScript quietly gives `undefined`, and C reads or writes whatever memory happens to be there. The C behaviour is undefined, can corrupt other data, and is a classic source of security bugs.
 - **Changing a list while looping over it.** Removing items during iteration makes the loop skip elements. Build a new list instead.
-- **Assuming `sort()` returns the sorted list.** In Python it returns `None`.
+- **Assuming a sort returns the sorted list.** In Python it returns `None`; in JavaScript it returns the same array.
 - **Thinking a copy is a copy.** `b = a` does not copy the list; both names refer to the same one. This gets a full lesson in [memory and references](../memory-and-references/).
 
 <Exercise title="Reverse in place">
 
-Write `reverse_in_place(items)` that reverses a list without building a second list. Hint: swap the first and last elements, then the second and second-to-last, and stop in the middle. Test it on `[1, 2, 3, 4, 5]` and `[1, 2, 3, 4]`.
+Write `reverse_in_place(items)` that reverses a list without building a second list. Hint: swap the first and last elements, then the second and second-to-last, and stop in the middle. Test it on `[1, 2, 3, 4, 5]` (expected `[5, 4, 3, 2, 1]`) and `[1, 2, 3, 4]` (expected `[4, 3, 2, 1]`).
 
 <Solution>
 
 Walk an index `i` from the start and swap `items[i]` with its mirror `items[n - 1 - i]`. Only the first half needs visiting: swapping the second half would undo the work.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="seq_reverse.py"
 def reverse_in_place(items):
@@ -244,7 +484,94 @@ reverse_in_place(evens)
 print(evens)
 ```
 
-It prints:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="seq_reverse.js"
+function reverseInPlace(items) {
+  const n = items.length;
+  for (let i = 0; i < Math.floor(n / 2); i++) {
+    const temp = items[i];
+    items[i] = items[n - 1 - i];
+    items[n - 1 - i] = temp;
+  }
+}
+
+const nums = [1, 2, 3, 4, 5];
+reverseInPlace(nums);
+console.log(`[${nums.join(", ")}]`);
+
+const evens = [1, 2, 3, 4];
+reverseInPlace(evens);
+console.log(`[${evens.join(", ")}]`);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="SeqReverse.java"
+import java.util.Arrays;
+
+public class SeqReverse {
+    static void reverseInPlace(int[] items) {
+        int n = items.length;
+        for (int i = 0; i < n / 2; i++) {
+            int temp = items[i];
+            items[i] = items[n - 1 - i];
+            items[n - 1 - i] = temp;
+        }
+    }
+
+    public static void main(String[] args) {
+        int[] nums = {1, 2, 3, 4, 5};
+        reverseInPlace(nums);
+        System.out.println(Arrays.toString(nums));
+
+        int[] evens = {1, 2, 3, 4};
+        reverseInPlace(evens);
+        System.out.println(Arrays.toString(evens));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="seq_reverse.c"
+#include <stdio.h>
+
+static void reverse_in_place(int *items, int n) {
+    for (int i = 0; i < n / 2; i++) {
+        int temp = items[i];
+        items[i] = items[n - 1 - i];
+        items[n - 1 - i] = temp;
+    }
+}
+
+static void print_array(const int *items, int count) {
+    printf("[");
+    for (int i = 0; i < count; i++) {
+        printf("%s%d", i > 0 ? ", " : "", items[i]);
+    }
+    printf("]\n");
+}
+
+int main(void) {
+    int nums[] = {1, 2, 3, 4, 5};
+    reverse_in_place(nums, 5);
+    print_array(nums, 5);
+
+    int evens[] = {1, 2, 3, 4};
+    reverse_in_place(evens, 4);
+    print_array(evens, 4);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
 [5, 4, 3, 2, 1]
@@ -259,11 +586,14 @@ With an odd length the middle element stays where it is, which is correct.
 
 <Exercise title="Rotate by k">
 
-Write `rotate(items, k)` that returns a new list with every element moved `k` places to the left, the elements that fall off the front wrapping around to the back. `rotate([1, 2, 3, 4, 5], 2)` gives `[3, 4, 5, 1, 2]`. Make it work when `k` is larger than the length.
+Write `rotate(items, k)` that returns a new list with every element moved `k` places to the left, the elements that fall off the front wrapping around to the back. Make it work when `k` is larger than the length. Test it on `rotate([1, 2, 3, 4, 5], 2)` (expected `[3, 4, 5, 1, 2]`) and `rotate([1, 2, 3, 4, 5], 7)` (expected `[3, 4, 5, 1, 2]`).
 
 <Solution>
 
-Slicing does it in one line: take everything from position `k`, then everything before it. Using `k % n` handles a `k` larger than the length (and an empty list needs a guard so we never divide by zero).
+Take everything from position `k`, then everything before it. Using `k % n` handles a `k` larger than the length (and an empty list needs a guard so we never divide by zero). Python and JavaScript can do it with slices; Java and C fill a new array element by element, where element `i` of the result is element `(i + k) % n` of the input.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="seq_rotate.py"
 def rotate(items, k):
@@ -277,7 +607,88 @@ print(rotate([1, 2, 3, 4, 5], 2))
 print(rotate([1, 2, 3, 4, 5], 7))
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="seq_rotate.js"
+function rotate(items, k) {
+  if (items.length === 0) {
+    return [];
+  }
+  const shift = k % items.length;
+  return items.slice(shift).concat(items.slice(0, shift));
+}
+
+console.log(`[${rotate([1, 2, 3, 4, 5], 2).join(", ")}]`);
+console.log(`[${rotate([1, 2, 3, 4, 5], 7).join(", ")}]`);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="SeqRotate.java"
+import java.util.Arrays;
+
+public class SeqRotate {
+    static int[] rotate(int[] items, int k) {
+        int n = items.length;
+        int[] result = new int[n];
+        if (n == 0) {
+            return result;
+        }
+        for (int i = 0; i < n; i++) {
+            result[i] = items[(i + k) % n];
+        }
+        return result;
+    }
+
+    public static void main(String[] args) {
+        int[] nums = {1, 2, 3, 4, 5};
+        System.out.println(Arrays.toString(rotate(nums, 2)));
+        System.out.println(Arrays.toString(rotate(nums, 7)));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="seq_rotate.c"
+#include <stdio.h>
+
+/* Writes the rotated copy of items into result. */
+static void rotate(const int *items, int n, int k, int *result) {
+    if (n == 0) {
+        return;
+    }
+    for (int i = 0; i < n; i++) {
+        result[i] = items[(i + k) % n];
+    }
+}
+
+static void print_array(const int *items, int count) {
+    printf("[");
+    for (int i = 0; i < count; i++) {
+        printf("%s%d", i > 0 ? ", " : "", items[i]);
+    }
+    printf("]\n");
+}
+
+int main(void) {
+    int nums[] = {1, 2, 3, 4, 5};
+    int result[5];
+    rotate(nums, 5, 2, result);
+    print_array(result, 5);
+    rotate(nums, 5, 7, result);
+    print_array(result, 5);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
 [3, 4, 5, 1, 2]
@@ -290,7 +701,10 @@ Output:
 
 <Exercise title="Find the bug">
 
-This should print every element of `names`. What goes wrong, in each of Python, Java and C?
+This should print every element of `names`, one per line: `Ada`, `Grace`, `Linus`. What goes wrong in each language?
+
+<Tabs>
+<Tab label="Python">
 
 ```python
 names = ["Ada", "Grace", "Linus"]
@@ -298,9 +712,98 @@ for i in range(len(names) + 1):
     print(names[i])
 ```
 
+</Tab>
+<Tab label="JavaScript">
+
+```javascript
+const names = ["Ada", "Grace", "Linus"];
+for (let i = 0; i < names.length + 1; i++) {
+  console.log(names[i]);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java
+String[] names = {"Ada", "Grace", "Linus"};
+for (int i = 0; i < names.length + 1; i++) {
+    System.out.println(names[i]);
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c
+const char *names[] = {"Ada", "Grace", "Linus"};
+for (int i = 0; i < 3 + 1; i++) {
+    printf("%s\n", names[i]);
+}
+```
+
+</Tab>
+</Tabs>
+
 <Solution>
 
-The loop runs for `i` = 0, 1, 2 and 3, but the last valid index is 2. In Python the fourth pass raises `IndexError: list index out of range`. In Java the same loop raises `ArrayIndexOutOfBoundsException`. In C it silently reads memory past the end of the array and prints garbage or crashes. Fix it by looping to `len(names)` exactly, or better, loop over the elements directly with `for name in names`.
+The loop runs for `i` = 0, 1, 2 and 3, but the last valid index is 2. In Python the fourth pass raises `IndexError: list index out of range`. In JavaScript it quietly prints `undefined`. In Java it raises `ArrayIndexOutOfBoundsException`. In C it silently reads memory past the end of the array and prints garbage or crashes. Fix it by stopping at the length exactly, or better, loop over the elements directly.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="names_fixed.py"
+names = ["Ada", "Grace", "Linus"]
+for name in names:
+    print(name)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="names_fixed.js"
+const names = ["Ada", "Grace", "Linus"];
+for (const name of names) {
+  console.log(name);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="NamesFixed.java"
+public class NamesFixed {
+    public static void main(String[] args) {
+        String[] names = {"Ada", "Grace", "Linus"};
+        for (String name : names) {
+            System.out.println(name);
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+C has no for-each loop, so the fix is the exact bound: the loop must stop when the index equals the length.
+
+```c title="names_fixed.c"
+#include <stdio.h>
+
+int main(void) {
+    const char *names[] = {"Ada", "Grace", "Linus"};
+    int count = sizeof names / sizeof names[0];
+    for (int i = 0; i < count; i++) {
+        printf("%s\n", names[i]);
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print `Ada`, `Grace` and `Linus` on separate lines.
 
 </Solution>
 

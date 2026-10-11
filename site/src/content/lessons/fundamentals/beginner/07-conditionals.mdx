@@ -36,7 +36,7 @@ The example below picks a ticket type from an age. The order of the tests matter
 <Tabs>
 <Tab label="Python">
 
-```python
+```python title="tickets.py"
 age = 15
 
 if age < 0:
@@ -56,7 +56,7 @@ print(f"Age {age}: {ticket}")
 </Tab>
 <Tab label="JavaScript">
 
-```javascript
+```javascript title="tickets.js"
 const age = 15;
 let ticket;
 
@@ -78,7 +78,7 @@ console.log(`Age ${age}: ${ticket}`);
 </Tab>
 <Tab label="Java">
 
-```java
+```java title="Tickets.java"
 public class Tickets {
     public static void main(String[] args) {
         int age = 15;
@@ -104,7 +104,7 @@ public class Tickets {
 </Tab>
 <Tab label="C">
 
-```c
+```c title="tickets.c"
 #include <stdio.h>
 
 int main(void) {
@@ -158,42 +158,133 @@ Two rules save a lot of bugs. First, `not (a and b)` is the same as `(not a) or 
 
 As you saw in the expressions lesson, `and` and `or` stop evaluating as soon as the answer is known. That turns the order of a condition into a safety feature:
 
-```python
-# Short-circuiting guards a risky check.
+Here the list of items is empty, so asking for its first item would fail. The length check on the left protects the item check on the right.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="guard_first.py"
 items = []
-if items and items[0] > 5:
+if len(items) > 0 and items[0] > 5:
     print("big first item")
 else:
     print("no big first item")
+```
 
+</Tab>
+<Tab label="JavaScript">
 
-# Guard clauses: reject the odd cases first, then write the main path flat.
-# (Functions are the subject of lesson 9; read "def" as "name a reusable block".)
-def describe_average(total, count):
-    if count == 0:
-        return "no data"
-    return f"average {total / count}"
+```javascript title="guard_first.js"
+const items = [];
+if (items.length > 0 && items[0] > 5) {
+  console.log("big first item");
+} else {
+  console.log("no big first item");
+}
+```
 
+</Tab>
+<Tab label="Java">
 
-print(describe_average(10, 4))
-print(describe_average(0, 0))
+```java title="GuardFirst.java"
+public class GuardFirst {
+    public static void main(String[] args) {
+        int[] items = {};
+        if (items.length > 0 && items[0] > 5) {
+            System.out.println("big first item");
+        } else {
+            System.out.println("no big first item");
+        }
+    }
+}
+```
 
-# A conditional expression picks one of two values.
+</Tab>
+<Tab label="C">
+
+C arrays do not know their own length, so the program keeps a separate `count`.
+
+```c title="guard_first.c"
+#include <stdio.h>
+
+int main(void) {
+    int items[1] = {0};
+    int count = 0;
+    if (count > 0 && items[0] > 5) {
+        printf("big first item\n");
+    } else {
+        printf("no big first item\n");
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+no big first item
+```
+
+The condition never touches `items[0]` when the list is empty, because the length test is already false and `and` stops. Written the other way round, the same condition would crash in Python and Java, and read outside the array in C. Put the cheap safety check on the left.
+
+### Conditional expressions
+
+A **conditional expression** is a compact form that chooses between two values. Python writes `a if test else b`; JavaScript, Java and C write `test ? a : b`. Use it for simple picks; use a full `if` when either branch does more than produce a value.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="parity.py"
 n = 7
 parity = "even" if n % 2 == 0 else "odd"
 print(n, "is", parity)
 ```
 
-The check `items and items[0] > 5` never touches `items[0]` when the list is empty, because an empty list is already false and `and` stops. Written the other way round, the same condition would crash. Put the cheap safety check on the left.
+</Tab>
+<Tab label="JavaScript">
 
-The last lines show a **conditional expression**, a compact form that chooses between two values (`a if test else b` in Python, `test ? a : b` in JavaScript, Java and C). Use it for simple picks; use a full `if` when either branch does more than produce a value.
+```javascript title="parity.js"
+const n = 7;
+const parity = n % 2 === 0 ? "even" : "odd";
+console.log(n, "is", parity);
+```
 
-Running that file prints:
+</Tab>
+<Tab label="Java">
+
+```java title="Parity.java"
+public class Parity {
+    public static void main(String[] args) {
+        int n = 7;
+        String parity = n % 2 == 0 ? "even" : "odd";
+        System.out.println(n + " is " + parity);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="parity.c"
+#include <stdio.h>
+
+int main(void) {
+    int n = 7;
+    const char *parity = n % 2 == 0 ? "even" : "odd";
+    printf("%d is %s\n", n, parity);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
-no big first item
-average 2.5
-no data
 7 is odd
 ```
 
@@ -210,7 +301,88 @@ else                                compute and return average
     return "no data"
 ```
 
-The function `describe_average` in the file above uses a guard. (Functions get their own lesson shortly; for now read `def` as "give this block a name so it can be reused".) With one guard the difference is small; with four checks it is the difference between a staircase and a flat list.
+With one guard the difference is small; with four checks it is the difference between a staircase and a flat list. Here is the guarded shape as a real function. (Functions get their own lesson shortly; for now read each one as a named, reusable block that gives back a value.)
+
+<Tabs>
+<Tab label="Python">
+
+```python title="describe_average.py"
+def describe_average(total, count):
+    if count == 0:
+        return "no data"
+    return f"average {total / count}"
+
+
+print(describe_average(10, 4))
+print(describe_average(0, 0))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="describe_average.js"
+function describeAverage(total, count) {
+  if (count === 0) {
+    return "no data";
+  }
+  return `average ${total / count}`;
+}
+
+console.log(describeAverage(10, 4));
+console.log(describeAverage(0, 0));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="DescribeAverage.java"
+public class DescribeAverage {
+    static String describeAverage(double total, int count) {
+        if (count == 0) {
+            return "no data";
+        }
+        return "average " + total / count;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(describeAverage(10, 4));
+        System.out.println(describeAverage(0, 0));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="describe_average.c"
+#include <stdio.h>
+
+static void describe_average(double total, int count) {
+    if (count == 0) {
+        printf("no data\n");
+        return;
+    }
+    printf("average %g\n", total / count);
+}
+
+int main(void) {
+    describe_average(10, 4);
+    describe_average(0, 0);
+    return 0;
+}
+```
+
+The C version prints inside the function instead of returning text, because returning a string from C needs memory management that comes much later.
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+average 2.5
+no data
+```
 
 ## Common pitfalls
 
@@ -223,11 +395,14 @@ The function `describe_average` in the file above uses a guard. (Functions get t
 
 <Exercise title="FizzBuzz">
 
-Print the numbers 1 to 15. For multiples of 3 print `Fizz` instead, for multiples of 5 print `Buzz`, and for multiples of both print `FizzBuzz`. (The `for` line repeats the body fifteen times; the next lesson explains it. Focus on the if-chain.)
+Print the numbers 1 to 15. For multiples of 3 print `Fizz` instead, for multiples of 5 print `Buzz`, and for multiples of both print `FizzBuzz`. (The `for` line repeats the body fifteen times; the next lesson explains it. Focus on the if-chain.) There is no input. Expected output: fifteen lines, starting `1`, `2`, `Fizz`, `4`, `Buzz` and ending `14`, `FizzBuzz`.
 
 <Solution>
 
 The multiple-of-both case must be tested first. If `n % 3 == 0` came first, 15 would print `Fizz` and never reach the others.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="fizzbuzz.py"
 # The loop arrives in lesson 8; here it just repeats the if-chain for 1..15.
@@ -242,7 +417,73 @@ for n in range(1, 16):
         print(n)
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="fizzbuzz.js"
+// The loop arrives in lesson 8; here it just repeats the if-chain for 1..15.
+for (let n = 1; n <= 15; n++) {
+  if (n % 15 === 0) {
+    console.log("FizzBuzz");
+  } else if (n % 3 === 0) {
+    console.log("Fizz");
+  } else if (n % 5 === 0) {
+    console.log("Buzz");
+  } else {
+    console.log(n);
+  }
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="FizzBuzz.java"
+public class FizzBuzz {
+    public static void main(String[] args) {
+        // The loop arrives in lesson 8; here it just repeats the if-chain for 1..15.
+        for (int n = 1; n <= 15; n++) {
+            if (n % 15 == 0) {
+                System.out.println("FizzBuzz");
+            } else if (n % 3 == 0) {
+                System.out.println("Fizz");
+            } else if (n % 5 == 0) {
+                System.out.println("Buzz");
+            } else {
+                System.out.println(n);
+            }
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="fizzbuzz.c"
+#include <stdio.h>
+
+int main(void) {
+    /* The loop arrives in lesson 8; here it just repeats the if-chain for 1..15. */
+    for (int n = 1; n <= 15; n++) {
+        if (n % 15 == 0) {
+            printf("FizzBuzz\n");
+        } else if (n % 3 == 0) {
+            printf("Fizz\n");
+        } else if (n % 5 == 0) {
+            printf("Buzz\n");
+        } else {
+            printf("%d\n", n);
+        }
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
 1
@@ -268,11 +509,14 @@ FizzBuzz
 
 <Exercise title="Leap-year checker with tests">
 
-A year is a leap year if it is divisible by 4, except years divisible by 100 are not, except years divisible by 400 are. Write a checker and run it on 2000, 1900, 2024, 2023 and 2100, comparing each result with the expected answer.
+A year is a leap year if it is divisible by 4, except years divisible by 100 are not, except years divisible by 400 are. Write a checker and run it on 2000, 1900, 2024, 2023 and 2100, comparing each result with the expected answer. Expected: 2000 and 2024 are leap years; 1900, 2023 and 2100 are not.
 
 <Solution>
 
 Guard clauses express the exceptions from most to least specific:
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="leap_year.py"
 def is_leap(year):
@@ -290,14 +534,95 @@ for year, expected in tests:
     print(year, result, status)
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="leap_year.js"
+function isLeap(year) {
+  if (year % 400 === 0) {
+    return true;
+  }
+  if (year % 100 === 0) {
+    return false;
+  }
+  return year % 4 === 0;
+}
+
+const tests = [[2000, true], [1900, false], [2024, true], [2023, false], [2100, false]];
+for (const [year, expected] of tests) {
+  const result = isLeap(year);
+  const status = result === expected ? "ok" : "WRONG";
+  console.log(year, result, status);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="LeapYear.java"
+public class LeapYear {
+    static boolean isLeap(int year) {
+        if (year % 400 == 0) {
+            return true;
+        }
+        if (year % 100 == 0) {
+            return false;
+        }
+        return year % 4 == 0;
+    }
+
+    public static void main(String[] args) {
+        int[] years = {2000, 1900, 2024, 2023, 2100};
+        boolean[] expected = {true, false, true, false, false};
+        for (int i = 0; i < years.length; i++) {
+            boolean result = isLeap(years[i]);
+            String status = result == expected[i] ? "ok" : "WRONG";
+            System.out.println(years[i] + " " + result + " " + status);
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="leap_year.c"
+#include <stdbool.h>
+#include <stdio.h>
+
+static bool is_leap(int year) {
+    if (year % 400 == 0) {
+        return true;
+    }
+    if (year % 100 == 0) {
+        return false;
+    }
+    return year % 4 == 0;
+}
+
+int main(void) {
+    int years[] = {2000, 1900, 2024, 2023, 2100};
+    bool expected[] = {true, false, true, false, false};
+    for (int i = 0; i < 5; i++) {
+        bool result = is_leap(years[i]);
+        const char *status = result == expected[i] ? "ok" : "WRONG";
+        printf("%d %s %s\n", years[i], result ? "true" : "false", status);
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+Python prints `True` and `False` with a capital; the other three print `true` and `false`. Apart from that the output is the same:
 
 ```text
-2000 True ok
-1900 False ok
-2024 True ok
-2023 False ok
-2100 False ok
+2000 true ok
+1900 false ok
+2024 true ok
+2023 false ok
+2100 false ok
 ```
 
 Every year in the list is correct. The tests deliberately include the century years 1900, 2000 and 2100, which are where most first attempts fail.

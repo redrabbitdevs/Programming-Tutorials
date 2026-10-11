@@ -528,9 +528,14 @@ steps: 3
 
 A -> C -> D -> E is just as short; BFS reports whichever it found first, which depends on the order of the neighbour lists. What it guarantees is the **number** of steps. (Java's `Map.of` and `List.of` build fixed collections, which is all this program needs.)
 
-The next file shows the other pieces: depth-first search written recursively on the same graph, a family tree stored as a nested map, and why the visited record matters.
+### Depth-first search
 
-```python title="graph_extras.py"
+Depth-first search on the same graph is shorter when written recursively, because the call stack does the remembering. The `visited` record is what stops A and B bouncing between each other forever.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="graph_dfs.py"
 graph = {
     "A": ["B", "C"],
     "B": ["A", "D"],
@@ -550,9 +555,126 @@ def dfs(node, visited, order):
 
 order = []
 dfs("A", set(), order)
-print("DFS order:", order)
+print("DFS order:", " ".join(order))
+```
 
-# A tree is a graph where each node has one parent: nest the children.
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="graph_dfs.js"
+const graph = {
+  A: ["B", "C"],
+  B: ["A", "D"],
+  C: ["A", "D"],
+  D: ["B", "C", "E"],
+  E: ["D"],
+};
+
+function dfs(node, visited, order) {
+  visited.add(node);
+  order.push(node);
+  for (const neighbour of graph[node]) {
+    if (!visited.has(neighbour)) {   // without this check, A and B would bounce forever
+      dfs(neighbour, visited, order);
+    }
+  }
+}
+
+const order = [];
+dfs("A", new Set(), order);
+console.log("DFS order:", order.join(" "));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="GraphDfs.java"
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+public class GraphDfs {
+    static final Map<String, List<String>> GRAPH = Map.of(
+        "A", List.of("B", "C"),
+        "B", List.of("A", "D"),
+        "C", List.of("A", "D"),
+        "D", List.of("B", "C", "E"),
+        "E", List.of("D"));
+
+    static void dfs(String node, Set<String> visited, List<String> order) {
+        visited.add(node);
+        order.add(node);
+        for (String neighbour : GRAPH.get(node)) {
+            if (!visited.contains(neighbour)) {   // without this check, A and B would bounce forever
+                dfs(neighbour, visited, order);
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        List<String> order = new ArrayList<>();
+        dfs("A", new HashSet<>(), order);
+        System.out.println("DFS order: " + String.join(" ", order));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="graph_dfs.c"
+#include <stdio.h>
+
+#define N 5
+
+static const int adj[N][N] = {
+    {0, 1, 1, 0, 0},   /* A: B, C    */
+    {1, 0, 0, 1, 0},   /* B: A, D    */
+    {1, 0, 0, 1, 0},   /* C: A, D    */
+    {0, 1, 1, 0, 1},   /* D: B, C, E */
+    {0, 0, 0, 1, 0},   /* E: D       */
+};
+
+static void dfs(int node, int visited[N]) {
+    visited[node] = 1;
+    printf(" %c", 'A' + node);
+    for (int next = 0; next < N; next++) {
+        if (adj[node][next] && !visited[next]) {   /* without this check, A and B would bounce forever */
+            dfs(next, visited);
+        }
+    }
+}
+
+int main(void) {
+    int visited[N] = {0};
+    printf("DFS order:");
+    dfs(0, visited);
+    printf("\n");
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+DFS order: A B D C E
+```
+
+Compare this with BFS. DFS went A, B, D and then on to C before E: it follows one branch to its end before returning.
+
+### A tree is a graph with one parent per node
+
+A tree is a graph where each node has exactly one parent, so you can store it by nesting the children. Python and JavaScript do this with nested maps. Java and C have no mixed container, so each person is a node holding a name and a list of children. Each program prints the tree indented by depth.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="family_show.py"
 family = {
     "Rosa": {
         "Mark": {"Ivy": {}, "Joel": {}},
@@ -570,10 +692,91 @@ def show(tree, depth=0):
 show(family)
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="family_show.js"
+const family = {
+  Rosa: {
+    Mark: { Ivy: {}, Joel: {} },
+    Nina: { Omar: {} },
+  },
+};
+
+function show(tree, depth = 0) {
+  for (const [name, children] of Object.entries(tree)) {
+    console.log("  ".repeat(depth) + name);
+    show(children, depth + 1);
+  }
+}
+
+show(family);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="FamilyShow.java"
+import java.util.List;
+
+public class FamilyShow {
+    record Person(String name, List<Person> children) {}
+
+    static Person person(String name, Person... children) {
+        return new Person(name, List.of(children));
+    }
+
+    static void show(Person p, int depth) {
+        System.out.println("  ".repeat(depth) + p.name());
+        for (Person child : p.children()) {
+            show(child, depth + 1);
+        }
+    }
+
+    public static void main(String[] args) {
+        Person family = person("Rosa",
+            person("Mark", person("Ivy"), person("Joel")),
+            person("Nina", person("Omar")));
+        show(family, 0);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="family_show.c"
+#include <stdio.h>
+
+typedef struct Person {
+    const char *name;
+    int count;                      /* number of children */
+    const struct Person *children;
+} Person;
+
+static void show(const Person *p, int depth) {
+    printf("%*s%s\n", depth * 2, "", p->name);
+    for (int i = 0; i < p->count; i++) {
+        show(&p->children[i], depth + 1);
+    }
+}
+
+int main(void) {
+    static const Person mark_kids[] = {{"Ivy", 0, NULL}, {"Joel", 0, NULL}};
+    static const Person nina_kids[] = {{"Omar", 0, NULL}};
+    static const Person rosa_kids[] = {{"Mark", 2, mark_kids}, {"Nina", 1, nina_kids}};
+    Person rosa = {"Rosa", 2, rosa_kids};
+    show(&rosa, 0);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
-DFS order: ['A', 'B', 'D', 'C', 'E']
 Rosa
   Mark
     Ivy
@@ -581,8 +784,6 @@ Rosa
   Nina
     Omar
 ```
-
-Compare the DFS order with BFS. DFS went A, B, D and then on to C before E: it follows one branch to its end before returning.
 
 ## Common pitfalls
 
@@ -595,11 +796,14 @@ Compare the DFS order with BFS. DFS went A, B, D and then on to C before E: it f
 
 <Exercise title="Family tree">
 
-Store the family tree from the lesson as a nested map and write a function `count_people(tree)` that returns how many names it contains, and `depth(tree)` that returns the number of generations. For the tree above the answers are 6 and 3.
+Store the family tree from the lesson in the same shape it used there, and write a function `count_people` that returns how many names it contains, and `depth` that returns the number of generations. For the tree above (Rosa, Mark, Nina, Ivy, Joel, Omar) the answers are 6 and 3. Print them on one line.
 
 <Solution>
 
-Both are recursive: handle each child, then combine the answers.
+Both are recursive: handle each child, then combine the answers. A person with no children is the base case.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="family_tree.py"
 family = {
@@ -611,19 +815,137 @@ family = {
 
 
 def count_people(tree):
-    return sum(1 + count_people(children) for children in tree.values())
+    total = 0
+    for children in tree.values():
+        total += 1 + count_people(children)
+    return total
 
 
 def depth(tree):
+    deepest = 0
+    for children in tree.values():
+        deepest = max(deepest, depth(children))
     if not tree:
         return 0
-    return 1 + max(depth(children) for children in tree.values())
+    return 1 + deepest
 
 
 print(count_people(family), depth(family))
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="family_tree.js"
+const family = {
+  Rosa: {
+    Mark: { Ivy: {}, Joel: {} },
+    Nina: { Omar: {} },
+  },
+};
+
+function countPeople(tree) {
+  let total = 0;
+  for (const children of Object.values(tree)) {
+    total += 1 + countPeople(children);
+  }
+  return total;
+}
+
+function depth(tree) {
+  const kids = Object.values(tree);
+  if (kids.length === 0) {
+    return 0;
+  }
+  return 1 + Math.max(...kids.map(depth));
+}
+
+console.log(countPeople(family), depth(family));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="FamilyTree.java"
+import java.util.List;
+
+public class FamilyTree {
+    record Person(String name, List<Person> children) {}
+
+    static Person person(String name, Person... children) {
+        return new Person(name, List.of(children));
+    }
+
+    static int countPeople(Person p) {
+        int total = 1;                       // this person
+        for (Person child : p.children()) {
+            total += countPeople(child);
+        }
+        return total;
+    }
+
+    static int depth(Person p) {
+        int deepest = 0;
+        for (Person child : p.children()) {
+            deepest = Math.max(deepest, depth(child));
+        }
+        return 1 + deepest;
+    }
+
+    public static void main(String[] args) {
+        Person family = person("Rosa",
+            person("Mark", person("Ivy"), person("Joel")),
+            person("Nina", person("Omar")));
+        System.out.println(countPeople(family) + " " + depth(family));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="family_tree.c"
+#include <stdio.h>
+
+typedef struct Person {
+    const char *name;
+    int count;
+    const struct Person *children;
+} Person;
+
+static int count_people(const Person *p) {
+    int total = 1;                           /* this person */
+    for (int i = 0; i < p->count; i++) {
+        total += count_people(&p->children[i]);
+    }
+    return total;
+}
+
+static int depth(const Person *p) {
+    int deepest = 0;
+    for (int i = 0; i < p->count; i++) {
+        int d = depth(&p->children[i]);
+        if (d > deepest) {
+            deepest = d;
+        }
+    }
+    return 1 + deepest;
+}
+
+int main(void) {
+    static const Person mark_kids[] = {{"Ivy", 0, NULL}, {"Joel", 0, NULL}};
+    static const Person nina_kids[] = {{"Omar", 0, NULL}};
+    static const Person rosa_kids[] = {{"Mark", 2, mark_kids}, {"Nina", 1, nina_kids}};
+    Person rosa = {"Rosa", 2, rosa_kids};
+    printf("%d %d\n", count_people(&rosa), depth(&rosa));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
 6 3
@@ -644,9 +966,14 @@ S.#.....
 .#...#..
 ```
 
+Expected output: `moves: 11`.
+
 <Solution>
 
 Treat each open cell as a graph node whose neighbours are the open cells next to it, and run BFS from the start, remembering each cell's distance. The first time BFS reaches `E`, that distance is the shortest.
+
+<Tabs>
+<Tab label="Python">
 
 ```python title="maze_bfs.py"
 from collections import deque
@@ -681,7 +1008,177 @@ while queue:
 print("moves:", answer)
 ```
 
-Output:
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="maze_bfs.js"
+const maze = [
+  "S.#.....",
+  ".##.###.",
+  "...#...E",
+  ".#...#..",
+];
+
+const rows = maze.length;
+const cols = maze[0].length;
+const distance = maze.map(() => new Array(cols).fill(-1));
+const queue = [];
+
+for (let r = 0; r < rows; r++) {
+  for (let c = 0; c < cols; c++) {
+    if (maze[r][c] === "S") {
+      distance[r][c] = 0;
+      queue.push([r, c]);
+    }
+  }
+}
+
+let answer = null;
+while (queue.length > 0) {
+  const [r, c] = queue.shift();
+  if (maze[r][c] === "E") {
+    answer = distance[r][c];
+    break;
+  }
+  for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+    const nr = r + dr;
+    const nc = c + dc;
+    if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && maze[nr][nc] !== "#" && distance[nr][nc] === -1) {
+      distance[nr][nc] = distance[r][c] + 1;
+      queue.push([nr, nc]);
+    }
+  }
+}
+
+console.log("moves:", answer);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="MazeBfs.java"
+import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Deque;
+
+public class MazeBfs {
+    public static void main(String[] args) {
+        String[] maze = {
+            "S.#.....",
+            ".##.###.",
+            "...#...E",
+            ".#...#..",
+        };
+
+        int rows = maze.length;
+        int cols = maze[0].length();
+        int[][] distance = new int[rows][cols];
+        for (int[] row : distance) {
+            Arrays.fill(row, -1);
+        }
+        Deque<int[]> queue = new ArrayDeque<>();
+
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                if (maze[r].charAt(c) == 'S') {
+                    distance[r][c] = 0;
+                    queue.add(new int[] {r, c});
+                }
+            }
+        }
+
+        int[][] moves = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+        int answer = -1;
+        while (!queue.isEmpty()) {
+            int[] cell = queue.poll();
+            int r = cell[0];
+            int c = cell[1];
+            if (maze[r].charAt(c) == 'E') {
+                answer = distance[r][c];
+                break;
+            }
+            for (int[] move : moves) {
+                int nr = r + move[0];
+                int nc = c + move[1];
+                if (nr >= 0 && nr < rows && nc >= 0 && nc < cols
+                        && maze[nr].charAt(nc) != '#' && distance[nr][nc] == -1) {
+                    distance[nr][nc] = distance[r][c] + 1;
+                    queue.add(new int[] {nr, nc});
+                }
+            }
+        }
+
+        System.out.println("moves: " + answer);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="maze_bfs.c"
+#include <stdio.h>
+
+#define ROWS 4
+#define COLS 8
+
+int main(void) {
+    const char *maze[ROWS] = {
+        "S.#.....",
+        ".##.###.",
+        "...#...E",
+        ".#...#..",
+    };
+
+    int distance[ROWS][COLS];
+    int queue_r[ROWS * COLS], queue_c[ROWS * COLS];
+    int head = 0, tail = 0;
+
+    for (int r = 0; r < ROWS; r++) {
+        for (int c = 0; c < COLS; c++) {
+            distance[r][c] = -1;
+            if (maze[r][c] == 'S') {
+                distance[r][c] = 0;
+                queue_r[tail] = r;
+                queue_c[tail] = c;
+                tail++;
+            }
+        }
+    }
+
+    int dr[] = {-1, 1, 0, 0};
+    int dc[] = {0, 0, -1, 1};
+    int answer = -1;
+    while (head < tail) {
+        int r = queue_r[head];
+        int c = queue_c[head];
+        head++;
+        if (maze[r][c] == 'E') {
+            answer = distance[r][c];
+            break;
+        }
+        for (int d = 0; d < 4; d++) {
+            int nr = r + dr[d];
+            int nc = c + dc[d];
+            if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS
+                    && maze[nr][nc] != '#' && distance[nr][nc] == -1) {
+                distance[nr][nc] = distance[r][c] + 1;
+                queue_r[tail] = nr;
+                queue_c[tail] = nc;
+                tail++;
+            }
+        }
+    }
+
+    printf("moves: %d\n", answer);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
 
 ```text
 moves: 11

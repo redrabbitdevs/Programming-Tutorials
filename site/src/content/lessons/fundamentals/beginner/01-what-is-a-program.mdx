@@ -52,7 +52,7 @@ The most useful skill in this lesson is to be the computer. A trace is a table t
 | 12 | loop test: 0 greater than 0 is false, so leave the loop | 0 | 6 |
 | 13 | `show total` prints 6 | 0 | 6 |
 
-The program adds 3 + 2 + 1. Here it is in three real languages. Every one of them prints `6`.
+The program adds 3 + 2 + 1. Here it is in four real languages. Every one of them prints `6`.
 
 <Tabs>
 <Tab label="Python">
@@ -80,6 +80,23 @@ console.log(total);
 ```
 
 </Tab>
+<Tab label="Java">
+
+```java title="TraceProgram.java"
+public class TraceProgram {
+    public static void main(String[] args) {
+        int total = 0;
+        int count = 3;
+        while (count > 0) {
+            total = total + count;
+            count = count - 1;
+        }
+        System.out.println(total);
+    }
+}
+```
+
+</Tab>
 <Tab label="C">
 
 ```c title="trace_program.c"
@@ -100,7 +117,7 @@ int main(void) {
 </Tab>
 </Tabs>
 
-The ideas are identical. What differs is punctuation, and how much ceremony the language wants before the first useful line. C needs an `#include` and a `main` function; Python does not.
+The ideas are identical. What differs is punctuation, and how much ceremony the language wants before the first useful line. Java and C need a `main` function, and C also needs an `#include`; Python and JavaScript need neither.
 
 ## Source code and machine code
 
@@ -134,6 +151,17 @@ Many interpreted languages offer a **REPL**: Read, Evaluate, Print, Loop. You ty
 20
 ```
 
+Most popular languages have one, started with a single command:
+
+| Language | Start the REPL with | Leave with |
+|---|---|---|
+| Python | `python3` | `exit()` |
+| JavaScript | `node` | `.exit` |
+| Java | `jshell` | `/exit` |
+| C | none built in | write a small file instead |
+
+C has no standard REPL because C code must be compiled before it can run. The expression `2 + 3 * 4` typed into `python3`, `node` or `jshell` gives `14` in each.
+
 A REPL is for experiments. Anything you want to keep, repeat or share belongs in a file, which is what the next lesson is about.
 
 ## Common pitfalls
@@ -145,7 +173,7 @@ A REPL is for experiments. Anything you want to keep, repeat or share belongs in
 
 <Exercise title="Trace it by hand">
 
-Trace this pseudocode and write the value of `result` after the program finishes. Use a table with one row per step.
+Trace this pseudocode and write the value of `result` after the program finishes. Use a table with one row per step. There is no input, and the answer is a single whole number.
 
 ```text
 set result to 1
@@ -179,6 +207,94 @@ A teammate says: "My program has a typo on line 80, but it ran fine for ten minu
 <Solution>
 
 Interpreted. An interpreter translates and runs code as it goes, so a mistake on line 80 is only noticed when execution reaches line 80. A compiler typically translates the whole file first and would reject a typo up front. Some mistakes slip past compilers too (a wrong calculation is never a compile error), but a plain typo that survives for ten minutes points to an interpreter.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Write the trace in your language">
+
+Translate this pseudocode into a program in the language of your choice and run it. It adds the even numbers 2, 4, 6 and 8.
+
+```text
+set total to 0
+set n to 2
+while n is at most 8:
+    add n to total
+    add 2 to n
+show total
+```
+
+There is no input. Expected output: one line, `20`.
+
+<Solution>
+
+Trace first: `n` takes the values 2, 4, 6 and 8, and then 10 ends the loop, so `total` is 2 + 4 + 6 + 8 = 20.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="even_total.py"
+total = 0
+n = 2
+while n <= 8:
+    total = total + n
+    n = n + 2
+print(total)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="even_total.js"
+let total = 0;
+let n = 2;
+while (n <= 8) {
+  total = total + n;
+  n = n + 2;
+}
+console.log(total);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="EvenTotal.java"
+public class EvenTotal {
+    public static void main(String[] args) {
+        int total = 0;
+        int n = 2;
+        while (n <= 8) {
+            total = total + n;
+            n = n + 2;
+        }
+        System.out.println(total);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="even_total.c"
+#include <stdio.h>
+
+int main(void) {
+    int total = 0;
+    int n = 2;
+    while (n <= 8) {
+        total = total + n;
+        n = n + 2;
+    }
+    printf("%d\n", total);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print `20`.
 
 </Solution>
 

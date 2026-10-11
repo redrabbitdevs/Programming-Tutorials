@@ -1,9 +1,0 @@
-call factorial(3)
-  call factorial(2)
-    call factorial(1)
-    return 1
-  return 2
-return 6
-RecursionError: the stack ran out of room
-total size: 85
-120

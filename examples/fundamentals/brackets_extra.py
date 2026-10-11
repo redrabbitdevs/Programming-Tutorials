@@ -13,4 +13,4 @@ def is_balanced(text):
 
 
 for t in ["f(a[1], {b: 2})", "if (x { y }", ""]:
-    print(repr(t), "->", "balanced" if is_balanced(t) else "not balanced")
+    print(f"'{t}' ->", "balanced" if is_balanced(t) else "not balanced")
