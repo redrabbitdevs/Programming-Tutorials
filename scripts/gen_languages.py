@@ -4,7 +4,7 @@
 For every entry, writes site/src/content/languages/<slug>.md with frontmatter
 matching the `languages` collection schema in site/src/content.config.ts:
 slug, name, tier, paradigm (non-empty list), firstAppeared (optional),
-summary, status.
+summary, status, and wikipedia (only when the catalog has a non-empty URL).
 
 - summary comes from research/_catalog/summaries/*.json when a non-null summary
   exists for the slug. Otherwise a neutral fallback is built from the known
@@ -106,6 +106,9 @@ def build_page(entry, summary_rec):
     ]
     if isinstance(year, int):
         lines.append(f"firstAppeared: {year}")
+    wikipedia = entry.get("wikipedia")
+    if isinstance(wikipedia, str) and wikipedia.strip():
+        lines.append(f"wikipedia: {yaml_str(wikipedia.strip())}")
     lines += [
         f"summary: {yaml_str(summary)}",
         f"status: {status}",

@@ -4,6 +4,7 @@
  * Without JavaScript every panel is shown under its label. With JavaScript
  * it becomes a WAI-ARIA tabs widget (arrow keys, Home, End). Groups that share
  * a label switch together, and the choice is remembered in localStorage.
+ * A ?lang=<label> query parameter (case-insensitive) beats the stored choice.
  * OS labels (Windows, macOS, Linux) sync separately from language labels.
  */
 ---
@@ -19,6 +20,8 @@
     get(k: string) { try { return localStorage.getItem(k); } catch { return null; } },
     set(k: string, v: string) { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } },
   };
+  let wanted = '';
+  try { wanted = (new URLSearchParams(location.search).get('lang') ?? '').trim().toLowerCase(); } catch { /* no URL access */ }
   const syncAll = (key: string, label: string, except?: Group) => {
     groups.forEach((g) => { if (g !== except && g.key === key) g.select(label); });
   };
@@ -85,6 +88,7 @@
 
     root.prepend(list);
     root.classList.add('is-enhanced');
-    select(Math.max(0, labels.indexOf(store.get(key) ?? '')));
+    const fromQuery = wanted ? labels.findIndex((l) => l.toLowerCase() === wanted) : -1;
+    select(fromQuery >= 0 ? fromQuery : Math.max(0, labels.indexOf(store.get(key) ?? '')));
   });
 </script>

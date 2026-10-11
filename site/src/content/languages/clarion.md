@@ -4,6 +4,7 @@ name: "Clarion"
 tier: 3
 paradigm: ["imperative", "structured", "object-oriented"]
 firstAppeared: 1986
+wikipedia: "https://en.wikipedia.org/wiki/Clarion_(programming_language)"
 summary: "Clarion is an imperative and structured programming language that first appeared in 1986."
 status: planned
 ---

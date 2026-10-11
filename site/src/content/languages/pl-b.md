@@ -4,6 +4,7 @@ name: "PL/B"
 tier: 3
 paradigm: ["procedural", "imperative"]
 firstAppeared: 1972
+wikipedia: "https://en.wikipedia.org/wiki/Programming_Language_for_Business"
 summary: "PL/B is a procedural and imperative programming language that first appeared in 1972."
 status: planned
 ---
