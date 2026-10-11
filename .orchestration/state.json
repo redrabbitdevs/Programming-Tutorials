@@ -1,6 +1,6 @@
 {
  "updated": "2026-10-11",
- "pr_counter": 19,
+ "pr_counter": 30,
  "phase": "content",
  "decisions": {
   "stack": "Astro + MDX, custom design (no stock docs theme), deployed to GitHub Pages",
@@ -93,13 +93,13 @@
   },
   {
    "id": "M5",
-   "name": "Python: Beginner",
-   "status": "in_progress"
+   "name": "Python: Beginner (B1\u2013B6, 37 lessons, audited)",
+   "status": "complete"
   },
   {
    "id": "M6",
    "name": "Python: Intermediate",
-   "status": "pending"
+   "status": "in_progress"
   },
   {
    "id": "M7",
@@ -191,13 +191,52 @@
   {
    "n": 18,
    "title": "Add Python beginner module B4: Collections"
+  },
+  {
+   "n": 19,
+   "title": "Record PRs 12-18 and the B5 dispatch in state"
+  },
+  {
+   "n": 20,
+   "title": "Add Python beginner module B5: Functions"
+  },
+  {
+   "n": 21,
+   "title": "Add Python beginner-level gap audit"
+  },
+  {
+   "n": 22,
+   "title": "Add Improver review: Python beginner level"
+  },
+  {
+   "n": 23,
+   "title": "Slim lesson header, sync language tabs and fix fundamentals routes"
+  },
+  {
+   "n": 24,
+   "title": "Clean and normalise catalog paradigms and summary fallbacks"
+  },
+  {
+   "n": 25,
+   "title": "Improve language catalog search, filters and overview pages"
+  },
+  {
+   "n": 26,
+   "title": "Show Wikipedia links on language pages and support ?lang= tab preselect"
+  },
+  {
+   "n": 27,
+   "title": "Fix ordering, code blocks and exercises across Python beginner lessons"
+  },
+  {
+   "n": 28,
+   "title": "Add Python beginner module B6: Putting it together"
   }
  ],
  "next_actions": [
-  "Running: W2 Python B5 'Functions'",
-  "After B5: W4 beginner-level audit (Gap Finder \u2225 Improver) plus audit_backlog fixes",
-  "Retry W5 batch 3 later (Wikipedia rate limit); fix catalog_fixes_needed",
-  "Then W2 Python intermediate I1\u2013I5 and fundamentals modules 4+"
+  "Running: Python I1 'Errors and files' and fundamentals module 4",
+  "Then: Python I2\u2013I5, fundamentals modules 5+",
+  "Retry W5 batch 3 when Wikipedia allows"
  ],
  "escalations": [],
  "workflows": [
@@ -311,51 +350,82 @@
    "status": "complete"
   },
   {
-   "wf": "W2",
-   "item": "Python B5",
-   "status": "running"
-  },
-  {
    "wf": "W5",
    "item": "Catalog batch 3",
    "status": "on hold"
+  },
+  {
+   "wf": "W2",
+   "item": "Python B5",
+   "status": "complete"
+  },
+  {
+   "wf": "W4",
+   "item": "Beginner level audit",
+   "status": "complete"
+  },
+  {
+   "wf": "W3",
+   "item": "Lesson UX + catalog UX + follow-ups",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Beginner content fixes",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python B6",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python I1",
+   "status": "running"
+  },
+  {
+   "wf": "W2",
+   "item": "Fundamentals F4",
+   "status": "running"
   }
  ],
  "agents": {
   "advisor": {
    "status": "waiting",
-   "task": "Routing; Opus again after a temporary switch to Haiku"
+   "task": "Routing round: I1 and fundamentals module 4"
   },
   "researcher": {
    "status": "done",
-   "task": "W1 complete: 644-language catalog; Python 3.15 facts; 107-lesson outline; 28-lesson fundamentals outline"
+   "task": "Catalog paradigms normalised (130\u219226)"
   },
   "uiux": {
    "status": "done",
-   "task": "M1 merged (PR 4)"
+   "task": "Lesson UX, catalog UX, Wikipedia links, ?lang="
   },
   "writer": {
    "status": "working",
-   "task": "W2: Python B5 'Functions' (last beginner module)"
+   "task": "W2 \u00d72: Python I1 'Errors and files' and fundamentals module 4 (language-neutral)"
   },
   "validator": {
-   "status": "done",
-   "task": "B3 PASS ('~True' removal in 3.16 verified against the docs)"
+   "status": "idle"
   },
   "gapfinder": {
-   "status": "idle"
+   "status": "done",
+   "task": "Beginner audit: 15 items, P0s fixed"
   },
   "improver": {
-   "status": "idle"
+   "status": "done",
+   "task": "Beginner review: 10 items, P0/P1 fixed"
   },
   "summarizer": {
    "status": "waiting",
-   "task": "W5 batch 3 on hold (Wikipedia rate limit)"
+   "task": "Batch 3 on hold (Wikipedia rate limit)"
   }
  },
  "lessons": {
-  "written": 43,
-  "planned": 135
+  "written": 55,
+  "planned": 141
  },
  "language_status": {
   "python": "in_progress"
@@ -588,6 +658,60 @@
    "from": "advisor",
    "to": "github",
    "msg": "PR 18 (B4) merged: PEP 584, 814 and 798 claims verified. B5 dispatched."
+  },
+  {
+   "t": "10-11 02:12",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PR 20 (B5) merged. Beginner level complete, so W4 audit triggered."
+  },
+  {
+   "t": "10-11 02:16",
+   "from": "gapfinder",
+   "to": "advisor",
+   "msg": "P0: no tracebacks lesson; try used before it's taught; no mini-project. Fixed 3 bad catalog links."
+  },
+  {
+   "t": "10-11 02:18",
+   "from": "improver",
+   "to": "advisor",
+   "msg": "Verdict: restrained and accurate. P0: scraped catalog data, syntax used before it's taught, wall-of-code blocks."
+  },
+  {
+   "t": "10-11 02:20",
+   "from": "advisor",
+   "to": "uiux, uiux, researcher, writer",
+   "msg": "Triage: 4 parallel fix tasks."
+  },
+  {
+   "t": "10-11 02:25",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PRs 23\u201326 merged (lesson UX, catalog data/UX, Wikipedia links)."
+  },
+  {
+   "t": "10-11 02:27",
+   "from": "system",
+   "to": "advisor",
+   "msg": "Usage limit hit; beginner-fix Writer stopped with 24 uncommitted files."
+  },
+  {
+   "t": "10-11 07:00",
+   "from": "user",
+   "to": "advisor",
+   "msg": "Limit reset; continue."
+  },
+  {
+   "t": "10-11 07:10",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PR 27 merged: beginner fixes (0 ordering violations, 364 examples)."
+  },
+  {
+   "t": "10-11 07:16",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PR 28 merged: B6 'Putting it together'. Beginner level complete (37 lessons). I1 and fundamentals module 4 dispatched."
   }
  ],
  "model_review": [
@@ -644,7 +768,9 @@
    "B1",
    "B2",
    "B3",
-   "B4"
+   "B4",
+   "B5",
+   "B6"
   ],
   "fundamentals": [
    "F1",
@@ -652,13 +778,9 @@
    "F3"
   ]
  },
- "catalog_fixes_needed": [
-  "babbage: wikipedia link points to GEC 4000",
-  "cayenne: link points to a person",
-  "cg: link points to HLSL"
- ],
+ "catalog_fixes_needed": [],
  "audit_backlog": [
-  "Redirect /learn/fundamentals/ to /fundamentals/",
-  "Older fundamentals lessons hard-code the /Programming-Tutorials/ base in links; switch them to relative links"
+  "Fundamentals track should be genuinely language-neutral (being applied from module 4)",
+  "Retry W5 summaries batch 3+ when Wikipedia rate limit clears (545 templated summaries remain)"
  ]
 }
