@@ -1,5 +1,0 @@
-puzzle1 -> cannot access local variable 'total' where it is not associated with a value
-puzzle2 -> cannot access local variable 'result' where it is not associated with a value
-puzzle3 -> cannot access local variable 'label' where it is not associated with a value
-puzzle4 -> cannot access local variable 'count' where it is not associated with a value
-puzzle5 -> cannot access local variable 'error' where it is not associated with a value

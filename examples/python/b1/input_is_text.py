@@ -1,4 +1,3 @@
-text = "1990"  # what input() would hand back
-print(type(text))
+text = "1990"
 print(int(text) + 1)
 print(text + "1")

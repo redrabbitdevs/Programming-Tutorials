@@ -18,9 +18,4 @@ print(nested)
 unpacked = [*order["items"] for order in orders if order["customer"] != "Ben"]
 print(unpacked)
 
-print(nested == unpacked)
-
-# Filtering the inner items as well
-no_ink = [item for order in orders for item in order["items"] if item != "ink"]
-print(no_ink)
 print(sorted({item for order in orders for item in order["items"]}))

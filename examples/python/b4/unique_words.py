@@ -1,5 +1,5 @@
-def words_only_in_first(first, second):
-    return sorted(set(first.lower().split()) - set(second.lower().split()))
+first = "The cat sat on the mat"
+second = "the dog sat"
 
-
-print(words_only_in_first("The cat sat on the mat", "the dog sat"))
+only_first = set(first.lower().split()) - set(second.lower().split())
+print(sorted(only_first))

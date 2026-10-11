@@ -1,5 +1,2 @@
 example.org:8080 timeout=5 secure=True
 example.org:9000 timeout=30 secure=True
-TypeError: connect() takes from 1 to 2 positional arguments but 3 were given
-10
-TypeError: clamp() got some positional-only arguments passed as keyword arguments: 'value, low, high'

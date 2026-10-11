@@ -20,17 +20,15 @@ Python is unusual in that the shape of your code is part of its meaning. Get the
 
 Most languages use braces to group statements. Python uses **indentation**. A line ending in a colon opens a block, and every line in the block is indented by the same amount.
 
-```python title="style_demo.py" {7-8}
-# Check whether the guests fit around the table.
-MAX_SEATS = 4
+The only block statement you could write with what you know so far is `if`, which runs its block only when a condition is true. Lesson 14 teaches it properly. Treat the next example as a preview, there to show layout:
 
+```python title="style_demo.py" {5-6}
+# Check whether the guests fit around the table.
 guests = 3  # people who said yes
 
-if guests <= MAX_SEATS:
+if guests <= 4:
     print("Everyone fits.")
-    print(f"Spare seats: {MAX_SEATS - guests}")
-else:
-    print("Too many guests.")
+    print("Spare seats:", 4 - guests)
 ```
 
 ```text
@@ -38,11 +36,11 @@ Everyone fits.
 Spare seats: 1
 ```
 
-The two highlighted lines belong to the `if` because they sit four spaces in. The `else:` returns to the left edge, so it lines up with its `if`. Conditionals have their own lesson shortly. Here, watch the layout.
+The two highlighted lines belong to the `if` because they sit four spaces in. Move them back to the left edge and they would no longer be part of it.
 
 The standard is **four spaces per level**. Configure your editor so that the Tab key inserts four spaces, and never mix tabs and spaces in one file.
 
-If the layout breaks the rules, Python tells you:
+If the layout breaks the rules, Python tells you. A block that is missing its indent gives this message:
 
 ```text
   File "bad.py", line 2
@@ -57,13 +55,15 @@ An extra indent where none belongs gives `IndentationError: unexpected indent`. 
 
 A `#` starts a comment, which runs to the end of the line. Python ignores it. There is no block-comment syntax; use one `#` per line.
 
-Good comments say **why**, because the code already says what.
+Good comments say **why**, because the code already says what. This comment only repeats the code:
 
 ```python
-# Weak: repeats the code.
 guests = 3  # set guests to 3
+```
 
-# Better: explains a decision the code cannot show.
+This one explains a decision that the code cannot show:
+
+```python
 guests = 3  # people who said yes, not counting the host
 ```
 
@@ -100,66 +100,99 @@ Rent=900
 food =  250
 Transport= 80
 total_Cost=Rent+food+Transport
-if total_Cost>1000:
-  print( "Over budget by",total_Cost-1000 )
-else :
-  print ("Within budget")
+print( "Total cost:",total_Cost )
 ```
 
 ```text
-Over budget by 230
+Total cost: 1230
 ```
 
 The same program, tidied:
 
 ```python title="tidy_script.py"
-BUDGET = 1000
-
 rent = 900
 food = 250
 transport = 80
 total_cost = rent + food + transport
-
-if total_cost > BUDGET:
-    print("Over budget by", total_cost - BUDGET)
-else:
-    print("Within budget")
+print("Total cost:", total_cost)
 ```
 
 ```text
-Over budget by 230
+Total cost: 1230
 ```
 
-The two programs behave identically. The tidy one names the budget instead of burying `1000` in the code, uses consistent names and spacing, and indents by four.
+The two programs behave identically. The tidy one uses lowercase names consistently, puts one space on each side of `=` and `+`, and has no stray spaces inside the parentheses.
 
 ## Common pitfalls
 
 - **Mixing tabs and spaces.** Python rejects it with a `TabError`. Use spaces only.
 - **Inconsistent indentation within a block.** Three spaces on one line and four on the next is an `IndentationError`.
 - **Comments that go stale.** If you change the code, change the comment.
-- **A colon forgotten after `if` or `else`.** The error is a `SyntaxError` pointing at the line.
+- **A colon forgotten at the end of a block line.** The error is a `SyntaxError` pointing at the line.
 
 <Exercise title="Tidy a messy script">
 
-Take `messy_script.py` and rewrite it following PEP 8: lowercase variable names, a named constant for the budget, spaces around operators and four-space indentation. The output must stay `Over budget by 230`.
+Rewrite this script following PEP 8: lowercase names, spaces around operators and `=`, and no stray spaces inside the parentheses. The behaviour must not change.
+
+Input: none. Expected output: `Total: 12`.
+
+```python title="messy_price.py"
+Price=4
+Count =3
+TOTAL_price=Price*Count
+print( "Total:",TOTAL_price )
+```
+
+```text
+Total: 12
+```
 
 <Solution>
 
-```python title="tidy_script.py"
-BUDGET = 1000
+```python title="tidy_price.py"
+price = 4
+count = 3
+total_price = price * count
+print("Total:", total_price)
+```
 
-rent = 900
-food = 250
-transport = 80
-total_cost = rent + food + transport
-
-if total_cost > BUDGET:
-    print("Over budget by", total_cost - BUDGET)
-else:
-    print("Within budget")
+```text
+Total: 12
 ```
 
 Changing names and whitespace never changes what the program does, only how easy it is to read.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Replace a comment with a name">
+
+This comment only repeats the code. Rewrite the script so that the variable name explains the number and no comment is needed.
+
+Input: none. Expected output: `86400`.
+
+```python title="seconds_comment.py"
+x = 60 * 60 * 24  # multiply 60 by 60 by 24
+print(x)
+```
+
+```text
+86400
+```
+
+<Solution>
+
+```python title="seconds_named.py"
+seconds_per_day = 60 * 60 * 24
+print(seconds_per_day)
+```
+
+```text
+86400
+```
+
+The name `seconds_per_day` says what the number means, which the comment never did. When a good name can carry the meaning, you do not need a comment.
 
 </Solution>
 

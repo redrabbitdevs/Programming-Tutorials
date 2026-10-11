@@ -1,6 +1,7 @@
 secret = 42
 max_attempts = 7
 attempts = 0
+won = False
 
 while attempts < max_attempts:
     text = input("Guess: ")
@@ -11,7 +12,9 @@ while attempts < max_attempts:
     guess = int(text)
     if guess == secret:
         print(f"Correct, after {attempts} attempts.")
+        won = True
         break
     print("Too low." if guess < secret else "Too high.")
-else:
+
+if not won:
     print(f"Out of guesses. The number was {secret}.")

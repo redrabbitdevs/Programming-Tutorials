@@ -1,3 +1,1 @@
-values = [0, 0.0, -1, "", "False", [], [[]], {}, {"a": 0}, None, " ", ()]
-for value in values:
-    print(repr(value), bool(value))
+print(bool(0), bool(0.0), bool(-1), bool(""), bool("False"), bool(None), bool(" "))

@@ -1,7 +1,5 @@
-def chunks(items, size):
-    return [items[i : i + size] for i in range(0, len(items), size)]
+items = [1, 2, 3, 4, 5, 6, 7]
+size = 3
 
-
-print(chunks([1, 2, 3, 4, 5, 6, 7], 3))
-print(chunks("abcdef", 2))
-print(chunks([], 3))
+for start in range(0, len(items), size):
+    print(items[start : start + size])

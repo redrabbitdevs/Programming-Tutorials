@@ -5,7 +5,7 @@ module: Getting started
 order: 1
 title: Installing Python
 description: Install Python 3.15, confirm it runs from a terminal, and choose between the python.org installer and uv.
-minVersion: "3.11"
+minVersion: "3.8"
 objectives:
   - Install Python 3.15 on your computer
   - Check which version a terminal command runs
@@ -96,28 +96,33 @@ Python also ships a **free-threaded build**, an optional variant that runs threa
 
 ## Look inside your interpreter
 
-A program can ask Python which version is running. Save this as `check_version.py` and run it.
+A program can ask Python which version is running. You will not need to save a file for this. Start the interpreter with `python3` (or `py` on Windows), type the two lines below, and press Enter after each. The next lesson explains the `>>>` prompt properly.
+
+The first line, `import sys`, makes Python's built-in `sys` module available. A module is a bundle of ready-made tools, and a later lesson explains `import` fully. Here you only need to know that `sys.version_info` is one of the tools inside it.
 
 ```python title="check_version.py"
 import sys
 
-major, minor = sys.version_info[:2]
-print(f"Running Python {major}.{minor}")
-print("At least 3.11:", (major, minor) >= (3, 11))
+print(sys.version_info)
 ```
-
-On 3.15 it prints:
-
-```text
-Running Python 3.15
-At least 3.11: True
-```
-
-`sys.version_info` holds the full version. Printing it whole shows every part:
 
 ```text
 sys.version_info(major=3, minor=15, micro=0, releaselevel='final', serial=0)
 ```
+
+On a later 3.15 release, the `micro` number will be higher. Each part has a name, and a dot after `sys.version_info` picks one out:
+
+```python title="version_parts.py"
+import sys
+
+print(sys.version_info.major, sys.version_info.minor)
+```
+
+```text
+3 15
+```
+
+`print` writes its values to the screen with a space between them. You will learn more about it in lesson 3.
 
 ## Common pitfalls
 
@@ -127,7 +132,9 @@ sys.version_info(major=3, minor=15, micro=0, releaselevel='final', serial=0)
 
 <Exercise title="Install 3.15 and print its version">
 
-Install Python 3.15, then write a one-line script that prints only the major and minor numbers from `sys.version_info`, separated by a space.
+Install Python 3.15, start the interpreter, and print only the major and minor numbers from `sys.version_info`, separated by a space.
+
+Input: none. Expected output on 3.15: `3 15`.
 
 <Solution>
 
@@ -137,7 +144,33 @@ import sys
 print(sys.version_info.major, sys.version_info.minor)
 ```
 
-On 3.15 this prints `3 15`. The fields of `sys.version_info` can be read by name, so no slicing is needed.
+```text
+3 15
+```
+
+The fields of `sys.version_info` can be read by name, so no slicing is needed.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Release level and patch number">
+
+Print the `micro` and `releaselevel` fields of `sys.version_info` on one line. Input: none. Expected output on a stable 3.15.0 install: `0 final`. On a later patch release the first number is higher. A pre-release build would print something like `alpha` or `rc` instead of `final`.
+
+<Solution>
+
+```python title="release_level.py"
+import sys
+
+print(sys.version_info.micro, sys.version_info.releaselevel)
+```
+
+```text
+0 final
+```
+
+`micro` counts bug-fix releases within 3.15, and `releaselevel` tells you whether you are running a finished release.
 
 </Solution>
 
@@ -147,6 +180,6 @@ On 3.15 this prints `3 15`. The fields of `sys.version_info` can be read by name
 
 - Install Python 3.15 from python.org, or use `uv`, and keep the system Python as it is.
 - Check the version with `python3 --version`, or `py --version` on Windows.
-- `sys.version_info` lets a program inspect its own interpreter.
+- `import sys` followed by `print(sys.version_info)` shows which interpreter is running.
 
 Next: the interactive prompt and running a saved file.

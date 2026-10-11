@@ -28,8 +28,19 @@ def power(base, exponent=2):
 print(power(5))
 print(power(2, 10))
 print(power(exponent=3, base=2))
+```
 
+```text
+25
+1024
+8
+```
 
+`power(exponent=3, base=2)` passes **keyword arguments**: order no longer matters because each value is labelled. Parameters with defaults must come after those without.
+
+The next function is the most famous trap in Python. The default value `[]` is created **once**, when `def` runs, and stored on the function. Every call that omits `items` shares that one list, so the second call "remembers" `'a'`.
+
+```python title="mutable_default.py"
 def add_item_bad(item, items=[]):
     items.append(item)
     return items
@@ -38,8 +49,19 @@ def add_item_bad(item, items=[]):
 print(add_item_bad("a"))
 print(add_item_bad("b"))
 print(add_item_bad.__defaults__)
+```
 
+```text
+['a']
+['a', 'b']
+(['a', 'b'],)
+```
 
+The `__defaults__` line shows the shared list stored on the function. Defaults that are mutable (lists, dicts, sets) behave this way.
+
+The fix is the `None` idiom: default to `None`, and create a fresh list inside the body on each call. Numbers, strings, tuples and `None` are immutable, so they are safe as defaults. Test with `is None` rather than truthiness, so a caller's empty list is still used.
+
+```python title="none_default.py"
 def add_item(item, items=None):
     if items is None:
         items = []
@@ -53,51 +75,74 @@ print(add_item("c", ["x"]))
 ```
 
 ```text
-25
-1024
-8
-['a']
-['a', 'b']
-(['a', 'b'],)
 ['a']
 ['b']
 ['x', 'c']
 ```
 
-`power(exponent=3, base=2)` passes **keyword arguments**: order no longer matters because each value is labelled. Parameters with defaults must come after those without.
-
-The second function is the most famous trap in Python. The default value `[]` is created **once**, when `def` runs, and stored on the function (the `__defaults__` line shows it). Every call that omits `items` shares that one list, so the second call "remembers" `'a'`. Defaults that are mutable (lists, dicts, sets) behave this way.
-
-The fix is the `None` idiom in `add_item`: default to `None`, and create a fresh list inside the body on each call. Numbers, strings, tuples and `None` are immutable, so they are safe as defaults. Test with `is None` rather than truthiness, so a caller's empty list is still used.
-
 ## Any number of arguments: *args and **kwargs
 
 A parameter written `*numbers` gathers extra positional arguments into a **tuple**. A parameter written `**details` gathers extra keyword arguments into a **dict**. The names `args` and `kwargs` are convention only; the stars do the work.
 
-```python title="args_kwargs.py"
+```python title="args_total.py"
 def total(*numbers):
     print(type(numbers).__name__, numbers)
     return sum(numbers)
 
 
+print(total())
+print(total(1, 2, 3))
+```
+
+```text
+tuple ()
+0
+tuple (1, 2, 3)
+6
+```
+
+```python title="kwargs_describe.py"
 def describe(**details):
     print(type(details).__name__, details)
     for key, value in details.items():
         print(f"  {key} -> {value}")
 
 
-print(total())
-print(total(1, 2, 3))
-
 describe(name="Ada", born=1815)
+```
+
+```text
+dict {'name': 'Ada', 'born': 1815}
+  name -> Ada
+  born -> 1815
+```
+
+The same stars work on the calling side, in the opposite direction. `total(*values)` spreads a list into separate positional arguments, and `describe(**options)` spreads a dict into keyword arguments.
+
+```python title="star_call.py"
+def total(*numbers):
+    return sum(numbers)
+
+
+def describe(**details):
+    return details
+
 
 values = [4, 5, 6]
 print(total(*values))
 
 options = {"name": "Grace", "born": 1906}
-describe(**options)
+print(describe(**options))
+```
 
+```text
+15
+{'name': 'Grace', 'born': 1906}
+```
 
+A signature can mix all three: a normal parameter, then the gathered positionals, then the gathered keywords.
+
+```python title="log_signature.py"
 def log(level, *messages, **extras):
     print(level, messages, extras)
 
@@ -106,28 +151,12 @@ log("INFO", "started", "ok", user="ada", retry=False)
 ```
 
 ```text
-tuple ()
-0
-tuple (1, 2, 3)
-6
-dict {'name': 'Ada', 'born': 1815}
-  name -> Ada
-  born -> 1815
-tuple (4, 5, 6)
-15
-dict {'name': 'Grace', 'born': 1906}
-  name -> Grace
-  born -> 1906
 INFO ('started', 'ok') {'user': 'ada', 'retry': False}
 ```
-
-The same stars work on the calling side, in the opposite direction. `total(*values)` spreads a list into separate positional arguments, and `describe(**options)` spreads a dict into keyword arguments. `log` shows all three together: a normal parameter, then the gathered positionals, then the gathered keywords.
 
 ## Keyword-only and positional-only parameters
 
 Anything after `*args` (or after a bare `*`) can only be passed by keyword. Use that for options that read badly as bare values.
-
-Anything before a `/` can only be passed by position. This syntax is available from Python 3.8 (PEP 570), so it works on every version this course supports.
 
 ```python title="keyword_only.py"
 def connect(host, port=8080, *, timeout=5, secure=True):
@@ -136,34 +165,58 @@ def connect(host, port=8080, *, timeout=5, secure=True):
 
 print(connect("example.org"))
 print(connect("example.org", 9000, timeout=30))
-try:
-    connect("example.org", 9000, 30)
-except TypeError as error:
-    print("TypeError:", error)
-
-
-def clamp(value, low, high, /):
-    return max(low, min(value, high))
-
-
-print(clamp(15, 0, 10))
-try:
-    clamp(value=15, low=0, high=10)
-except TypeError as error:
-    print("TypeError:", error)
 ```
 
 ```text
 example.org:8080 timeout=5 secure=True
 example.org:9000 timeout=30 secure=True
-TypeError: connect() takes from 1 to 2 positional arguments but 3 were given
-10
-TypeError: clamp() got some positional-only arguments passed as keyword arguments: 'value, low, high'
 ```
 
-`connect("example.org", 9000, 30)` would leave a reader guessing what `30` means, so the bare `*` makes it an error. The exact wording of these messages can differ between Python versions.
+`connect("example.org", 9000, 30)` would leave a reader guessing what `30` means, so the bare `*` makes it an error:
 
-Positional-only parameters are less common. They suit functions whose parameter names carry no meaning, such as `clamp(value, low, high, /)`, and let the author rename them later without breaking callers. Many built-ins use them: `len(obj, /)`.
+```python
+def connect(host, port=8080, *, timeout=5, secure=True):
+    return f"{host}:{port} timeout={timeout} secure={secure}"
+
+
+print(connect("example.org", 9000, 30))
+```
+
+```text
+TypeError: connect() takes from 1 to 2 positional arguments but 3 were given
+```
+
+The exact wording of these messages can differ between Python versions.
+
+Anything before a `/` can only be passed by position. This syntax is available from Python 3.8 (PEP 570), so it works on every version this course supports. It suits functions whose parameter names carry no meaning, such as `clamp(value, low, high, /)`, and lets the author rename them later without breaking callers. Many built-ins use it: `len(obj, /)`.
+
+```python title="positional_only.py"
+def clamp(value, low, high, /):
+    return max(low, min(value, high))
+
+
+print(clamp(15, 0, 10))
+print(clamp(-3, 0, 10))
+```
+
+```text
+10
+0
+```
+
+Naming the arguments is refused:
+
+```python
+def clamp(value, low, high, /):
+    return max(low, min(value, high))
+
+
+print(clamp(value=15, low=0, high=10))
+```
+
+```text
+TypeError: clamp() got some positional-only arguments passed as keyword arguments: 'value, low, high'
+```
 
 Here is every kind in one signature, in the only order Python allows:
 
@@ -176,13 +229,11 @@ def everything(a, b, /, c, d=4, *args, e, f=6, **kwargs):
 
 
 print(everything(1, 2, 3, e=5))
-print(everything(1, 2, c=3, e=5))
 print(everything(1, 2, 3, 40, 50, 60, e=5, f=7, z=0))
 print(inspect.signature(everything))
 ```
 
 ```text
-(1, 2, 3, 4, (), 5, 6, {})
 (1, 2, 3, 4, (), 5, 6, {})
 (1, 2, 3, 40, (50, 60), 5, 7, {'z': 0})
 (a, b, /, c, d=4, *args, e, f=6, **kwargs)
@@ -207,7 +258,17 @@ When in doubt, make optional settings keyword-only. `connect(host, timeout=30)` 
 
 <Exercise title="A flexible format_name()">
 
-Write `format_name(first, last, *, middle="", title="", last_first=False)`. By default it returns `"Ada Lovelace"`. With `middle` it inserts the middle name, with `title` it prefixes it, and with `last_first=True` it returns `"Lovelace, Ada"`. Show that `format_name("Ada", "Lovelace", True)` is an error.
+Write `format_name(first, last, *, middle="", title="", last_first=False)`. By default it returns `"Ada Lovelace"`. With `middle` it inserts the middle name, with `title` it prefixes it, and with `last_first=True` it returns `"Lovelace, Ada"`.
+
+Input: the five calls in the solution. Expected output:
+
+```text
+Ada Lovelace
+Ada Augusta Lovelace
+Lovelace, Ada
+Rear Admiral Grace Brewster Hopper
+Turing, Alan
+```
 
 <Solution>
 
@@ -242,16 +303,30 @@ Turing, Alan
 The bare `*` means the three options must be named, so `format_name("Ada", "Lovelace", True)` raises a `TypeError` and nobody has to wonder what `True` meant. The defaults are all immutable strings and a bool, so they are safe. `first` and `last` can still be passed by name in any order, as the last call shows.
 
 </Solution>
+
 </Exercise>
 
 <Exercise title="Fix the shared list">
 
 This function is meant to return a new list each time, but the second call returns a list holding both names. Fix it.
 
-```python
+Input: `collect("Ada")`, `collect("Grace")`, `collect("Alan", ["Ada"])`. Expected output: `['Ada']`, `['Grace']`, `['Ada', 'Alan']`.
+
+```python title="collect_bug.py"
 def collect(name, names=[]):
     names.append(name)
     return names
+
+
+print(collect("Ada"))
+print(collect("Grace"))
+print(collect("Alan", ["Ada"]))
+```
+
+```text
+['Ada']
+['Ada', 'Grace']
+['Ada', 'Alan']
 ```
 
 <Solution>
@@ -278,6 +353,39 @@ print(collect("Alan", ["Ada"]))
 The default is now `None`, which is immutable, and each call that omits the list creates its own.
 
 </Solution>
+
+</Exercise>
+
+<Exercise title="Sum with a default">
+
+Write `average(*numbers, default=0)` that returns the average of its arguments, or `default` when none are given. Print `average(2, 4, 6)`, `average()` and `average(default=-1)`.
+
+Input: those three calls. Expected output: `4.0`, `0` and `-1`.
+
+<Solution>
+
+```python title="average_default.py"
+def average(*numbers, default=0):
+    if not numbers:
+        return default
+    return sum(numbers) / len(numbers)
+
+
+print(average(2, 4, 6))
+print(average())
+print(average(default=-1))
+```
+
+```text
+4.0
+0
+-1
+```
+
+`*numbers` gathers the positional arguments into a tuple, which is empty when there are none. `default` comes after the star, so it can only be passed by name.
+
+</Solution>
+
 </Exercise>
 
 ## Summary

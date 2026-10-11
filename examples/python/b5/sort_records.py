@@ -1,5 +1,3 @@
-from operator import itemgetter
-
 people = [
     {"name": "Ada", "team": "math", "age": 36},
     {"name": "Grace", "team": "navy", "age": 85},
@@ -12,11 +10,3 @@ people = [
 ordered = sorted(people, key=lambda p: (p["team"], -p["age"], p["name"]))
 for person in ordered:
     print(person["team"], person["age"], person["name"])
-
-print("--")
-
-# the same result with stable sorts, least important key first
-second = sorted(people, key=itemgetter("name"))
-second = sorted(second, key=itemgetter("age"), reverse=True)
-second = sorted(second, key=itemgetter("team"))
-print(second == ordered)

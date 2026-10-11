@@ -35,14 +35,13 @@ python3
 'ababab'
 ```
 
-The `>>>` is the prompt. You type the part after it, and Python prints the value of each expression. If you type a variable name on its own, the REPL shows its value, and `_` always holds the last result.
+The `>>>` is the prompt. You type the part after it, and Python prints the value of each expression. The special name `_` always holds the last result, so you can build on it.
 
 ```text
->>> price = 4
->>> price * 3
-12
+>>> 6 * 7
+42
 >>> _ + 1
-13
+43
 ```
 
 The REPL in 3.13 and later has multi-line editing and coloured output <Since v="3.13" />. Typing `exit` on its own now leaves it, with no parentheses <Since v="3.13" />. Python 3.14 added syntax highlighting as you type <Since v="3.14" />. On older versions, leave with `exit()` or press Ctrl-D (Ctrl-Z then Enter on Windows).
@@ -68,10 +67,7 @@ The REPL is the fastest way to test a doubt. If you cannot remember whether `7 /
 A **script** is a text file of Python code, usually ending in `.py`. Save the following as `rectangle_area.py` using any text editor.
 
 ```python title="rectangle_area.py"
-width = 12
-height = 7
-area = width * height
-print("Area:", area)
+print("Area:", 12 * 7)
 ```
 
 Open a terminal in the folder that holds the file and run it.
@@ -91,7 +87,7 @@ Python reads the file from top to bottom, runs each statement, and exits. Nothin
 In the REPL, an expression on its own line is printed. In a script it is not. The only output a script produces is what you ask for with `print`.
 
 ```python title="script_vs_repl.py"
-2 + 3  # the REPL would echo 5; a script stays silent
+2 + 3
 print(2 + 3)
 ```
 
@@ -99,7 +95,7 @@ print(2 + 3)
 5
 ```
 
-Only the second line prints. If you copy REPL experiments into a file and the output vanishes, this is why.
+Only the second line prints. The first line is calculated and then thrown away, where the REPL would have echoed `5`. If you copy REPL experiments into a file and the output vanishes, this is why.
 
 ## Other ways to start Python
 
@@ -122,18 +118,44 @@ Typing `python3 rectangle_area.py` inside the REPL gives a `SyntaxError`. The RE
 
 <Exercise title="From REPL to script">
 
-Open the REPL and work out the area of a 12 by 7 rectangle using two variables. Then save the same steps as `rectangle_area.py` so that running the file prints `Area: 84`.
+In the REPL, work out the area of a 12 by 7 rectangle by typing `12 * 7`. Then save a script named `rectangle_area.py` so that running the file prints `Area: 84`.
+
+Input: none. Expected output: `Area: 84`.
 
 <Solution>
 
-```python title="rectangle_area.py"
-width = 12
-height = 7
-area = width * height
-print("Area:", area)
+```python title="rectangle_area_solution.py"
+print("Area:", 12 * 7)
 ```
 
-In the REPL you could type `area` to see the answer. In a file you must print it, which is why the last line is there.
+```text
+Area: 84
+```
+
+In the REPL you could just type `12 * 7` to see the answer. In a file you must print it, which is why `print` is there.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict what the script prints">
+
+Without running it, say exactly what this script prints, then save it and check. Input: none. The expected output is two lines.
+
+```python title="predict_quiet.py"
+print(10 - 4)
+10 * 10
+print("ha" * 2)
+```
+
+<Solution>
+
+```text
+6
+haha
+```
+
+`10 * 10` is calculated and discarded, because a script does not echo bare expressions. The other two lines print `6` and the string repeated twice.
 
 </Solution>
 

@@ -23,14 +23,14 @@ The fundamentals lesson explains precedence and short-circuiting in general. Thi
 
 From tightest to loosest, the groups you will meet most are: `**`, unary `-`, then `*` `/` `//` `%`, then `+` `-`, then comparisons, then `not`, `and` and `or`. When in doubt, add parentheses. They cost nothing and tell the next reader what you meant.
 
+Start with arithmetic:
+
 ```python title="precedence.py"
 print(2 + 3 * 4)
 print(-2 ** 2)
 print((-2) ** 2)
 print(2 ** 3 ** 2)
 print(10 - 4 - 3)
-print(not 1 == 2)
-print(1 + 2 == 3 and 4 > 3)
 ```
 
 ```text
@@ -39,41 +39,42 @@ print(1 + 2 == 3 and 4 > 3)
 4
 512
 3
+```
+
+- `-2 ** 2` is `-(2 ** 2)`, because `**` binds tighter than a unary minus on its left.
+- `**` groups right to left, so `2 ** 3 ** 2` is `2 ** (3 ** 2)`, which is 512.
+- Subtraction groups left to right: `10 - 4 - 3` is `(10 - 4) - 3`.
+
+Comparisons produce `True` or `False`, and `not`, `and` and `or` combine them:
+
+```python title="precedence_logic.py"
+print(not 1 == 2)
+print(1 + 2 == 3 and 4 > 3)
+```
+
+```text
 True
 True
 ```
 
-- `-2 ** 2` is `-(2 ** 2)`, because `**` binds tighter than a unary minus on its left.
-- `**` groups right to left, so `2 ** 3 ** 2` is `2 ** (3 ** 2)`, which is 512. Subtraction groups left to right: `10 - 4 - 3` is `(10 - 4) - 3`.
-- `not 1 == 2` is `not (1 == 2)`, because comparisons bind tighter than `not`.
+`not 1 == 2` is `not (1 == 2)`, because comparisons bind tighter than `not`. The second line works out both comparisons first, then combines them with `and`.
 
 ## Chained comparisons
 
 Python lets you chain comparisons the way mathematics does. `a < b < c` means `a < b and b < c`, with `b` evaluated only once.
 
-```python title="chained_and_or.py"
+```python title="chained_comparison.py"
 age = 25
 print(18 <= age < 65)
 print(1 < 3 < 2)
-
-print(0 or "default")
-print("name" or "default")
-print("" and "never")
-print(5 and 7)
-
-nickname = ""
-print(nickname or "anonymous")
 ```
 
 ```text
 True
 False
-default
-name
-
-7
-anonymous
 ```
+
+The first line asks whether `age` lies in the range from 18 up to, but not including, 65. The chain `1 < 3 < 2` fails on its second link.
 
 ## and and or return operands
 
@@ -82,43 +83,63 @@ anonymous
 - `a or b` returns `a` if `a` is truthy, otherwise `b`.
 - `a and b` returns `a` if `a` is falsy, otherwise `b`.
 
-Both stop as soon as the answer is known, which is called short-circuiting. That is why `"" and "never"` gives the empty string: the right side is never looked at (the blank line in the output is that empty string).
+Here "truthy" and "falsy" mean what they sound like: `0` and the empty string `""` count as false, and almost everything else counts as true. Lesson 13 covers the full rules.
 
-This makes `value or default` a popular way to supply a fallback. Be careful, though: it replaces every falsy value, including `0` and `""`, not just missing ones. The next module covers truthiness in detail.
-
-## The walrus operator
-
-The assignment expression `:=`, nicknamed the walrus, binds a name in the middle of an expression. It exists since Python 3.8 and is most useful for avoiding a repeated call.
-
-```python title="walrus.py"
-words = ["spam", "eggs", "bacon"]
-
-if (count := len(words)) > 2:
-    print(f"{count} words is a lot")
-
-total = 0
-while (n := total + 3) < 10:
-    total = n
-print(total)
+```python title="and_or_operands.py"
+print(0 or "default")
+print("name" or "default")
+print(5 and 7)
+print("" and "never")
 ```
 
 ```text
-3 words is a lot
-9
+default
+name
+7
+
 ```
 
-Wrap a walrus in parentheses unless it stands alone, and use it sparingly. If a plain assignment on its own line reads better, use that.
+Both operators stop as soon as the answer is known, which is called short-circuiting. That is why `"" and "never"` gives the empty string: the right side is never looked at. The blank last line in the output is that empty string.
+
+This makes `value or default` a popular way to supply a fallback:
+
+```python title="or_default.py"
+nickname = ""
+print(nickname or "anonymous")
+```
+
+```text
+anonymous
+```
+
+Be careful, though: it replaces every falsy value, including `0` and `""`, not just missing ones.
+
+## The walrus operator
+
+The assignment expression `:=`, nicknamed the walrus, binds a name in the middle of an expression. It exists since Python 3.8.
+
+```python title="walrus.py"
+print((squared := 7 * 7) + 1)
+print(squared)
+```
+
+```text
+50
+49
+```
+
+The part in parentheses worked out `7 * 7`, bound the name `squared` to the result, and then handed that value to the `+ 1`. Afterwards `squared` is an ordinary name. You will find the walrus most useful inside the conditions of `if` and `while`, once you have met them, where it avoids calling something twice. Wrap it in parentheses unless it stands alone, and use it sparingly. If a plain assignment on its own line reads better, use that.
 
 ## Common pitfalls
 
-- **`x == 1 or 2`.** This parses as `(x == 1) or 2`, which is always truthy. Write `x == 1 or x == 2`, or `x in (1, 2)`.
+- **`x == 1 or 2`.** This parses as `(x == 1) or 2`, which is always truthy. Write `x == 1 or x == 2`.
 - **Misusing a chain.** `1 < x > 0` is legal but confusing. Keep chains in one direction.
 - **Reading `a != b != c` as "all three differ".** It means `a != b and b != c`, so `a` and `c` may still be equal.
 - **Using `or` for defaults when `0` is valid.** `count or 10` turns a real `0` into `10`.
 
 <Exercise title="Evaluate ten expressions">
 
-Work out the output of every line in `precedence_quiz.py` on paper, then run the file and compare.
+Work out the output of every line on paper, then run the file and compare. Input: none. Expected output: ten lines.
 
 ```python title="precedence_quiz.py"
 print(3 + 4 * 2 ** 2)
@@ -127,7 +148,7 @@ print(2 * 3 % 4)
 print(7 // 2 * 2)
 print(not True or True)
 print(1 < 2 < 3 < 3)
-print(0 or [] or "x")
+print(0 or "" or "x")
 print(10 / 4 * 2)
 print(2 + 3 > 4 and 1 + 1 == 2)
 print("a" * 2 + "b" * 3)
@@ -148,7 +169,32 @@ True
 aabbb
 ```
 
-Key steps: `2 ** 2` is 4, times 4 is 16, plus 3 is 19. `-3 ** 2` is `-(3 ** 2)`. `2 * 3 % 4` goes left to right: 6 % 4 is 2. `not True or True` is `(not True) or True`. The chain `1 < 2 < 3 < 3` fails on its last link. `0 or [] or "x"` skips two falsy values and returns `"x"`. `10 / 4 * 2` is `2.5 * 2`, a float.
+Key steps: `2 ** 2` is 4, times 4 is 16, plus 3 is 19. `-3 ** 2` is `-(3 ** 2)`. `2 * 3 % 4` goes left to right: 6 % 4 is 2. `not True or True` is `(not True) or True`. The chain `1 < 2 < 3 < 3` fails on its last link. `0 or "" or "x"` skips two falsy values and returns `"x"`. `10 / 4 * 2` is `2.5 * 2`, a float.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Spot the or trap">
+
+Predict the three lines this prints, then run it. Input: none. Expected output: three lines.
+
+```python title="or_trap.py"
+x = 3
+print(x == 1 or 2)
+print(x == 1 or x == 2)
+print(1 < x < 5)
+```
+
+<Solution>
+
+```text
+2
+False
+True
+```
+
+`x == 1 or 2` is `(x == 1) or 2`. The left side is `False`, so `or` returns its right operand, `2`. That is a truthy value, so the test would pass for any `x`. The second line is the correct way to ask "is `x` 1 or 2". The third is a chained comparison.
 
 </Solution>
 

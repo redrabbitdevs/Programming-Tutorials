@@ -29,8 +29,17 @@ def factorial(n):
 print(factorial(5))
 print(factorial(20))
 print(factorial(30))
+```
 
+```text
+120
+2432902008176640000
+265252859812191058636308480000000
+```
 
+A function does not have to return a value. This one counts down by printing and calling itself:
+
+```python title="count_down.py"
 def count_down(n):
     if n == 0:
         print("liftoff")
@@ -43,9 +52,6 @@ count_down(3)
 ```
 
 ```text
-120
-2432902008176640000
-265252859812191058636308480000000
 3
 2
 1
@@ -64,16 +70,48 @@ Every call that has not yet returned takes up space on the call stack. Python pr
 import sys
 
 print(sys.getrecursionlimit())
+```
 
+```text
+1000
+```
 
+A function with no base case recurses until it hits the limit:
+
+```python
 def count_down_forever(n):
     return count_down_forever(n - 1)
 
 
-try:
-    count_down_forever(10)
-except RecursionError as error:
-    print("RecursionError:", error)
+count_down_forever(10)
+```
+
+```text
+RecursionError: maximum recursion depth exceeded
+```
+
+`count_down_forever` above has no base case, so it recurses until the limit and Python raises `RecursionError` instead of crashing. That is the Python version of the stack overflow described in the fundamentals lesson. A missing or unreachable base case is by far the most common cause.
+
+A correct function can hit the limit too, if it simply goes deeper than 1000 calls:
+
+```python
+def total_to(n):
+    if n == 0:
+        return 0
+    return n + total_to(n - 1)
+
+
+print(total_to(5000))
+```
+
+```text
+RecursionError: maximum recursion depth exceeded
+```
+
+There are two fixes. Use a loop or `sum(range(5001))`, which needs no depth at all, or raise the limit with `sys.setrecursionlimit`:
+
+```python title="raise_limit.py"
+import sys
 
 
 def total_to(n):
@@ -83,11 +121,6 @@ def total_to(n):
 
 
 print(total_to(500))
-try:
-    print(total_to(5000))
-except RecursionError:
-    print("5000 levels is too deep")
-
 print(sum(range(5001)))
 
 sys.setrecursionlimit(10_000)
@@ -95,17 +128,10 @@ print(total_to(5000))
 ```
 
 ```text
-1000
-RecursionError: maximum recursion depth exceeded
 125250
-5000 levels is too deep
 12502500
 12502500
 ```
-
-`count_down_forever` has no base case, so it recurses until the limit and Python raises `RecursionError` instead of crashing. That is the Python version of the stack overflow described in the fundamentals lesson. A missing or unreachable base case is by far the most common cause.
-
-`total_to(5000)` is different. It is a correct function that simply goes deeper than 1000 calls. You can see the fix two ways: use a loop or `sum(range(5001))`, which needs no depth at all, or raise the limit with `sys.setrecursionlimit`.
 
 <Callout type="warning">
 
@@ -148,6 +174,7 @@ The base case is hidden but present: an empty list has no items, so the loop nev
 A folder tree is nested data of the same sort: a folder holds files and other folders.
 
 ```python title="walk_dir.py"
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -165,16 +192,18 @@ def walk(folder, depth=0):
     return count
 
 
-with tempfile.TemporaryDirectory() as tmp:
-    root = Path(tmp) / "project"
-    (root / "src" / "pkg").mkdir(parents=True)
-    (root / "docs").mkdir()
-    for name in ["README.md", "src/main.py", "src/pkg/util.py", "docs/index.md"]:
-        (root / name).write_text("x", encoding="utf-8")
+tmp = tempfile.mkdtemp()
+root = Path(tmp) / "project"
+(root / "src" / "pkg").mkdir(parents=True)
+(root / "docs").mkdir()
+for name in ["README.md", "src/main.py", "src/pkg/util.py", "docs/index.md"]:
+    (root / name).write_text("x", encoding="utf-8")
 
-    print(root.name + "/")
-    files = walk(root, 1)
-    print("files:", files)
+print(root.name + "/")
+files = walk(root, 1)
+print("files:", files)
+
+shutil.rmtree(tmp)
 ```
 
 ```text
@@ -189,7 +218,7 @@ project/
 files: 4
 ```
 
-The example builds its own small tree in a temporary folder so the output is the same everywhere. `walk` prints each entry, indented by depth, and recurses into folders. The base case is a folder with nothing left to visit. In practice the standard library already walks trees for you, with `os.walk`, but writing it once by hand shows how it works.
+The example builds its own small tree in a temporary folder so the output is the same everywhere, and `shutil.rmtree` deletes it at the end. `walk` prints each entry, indented by depth, and recurses into folders. The base case is a folder with nothing left to visit. In practice the standard library already walks trees for you, with `os.walk`, but writing it once by hand shows how it works.
 
 ## When recursion is the wrong tool
 
@@ -233,7 +262,7 @@ print(fib_cached(90))
 2880067194370816120
 ```
 
-Computing `fib(20)` takes 21,891 calls. With `@lru_cache`, which remembers results by argument, the body runs only 21 times, once per distinct value. The decorator syntax `@lru_cache` is a way of wrapping a function; you do not need to understand how yet.
+Computing `fib(20)` takes 21,891 calls. With `@lru_cache`, which remembers results by argument, the body runs only 21 times, once per distinct value. The line `@lru_cache(maxsize=None)` above the `def` is a **decorator**, a way of wrapping a function; you do not need to understand how yet.
 
 A good rule: use recursion for nested or branching data, and a loop for plain repetition.
 
@@ -249,6 +278,8 @@ A good rule: use recursion for nested or branching data, and a loop for plain re
 <Exercise title="Recursive nested-list sum">
 
 Write `deep_count(items)` that returns how many non-list items appear in a nested list, at any depth. Then write `flatten(items)` that returns them all in a single flat list, keeping order.
+
+Input: `data = [1, [2, 3], [4, [5, [6]]], []]`. Expected output: `6` then `[1, 2, 3, 4, 5, 6]`.
 
 <Solution>
 
@@ -288,13 +319,48 @@ Both follow the shape of `nested_sum`: loop over the items, recurse on lists, ha
 </Solution>
 </Exercise>
 
+<Exercise title="Sum of digits">
+
+Write a recursive `digit_sum(n)` for a non-negative integer: the sum of its digits. The base case is a single digit. Use `n // 10` and `n % 10`.
+
+Input: `digit_sum(0)`, `digit_sum(7)`, `digit_sum(4921)`. Expected output: `0`, `7`, `16`.
+
+<Solution>
+
+```python title="digit_sum.py"
+def digit_sum(n):
+    if n < 10:
+        return n
+    return n % 10 + digit_sum(n // 10)
+
+
+print(digit_sum(0))
+print(digit_sum(7))
+print(digit_sum(4921))
+```
+
+```text
+0
+7
+16
+```
+
+`n % 10` is the last digit and `n // 10` is the number without it, which is a smaller problem. A number below 10 is its own digit sum, which is the base case.
+
+</Solution>
+
+</Exercise>
+
 <Exercise title="Directory walker">
 
 Using `walk_dir.py` as a starting point, write `count_by_extension(folder)` that returns a dict such as `{".py": 2, ".md": 2}` for a folder tree. Use the same temporary tree.
 
+Input: the tree created in `walk_dir.py` (README.md, src/main.py, src/pkg/util.py, docs/index.md). Expected output: `{'.md': 2, '.py': 2}`.
+
 <Solution>
 
 ```python title="count_extensions.py"
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -310,15 +376,17 @@ def count_by_extension(folder, counts=None):
     return counts
 
 
-with tempfile.TemporaryDirectory() as tmp:
-    root = Path(tmp) / "project"
-    (root / "src" / "pkg").mkdir(parents=True)
-    (root / "docs").mkdir()
-    for name in ["README.md", "src/main.py", "src/pkg/util.py", "docs/index.md"]:
-        (root / name).write_text("x", encoding="utf-8")
+tmp = tempfile.mkdtemp()
+root = Path(tmp) / "project"
+(root / "src" / "pkg").mkdir(parents=True)
+(root / "docs").mkdir()
+for name in ["README.md", "src/main.py", "src/pkg/util.py", "docs/index.md"]:
+    (root / name).write_text("x", encoding="utf-8")
 
-    result = count_by_extension(root)
-    print(dict(sorted(result.items())))
+result = count_by_extension(root)
+print(dict(sorted(result.items())))
+
+shutil.rmtree(tmp)
 ```
 
 ```text
@@ -328,6 +396,7 @@ with tempfile.TemporaryDirectory() as tmp:
 The `None` default and the shared `counts` dict let every recursive call add to the same tally. The result is sorted before printing because the order in which a folder lists its entries is not guaranteed.
 
 </Solution>
+
 </Exercise>
 
 ## Summary

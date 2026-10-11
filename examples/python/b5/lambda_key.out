@@ -2,8 +2,3 @@
 ['kiwi', 'Apple', 'banana', 'cherry']
 ['Apple', 'banana', 'cherry', 'kiwi']
 ['banana', 'Apple', 'kiwi', 'cherry']
-banana
-Apple
-5
-<lambda>
-add_def

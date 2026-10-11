@@ -31,6 +31,18 @@ def greet(name: str, times: int = 1) -> str:
     return ", ".join(["Hello " + name] * times)
 
 
+print(area(3, 4.5))
+print(greet("Ada", 2))
+```
+
+```text
+13.5
+Hello Ada, Hello Ada
+```
+
+Collections and `None` have hints of their own:
+
+```python title="hints_collections.py"
 def average(numbers: list[int]) -> float:
     return sum(numbers) / len(numbers)
 
@@ -46,20 +58,28 @@ def log(message: str) -> None:
 count: int = 0
 names: list[str] = ["Ada", "Grace"]
 
-print(area(3, 4.5))
-print(greet("Ada", 2))
 print(average([1, 2, 3, 4]))
 print(find_user({"ada": 1}, "ada"), find_user({"ada": 1}, "bob"))
 log("done")
+```
+
+```text
+2.5
+1 None
+log: done
+```
+
+Python stores the hints on the function, in `__annotations__`, and that is all it does with them:
+
+```python title="hints_stored.py"
+def area(width: float, height: float) -> float:
+    return width * height
+
+
 print(area.__annotations__)
 ```
 
 ```text
-13.5
-Hello Ada, Hello Ada
-2.5
-1 None
-log: done
 {'width': <class 'float'>, 'height': <class 'float'>, 'return': <class 'float'>}
 ```
 
@@ -70,8 +90,6 @@ Here is what each hint says:
 - `int | None` means "an int, or `None`". Writing a union with `|` works from Python 3.10 (PEP 604) and replaces the older `Optional[int]`. A function that can return `None` on some path, as `find_user` can, should say so, which is the honest version of the missing-return pitfall from the first lesson of this module.
 - `-> None` marks a function that returns nothing useful, like `log`.
 - `count: int = 0` annotates a variable. This is optional: checkers infer the type from the value.
-
-The last line shows that annotations are stored on the function in `__annotations__`. Python records them, and that is all it does with them.
 
 ## Hints are not enforced
 
@@ -112,25 +130,9 @@ Hints can be added gradually. A checker treats a function with no annotations as
 
 </Callout>
 
-## Referring to a class from its own methods
+## Hints that name a class
 
-You will meet this once you write classes. A hint that names a class that does not exist yet, such as the class currently being defined, used to need quotes:
-
-```python title="forward_ref.py"
-class Point:
-    def merge(self, other: "Point") -> "Point":
-        return self
-
-
-p = Point()
-print(p.merge(p) is p)
-```
-
-```text
-True
-```
-
-<Since v="3.14" /> Python 3.14 evaluates annotations lazily (PEP 649 and PEP 749), so the quotes are no longer needed there. Keep them if your code must run on 3.13 or earlier.
+Once you write your own classes in the intermediate course, you will meet hints that name a class that does not exist yet, such as the class currently being defined. Those used to need quotes, as in `"Point"`. <Since v="3.14" /> Python 3.14 evaluates annotations lazily (PEP 649 and PEP 749), so the quotes are no longer needed there. Keep them if your code must run on 3.13 or earlier.
 
 ## Common pitfalls
 
@@ -144,6 +146,8 @@ True
 <Exercise title="Annotate five functions and run a type checker">
 
 Add parameter and return annotations to these five functions, then run a type checker such as mypy on the file. All five should pass.
+
+Input: the calls in the solution. Expected output: `Ada Lovelace`, `3.0`, `hello None`, `{'a': 1, 'bcd': 3}`, `hi`, `hi`.
 
 ```python
 def full_name(first, last):
@@ -216,11 +220,14 @@ hi
 `first_word` returns `None` when there are no words, so its return type is `str | None`. `announce` prints and returns nothing, so it is `-> None`. Running `mypy annotated_five.py` reports no issues. Try adding a bad call such as `full_name(1, 2)` and see the checker object.
 
 </Solution>
+
 </Exercise>
 
 <Exercise title="Make the checker catch a bug">
 
 Give `average` in this snippet a parameter hint and a return hint, then write one call that a type checker would reject but that still runs. Explain what Python does at run time.
+
+Input: `average([2, 4, 6])` and `average((2, 4, 6))`. Expected output: `4.0` and `4.0`.
 
 ```python
 def average(numbers):
@@ -246,6 +253,44 @@ print(average((2, 4, 6)))
 The tuple call on the last line is rejected by a checker, because the hint says `list[int]`, yet Python runs it without complaint since `sum` and `len` work on tuples as well. That gap between what the hint says and what the code allows is exactly what hints are for: they record the intent, and the checker enforces it. (If you want to accept any sequence, a later lesson shows a wider hint.)
 
 </Solution>
+
+</Exercise>
+
+<Exercise title="Hint a default that can be None">
+
+This function is wrong: the hint says `int` but the default is `None`. Fix the hint so the signature tells the truth, then call it with and without an argument.
+
+Input: `repeat_word("hi", 3)` and `repeat_word("hi")`. Expected output: `hihihi` and `hi`.
+
+```python
+def repeat_word(word: str, times: int = None) -> str:
+    if times is None:
+        return word
+    return word * times
+```
+
+<Solution>
+
+```python title="repeat_word.py"
+def repeat_word(word: str, times: int | None = None) -> str:
+    if times is None:
+        return word
+    return word * times
+
+
+print(repeat_word("hi", 3))
+print(repeat_word("hi"))
+```
+
+```text
+hihihi
+hi
+```
+
+`int | None` says that `times` may be a whole number or `None`, which matches the default.
+
+</Solution>
+
 </Exercise>
 
 ## Summary

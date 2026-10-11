@@ -4,59 +4,33 @@ level: beginner
 module: Control flow
 order: 16
 title: for loops and range
-description: Iterate over sequences with for, count with range, number items with enumerate, and pair lists with zip.
+description: Iterate over sequences with for, count with range, count backwards with reversed, number items with enumerate, and pair sequences with zip.
 minVersion: "3.10"
 objectives:
   - Loop over any iterable with for x in iterable
-  - Generate number sequences with range
-  - Use enumerate to get positions and zip to walk two lists together
-  - Use zip(strict=True) to catch lists of different lengths
+  - Generate number sequences with range, and walk them backwards with reversed
+  - Use enumerate to get positions and zip to walk two sequences together
+  - Use zip(strict=True) to catch sequences of different lengths
 estimatedMinutes: 30
 fundamentals: ["fundamentals/beginner/08-loops"]
 ---
 
-A `while` loop waits for a condition. A `for` loop is for the other common case: *do this for each item*. In Python it works on anything iterable: a list, a string, a range of numbers, the lines of a file, and many more.
+A `while` loop waits for a condition. A `for` loop is for the other common case: *do this for each item*. In Python it works on anything iterable: a string, a range of numbers, the lines of a file, a list, and many more. The collections module introduces lists, and a `for` loop treats them exactly as it treats the strings and ranges in this lesson.
 
-## for over a sequence
+## for over a range
 
 ```python title="for_range.py"
 for i in range(3):
     print(i)
-print(list(range(2, 10, 3)))
-print(list(range(5, 0, -2)))
-
-fruits = ["apple", "banana", "cherry"]
-for fruit in fruits:
-    print(fruit.upper())
-
-for position, fruit in enumerate(fruits, start=1):
-    print(position, fruit)
-
-for row in range(1, 4):
-    line = ""
-    for col in range(1, 6):
-        line += f"{row * col:3}"
-    print(line)
 ```
 
 ```text
 0
 1
 2
-[2, 5, 8]
-[5, 3, 1]
-APPLE
-BANANA
-CHERRY
-1 apple
-2 banana
-3 cherry
-  1  2  3  4  5
-  2  4  6  8 10
-  3  6  9 12 15
 ```
 
-`for fruit in fruits:` binds the name `fruit` to each item in turn and runs the block once per item. There is no index to manage and no condition to get wrong. Strings work too: `for ch in "abc"` visits one character at a time.
+`for i in range(3):` binds the name `i` to each number in turn and runs the indented block once per number. There is no counter to manage and no condition to get wrong.
 
 ## range
 
@@ -66,70 +40,226 @@ CHERRY
 - `range(start, stop)` begins at `start`.
 - `range(start, stop, step)` moves by `step`, which may be negative.
 
-`range(3)` gives 0, 1, 2: three numbers, which is why it suits "do this 3 times". Wrap it in `list(...)` if you want to see the numbers, as the example does. A `range` does not build the whole list in memory, so `range(1_000_000)` is cheap.
+`range(3)` gives 0, 1, 2: three numbers, which is why it suits "do this 3 times". A `range` does not build the whole sequence in memory, so `range(1_000_000)` is cheap. To see the numbers in one go, wrap it in `list(...)`, which turns any sequence into a list:
 
-Nested loops multiply: the inner loop runs completely for every pass of the outer one. The example prints a small multiplication table this way.
-
-## enumerate
-
-If you need the position as well as the item, do not write `range(len(items))`. Use `enumerate`, which yields `(position, item)` pairs. The optional `start=1` begins counting at 1, which suits numbered lists shown to people. The two names before `in` unpack each pair; the tuples lesson covers unpacking properly.
-
-## zip
-
-`zip` walks several iterables in step and yields one tuple per position:
-
-```python title="zip_strict.py"
-names = ["Ada", "Grace", "Alan"]
-scores = [95, 88, 91]
-
-for name, score in zip(names, scores):
-    print(f"{name}: {score}")
-
-short = [1, 2]
-for a, b in zip(names, short):
-    print(a, b)
-
-try:
-    for a, b in zip(names, short, strict=True):
-        print(a, b)
-except ValueError as error:
-    print("ValueError:", error)
+```python title="range_forms.py"
+print(list(range(4)))
+print(list(range(2, 10, 3)))
+print(list(range(5, 0, -2)))
 ```
 
 ```text
-Ada: 95
-Grace: 88
-Alan: 91
-Ada 1
-Grace 2
-Ada 1
-Grace 2
-ValueError: zip() argument 2 is shorter than argument 1
+[0, 1, 2, 3]
+[2, 5, 8]
+[5, 3, 1]
 ```
 
-By default `zip` stops silently at the shortest input. `Alan` simply vanishes in the second loop, with no warning. <Since v="3.10" /> Passing `strict=True` makes `zip` raise a `ValueError` instead when the lengths differ (PEP 618). Use it whenever two lists are supposed to line up, so a mismatch becomes a loud error rather than lost data. Note that the error is raised when the shorter input runs out, so the pairs before it are still processed, as the repeated `Ada 1`, `Grace 2` lines show.
+## for over a string
+
+A string is a sequence of characters, so `for` can visit one character at a time.
+
+```python title="for_string.py"
+for letter in "abc":
+    print(letter.upper())
+```
+
+```text
+A
+B
+C
+```
+
+## Nested loops
+
+The inner loop runs completely for every pass of the outer one. This prints a small multiplication table, building each row as a string:
+
+```python title="mult_rows.py"
+for row in range(1, 4):
+    line = ""
+    for col in range(1, 6):
+        line += f"{row * col:3}"
+    print(line)
+```
+
+```text
+  1  2  3  4  5
+  2  4  6  8 10
+  3  6  9 12 15
+```
+
+## Going backwards: reversed
+
+`reversed(sequence)` walks a sequence from the end to the start without changing it. It works on ranges, strings, and the lists you will meet soon.
+
+```python title="reversed_loop.py"
+for n in reversed(range(1, 4)):
+    print(n)
+print("Liftoff")
+
+for letter in reversed("abc"):
+    print(letter, end=" ")
+print()
+```
+
+```text
+3
+2
+1
+Liftoff
+c b a 
+```
+
+`reversed(range(1, 4))` is easier to read than `range(3, 0, -1)`, although they give the same numbers.
+
+## enumerate
+
+If you need the position as well as the item, do not write `range(len(items))`. Use `enumerate`, which yields `(position, item)` pairs. The optional `start=1` begins counting at 1, which suits numbered lists shown to people.
+
+```python title="enumerate_loop.py"
+for position, letter in enumerate("abc", start=1):
+    print(position, letter)
+```
+
+```text
+1 a
+2 b
+3 c
+```
+
+The two names before `in` receive the two halves of each pair. The tuples lesson explains this unpacking properly.
+
+## zip
+
+`zip` walks several sequences in step and yields one pair per position:
+
+```python title="zip_pairs.py"
+for letter, digit in zip("abc", "123"):
+    print(letter, digit)
+```
+
+```text
+a 1
+b 2
+c 3
+```
+
+By default `zip` stops silently at the shortest input. The `c` simply vanishes below, with no warning:
+
+```python title="zip_short.py"
+for letter, digit in zip("abc", "12"):
+    print(letter, digit)
+```
+
+```text
+a 1
+b 2
+```
+
+<Since v="3.10" /> Passing `strict=True` makes `zip` raise a `ValueError` instead when the lengths differ (PEP 618). Use it whenever two sequences are supposed to line up, so a mismatch becomes a loud error rather than lost data. The error is raised when the shorter input runs out, so the pairs before it are still processed:
+
+```python
+for letter, digit in zip("abc", "12", strict=True):
+    print(letter, digit)
+```
+
+```text
+a 1
+b 2
+ValueError: zip() argument 2 is shorter than argument 1
+```
 
 ## Common pitfalls
 
 - **Off-by-one with range.** `range(1, 10)` ends at 9. To include 10, write `range(1, 11)`.
-- **Changing a list while looping over it.** Adding or removing items from the list you are iterating makes the loop skip items. Loop over a copy (`for x in items[:]`) or build a new list.
+- **Changing a sequence while looping over it.** Adding or removing items from the list you are iterating makes the loop skip items. Loop over a copy or build a new list.
 - **`for i in range(len(items))` just to read items.** Loop over the items themselves, or use `enumerate` when you need positions.
 - **Reusing the loop variable.** After the loop, the name still holds the last item. It does not disappear, and it can clash with a name you meant to use elsewhere.
 - **Silent truncation with `zip`.** Without `strict=True`, mismatched lengths lose data without a message.
 - **Expecting `range` to include the stop value.** It never does, just like slices.
 
+<Exercise title="Sum of squares">
+
+Add up the squares of the numbers 1 to 5 with a `for` loop and print the total.
+
+Input: none. Expected output: `55`.
+
+<Solution>
+
+```python title="sum_of_squares.py"
+total = 0
+for n in range(1, 6):
+    total += n * n
+print(total)
+```
+
+```text
+55
+```
+
+`range(1, 6)` gives 1 to 5, since the stop value is excluded. `total` starts at 0 and grows by the square of each number: 1 + 4 + 9 + 16 + 25.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Countdown with reversed">
+
+Print the numbers from 5 down to 1, one per line, using `reversed` and `range`, then print `Liftoff`.
+
+Input: none. Expected output: `5`, `4`, `3`, `2`, `1`, `Liftoff`, on six lines.
+
+<Solution>
+
+```python title="reversed_countdown.py"
+for n in reversed(range(1, 6)):
+    print(n)
+print("Liftoff")
+```
+
+```text
+5
+4
+3
+2
+1
+Liftoff
+```
+
+`range(1, 6)` holds 1 to 5 and `reversed` walks it backwards. The final `print` is not indented, so it runs once after the loop.
+
+</Solution>
+
+</Exercise>
+
 <Exercise title="Multiplication table">
 
-Print a multiplication table for 1 to 4, with row and column headings, using nested loops and aligned columns.
+Print a multiplication table for 1 to 4, with row and column headings, using nested loops. Each number is right-aligned in a field 4 characters wide, and the row headings are 2 wide. Use `print(..., end="")` to stay on a line and an empty `print()` to finish it.
+
+Input: none. Expected output:
+
+```text
+      1   2   3   4
+ 1    1   2   3   4
+ 2    2   4   6   8
+ 3    3   6   9  12
+ 4    4   8  12  16
+```
 
 <Solution>
 
 ```python title="mult_table.py"
 size = 4
-print("   " + "".join(f"{col:4}" for col in range(1, size + 1)))
+
+print("   ", end="")
+for col in range(1, size + 1):
+    print(f"{col:4}", end="")
+print()
+
 for row in range(1, size + 1):
-    cells = "".join(f"{row * col:4}" for col in range(1, size + 1))
-    print(f"{row:2} {cells}")
+    print(f"{row:2} ", end="")
+    for col in range(1, size + 1):
+        print(f"{row * col:4}", end="")
+    print()
 ```
 
 ```text
@@ -140,46 +270,16 @@ for row in range(1, size + 1):
  4    4   8  12  16
 ```
 
-The outer `range` picks the row, and the generator expression inside `join` plays the part of the inner loop. The format spec `:4` pads each number to four characters so the columns line up.
+The first loop prints the heading row. In the main loop, the outer `range` picks the row, the inner loop prints one cell per column, and the bare `print()` ends the line. The format spec `:4` pads each number to four characters so the columns line up.
 
 </Solution>
-</Exercise>
 
-<Exercise title="Pair two lists safely">
-
-Write `pair_up(keys, values)` that returns strings like `"x=1"`. It must raise an error if the lists have different lengths.
-
-<Solution>
-
-```python title="pair_lists.py"
-def pair_up(keys, values):
-    pairs = []
-    for key, value in zip(keys, values, strict=True):
-        pairs.append(f"{key}={value}")
-    return pairs
-
-
-print(pair_up(["x", "y", "z"], [1, 2, 3]))
-try:
-    print(pair_up(["x", "y", "z"], [1, 2]))
-except ValueError as error:
-    print("lists differ in length:", error)
-```
-
-```text
-['x=1', 'y=2', 'z=3']
-lists differ in length: zip() argument 2 is shorter than argument 1
-```
-
-`strict=True` does the length check for you. It needs Python 3.10 or later.
-
-</Solution>
 </Exercise>
 
 ## Summary
 
 - `for item in iterable:` visits each item in turn; `range(start, stop, step)` generates numbers and never includes `stop`.
-- Use `enumerate` for positions and `zip` for several sequences at once.
+- Use `reversed` to walk backwards, `enumerate` for positions and `zip` for several sequences at once.
 - <Since v="3.10" /> `zip(..., strict=True)` raises `ValueError` when lengths differ.
 
 Next: loop control and loop else.

@@ -20,45 +20,47 @@ You have been calling functions since your first `print`. Now you will write you
 
 A function definition is a `def` statement: the keyword, a name, parenthesised parameters, a colon, and an indented body.
 
-```python title="define_basics.py"
+```python title="define_greet.py"
 def greet(name):
     """Return a greeting for name."""
     return "Hello, " + name + "!"
 
 
-def show(name):
-    print("Hello, " + name + "!")
-
-
 message = greet("Ada")
 print(message)
 print(len(message))
-
-result = show("Grace")
-print(result)
-print(result is None)
-
-print(greet.__doc__)
-print(greet.__name__)
 ```
 
 ```text
 Hello, Ada!
 11
+```
+
+`greet` hands a string back with `return`, so the caller can store it, measure it or pass it on. A function that only prints is different:
+
+```python title="define_show.py"
+def show(name):
+    print("Hello, " + name + "!")
+
+
+result = show("Grace")
+print(result)
+print(result is None)
+```
+
+```text
 Hello, Grace!
 None
 True
-Return a greeting for name.
-greet
 ```
 
-`greet` hands a string back with `return`, so the caller can store it, measure it or pass it on. `show` only prints. It has no `return`, so calling it produces its side effect (the printed line) and then evaluates to `None`. That is the difference the fundamentals lesson calls returning versus printing, and in Python it is easy to see: `result` really is `None`.
+`show` has no `return`, so calling it produces its side effect (the printed line) and then evaluates to `None`. That is the difference the fundamentals lesson calls returning versus printing, and in Python it is easy to see: `result` really is `None`.
 
 `def` is an ordinary statement that runs when execution reaches it. It creates a function object and binds it to the name. That means a function must be defined *before* the line that calls it executes, though not necessarily before it appears in the file: a function body can mention a function defined further down, as long as that function exists by the time the call happens.
 
 ## Returning values
 
-A `return` ends the function at once, and several `return` statements are fine. Guard clauses at the top, followed by the main result, keep functions flat.
+A `return` ends the function at once, and several `return` statements are fine. Checking the unusual cases first and returning early keeps functions flat. This is the guard clause idea from the `if` lesson, and now `return` makes it complete.
 
 ```python title="early_return.py"
 def sign(n):
@@ -69,42 +71,72 @@ def sign(n):
     return "positive"
 
 
+print(sign(-4), sign(0), sign(9))
+```
+
+```text
+negative zero positive
+```
+
+Python functions return exactly one object. A function that appears to return two actually returns a tuple, and the caller unpacks it:
+
+```python title="return_tuple.py"
 def min_max(numbers):
     return min(numbers), max(numbers)
 
 
+low, high = min_max([3, 9, 1, 7])
+print(low, high)
+print(min_max([3, 9, 1, 7]))
+```
+
+```text
+1 9
+(1, 9)
+```
+
+`return a, b` builds a tuple, and `low, high = ...` unpacks it, exactly as in the tuples lesson.
+
+If execution reaches the end of the body without hitting a `return`, Python quietly returns `None`. That is the classic trap:
+
+```python title="missing_return.py"
 def classify(n):
     if n > 0:
         return "positive"
 
-
-print(sign(-4), sign(0), sign(9))
-
-low, high = min_max([3, 9, 1, 7])
-print(low, high)
-print(min_max([3, 9, 1, 7]))
 
 print(classify(5))
 print(classify(-5))
 ```
 
 ```text
-negative zero positive
-1 9
-(1, 9)
 positive
 None
 ```
 
-Python functions return exactly one object. `min_max` appears to return two, but `return a, b` builds a tuple, and `low, high = ...` unpacks it. The tuples lesson in the collections module covers that idiom in full.
+`classify(-5)` printed `None` rather than an error, which can surface far from the cause. When a function returns a value on some paths, make sure every path returns something.
 
-The last function shows the classic trap. If execution reaches the end of the body without hitting a `return`, Python quietly returns `None`. `classify(-5)` printed `None` rather than an error, which can surface far from the cause. When a function returns a value on some paths, make sure every path returns something.
+## A placeholder body: pass
+
+A function body cannot be empty. When you want to sketch a function and fill it in later, write `pass` as its body. It does nothing, and the function returns `None`.
+
+```python title="stub_function.py"
+def send_report(name):
+    pass
+
+
+print(send_report("Ada"))
+```
+
+```text
+None
+```
 
 ## Docstrings
 
 A string literal as the very first statement of a function body is its **docstring**. Tools, editors and `help()` read it. Convention (PEP 257) is triple double quotes and a first line that is a short sentence in the imperative: "Return ...", "Convert ...".
 
-```python title="temperature.py"
+```python title="temperature_functions.py"
 def celsius_to_fahrenheit(celsius):
     """Convert degrees Celsius to degrees Fahrenheit."""
     return celsius * 9 / 5 + 32
@@ -115,24 +147,35 @@ def fahrenheit_to_celsius(fahrenheit):
     return (fahrenheit - 32) * 5 / 9
 
 
-for c in (-40, 0, 37, 100):
-    f = celsius_to_fahrenheit(c)
-    print(f"{c:>4} C = {f:>5.1f} F")
-
-print(f"{fahrenheit_to_celsius(98.6):.1f}")
+print(celsius_to_fahrenheit(100))
+print(round(fahrenheit_to_celsius(98.6), 1))
 print(round(fahrenheit_to_celsius(celsius_to_fahrenheit(21.5)), 6))
 ```
 
 ```text
- -40 C = -40.0 F
-   0 C =  32.0 F
-  37 C =  98.6 F
- 100 C = 212.0 F
+212.0
 37.0
 21.5
 ```
 
 The last line is a handy habit: convert there and back and check you land where you started. Rounding hides the tiny float error discussed in the numbers lesson.
+
+You can read a docstring back from the function itself:
+
+```python title="docstring_read.py"
+def greet(name):
+    """Return a greeting for name."""
+    return "Hello, " + name + "!"
+
+
+print(greet.__doc__)
+print(greet.__name__)
+```
+
+```text
+Return a greeting for name.
+greet
+```
 
 Type `help(celsius_to_fahrenheit)` in the REPL and the docstring appears. For longer functions, add a blank line after the summary and describe the parameters and the return value in plain sentences.
 
@@ -148,6 +191,16 @@ Type `help(celsius_to_fahrenheit)` in the REPL and the docstring appears. For lo
 <Exercise title="Temperature conversion functions">
 
 Write `celsius_to_fahrenheit` and `fahrenheit_to_celsius`, each with a docstring, then print a small table for -40, 0, 37 and 100 degrees Celsius. Check that converting a value there and back returns the original.
+
+Input: the four temperatures. Expected output:
+
+```text
+ -40 C = -40.0 F
+   0 C =  32.0 F
+  37 C =  98.6 F
+ 100 C = 212.0 F
+21.5
+```
 
 <Solution>
 
@@ -166,7 +219,6 @@ for c in (-40, 0, 37, 100):
     f = celsius_to_fahrenheit(c)
     print(f"{c:>4} C = {f:>5.1f} F")
 
-print(f"{fahrenheit_to_celsius(98.6):.1f}")
 print(round(fahrenheit_to_celsius(celsius_to_fahrenheit(21.5)), 6))
 ```
 
@@ -175,18 +227,20 @@ print(round(fahrenheit_to_celsius(celsius_to_fahrenheit(21.5)), 6))
    0 C =  32.0 F
   37 C =  98.6 F
  100 C = 212.0 F
-37.0
 21.5
 ```
 
 Each function takes one number and returns one number, with no printing inside, so the loop and the round-trip check can both reuse them. Minus 40 is the point where the two scales agree, which makes it a good test value.
 
 </Solution>
+
 </Exercise>
 
 <Exercise title="Spot the missing return">
 
-`classify(n)` in the lesson returns `"positive"` for positive numbers and `None` otherwise. Rewrite it so it returns `"positive"`, `"zero"` or `"negative"` on every path, then make it use `sign` from the lesson instead of repeating the checks.
+`classify(n)` in the lesson returns `"positive"` for positive numbers and `None` otherwise. Rewrite it so it returns `"positive"`, `"zero"` or `"negative"` on every path, by reusing `sign`.
+
+Input: `classify(5)`, `classify(0)`, `classify(-5)`. Expected output: `positive zero negative`.
 
 <Solution>
 
@@ -213,6 +267,43 @@ positive zero negative
 The fix is to cover every case, and the best version of `classify` is no longer needed at all because `sign` already does the job. Functions can call other functions, which is how larger programs are built.
 
 </Solution>
+
+</Exercise>
+
+<Exercise title="Square and describe">
+
+Write `square(n)` that returns `n * n`, and `describe(n)` that returns the text `"<n> squared is <result>"` using `square`. Print `describe(7)`. Then write a stub `cube(n)` whose body is only `pass`, and print `cube(2)` to see what it returns.
+
+Input: `describe(7)` and `cube(2)`. Expected output: `7 squared is 49` then `None`.
+
+<Solution>
+
+```python title="square_describe.py"
+def square(n):
+    return n * n
+
+
+def describe(n):
+    return f"{n} squared is {square(n)}"
+
+
+def cube(n):
+    pass
+
+
+print(describe(7))
+print(cube(2))
+```
+
+```text
+7 squared is 49
+None
+```
+
+`describe` builds text and returns it instead of printing, so the caller decides what to do with it. The stub returns `None` because it never reaches a `return`.
+
+</Solution>
+
 </Exercise>
 
 ## Summary

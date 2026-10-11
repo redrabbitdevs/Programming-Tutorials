@@ -2,10 +2,7 @@ numbers = [3, 1, 2]
 print(sum(numbers))
 
 sum = 100
-try:
-    print(sum(numbers))
-except TypeError as error:
-    print("TypeError:", error)
+print(sum)
 
 del sum
 print(sum(numbers))
