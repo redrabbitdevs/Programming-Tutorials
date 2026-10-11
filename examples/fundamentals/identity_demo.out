@@ -1,0 +1,5 @@
+equal contents: yes
+same object (a, b): no
+same object (a, c): yes
+a.year after changing c: 1966
+b.year: 1965

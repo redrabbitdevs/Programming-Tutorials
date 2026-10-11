@@ -1,0 +1,4 @@
+x: 5 y: 6
+a after changing b: [1, 2, 99]
+a after changing c: [1, 2, 99]
+c: [0, 2, 99]

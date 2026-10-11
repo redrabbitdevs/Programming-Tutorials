@@ -1,0 +1,409 @@
+---
+language: fundamentals
+level: beginner
+module: Data structures
+order: 18
+title: Memory, values and references
+description: Understand where data lives, what assignment really copies, why two names can change one thing, and when memory is given back.
+objectives:
+  - Explain the difference between the stack and the heap at an intuitive level
+  - Distinguish value semantics (a copy is made) from reference semantics (a name is shared)
+  - Predict aliasing effects, including through function arguments
+  - Tell shallow copies from deep copies, and garbage collection from manual memory management
+estimatedMinutes: 55
+fundamentals:
+  - fundamentals/beginner/04-variables-and-assignment
+  - fundamentals/beginner/10-scope-and-lifetime
+  - fundamentals/beginner/15-records-and-objects
+---
+
+Several earlier lessons ended with a warning that `b = a` does not always copy. This lesson explains why. The answer lies in how a program uses memory, and once you see it, a whole family of confusing bugs becomes predictable.
+
+## Where data lives
+
+Your program's memory is, roughly, one very long row of numbered boxes. Two regions matter most:
+
+- The **stack** holds the local variables of each running function, in the frames you traced in the [recursion lesson](../recursion/). Space is claimed when a function is called and released automatically when it returns. It is fast and tidy, but each item must be small and have a known size.
+- The **heap** is a large pool for data whose size is not known in advance, or that must outlive the function that created it: lists, strings that grow, objects. Space is requested while the program runs, and something must decide when it is no longer needed.
+
+A typical picture, for a function holding a number and a list:
+
+```text
+ stack (this function's frame)            heap
+ +---------------------+          +-------------------+
+ | count  = 3          |          |  [10, 20, 30]     |
+ | scores = ---------------------->|                   |
+ +---------------------+          +-------------------+
+```
+
+The number `3` sits directly in the variable. The variable `scores` holds an **address**, a **reference** to where the list lives on the heap. This is the single most important picture in the lesson. (How literally a language follows it varies. Python, for instance, treats even numbers as heap objects, but it behaves as though small immutable values were stored directly, which is all you need to reason about.)
+
+## Value semantics and reference semantics
+
+When you assign one variable to another, there are two possibilities:
+
+- **Value semantics:** the contents are copied. Afterwards there are two independent values. Numbers, booleans and (in C) structs and arrays-inside-structs behave this way.
+- **Reference semantics:** only the address is copied. Afterwards there are two names for **one** thing on the heap. Lists, dictionaries and objects in Python, JavaScript and Java behave this way. This is called **aliasing**.
+
+Changing the thing through one alias is visible through every other.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="alias_demo.py"
+x = 5
+y = x            # numbers: a copy of the value
+y = 6
+print("x:", x, "y:", y)
+
+a = [1, 2, 3]
+b = a            # lists: a copy of the reference, one list
+b[2] = 99
+print("a after changing b:", a)
+
+c = a.copy()     # a real copy: a second list
+c[0] = 0
+print("a after changing c:", a)
+print("c:", c)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="alias_demo.js"
+let x = 5;
+let y = x;       // numbers: a copy of the value
+y = 6;
+console.log("x:", x, "y:", y);
+
+const a = [1, 2, 3];
+const b = a;     // arrays: a copy of the reference, one array
+b[2] = 99;
+console.log("a after changing b:", `[${a.join(", ")}]`);
+
+const c = [...a]; // a real copy: a second array
+c[0] = 0;
+console.log("a after changing c:", `[${a.join(", ")}]`);
+console.log("c:", `[${c.join(", ")}]`);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="AliasDemo.java"
+import java.util.Arrays;
+
+public class AliasDemo {
+    public static void main(String[] args) {
+        int x = 5;
+        int y = x;                       // primitives: a copy of the value
+        y = 6;
+        System.out.println("x: " + x + " y: " + y);
+
+        int[] a = {1, 2, 3};
+        int[] b = a;                     // arrays: a copy of the reference, one array
+        b[2] = 99;
+        System.out.println("a after changing b: " + Arrays.toString(a));
+
+        int[] c = Arrays.copyOf(a, a.length);   // a real copy: a second array
+        c[0] = 0;
+        System.out.println("a after changing c: " + Arrays.toString(a));
+        System.out.println("c: " + Arrays.toString(c));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="alias_demo.c"
+#include <stdio.h>
+#include <string.h>
+
+static void show(const char *label, const int *arr, int n) {
+    printf("%s [", label);
+    for (int i = 0; i < n; i++) {
+        printf("%s%d", i > 0 ? ", " : "", arr[i]);
+    }
+    printf("]\n");
+}
+
+int main(void) {
+    int x = 5;
+    int y = x;                 /* a copy of the value */
+    y = 6;
+    printf("x: %d y: %d\n", x, y);
+
+    int a[3] = {1, 2, 3};
+    int *b = a;                /* a pointer: another name for the same memory */
+    b[2] = 99;
+    show("a after changing b:", a, 3);
+
+    int c[3];
+    memcpy(c, a, sizeof a);    /* a real copy: new memory, same contents */
+    c[0] = 0;
+    show("a after changing c:", a, 3);
+    show("c:", c, 3);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+x: 5 y: 6
+a after changing b: [1, 2, 99]
+a after changing c: [1, 2, 99]
+c: [0, 2, 99]
+```
+
+`y = x` copied the number, so changing `y` left `x` alone. `b = a` copied only the reference, so the change made through `b` showed up in `a`. Only an explicit copy (`copy()`, `[...a]`, `Arrays.copyOf`, `memcpy`) produced an independent list; the later change to `c` never touched `a`.
+
+In C the pointer `b` is spelled out: you can see it is not an array but the address of one. The other languages hide the address behind the name, which is safer and exactly as real.
+
+## Aliasing through functions
+
+When you pass a list to a function, the parameter receives a copy of the **reference**, so the function and the caller share one list. A function that changes the list in place changes the caller's data. A function that merely re-points its parameter at a new list has no effect on the caller.
+
+```python title="memory_extras.py"
+import copy
+
+
+def add_item(items):
+    items.append("new")            # changes the caller's list
+
+
+def replace_all(items):
+    items = ["replaced"]           # re-points the local name only
+    return items
+
+
+basket = ["apple"]
+add_item(basket)
+print(basket)
+replace_all(basket)
+print(basket)
+
+# A shallow copy duplicates the outer list but shares the inner ones.
+team = [["Ada", "Grace"], ["Linus"]]
+shallow = team.copy()
+deep = copy.deepcopy(team)
+team[0].append("Alan")
+print("team:   ", team)
+print("shallow:", shallow)
+print("deep:   ", deep)
+
+
+# The classic trap: a default value is created once, then shared by every call.
+def collect(item, bucket=[]):
+    bucket.append(item)
+    return bucket
+
+
+print(collect("a"))
+print(collect("b"))
+
+
+# The safe form: use None and make a fresh list inside.
+def collect_safe(item, bucket=None):
+    if bucket is None:
+        bucket = []
+    bucket.append(item)
+    return bucket
+
+
+print(collect_safe("a"))
+print(collect_safe("b"))
+
+# Multiplying a nested list repeats the reference, not the contents.
+grid = [[0] * 2] * 2
+grid[0][0] = 1
+print(grid)
+
+grid = [[0] * 2 for _ in range(2)]
+grid[0][0] = 1
+print(grid)
+```
+
+Output:
+
+```text
+['apple', 'new']
+['apple', 'new']
+team:    [['Ada', 'Grace', 'Alan'], ['Linus']]
+shallow: [['Ada', 'Grace', 'Alan'], ['Linus']]
+deep:    [['Ada', 'Grace'], ['Linus']]
+['a']
+['a', 'b']
+['a']
+['b']
+[[1, 0], [1, 0]]
+[[1, 0], [0, 0]]
+```
+
+Read through it slowly, because each block is a bug that has caught countless programmers:
+
+1. `add_item` changed `basket` because both names point at one list. `replace_all` did not, because assigning to the parameter only moves the local name.
+2. A **shallow copy** makes a new outer list, but the inner lists are still shared, so appending to `team[0]` showed up in `shallow`. A **deep copy** duplicates everything all the way down, so `deep` is unaffected. JavaScript offers `structuredClone(value)` for a deep copy; Java has no built-in one, so you copy each level yourself or use a library.
+3. The default argument `bucket=[]` is evaluated once, when the function is defined. Every call that omits the argument shares that one list.
+4. `[[0] * 2] * 2` builds a list holding two references to the *same* inner list, so a change to one row appears in both. The list comprehension creates a fresh row each time.
+
+## Giving memory back
+
+Heap memory is finite, so something must free what is no longer used. Languages take two approaches:
+
+- **Automatic (garbage collection).** The runtime finds heap data that nothing can reach any more and reclaims it. Python tracks how many references each object has and frees it at zero (with an extra pass for cycles); Java and JavaScript periodically trace what is reachable from the live variables. You never free anything, but you do not control exactly when it happens, and a collector costs some time.
+- **Manual.** In C you request memory with `malloc` and must return it with `free`. This gives you total control and no collector pauses, but all the responsibility.
+
+```c title="heap_demo.c"
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+    int *values = malloc(3 * sizeof *values);   /* ask the heap for room for 3 ints */
+    if (values == NULL) {
+        return 1;                               /* the request can fail */
+    }
+    for (int i = 0; i < 3; i++) {
+        values[i] = (i + 1) * 10;
+    }
+    printf("heap: %d %d %d\n", values[0], values[1], values[2]);
+
+    free(values);                               /* give it back exactly once */
+    values = NULL;                              /* and drop the stale address */
+    return 0;
+}
+```
+
+Output:
+
+```text
+heap: 10 20 30
+```
+
+Manual memory has three classic failure modes:
+
+- **Leak:** forgetting `free`, so the program slowly uses more and more memory.
+- **Use after free:** using a pointer after its memory was released. It might still appear to work, which is worse than crashing.
+- **Double free:** releasing the same block twice, which corrupts the allocator.
+
+Setting a pointer to `NULL` after freeing it, as above, turns two of those into an obvious crash rather than silent damage. Newer languages such as Rust approach the problem differently, with rules checked at compile time, but that belongs to a language course.
+
+Garbage-collected languages are not immune to memory trouble. A list that keeps growing, or a global cache that holds references forever, stays reachable, so the collector rightly keeps it. That is a **memory leak** of the logical kind.
+
+## Common pitfalls
+
+- **Believing assignment copies a list or object.** It copies the reference. Make a copy explicitly when you want independence.
+- **Shallow copy of nested data.** The inner structures are still shared. Use a deep copy, or copy each level.
+- **Mutating an argument by accident.** A function that sorts or appends to a parameter changes the caller's data. Document it, or copy first.
+- **Mutable default arguments** in Python (`def f(x, items=[])`).
+- **Repeating a nested list with `*`.** Build each row separately.
+- **In C, using memory after freeing it,** or freeing it twice, or never freeing it.
+
+<Exercise title="Predict the aliasing">
+
+Without running them, say what each snippet prints (Python).
+
+1. `a = [1, 2]`, `b = a`, `b.append(3)`, `print(a)`
+2. `a = [1, 2]`, `b = a`, `b = b + [3]`, `print(a)`
+3. `a = "hi"`, `b = a`, `b += "!"`, `print(a)`
+4. `a = [[1], [2]]`, `b = a.copy()`, `b[0].append(9)`, `print(a)`
+5. `a = [[1], [2]]`, `b = a.copy()`, `b[0] = [9]`, `print(a)`
+
+<Solution>
+
+1. `[1, 2, 3]`. `append` changes the one shared list.
+2. `[1, 2]`. `b + [3]` builds a **new** list, and `b = ...` re-points `b` at it. The original is untouched.
+3. `hi`. Strings are immutable, so `+=` builds a new string and rebinds `b`.
+4. `[[1, 9], [2]]`. The copy is shallow, so `b[0]` and `a[0]` are the same inner list.
+5. `[[1], [2]]`. Replacing `b[0]` changes which list the outer copy holds, not the inner list `a[0]` still holds.
+
+Checking them:
+
+```python title="aliasing_puzzles.py"
+a = [1, 2]
+b = a
+b.append(3)
+print(a)
+
+a = [1, 2]
+b = a
+b = b + [3]
+print(a)
+
+a = "hi"
+b = a
+b += "!"
+print(a)
+
+a = [[1], [2]]
+b = a.copy()
+b[0].append(9)
+print(a)
+
+a = [[1], [2]]
+b = a.copy()
+b[0] = [9]
+print(a)
+```
+
+Output:
+
+```text
+[1, 2, 3]
+[1, 2]
+hi
+[[1, 9], [2]]
+[[1], [2]]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fix the shared rows">
+
+This is meant to be a 3-by-3 board of zeros where setting one cell changes only that cell. It does not work. Why, and what is the fix?
+
+```python
+board = [[0] * 3] * 3
+board[1][1] = 5
+print(board)       # shows 5 in every row
+```
+
+<Solution>
+
+`[[0] * 3] * 3` repeats the reference to a single inner list three times, so all three rows are the same list. Build each row separately:
+
+```python
+board = [[0] * 3 for _ in range(3)]
+board[1][1] = 5
+print(board)       # [[0, 0, 0], [0, 5, 0], [0, 0, 0]]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Name the memory bug">
+
+In a C program, which of these is a leak, a use after free, or a double free? (a) `free(p); printf("%d", *p);` (b) `p = malloc(100); p = malloc(200);` with no `free` in between. (c) `free(p); free(p);`
+
+<Solution>
+
+(a) Use after free: the pointer still holds the old address, but the memory is no longer yours. (b) A leak: the first block's only address was overwritten, so it can never be freed. (c) Double free: the same block is released twice.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Local variables live on the stack and vanish when a function returns; larger, longer-lived data lives on the heap and is reached through a reference.
+- Assigning a number copies the value; assigning a list or object copies the reference, so both names share one thing until you make a real (deep, when nested) copy.
+- Garbage collectors free unreachable data for you; in C you call `malloc` and `free` yourself.
+
+That completes the third module of the shared track. The next module turns to algorithms and how to reason about how fast they are.

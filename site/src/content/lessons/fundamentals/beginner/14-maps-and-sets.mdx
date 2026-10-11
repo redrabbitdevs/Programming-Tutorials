@@ -1,0 +1,392 @@
+---
+language: fundamentals
+level: beginner
+module: Data structures
+order: 14
+title: Maps and sets
+description: Look values up by key instead of by position, test membership quickly, and choose between a list, a map and a set.
+objectives:
+  - Describe a map as a collection of key and value pairs and a set as a collection of unique values
+  - Explain, at an intuitive level, why lookup by key is fast
+  - Use a map to count and group, and a set to remove duplicates and combine collections
+  - Choose a list, map or set for a given task
+estimatedMinutes: 45
+fundamentals:
+  - fundamentals/beginner/03-values-and-types
+  - fundamentals/beginner/13-sequences-and-arrays
+---
+
+A list answers the question "what is at position 3?". Often the question is different: "what is the price of apples?", "have I seen this word before?", "which users are in both groups?". For these you want to ask by **name** or by **content**, not by position. Maps and sets are built for exactly that.
+
+## Maps: keys and values
+
+A **map** stores **key/value pairs**. You give it a key and it gives back the value stored under that key. Other names for the same idea are *dictionary* (Python), *object* or `Map` (JavaScript), *hash map* (Java's `HashMap`) and *associative array*.
+
+```text
+key        value
+"apples"   3
+"pears"    5
+"plums"    0
+```
+
+Each key appears at most once. Storing a new value under an existing key replaces the old one. Values can repeat freely.
+
+## Counting words
+
+The classic first use of a map is counting. We go through a list of words and keep a tally per word: if the word is new, its count starts at 1; if it was already there, add one.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="map_count.py"
+words = ["the", "cat", "and", "the", "hat", "and", "the", "bat"]
+
+counts = {}
+for word in words:
+    if word in counts:
+        counts[word] += 1
+    else:
+        counts[word] = 1
+
+for word, n in counts.items():
+    print(f"{word}: {n}")
+
+print("has 'cat':", "yes" if "cat" in counts else "no")
+print("has 'dog':", "yes" if "dog" in counts else "no")
+print("count of 'hat':", counts["hat"])
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="map_count.js"
+const words = ["the", "cat", "and", "the", "hat", "and", "the", "bat"];
+
+const counts = new Map();
+for (const word of words) {
+  if (counts.has(word)) {
+    counts.set(word, counts.get(word) + 1);
+  } else {
+    counts.set(word, 1);
+  }
+}
+
+for (const [word, n] of counts) {
+  console.log(`${word}: ${n}`);
+}
+
+console.log("has 'cat':", counts.has("cat") ? "yes" : "no");
+console.log("has 'dog':", counts.has("dog") ? "yes" : "no");
+console.log("count of 'hat':", counts.get("hat"));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="MapCount.java"
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+public class MapCount {
+    public static void main(String[] args) {
+        List<String> words = List.of("the", "cat", "and", "the", "hat", "and", "the", "bat");
+
+        // LinkedHashMap remembers insertion order, which keeps the output predictable.
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (String word : words) {
+            if (counts.containsKey(word)) {
+                counts.put(word, counts.get(word) + 1);
+            } else {
+                counts.put(word, 1);
+            }
+        }
+
+        for (Map.Entry<String, Integer> e : counts.entrySet()) {
+            System.out.println(e.getKey() + ": " + e.getValue());
+        }
+
+        System.out.println("has 'cat': " + (counts.containsKey("cat") ? "yes" : "no"));
+        System.out.println("has 'dog': " + (counts.containsKey("dog") ? "yes" : "no"));
+        System.out.println("count of 'hat': " + counts.get("hat"));
+    }
+}
+```
+
+</Tab>
+</Tabs>
+
+All three print:
+
+```text
+the: 3
+cat: 1
+and: 2
+hat: 1
+bat: 1
+has 'cat': yes
+has 'dog': no
+count of 'hat': 1
+```
+
+C has no built-in map. Its standard library offers only arrays, so C programmers either write their own hash table or use a third-party library. That is one of the reasons higher-level languages are popular for text processing.
+
+## Why lookup is fast: hashing, in intuition
+
+A naive map could keep its pairs in a list and scan for the key, but that gets slower with every pair you add. Real maps use a **hash table**. The idea:
+
+1. A **hash function** turns a key into a number. The same key always gives the same number, and different keys usually give different numbers.
+2. That number picks one of many **buckets** (slots) where the pair is stored.
+3. To look a key up, hash it again, go straight to its bucket, and check there.
+
+Think of a coat check: instead of searching every coat, you hand over a ticket number and the attendant goes to one hook. Two different keys occasionally land in the same bucket (a **collision**), and the table has ways to cope, but on average a lookup, an insertion and a removal all take roughly the same short time whether the map holds ten pairs or ten million.
+
+Two consequences matter in daily use:
+
+- **Keys must be hashable**, which in practice means they must not change while they are in the map. Strings, numbers and (in Python) tuples work well as keys. A Python list cannot be a key, because a list can change after it was hashed.
+- **Order is not the point.** Hash tables do not promise any particular order. Modern Python and JavaScript maps happen to remember insertion order, and Java's `LinkedHashMap` does too, but Java's plain `HashMap` does not. If you need a sorted order, sort the keys explicitly.
+
+## Sets: unique values
+
+A **set** is a collection of values with no duplicates, and no positions. It is like a map that keeps only the keys. Membership tests ("is this in there?") are as fast as map lookups, which makes sets the right tool for "have I seen this before?" and for removing duplicates.
+
+Sets also support the operations you know from school mathematics: **union** (everything in either), **intersection** (only what is in both), and **difference** (in the first but not the second).
+
+<Tabs>
+<Tab label="Python">
+
+```python title="set_ops.py"
+a = {1, 2, 3, 4}
+b = {3, 4, 5}
+
+print("union:", sorted(a | b))
+print("intersection:", sorted(a & b))
+print("difference:", sorted(a - b))
+print("3 in a:", "yes" if 3 in a else "no")
+
+unique = set([2, 7, 2, 2, 9, 7])
+print("unique count:", len(unique))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="set_ops.js"
+const a = new Set([1, 2, 3, 4]);
+const b = new Set([3, 4, 5]);
+
+const sorted = (s) => `[${[...s].sort((x, y) => x - y).join(", ")}]`;
+
+console.log("union:", sorted(new Set([...a, ...b])));
+console.log("intersection:", sorted(new Set([...a].filter((x) => b.has(x)))));
+console.log("difference:", sorted(new Set([...a].filter((x) => !b.has(x)))));
+console.log("3 in a:", a.has(3) ? "yes" : "no");
+
+const unique = new Set([2, 7, 2, 2, 9, 7]);
+console.log("unique count:", unique.size);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="SetOps.java"
+import java.util.HashSet;
+import java.util.Set;
+import java.util.TreeSet;
+
+public class SetOps {
+    public static void main(String[] args) {
+        Set<Integer> a = new HashSet<>(Set.of(1, 2, 3, 4));
+        Set<Integer> b = Set.of(3, 4, 5);
+
+        Set<Integer> union = new TreeSet<>(a);
+        union.addAll(b);
+        Set<Integer> intersection = new TreeSet<>(a);
+        intersection.retainAll(b);
+        Set<Integer> difference = new TreeSet<>(a);
+        difference.removeAll(b);
+
+        System.out.println("union: " + union);
+        System.out.println("intersection: " + intersection);
+        System.out.println("difference: " + difference);
+        System.out.println("3 in a: " + (a.contains(3) ? "yes" : "no"));
+
+        Set<Integer> unique = new HashSet<>(java.util.List.of(2, 7, 2, 2, 9, 7));
+        System.out.println("unique count: " + unique.size());
+    }
+}
+```
+
+</Tab>
+</Tabs>
+
+The three versions print the same thing:
+
+```text
+union: [1, 2, 3, 4, 5]
+intersection: [3, 4]
+difference: [1, 2]
+3 in a: yes
+unique count: 3
+```
+
+The sorting is only there to make the output predictable, since sets themselves have no order.
+
+## More tools in Python
+
+The next file shows idioms you will use constantly: `get` with a default (which removes the if/else from counting), grouping items under a key, removing duplicates while keeping the original order, and what happens when you try an unhashable key.
+
+```python title="map_extras.py"
+words = ["the", "cat", "and", "the", "hat"]
+
+# dict.get(key, default) avoids the "is it there yet?" branch.
+counts = {}
+for w in words:
+    counts[w] = counts.get(w, 0) + 1
+print(counts)
+
+# Grouping: map each key to a list of values.
+by_length = {}
+for w in words:
+    by_length.setdefault(len(w), []).append(w)
+print(by_length)
+
+# Remove duplicates but keep first-seen order.
+seen = set()
+unique_in_order = []
+for w in words:
+    if w not in seen:
+        seen.add(w)
+        unique_in_order.append(w)
+print(unique_in_order)
+
+# A missing key is an error for [] but not for get().
+prices = {"apples": 3}
+print(prices.get("pears"))
+try:
+    prices["pears"]
+except KeyError as err:
+    print("KeyError:", err)
+
+# Unhashable keys are rejected.
+try:
+    bad = {[1, 2]: "list as key"}
+except TypeError as err:
+    print("TypeError:", err)
+```
+
+Output:
+
+```text
+{'the': 2, 'cat': 1, 'and': 1, 'hat': 1}
+{3: ['the', 'cat', 'and', 'the', 'hat']}
+['the', 'cat', 'and', 'hat']
+None
+KeyError: 'pears'
+TypeError: cannot use 'list' as a dict key (unhashable type: 'list')
+```
+
+All five words have three letters, so grouping by length gives a single group.
+
+## Choosing: list, map or set?
+
+| You want to | Use |
+|---|---|
+| Keep items in order, reach them by position, allow repeats | a list |
+| Look something up by a name or id | a map |
+| Count, or group things under a label | a map |
+| Know whether something is present, or remove duplicates | a set |
+| Combine collections (both, either, only one) | sets |
+
+If you find yourself looping through a list again and again just to find an item, a map or set is almost certainly a better fit.
+
+## Common pitfalls
+
+- **Assuming an order.** Do not depend on iteration order unless the language promises one. Sort the keys if the output has to be stable.
+- **Missing keys.** Reading a key that is not present raises `KeyError` in Python, returns `undefined` in a JavaScript `Map`, and returns `null` in Java. Check first, or use a default-returning form such as `get(key, default)`.
+- **Changeable keys.** A key must not change after being stored, which is why lists are rejected as dictionary keys in Python.
+- **Using a list for membership.** `x in some_list` checks every element. With thousands of items, a set is much faster.
+- **Expecting `{}` to be an empty set.** In Python `{}` is an empty dictionary; write `set()` for an empty set.
+
+<Exercise title="Word-frequency counter">
+
+Write a program that counts how often each word occurs in `"to be or not to be that is the question"` and prints the words that occur more than once, together with their counts.
+
+<Solution>
+
+Count with a map, then print only the entries whose count is above one.
+
+```python title="word_freq.py"
+text = "to be or not to be that is the question"
+
+counts = {}
+for word in text.split():
+    counts[word] = counts.get(word, 0) + 1
+
+for word, n in counts.items():
+    if n > 1:
+        print(word, n)
+```
+
+Output:
+
+```text
+to 2
+be 2
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Remove duplicates, keep order">
+
+Given `[4, 1, 4, 2, 1, 3]`, produce `[4, 1, 2, 3]`: each value once, in the order it first appeared. Why does `list(set(values))` not solve it reliably?
+
+<Solution>
+
+Keep a set of values already seen. The set makes each check fast, and the list preserves the order.
+
+```python title="dedupe_ordered.py"
+values = [4, 1, 4, 2, 1, 3]
+
+seen = set()
+result = []
+for v in values:
+    if v not in seen:
+        seen.add(v)
+        result.append(v)
+print(result)
+```
+
+Output:
+
+```text
+[4, 1, 2, 3]
+```
+
+`list(set(values))` removes duplicates but a set promises no particular order, so the result may come back in a different order from the input.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="List or map?">
+
+You have 50,000 customer records, each with a unique id, and your program must find a customer by id thousands of times. Would you store them in a list or a map, and why?
+
+<Solution>
+
+A map keyed by customer id. Each lookup goes straight to the record. With a list you would scan through up to 50,000 records for every lookup, which adds up fast when you do it thousands of times.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A map stores key/value pairs and finds a value from its key quickly, thanks to hashing. A set stores unique values and tests membership just as quickly.
+- Use maps to look up, count and group; use sets to remove duplicates and combine collections.
+- Do not rely on order unless the language promises it, and make sure keys cannot change.
+
+Next: [Grouping data: records and objects](../records-and-objects/), for values that belong together but are not alike.

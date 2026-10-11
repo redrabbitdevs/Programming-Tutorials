@@ -1,0 +1,455 @@
+---
+language: fundamentals
+level: beginner
+module: Data structures
+order: 16
+title: Stacks, queues and linked lists
+description: Use the classic last-in-first-out and first-in-first-out structures, and see how nodes that point to each other form a linked list.
+objectives:
+  - Describe LIFO (stack) and FIFO (queue) behaviour and name real situations that match each
+  - Solve a problem with a stack, such as checking balanced brackets
+  - Use a queue to process items in arrival order
+  - Explain how a linked list is built from nodes and references, and when it beats an array
+estimatedMinutes: 55
+fundamentals:
+  - fundamentals/beginner/13-sequences-and-arrays
+  - fundamentals/beginner/15-records-and-objects
+---
+
+Sometimes what matters about a collection is not where an item sits but **when it arrived**. The undo button should reverse your most recent action first. A printer should serve documents in the order they were sent. Two small structures cover those cases, and a third, the linked list, shows a different way of building a sequence altogether.
+
+## Stacks: last in, first out
+
+A **stack** works like a pile of plates. You put a plate on top (**push**), and you take a plate from the top (**pop**). The last one in is the first one out: **LIFO**. You may also look at the top without removing it (**peek**). You cannot reach into the middle.
+
+You have already met a stack: the [call stack](../functions/) is exactly this, with a frame pushed on each function call and popped on return. Undo history, the back button in a browser, and evaluating nested expressions all use stacks too.
+
+### Example: balanced brackets
+
+A string such as `{[()]}` is balanced if every opening bracket is closed by the matching kind, in the right order. `([)]` is not: the `[` is still open when the `)` arrives. The most recently opened bracket must be the first one closed, which is LIFO behaviour.
+
+The method: scan left to right. Push every opener. At a closer, the top of the stack must be its matching opener; pop it. Any other situation means unbalanced. At the end the stack must be empty.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="brackets.py"
+PAIRS = {")": "(", "]": "[", "}": "{"}
+
+
+def is_balanced(text):
+    stack = []
+    for ch in text:
+        if ch in "([{":
+            stack.append(ch)                 # push
+        elif ch in PAIRS:
+            if not stack or stack.pop() != PAIRS[ch]:   # pop and compare
+                return False
+    return not stack                         # leftover openers mean unbalanced
+
+
+for t in ["{[()]}", "([)]", "((", ")"]:
+    print(f"'{t}' ->", "balanced" if is_balanced(t) else "not balanced")
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="brackets.js"
+const PAIRS = { ")": "(", "]": "[", "}": "{" };
+
+function isBalanced(text) {
+  const stack = [];
+  for (const ch of text) {
+    if ("([{".includes(ch)) {
+      stack.push(ch);                              // push
+    } else if (ch in PAIRS) {
+      if (stack.length === 0 || stack.pop() !== PAIRS[ch]) { // pop and compare
+        return false;
+      }
+    }
+  }
+  return stack.length === 0;                       // leftover openers mean unbalanced
+}
+
+for (const t of ["{[()]}", "([)]", "((", ")"]) {
+  console.log(`'${t}' ->`, isBalanced(t) ? "balanced" : "not balanced");
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="Brackets.java"
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Map;
+
+public class Brackets {
+    static final Map<Character, Character> PAIRS = Map.of(')', '(', ']', '[', '}', '{');
+
+    static boolean isBalanced(String text) {
+        Deque<Character> stack = new ArrayDeque<>();
+        for (char ch : text.toCharArray()) {
+            if ("([{".indexOf(ch) >= 0) {
+                stack.push(ch);                              // push
+            } else if (PAIRS.containsKey(ch)) {
+                if (stack.isEmpty() || !stack.pop().equals(PAIRS.get(ch))) { // pop and compare
+                    return false;
+                }
+            }
+        }
+        return stack.isEmpty();                              // leftover openers mean unbalanced
+    }
+
+    public static void main(String[] args) {
+        for (String t : new String[] {"{[()]}", "([)]", "((", ")"}) {
+            System.out.println("'" + t + "' -> " + (isBalanced(t) ? "balanced" : "not balanced"));
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="brackets.c"
+#include <stdio.h>
+#include <string.h>
+
+int is_balanced(const char *text) {
+    char stack[100];
+    int top = 0;                              /* number of items on the stack */
+    for (const char *p = text; *p != '\0'; p++) {
+        char ch = *p;
+        if (strchr("([{", ch) != NULL) {
+            stack[top++] = ch;                /* push */
+        } else if (ch == ')' || ch == ']' || ch == '}') {
+            char open = (ch == ')') ? '(' : (ch == ']') ? '[' : '{';
+            if (top == 0 || stack[--top] != open) {   /* pop and compare */
+                return 0;
+            }
+        }
+    }
+    return top == 0;                          /* leftover openers mean unbalanced */
+}
+
+int main(void) {
+    const char *tests[] = {"{[()]}", "([)]", "((", ")"};
+    for (int i = 0; i < 4; i++) {
+        printf("'%s' -> %s\n", tests[i], is_balanced(tests[i]) ? "balanced" : "not balanced");
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+'{[()]}' -> balanced
+'([)]' -> not balanced
+'((' -> not balanced
+')' -> not balanced
+```
+
+In Python and JavaScript, an ordinary list or array already works as a stack: `append`/`push` adds at the end and `pop` removes from the end, both fast. Java's `ArrayDeque` is the recommended stack (the older `Stack` class is best avoided). In C, a plain array plus a counter `top` is all there is, and nothing stops you from pushing past the end of it, so real code checks the capacity.
+
+## Queues: first in, first out
+
+A **queue** works like a line at a shop. New arrivals join at the back (**enqueue**), and service happens at the front (**dequeue**). The first in is the first out: **FIFO**. Print jobs, requests waiting for a web server, and tasks waiting for a worker are all queues.
+
+A list is a poor queue, because removing from the front shifts every remaining element along. Libraries therefore provide a **deque** (double-ended queue, pronounced "deck") that adds and removes quickly at both ends: `collections.deque` in Python, `ArrayDeque` in Java. JavaScript's `array.shift()` does the job and is fine for small queues.
+
+```python title="print_queue.py"
+from collections import deque
+
+queue = deque()
+
+# Documents arrive in this order.
+for doc in ["report.pdf", "photo.png", "notes.txt"]:
+    queue.append(doc)                # enqueue at the back
+    print("queued:", doc)
+
+print("waiting:", list(queue))
+
+while queue:
+    doc = queue.popleft()            # dequeue from the front
+    print("printing:", doc)
+
+# The same deque also works as a stack, because it is open at both ends.
+undo = deque()
+undo.append("type a")
+undo.append("type b")
+print("undo:", undo.pop())           # most recent first
+print("undo:", undo.pop())
+```
+
+Output:
+
+```text
+queued: report.pdf
+queued: photo.png
+queued: notes.txt
+waiting: ['report.pdf', 'photo.png', 'notes.txt']
+printing: report.pdf
+printing: photo.png
+printing: notes.txt
+undo: type b
+undo: type a
+```
+
+The printer handles the documents in exactly the order they arrived, while `pop()` from the other end gives the stack behaviour. The data is the same in both cases. What differs is **which end you take from**.
+
+## Linked lists: nodes that point
+
+An array keeps its elements side by side in one block. A **linked list** does it differently: every element lives in its own small record called a **node**, which holds a value and a reference (a *pointer*) to the next node. The list itself is just a reference to the first node, called the **head**. The last node's `next` is empty (`null`, `None`, `NULL`), which marks the end.
+
+```text
+head
+ |
+[1 | *]--->[2 | *]--->[3 | null]
+```
+
+To visit every element you start at the head and follow `next` until you reach the end. To insert at the front, you make a new node whose `next` is the old head, then make it the new head. No other node moves.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="linked_list.py"
+class Node:
+    def __init__(self, value, next=None):
+        self.value = value
+        self.next = next
+
+
+head = Node(1, Node(2, Node(3)))
+
+head = Node(0, head)             # insert at the front: no other node moves
+
+node = head
+parts = []
+while node is not None:          # follow the chain until the end
+    parts.append(str(node.value))
+    node = node.next
+print(" -> ".join(parts))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="linked_list.js"
+class Node {
+  constructor(value, next = null) {
+    this.value = value;
+    this.next = next;
+  }
+}
+
+let head = new Node(1, new Node(2, new Node(3)));
+
+head = new Node(0, head);        // insert at the front: no other node moves
+
+const parts = [];
+for (let node = head; node !== null; node = node.next) { // follow the chain
+  parts.push(String(node.value));
+}
+console.log(parts.join(" -> "));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="LinkedListDemo.java"
+class Node {
+    int value;
+    Node next;
+
+    Node(int value, Node next) {
+        this.value = value;
+        this.next = next;
+    }
+}
+
+public class LinkedListDemo {
+    public static void main(String[] args) {
+        Node head = new Node(1, new Node(2, new Node(3, null)));
+
+        head = new Node(0, head);    // insert at the front: no other node moves
+
+        StringBuilder sb = new StringBuilder();
+        for (Node node = head; node != null; node = node.next) { // follow the chain
+            if (sb.length() > 0) {
+                sb.append(" -> ");
+            }
+            sb.append(node.value);
+        }
+        System.out.println(sb);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="linked_list.c"
+#include <stdio.h>
+#include <stdlib.h>
+
+typedef struct Node {
+    int value;
+    struct Node *next;
+} Node;
+
+Node *push_front(Node *head, int value) {
+    Node *n = malloc(sizeof *n);       /* ask for memory for one node */
+    n->value = value;
+    n->next = head;
+    return n;                          /* the new node is the new head */
+}
+
+int main(void) {
+    Node *head = NULL;
+    head = push_front(head, 3);
+    head = push_front(head, 2);
+    head = push_front(head, 1);
+    head = push_front(head, 0);
+
+    for (Node *node = head; node != NULL; node = node->next) {   /* follow the chain */
+        printf(node == head ? "%d" : " -> %d", node->value);
+    }
+    printf("\n");
+
+    while (head != NULL) {             /* C makes you give the memory back */
+        Node *next = head->next;
+        free(head);
+        head = next;
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+0 -> 1 -> 2 -> 3
+```
+
+### Array or linked list?
+
+| | Array / dynamic array | Linked list |
+|---|---|---|
+| Reach element number `i` | immediate | follow `i` links from the head |
+| Insert or remove at the front | shifts everything | change one reference |
+| Insert after a node you already hold | shifts everything after it | change two references |
+| Memory | compact, cache-friendly | one extra reference per element, scattered |
+
+In practice arrays win far more often than the table suggests, because modern computers read neighbouring memory much faster than scattered memory. Linked lists matter because the idea of **nodes that refer to other nodes** is the foundation of trees and graphs, the next lesson's topic, and because they teach you to think about references.
+
+## Common pitfalls
+
+- **Popping from an empty stack or queue.** Check whether it is empty first, or handle the error. Python raises `IndexError`; Java's `pop` throws `NoSuchElementException`; in C you would read garbage.
+- **Mixing up the ends.** A stack uses one end for both push and pop. A queue adds at one end and removes at the other.
+- **Using a plain list as a big queue.** Removing from the front is slow. Use a deque.
+- **Losing the head of a linked list.** If you move `head` forward while traversing, the front of the list is gone. Traverse with a separate variable, as the examples do.
+- **Forgetting to free memory in C.** Each `malloc` needs a matching `free`, otherwise the program leaks memory. Garbage-collected languages do this for you.
+
+<Exercise title="Balanced brackets, extended">
+
+Extend `is_balanced` to ignore all characters other than brackets (it already does), and test it on `"f(a[1], {b: 2})"`, `"if (x { y }"` and the empty string `""`. Which should be balanced?
+
+<Solution>
+
+The function from the lesson already skips non-bracket characters, so only the test inputs change:
+
+```python title="brackets_extra.py"
+PAIRS = {")": "(", "]": "[", "}": "{"}
+
+
+def is_balanced(text):
+    stack = []
+    for ch in text:
+        if ch in "([{":
+            stack.append(ch)
+        elif ch in PAIRS:
+            if not stack or stack.pop() != PAIRS[ch]:
+                return False
+    return not stack
+
+
+for t in ["f(a[1], {b: 2})", "if (x { y }", ""]:
+    print(repr(t), "->", "balanced" if is_balanced(t) else "not balanced")
+```
+
+Output:
+
+```text
+'f(a[1], {b: 2})' -> balanced
+'if (x { y }' -> not balanced
+'' -> balanced
+```
+
+In the second input the `(` is still open when the `}` arrives, so the `}` does not match the top of the stack. The empty string has nothing to mismatch, so it counts as balanced.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Print queue simulation">
+
+Three people submit print jobs, each with a number of pages: Ana 3, Ben 1, Cy 2. Simulate a printer that prints one page per tick, serving jobs strictly in arrival order, and report on which tick each job finished.
+
+<Solution>
+
+Use a deque of `(owner, pages)` pairs. The printer takes the job at the front and spends one tick per page.
+
+```python title="print_sim.py"
+from collections import deque
+
+jobs = deque([("Ana", 3), ("Ben", 1), ("Cy", 2)])
+
+tick = 0
+while jobs:
+    owner, pages = jobs.popleft()
+    tick += pages
+    print(f"{owner}'s job finished at tick {tick}")
+```
+
+Output:
+
+```text
+Ana's job finished at tick 3
+Ben's job finished at tick 4
+Cy's job finished at tick 6
+```
+
+Ben's single page waits for Ana's three, which is the nature of a plain FIFO queue.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Which structure?">
+
+For each need, say stack, queue or linked list: (a) the back button in a browser; (b) customers waiting for a help desk; (c) a playlist where you often remove a song from the middle and insert another right after the current one.
+
+<Solution>
+
+(a) A stack: the page you left most recently is the first you return to. (b) A queue: first come, first served. (c) A linked list suits inserting and removing at a known position without shifting everything, although for a playlist of a few hundred songs a plain array would be fast enough as well.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A stack is last in, first out (push, pop, peek); a queue is first in, first out (enqueue, dequeue).
+- A linked list stores each element in a node that points to the next, so inserting at a known place changes only references.
+- Choose the structure by the order in which you need things back, not by where they sit.
+
+Next: [Trees and graphs](../trees-and-graphs/), where a node may point to many other nodes.
