@@ -1,0 +1,295 @@
+---
+language: python
+level: intermediate
+module: Iteration and functional tools
+order: 31
+title: Sorting and key functions
+description: Sort records by one or several fields, in mixed directions, and rely on stability to get tie-breakers right.
+minVersion: "3.8"
+objectives:
+  - Choose between sorted() and list.sort(), and use key and reverse
+  - Use operator.itemgetter and attrgetter as key functions
+  - Explain sort stability and use it to sort by several keys
+  - Sort with mixed directions, such as highest score first and names A to Z
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/21-searching-and-sorting"]
+---
+
+Sorting numbers is easy. Real data comes as records: players with scores, files with sizes, orders with dates. Python's sorting tools handle these with one idea, the **key function**, which you met briefly in [lambdas and higher-order functions](../../beginner/lambdas-higher-order/). How sorting works in general, and what it costs, is covered in [searching and sorting](../../../fundamentals/beginner/searching-and-sorting/) in the fundamentals track. This lesson is about using Python's sort well: the helpers, the guarantee of stability, and how to combine keys.
+
+## sorted, sort and key
+
+`sorted(iterable)` returns a new list and leaves the input alone. `list.sort()` sorts a list in place and returns `None`. Both accept `key`, a function called once per item, and `reverse`:
+
+```python title="sort_key.py"
+words = ["banana", "Apple", "cherry", "apple", "Banana"]
+
+print(sorted(words))
+print(sorted(words, key=str.casefold))
+print(sorted(words, key=len))
+print(sorted(words, key=len, reverse=True))
+print(words)
+```
+
+```text
+['Apple', 'Banana', 'apple', 'banana', 'cherry']
+['Apple', 'apple', 'banana', 'Banana', 'cherry']
+['Apple', 'apple', 'banana', 'cherry', 'Banana']
+['banana', 'cherry', 'Banana', 'Apple', 'apple']
+['banana', 'Apple', 'cherry', 'apple', 'Banana']
+```
+
+The default order puts every capital letter before every lower-case one. `key=str.casefold` compares a folded version of each word, which is what people expect for names. The key is only used for comparing: the items in the result are the original words. The last line shows that `words` is untouched.
+
+The in-place version changes the list and returns `None`, a classic stumbling block:
+
+```python title="sort_key.py (continued)"
+copy = words.copy()
+result = copy.sort(key=str.casefold)
+print(result, copy)
+```
+
+```text
+None ['Apple', 'apple', 'banana', 'Banana', 'cherry']
+```
+
+Writing `words = words.sort()` leaves you with `None`. Use `sorted` unless you specifically want in-place work on a large list.
+
+## itemgetter and attrgetter
+
+Sorting rows or dictionaries by one field is so common that `operator` has ready-made key functions. `itemgetter(i)` picks `item[i]`, and works for tuples, lists and dictionary keys. `attrgetter("name")` picks `obj.name`. They are quicker than the equivalent lambda and read more clearly:
+
+```python title="sort_getters.py"
+from dataclasses import dataclass
+from operator import attrgetter, itemgetter
+
+rows = [("ada", 31), ("grace", 28), ("alan", 41)]
+print(sorted(rows, key=itemgetter(1)))
+
+records = [{"name": "ada", "score": 90}, {"name": "alan", "score": 75}]
+print(sorted(records, key=itemgetter("score")))
+print(itemgetter("name", "score")(records[0]))
+```
+
+```text
+[('grace', 28), ('ada', 31), ('alan', 41)]
+[{'name': 'alan', 'score': 75}, {'name': 'ada', 'score': 90}]
+('ada', 90)
+```
+
+Given several arguments, `itemgetter` returns a tuple, which is also a valid key for sorting by several fields. For objects, use `attrgetter`:
+
+```python title="sort_getters.py (continued)"
+@dataclass
+class Player:
+    name: str
+    points: int
+
+
+players = [Player("ada", 5), Player("alan", 9)]
+print([p.name for p in sorted(players, key=attrgetter("points"), reverse=True)])
+```
+
+```text
+['alan', 'ada']
+```
+
+## Stability
+
+Python's sort is **stable**: items that compare equal keep their original relative order. That is a guarantee in the language documentation, and it is what makes multi-step sorting reliable:
+
+```python title="sort_stable.py"
+from operator import itemgetter
+
+people = [("grace", "B"), ("alan", "A"), ("ada", "B"), ("barbara", "A")]
+
+by_group = sorted(people, key=itemgetter(1))
+print(by_group)
+```
+
+```text
+[('alan', 'A'), ('barbara', 'A'), ('grace', 'B'), ('ada', 'B')]
+```
+
+Within each group, the people are in the order they had in the input: `grace` before `ada`, because that is how they came. Nothing was shuffled. `reverse=True` also preserves the original order of equal items; it does not simply reverse the final list.
+
+Stability gives you a recipe: to sort by group and then, within each group, by name, **sort by the less important key first**, then by the more important one:
+
+```python title="sort_stable.py (continued)"
+step1 = sorted(people, key=itemgetter(0))
+step2 = sorted(step1, key=itemgetter(1))
+print(step2)
+```
+
+```text
+[('alan', 'A'), ('barbara', 'A'), ('ada', 'B'), ('grace', 'B')]
+```
+
+The second sort moved people between groups but, being stable, never reordered those within a group, so the names from the first sort survived.
+
+## Mixed directions
+
+Sorting by several fields with a tuple key works when all fields go the same way. For mixed directions, you have two options. For numbers, negate the value so that bigger sorts first. For anything, you can sort twice and rely on stability:
+
+```python title="sort_mixed.py"
+from operator import itemgetter
+
+scores = [("ada", 90), ("alan", 90), ("grace", 75), ("barbara", 90)]
+
+# Highest score first, then name A to Z. Negate the number...
+print(sorted(scores, key=lambda row: (-row[1], row[0])))
+
+# ...or sort twice, least important key first.
+step1 = sorted(scores, key=itemgetter(0))
+step2 = sorted(step1, key=itemgetter(1), reverse=True)
+print(step2)
+```
+
+```text
+[('ada', 90), ('alan', 90), ('barbara', 90), ('grace', 75)]
+[('ada', 90), ('alan', 90), ('barbara', 90), ('grace', 75)]
+```
+
+Both give the same result. Negating cannot work on text, so when you need, say, score ascending and name descending, use two passes:
+
+```python title="sort_mixed.py (continued)"
+by_name_desc = sorted(scores, key=itemgetter(0), reverse=True)
+print(sorted(by_name_desc, key=itemgetter(1)))
+```
+
+```text
+[('grace', 75), ('barbara', 90), ('alan', 90), ('ada', 90)]
+```
+
+<Callout type="note">
+
+Python also has `functools.cmp_to_key`, which turns an old-style comparison function into a key. You will meet it in code ported from other languages. A key function is almost always simpler, and faster, because it is called once per item and not once per comparison.
+
+</Callout>
+
+## Common pitfalls
+
+- **Assigning the result of `.sort()`.** It returns `None`.
+- **Comparing mixed types.** Sorting `[3, "a"]` raises `TypeError: '<' not supported between instances of 'str' and 'int'`. Make the key return one comparable type.
+- **Expecting case-insensitive order by default.** Use `key=str.casefold`.
+- **Sorting in the wrong order of passes.** With two passes, the *last* sort is the most important key.
+- **Negating a non-numeric key.** `-"abc"` is a `TypeError`. Use the two-pass method.
+
+<Exercise title="A leaderboard with tie-breakers">
+Rank the entries below by points (highest first). Break ties by the shorter time (lower first), and then by name (A to Z). Print each line as the place, the name padded to 5 characters, points padded to 4, and time to one decimal. Expected output:
+
+```text
+1. Ben    150  70.0
+2. Omar   150  70.0
+3. Lena   120  58.2
+4. Mei    120  61.5
+5. Ana     90  40.0
+```
+
+```python title="leaderboard.py"
+entries = [
+    {"name": "Mei", "points": 120, "time": 61.5},
+    {"name": "Omar", "points": 150, "time": 70.0},
+    {"name": "Lena", "points": 120, "time": 58.2},
+    {"name": "Ben", "points": 150, "time": 70.0},
+    {"name": "Ana", "points": 90, "time": 40.0},
+]
+```
+
+<Solution>
+
+```python title="leaderboard_solution.py"
+entries = [
+    {"name": "Mei", "points": 120, "time": 61.5},
+    {"name": "Omar", "points": 150, "time": 70.0},
+    {"name": "Lena", "points": 120, "time": 58.2},
+    {"name": "Ben", "points": 150, "time": 70.0},
+    {"name": "Ana", "points": 90, "time": 40.0},
+]
+
+ranking = sorted(entries, key=lambda e: (-e["points"], e["time"], e["name"]))
+for place, entry in enumerate(ranking, start=1):
+    print(f"{place}. {entry['name']:<5} {entry['points']:>4} {entry['time']:>5.1f}")
+```
+
+```text
+1. Ben    150  70.0
+2. Omar   150  70.0
+3. Lena   120  58.2
+4. Mei    120  61.5
+5. Ana     90  40.0
+```
+
+The key is a tuple. Tuples compare field by field, so a later field matters only when all earlier ones are equal. Points are negated so that the highest comes first, while time and name keep their natural order. `Ben` and `Omar` tie on both points and time, and the name field settles them.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the order">
+What does this print?
+
+```python title="predict_sort_stable.py"
+pairs = [("b", 1), ("a", 1), ("c", 0)]
+print(sorted(pairs, key=lambda p: p[1]))
+```
+
+<Solution>
+
+```text
+[('c', 0), ('b', 1), ('a', 1)]
+```
+
+Only the number is compared. `("b", 1)` and `("a", 1)` tie, and because the sort is stable they stay in input order, so `b` stays before `a`. A plain `sorted(pairs)` would compare the letters and put `a` first.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Grade, then name backwards">
+Sort the students by grade (A to Z), and within a grade by name from Z to A, ignoring case. Print a list of `(grade, name)` tuples. Use two passes. Expected output:
+
+```text
+[('A', 'carl'), ('A', 'adam'), ('B', 'Zoe'), ('B', 'Bea')]
+```
+
+```python title="sort_names.py"
+students = [
+    {"name": "Zoe", "grade": "B"},
+    {"name": "adam", "grade": "A"},
+    {"name": "Bea", "grade": "B"},
+    {"name": "carl", "grade": "A"},
+]
+```
+
+<Solution>
+
+```python title="sort_names_solution.py"
+from operator import itemgetter
+
+students = [
+    {"name": "Zoe", "grade": "B"},
+    {"name": "adam", "grade": "A"},
+    {"name": "Bea", "grade": "B"},
+    {"name": "carl", "grade": "A"},
+]
+
+# Grade A to Z, then name Z to A ignoring case: two stable passes.
+step1 = sorted(students, key=lambda s: s["name"].casefold(), reverse=True)
+step2 = sorted(step1, key=itemgetter("grade"))
+print([(s["grade"], s["name"]) for s in step2])
+```
+
+```text
+[('A', 'carl'), ('A', 'adam'), ('B', 'Zoe'), ('B', 'Bea')]
+```
+
+The least important key, the name, goes first and in reverse. The grade pass then groups the students but, being stable, leaves each group's names in the order the first pass produced.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `sorted()` returns a new list, and `.sort()` changes the list in place and returns `None`. Both take `key` and `reverse`.
+- `itemgetter` and `attrgetter` are neat key functions for records and objects. A tuple key sorts by several fields.
+- Sorting is stable, so for mixed directions you can sort in several passes, least important key first.
+- This ends the module. Next up: testing and debugging.

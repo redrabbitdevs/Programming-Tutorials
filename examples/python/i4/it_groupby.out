@@ -1,0 +1,8 @@
+a ['apple', 'avocado']
+b ['banana', 'blueberry']
+c ['cherry']
+a ['apricot']
+sorted first:
+a ['apple', 'apricot', 'avocado']
+b ['banana', 'blueberry']
+c ['cherry']

@@ -1,0 +1,4 @@
+16 16 25
+calls: 2
+CacheInfo(hits=1, misses=2, maxsize=None, currsize=2)
+0

@@ -1,0 +1,399 @@
+---
+language: python
+level: intermediate
+module: Iteration and functional tools
+order: 30
+title: Decorators
+description: Write decorators that add behaviour around a function, keep its identity with functools.wraps, and take their own arguments.
+minVersion: "3.8"
+objectives:
+  - Explain that @decorator is shorthand for rebinding a name to decorator(function)
+  - Write a wrapper that passes arguments through and returns the result
+  - Preserve a function's name and docstring with functools.wraps
+  - Write a decorator that takes arguments, and stack several decorators
+estimatedMinutes: 45
+fundamentals: []
+---
+
+You have used decorators already: `@property`, `@lru_cache`, `@contextmanager`. Each one takes a function and gives back a function with extra behaviour: caching, timing, logging, access checks. Now that you can write closures, you can write them too.
+
+## What the @ line does
+
+A decorator is a function that takes a function and returns a function. Applying it with `@` is only a shorter way to write a reassignment. The two halves of this example do the same thing:
+
+```python title="deco_basic.py"
+def shout(function):
+    def wrapper(*args, **kwargs):
+        result = function(*args, **kwargs)
+        return result.upper()
+
+    return wrapper
+
+
+def greet(name):
+    return f"hello, {name}"
+
+
+greet = shout(greet)
+print(greet("ada"))
+
+
+@shout
+def farewell(name):
+    return f"goodbye, {name}"
+
+
+print(farewell("grace"))
+```
+
+```text
+HELLO, ADA
+GOODBYE, GRACE
+```
+
+`shout` receives the original function and returns `wrapper`, a closure over `function`. After decoration, the name `greet` refers to `wrapper`, so every call goes through it. Three habits make a wrapper well-behaved:
+
+- Accept `*args, **kwargs` and forward them, so that it works for any signature.
+- Call the original function exactly where it makes sense for the behaviour you add.
+- **Return** the result. Forgetting `return` is the most common bug: the decorated function then returns `None`.
+
+## Keeping the function's identity with wraps
+
+There is a side effect that you may not want. The decorated function is now `wrapper`, and it looks like it:
+
+```python title="deco_basic.py (continued)"
+print(farewell.__name__)
+```
+
+```text
+wrapper
+```
+
+Tracebacks, `help()`, and tools that read names and docstrings all see `wrapper` and its empty docstring. The fix is `functools.wraps`, itself a decorator that copies the name, docstring and some other attributes from the original onto the wrapper:
+
+```python title="deco_wraps.py"
+from functools import wraps
+
+
+def log_calls(function):
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        print(f"calling {function.__name__}{args}")
+        result = function(*args, **kwargs)
+        print(f"{function.__name__} returned {result!r}")
+        return result
+
+    return wrapper
+
+
+@log_calls
+def add(a, b):
+    """Add two numbers."""
+    return a + b
+
+
+print(add(2, 3))
+print(add.__name__)
+print(add.__doc__)
+```
+
+```text
+calling add(2, 3)
+add returned 5
+5
+add
+Add two numbers.
+```
+
+`wraps` also sets `add.__wrapped__` to the original function, which is useful in tests that need to bypass the decorator:
+
+```python title="deco_wraps.py (continued)"
+print(add.__wrapped__(10, 20))
+```
+
+```text
+30
+```
+
+Put `@wraps(function)` on the wrapper of every decorator you write, as a habit.
+
+## A decorator that measures time
+
+Here is a practical one. It records how long the last call took. The `try`/`finally` makes sure the time is recorded even if the function raises, the same pattern as in the context-manager lesson. The measurement is stored as an attribute of the wrapper function, which works because functions are objects:
+
+```python title="timer_solution.py"
+import time
+from functools import wraps
+
+
+def timer(function):
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        try:
+            return function(*args, **kwargs)
+        finally:
+            wrapper.last_elapsed = time.perf_counter() - start
+
+    wrapper.last_elapsed = None
+    return wrapper
+
+
+@timer
+def nap(seconds):
+    """Sleep a little and return the length."""
+    time.sleep(seconds)
+    return seconds
+
+
+print(nap.last_elapsed)
+print(nap(0.05))
+print(nap.last_elapsed >= 0.05)
+print(nap.__name__, "-", nap.__doc__)
+```
+
+```text
+None
+0.05
+True
+nap - Sleep a little and return the length.
+```
+
+The exact time varies from run to run, so the example prints only whether it was at least the length of the nap.
+
+## Decorators with arguments
+
+What if you want `@repeat(3)`? Then `repeat(3)` must itself return a decorator. That makes **three nested functions**: the outer takes the settings, the middle takes the function, the inner is the wrapper.
+
+```python title="deco_args.py"
+from functools import wraps
+
+
+def repeat(times):
+    def decorator(function):
+        @wraps(function)
+        def wrapper(*args, **kwargs):
+            result = None
+            for _ in range(times):
+                result = function(*args, **kwargs)
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+@repeat(3)
+def hello(name):
+    print("hello", name)
+
+
+hello("ada")
+print(hello.__name__)
+```
+
+```text
+hello ada
+hello ada
+hello ada
+hello
+```
+
+Read `@repeat(3)` in two steps: Python first calls `repeat(3)`, which returns `decorator`, and then applies `decorator` to `hello`. If you forget the parentheses and write `@repeat`, then `repeat` receives the function as `times`, and you get a confusing `TypeError` when `range(times)` is evaluated.
+
+## Stacking decorators
+
+Several decorators can sit on one function. The one nearest the function is applied first, so the list reads from the bottom up:
+
+```python title="deco_stack.py"
+from functools import wraps
+
+
+def tag(label):
+    def decorator(function):
+        @wraps(function)
+        def wrapper(*args, **kwargs):
+            return f"<{label}>{function(*args, **kwargs)}</{label}>"
+
+        return wrapper
+
+    return decorator
+
+
+@tag("b")
+@tag("i")
+def text():
+    return "hi"
+
+
+print(text())
+```
+
+```text
+<b><i>hi</i></b>
+```
+
+`@tag("i")` wraps `text` first, and `@tag("b")` then wraps that result, so `b` ends up on the outside. The code is equivalent to `text = tag("b")(tag("i")(text))`.
+
+<Callout type="tip">
+
+Decorators are not limited to functions. The same idea, applied with `@` to a class definition, powers `@dataclass`. And because `@contextmanager` is a decorator, you have already met one that takes a generator function and returns a different kind of object.
+
+</Callout>
+
+## Common pitfalls
+
+- **Forgetting `return`.** The decorated function silently returns `None`.
+- **Forgetting `@wraps`.** Names and docstrings are lost, and tools such as debuggers and documentation generators show `wrapper`.
+- **`@repeat` without the parentheses.** A decorator factory has to be called: `@repeat(3)`.
+- **Decorating at import time with side effects.** The decorator runs when the module is imported, not when the function is called. Keep the outer layers free of surprising work.
+- **Mixing up the order.** Decorators apply bottom-up, but the outermost wrapper runs first when you call the function.
+
+<Exercise title="A retry decorator">
+Write `retry(times)`. It calls the function, and if it raises an exception, prints `attempt N failed: <error>` and tries again, up to `times` attempts in all. On the last failed attempt, it re-raises the error. Test it with a function that fails twice and then succeeds, and another that always fails. Expected output:
+
+```text
+attempt 1 failed: no network
+attempt 2 failed: no network
+ok
+attempt 1 failed: nope
+attempt 2 failed: nope
+gave up: nope
+```
+
+<Solution>
+
+```python title="retry_solution.py"
+from functools import wraps
+
+
+def retry(times):
+    def decorator(function):
+        @wraps(function)
+        def wrapper(*args, **kwargs):
+            for attempt in range(1, times + 1):
+                try:
+                    return function(*args, **kwargs)
+                except Exception as error:
+                    print(f"attempt {attempt} failed: {error}")
+                    if attempt == times:
+                        raise
+
+        return wrapper
+
+    return decorator
+
+
+calls = 0
+
+
+@retry(3)
+def flaky():
+    global calls
+    calls += 1
+    if calls < 3:
+        raise ConnectionError("no network")
+    return "ok"
+
+
+print(flaky())
+
+
+@retry(2)
+def always_fails():
+    raise ValueError("nope")
+
+
+try:
+    always_fails()
+except ValueError as error:
+    print("gave up:", error)
+```
+
+```text
+attempt 1 failed: no network
+attempt 2 failed: no network
+ok
+attempt 1 failed: nope
+attempt 2 failed: nope
+gave up: nope
+```
+
+Three layers: `retry` takes the number, `decorator` takes the function, `wrapper` does the work. A bare `raise` inside `except` re-raises the error being handled, with its original traceback. The successful third attempt returns from inside the loop, so nothing else runs.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix the decorator">
+This decorator prints a message but breaks the function: `print(double(4))` shows `None` and not `8`. Fix it, keeping the message.
+
+```python title="broken_deco.py"
+from functools import wraps
+
+
+def log_calls(function):
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        print("calling", function.__name__)
+        function(*args, **kwargs)
+
+    return wrapper
+
+
+@log_calls
+def double(n):
+    return n * 2
+
+
+print(double(4))
+```
+
+<Solution>
+
+```python title="fix_deco_return.py"
+from functools import wraps
+
+
+def log_calls(function):
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        print("calling", function.__name__)
+        return function(*args, **kwargs)
+
+    return wrapper
+
+
+@log_calls
+def double(n):
+    return n * 2
+
+
+print(double(4))
+```
+
+```text
+calling double
+8
+```
+
+The wrapper called the function but threw its result away. Writing `return` in front of the call hands the result on.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the stack">
+With `tag` from this lesson, what does `text()` return if the two decorator lines are swapped, so that `@tag("i")` is on top and `@tag("b")` is nearest the function?
+
+<Solution>
+
+`<i><b>hi</b></i>`. The decorator nearest the function wraps first and ends up innermost, so now `b` is inside and `i` is outside.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `@decorator` means `name = decorator(name)`. The wrapper must forward `*args, **kwargs` and return the result.
+- Use `functools.wraps` on every wrapper, so the name, docstring and `__wrapped__` survive.
+- A decorator with arguments is a function that returns a decorator. Stacked decorators apply bottom-up.
+- Next: sorting with key functions.

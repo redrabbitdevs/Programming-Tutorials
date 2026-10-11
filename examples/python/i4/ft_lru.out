@@ -1,0 +1,5 @@
+computing 1
+computing 2
+computing 3
+computing 2
+CacheInfo(hits=1, misses=4, maxsize=2, currsize=2)

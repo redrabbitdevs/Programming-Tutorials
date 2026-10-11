@@ -1,0 +1,458 @@
+---
+language: python
+level: intermediate
+module: Iteration and functional tools
+order: 28
+title: itertools and functools
+description: Reach for the standard library's iterator and function tools, from chain and groupby to partial, cache and singledispatch.
+minVersion: "3.8"
+objectives:
+  - Combine and slice iterators with chain, islice and groupby
+  - Walk consecutive pairs and fixed-size batches, and know which Python versions provide them
+  - Pre-fill arguments with partial, and fold a sequence with reduce
+  - Cache function results with cache or lru_cache, and dispatch on argument type with singledispatch
+estimatedMinutes: 45
+fundamentals: []
+---
+
+Two standard-library modules hold most of the tools that people write by hand and get slightly wrong. `itertools` works on iterators, so everything in it is lazy and fits the generator pipelines of the last lessons. `functools` works on functions: it builds new functions from old ones. This lesson is a tour of the tools you will actually use, and it leaves out the rest.
+
+## itertools: joining and slicing
+
+`chain` walks several iterables one after another as if they were one. `chain.from_iterable` does the same for an iterable *of* iterables, which is how you flatten one level of nesting:
+
+```python title="it_chain_islice.py"
+from itertools import chain, islice
+
+weekdays = ["mon", "tue"]
+weekend = ("sat", "sun")
+print(list(chain(weekdays, weekend, "x")))
+
+lists = [[1, 2], [3], [4, 5]]
+print(list(chain.from_iterable(lists)))
+```
+
+```text
+['mon', 'tue', 'sat', 'sun', 'x']
+[1, 2, 3, 4, 5]
+```
+
+`islice` slices an iterator the way `[start:stop:step]` slices a list. It is the answer to "take the first five items of a generator", which ordinary slicing cannot do:
+
+```python title="it_chain_islice.py (continued)"
+def naturals():
+    n = 1
+    while True:
+        yield n
+        n += 1
+
+
+print(list(islice(naturals(), 5)))
+print(list(islice(naturals(), 3, 6)))
+print(list(islice("abcdefgh", 0, None, 3)))
+```
+
+```text
+[1, 2, 3, 4, 5]
+[4, 5, 6]
+['a', 'd', 'g']
+```
+
+The arguments follow `slice` rules: one number is the stop, two are start and stop, and `None` for the stop means "to the end". There are no negative values, since an iterator cannot know how long it is. Slicing consumes the iterator: items skipped by `islice` are gone.
+
+## itertools: groupby
+
+`groupby` collects **consecutive** items that share a key. The word consecutive matters, and it is where nearly everyone trips first:
+
+```python title="it_groupby.py"
+from itertools import groupby
+
+words = ["apple", "avocado", "banana", "blueberry", "cherry", "apricot"]
+
+for letter, group in groupby(words, key=lambda w: w[0]):
+    print(letter, list(group))
+```
+
+```text
+a ['apple', 'avocado']
+b ['banana', 'blueberry']
+c ['cherry']
+a ['apricot']
+```
+
+`apricot` starts a second `a` group because it is not next to the other `a` words. If you want one group per key, sort by the same key first:
+
+```python title="it_groupby.py (continued)"
+for letter, group in groupby(sorted(words), key=lambda w: w[0]):
+    print(letter, list(group))
+```
+
+```text
+a ['apple', 'apricot', 'avocado']
+b ['banana', 'blueberry']
+c ['cherry']
+```
+
+Each `group` is itself a lazy iterator that shares the underlying data. Use it, or turn it into a list, before the loop moves to the next key; afterwards it is empty.
+
+## Consecutive pairs <Since v="3.10" />
+
+`pairwise` yields each item together with the one after it. It replaces the old `zip(items, items[1:])` and works on any iterable, including a generator:
+
+```python title="it_pairwise.py"
+from itertools import pairwise
+
+temps = [18, 21, 20, 25]
+print(list(pairwise(temps)))
+print([b - a for a, b in pairwise(temps)])
+```
+
+```text
+[(18, 21), (21, 20), (20, 25)]
+[3, -1, 5]
+```
+
+`itertools.pairwise` was added in Python 3.10, according to the [itertools documentation](https://docs.python.org/3/library/itertools.html). On 3.8 or 3.9, write `zip(items, items[1:])` for lists.
+
+## Fixed-size batches <Since v="3.12" />
+
+`batched` cuts an iterable into tuples of a given length. The last tuple is shorter if the items do not divide evenly. It is the tool for sending 100 ids at a time to an API:
+
+```python title="it_batched.py"
+from itertools import batched
+
+ids = range(1, 8)
+for batch in batched(ids, 3):
+    print(batch)
+```
+
+```text
+(1, 2, 3)
+(4, 5, 6)
+(7,)
+```
+
+`itertools.batched` was added in Python 3.12, per the [itertools documentation](https://docs.python.org/3/library/itertools.html). On older versions, this four-line function does the same job with `islice`:
+
+```python title="batched_fallback.py"
+from itertools import islice
+
+
+def batched(iterable, n):
+    """Same job as itertools.batched, for Python before 3.12."""
+    iterator = iter(iterable)
+    while batch := tuple(islice(iterator, n)):
+        yield batch
+```
+
+The loop keeps taking `n` items from one shared iterator until nothing is left, at which point the empty tuple is false and the loop stops.
+
+## functools: partial
+
+`partial` takes a function and fixes some of its arguments, returning a new function that needs only the rest. Use it where you would otherwise write a small `lambda` that only forwards arguments:
+
+```python title="ft_partial.py"
+from functools import partial
+
+
+def power(base, exponent):
+    return base**exponent
+
+
+square = partial(power, exponent=2)
+cube = partial(power, exponent=3)
+print(square(5), cube(2))
+```
+
+```text
+25 8
+```
+
+It also helps when an API wants a function of one argument, such as `map` or a callback, and you have a function of two:
+
+```python title="ft_partial.py (continued)"
+to_binary = partial(int, base=2)
+print(to_binary("1011"))
+print(list(map(to_binary, ["1", "10", "11"])))
+print(square.func.__name__, square.keywords)
+```
+
+```text
+11
+[1, 2, 3]
+power {'exponent': 2}
+```
+
+The `.func`, `.args` and `.keywords` attributes let you see what a partial object wraps.
+
+## functools: reduce
+
+`reduce` folds a sequence into one value by applying a two-argument function repeatedly: first to the first two items, then to that result and the third item, and so on.
+
+```python title="ft_reduce.py"
+from functools import reduce
+import operator
+
+numbers = [1, 2, 3, 4]
+print(reduce(operator.add, numbers))
+print(reduce(operator.mul, numbers))
+print(reduce(lambda total, n: total * 10 + n, numbers))
+print(reduce(operator.add, [], 0))
+```
+
+```text
+10
+24
+1234
+0
+```
+
+The third line builds the number 1234 from its digits: `((1*10+2)*10+3)*10+4`. The last line shows the third argument, the starting value, which is what you get for an empty sequence. Without it, `reduce` raises `TypeError` on an empty input.
+
+Many folds already have a clearer name: `sum`, `max`, `min`, `all`, `any`, `"".join`, `math.prod`. Use `reduce` only when none of them fits, and consider a plain `for` loop if the function is long.
+
+## functools: caching results
+
+A function whose result depends only on its arguments can remember answers. `lru_cache` stores them in a dictionary keyed by the arguments, so the arguments must be hashable. A bare `@lru_cache` without parentheses works from Python 3.8, and `maxsize` limits how many results are kept, discarding the least recently used first:
+
+```python title="ft_lru.py"
+from functools import lru_cache
+
+
+@lru_cache(maxsize=2)
+def double(n):
+    print("computing", n)
+    return n * 2
+
+
+double(1)
+double(2)
+double(1)
+double(3)
+double(2)
+print(double.cache_info())
+```
+
+```text
+computing 1
+computing 2
+computing 3
+computing 2
+CacheInfo(hits=1, misses=4, maxsize=2, currsize=2)
+```
+
+The second `double(1)` was a hit and printed nothing. After `double(3)`, the cache was full, and `2` was the least recently used entry, so it was discarded and had to be computed again at the end.
+
+### cache <Since v="3.9" />
+
+If you do not want a size limit, `@functools.cache` is the shorter spelling of an unbounded `lru_cache`. It was added in Python 3.9 (see the [functools documentation](https://docs.python.org/3/library/functools.html)); on 3.8 use `@lru_cache(maxsize=None)`.
+
+```python title="ft_cache.py"
+from functools import cache
+
+calls = 0
+
+
+@cache
+def slow_square(n):
+    global calls
+    calls += 1
+    return n * n
+
+
+print(slow_square(4), slow_square(4), slow_square(5))
+print("calls:", calls)
+print(slow_square.cache_info())
+```
+
+```text
+16 16 25
+calls: 2
+CacheInfo(hits=1, misses=2, maxsize=None, currsize=2)
+```
+
+Two real calls, one cache hit. Call `slow_square.cache_clear()` to empty the cache. Cache only functions that are pure: with no side effects, and with the same result every time for the same arguments. An unbounded cache that sees millions of different arguments will fill your memory.
+
+## functools: singledispatch
+
+Sometimes one operation needs different code for different argument types, and a chain of `isinstance` checks is clumsy. `singledispatch` turns a function into a family: the original is the fallback, and `register` adds versions chosen by the type of the first argument:
+
+```python title="ft_singledispatch.py"
+from functools import singledispatch
+
+
+@singledispatch
+def describe(value):
+    return f"something else: {value!r}"
+
+
+@describe.register
+def _(value: int):
+    return f"the integer {value}"
+
+
+@describe.register(list)
+def _(value):
+    return f"a list of {len(value)} items"
+
+
+@describe.register(str)
+def _(value):
+    return f"the text {value!r}"
+
+
+print(describe(42))
+print(describe([1, 2, 3]))
+print(describe("hi"))
+print(describe(2.5))
+print(describe(True))
+```
+
+```text
+the integer 42
+a list of 3 items
+the text 'hi'
+something else: 2.5
+the integer True
+```
+
+The type can be given as an annotation on the first parameter (as for `int`) or as an argument to `register` (as for `list` and `str`). The last line shows that subclasses are matched too: `bool` is a subclass of `int`. Registering new types does not require editing the original function, which makes this useful for extension points. The underscore name `_` is a convention for a function you never call by that name.
+
+## Common pitfalls
+
+- **`groupby` without sorting.** It only groups neighbours, so unsorted data gives repeated keys.
+- **Reading a `groupby` group late.** Convert each group to a list inside the loop, or you will see empty groups.
+- **Caching impure functions or unhashable arguments.** A cached function returns stale results if it depends on something else, such as the time, and raises `TypeError: unhashable type: 'list'` if given a list.
+- **Using `@cache` on methods.** The cache keeps a reference to `self`, so instances are never freed. Prefer module-level functions, or `functools.cached_property` for per-instance values.
+- **Reaching for `reduce` first.** If `sum`, `max` or `join` fits, use it.
+
+<Exercise title="Batch the API calls">
+You have the user ids 1 to 10 and a function that can look up at most 4 users per call. Use `batched` to make as few calls as possible. Collect all the results into one list, and print the number of calls and the list. Expected output:
+
+```text
+3 calls
+['user1', 'user2', 'user3', 'user4', 'user5', 'user6', 'user7', 'user8', 'user9', 'user10']
+```
+
+```python title="batch_api.py"
+user_ids = list(range(1, 11))
+calls = 0
+
+
+def fetch_users(batch):
+    """Pretend API call that accepts at most 4 ids at once."""
+    global calls
+    calls += 1
+    assert len(batch) <= 4
+    return [f"user{i}" for i in batch]
+```
+
+<Solution>
+
+```python title="batch_api_solution.py"
+from itertools import batched
+
+user_ids = list(range(1, 11))
+calls = 0
+
+
+def fetch_users(batch):
+    """Pretend API call that accepts at most 4 ids at once."""
+    global calls
+    calls += 1
+    assert len(batch) <= 4
+    return [f"user{i}" for i in batch]
+
+
+users = []
+for batch in batched(user_ids, 4):
+    users.extend(fetch_users(batch))
+
+print(calls, "calls")
+print(users)
+```
+
+```text
+3 calls
+['user1', 'user2', 'user3', 'user4', 'user5', 'user6', 'user7', 'user8', 'user9', 'user10']
+```
+
+Ten ids in batches of four gives 4 + 4 + 2, so three calls. The short last batch is handled with no extra code. This needs Python 3.12 or later; use the `islice` version above on older versions.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Memoise Fibonacci">
+This recursive function recomputes the same values over and over, so `fib(80)` would take longer than you are willing to wait. Add one line to make it fast, then print `fib(10)`, `fib(80)` and the number of cache misses (`fib.cache_info().misses`). Expected output:
+
+```text
+55
+23416728348467685
+81
+```
+
+```python title="fib_memo.py"
+def fib(n):
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+```
+
+<Solution>
+
+```python title="fib_memo_solution.py"
+from functools import cache
+
+
+@cache
+def fib(n):
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+
+print(fib(10))
+print(fib(80))
+print(fib.cache_info().misses)
+```
+
+```text
+55
+23416728348467685
+81
+```
+
+Each value from `fib(0)` to `fib(80)` is computed exactly once: 81 misses. Every other call is answered from the cache. The recursion inside the function goes through the decorated name `fib`, which is why the cache applies to the inner calls as well.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the groups">
+What does this print?
+
+```python title="predict_groupby.py"
+from itertools import groupby
+
+for key, group in groupby("aabaa"):
+    print(key, len(list(group)))
+```
+
+<Solution>
+
+```text
+a 2
+b 1
+a 2
+```
+
+`groupby` splits the string wherever the key changes: `aa`, `b`, `aa`. The two runs of `a` are not merged because `b` sits between them. Sorting the input first would give `a 4` and `b 1`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `itertools` gives lazy tools: `chain` joins, `islice` slices, `groupby` groups neighbours. `pairwise` is <Since v="3.10" /> and `batched` is <Since v="3.12" />.
+- `functools.partial` pre-fills arguments, `reduce` folds a sequence, and `lru_cache` (or <Since v="3.9" /> `cache`) remembers results of pure functions.
+- `singledispatch` selects a function by the type of its first argument.
+- Next: closures and the lambda-in-a-loop bug.

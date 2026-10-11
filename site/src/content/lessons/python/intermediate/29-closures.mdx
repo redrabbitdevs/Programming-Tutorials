@@ -1,0 +1,323 @@
+---
+language: python
+level: intermediate
+module: Iteration and functional tools
+order: 29
+title: Closures and higher-order functions
+description: Build functions that remember their surroundings, change captured state with nonlocal, and avoid the late-binding bug in loops.
+minVersion: "3.8"
+objectives:
+  - Explain what a closure is and which variables it captures
+  - Use nonlocal to rebind a captured variable
+  - Write functions that return or accept other functions
+  - Recognise and fix the late-binding bug with lambdas in loops
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/10-scope-and-lifetime"]
+---
+
+In the beginner course you passed functions around and wrote small `lambda` expressions (see [lambdas and higher-order functions](../../beginner/lambdas-higher-order/)), and you learned where names are looked up in [the LEGB rule](../../beginner/scope-legb/). Put those two ideas together and you get **closures**: functions that carry some of their surroundings with them. The general concept is described in the [scope and lifetime lesson](../../../fundamentals/beginner/scope-and-lifetime/) of the fundamentals track. This lesson covers how Python does it, and the one bug it is famous for.
+
+## A function that remembers
+
+When a function is defined inside another function and uses a variable of the outer one, the inner function keeps that variable alive after the outer function has returned:
+
+```python title="closure_basic.py"
+def make_multiplier(factor):
+    def multiply(x):
+        return x * factor
+
+    return multiply
+
+
+double = make_multiplier(2)
+triple = make_multiplier(3)
+print(double(10), triple(10))
+```
+
+```text
+20 30
+```
+
+`factor` is a **free variable** of `multiply`: it is used there but defined in the enclosing function. Each call to `make_multiplier` creates a separate `factor`, so `double` and `triple` do not interfere. You can inspect what a function has captured:
+
+```python title="closure_basic.py (continued)"
+print(double.__code__.co_freevars)
+print(double.__closure__[0].cell_contents)
+print(triple.__closure__[0].cell_contents)
+```
+
+```text
+('factor',)
+2
+3
+```
+
+This is for understanding, not for production code. The point is that the captured thing is the **variable itself** (stored in a "cell"), not a copy of its value at the time of definition. The next sections depend on that difference.
+
+```python title="predict_closure.py"
+def outer():
+    x = "before"
+
+    def show():
+        return x
+
+    x = "after"
+    return show
+
+
+print(outer()())
+```
+
+```text
+after
+```
+
+`show` looks up `x` when it runs, and by then `x` has been rebound to `"after"`.
+
+## nonlocal: changing a captured variable
+
+A closure can read a free variable freely. Assigning to it is another matter, because an assignment inside a function makes the name local, as you saw in the scope lesson. The `nonlocal` statement says "this name belongs to the nearest enclosing function, so rebind that one":
+
+```python title="closure_nonlocal.py"
+def make_counter_broken():
+    count = 0
+
+    def increment():
+        count += 1
+        return count
+
+    return increment
+
+
+broken = make_counter_broken()
+try:
+    broken()
+except UnboundLocalError:
+    print("UnboundLocalError")
+```
+
+```text
+UnboundLocalError
+```
+
+`count += 1` makes `count` local to `increment`, and reading it before it has a value fails. Declaring it `nonlocal` fixes that:
+
+```python title="closure_nonlocal.py (continued)"
+def make_counter():
+    count = 0
+
+    def increment():
+        nonlocal count
+        count += 1
+        return count
+
+    return increment
+
+
+counter = make_counter()
+print(counter(), counter(), counter())
+other = make_counter()
+print(other())
+```
+
+```text
+1 2 3
+1
+```
+
+Each counter has its own private `count`, with no global variable and no class. Closures are a light way to hold a little state. If the state grows past one or two variables, a class is usually clearer.
+
+`nonlocal` is not `global`. It refuses names that do not exist in an enclosing function, so a typo is a `SyntaxError` and not a silent new global. It is needed only for rebinding: changing a captured list with `.append` needs no declaration, because that is mutation and not assignment.
+
+## Functions that take and return functions
+
+A **higher-order function** takes a function as an argument, returns one, or both. You already use `sorted(key=...)` and `map`. Writing your own is mostly a matter of closures:
+
+```python title="higher_order.py"
+def compose(*functions):
+    """Return a function that applies the given functions left to right."""
+
+    def run(value):
+        for function in functions:
+            value = function(value)
+        return value
+
+    return run
+
+
+def apply_twice(function, value):
+    return function(function(value))
+
+
+clean = compose(str.strip, str.lower, str.title)
+print(clean("  hELLO wORLD  "))
+print(apply_twice(lambda s: s + "!", "hi"))
+print(apply_twice(clean, "  x  "))
+```
+
+```text
+Hello World
+hi!!
+X
+```
+
+`compose` returns a closure over the `functions` tuple. Methods such as `str.strip` can be passed as plain functions, because `str.strip(text)` is the same as `text.strip()`. The next lesson uses exactly this shape to write decorators.
+
+## The late-binding trap
+
+Because a closure captures the variable and not its value, creating functions in a loop gives a surprise. A lambda in a list comprehension looks up `i` when it is **called**, and by then the loop has finished:
+
+```python title="late_binding.py"
+adders = [lambda x: x + i for i in range(3)]
+print([f(10) for f in adders])
+```
+
+```text
+[12, 12, 12]
+```
+
+All three functions share one `i`, whose final value is 2. Most people expect `[10, 11, 12]`. There are three common fixes, and each makes the value get stored at definition time. The shortest binds the current value as a default argument:
+
+```python title="late_binding.py (continued)"
+adders = [lambda x, i=i: x + i for i in range(3)]
+print([f(10) for f in adders])
+```
+
+```text
+[10, 11, 12]
+```
+
+A default argument is evaluated when the `lambda` is created, so each function gets its own copy. The risk is that callers can overwrite `i` by passing a second argument. A cleaner fix is a factory function, where each call creates a new variable of its own:
+
+```python title="late_binding.py (continued)"
+def make_adder(i):
+    return lambda x: x + i
+
+
+adders = [make_adder(i) for i in range(3)]
+print([f(10) for f in adders])
+```
+
+```text
+[10, 11, 12]
+```
+
+The third option is `functools.partial`, from the previous lesson, which stores the argument immediately and has no such risk of being overridden by position. Writing `partial(add, i=i)` gives the same output.
+
+## Common pitfalls
+
+- **Expecting a snapshot.** A closure sees the variable's latest value, not its value when the function was defined. Rebinding after the definition changes the result (see `predict_closure.py`).
+- **Assigning without `nonlocal`.** `count += 1` in the inner function fails with `UnboundLocalError`. Add `nonlocal count`, or restructure.
+- **Lambdas in loops.** Use a default argument, a factory or `partial`.
+- **Hidden shared state.** A closure over a mutable object, such as a list, shares it with everyone who got the closure. Create the list inside the factory so that each closure has its own.
+
+<Exercise title="A counter factory with reset">
+Write `make_counter(start=0, step=1)` that returns a function. Each call to the function returns the next value, beginning with `start`. Attach a `reset` function to it as an attribute that starts the sequence over. Expected output for the check below:
+
+```text
+0 2 4
+0
+10 20
+```
+
+```python title="counter_check.py"
+evens = make_counter(0, 2)
+print(evens(), evens(), evens())
+evens.reset()
+print(evens())
+tens = make_counter(10, 10)
+print(tens(), tens())
+```
+
+<Solution>
+
+```python title="counter_factory_solution.py"
+def make_counter(start=0, step=1):
+    value = start - step
+
+    def next_value():
+        nonlocal value
+        value += step
+        return value
+
+    def reset():
+        nonlocal value
+        value = start - step
+
+    next_value.reset = reset
+    return next_value
+
+
+evens = make_counter(0, 2)
+print(evens(), evens(), evens())
+evens.reset()
+print(evens())
+tens = make_counter(10, 10)
+print(tens(), tens())
+```
+
+```text
+0 2 4
+0
+10 20
+```
+
+`value` starts one step before `start`, so the first call adds the step and lands on `start`. Both inner functions share that one variable through `nonlocal`, so `reset` really changes what `next_value` sees. Functions are objects, so setting `next_value.reset` attaches the second function to the first.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix the greeters">
+This code should produce one greeting per name, but every greeting uses the last name. Fix it with a default argument.
+
+```python title="fix_lambda_loop.py"
+names = ["ada", "grace", "alan"]
+
+greeters = [lambda: "Hello, " + name for name in names]
+print([g() for g in greeters])
+```
+
+Expected output after the fix:
+
+```text
+['Hello, ada', 'Hello, grace', 'Hello, alan']
+```
+
+<Solution>
+
+```python title="fix_lambda_loop_solution.py"
+names = ["ada", "grace", "alan"]
+
+greeters = [lambda: "Hello, " + name for name in names]
+print([g() for g in greeters])
+
+greeters = [lambda name=name: "Hello, " + name for name in names]
+print([g() for g in greeters])
+```
+
+```text
+['Hello, alan', 'Hello, alan', 'Hello, alan']
+['Hello, ada', 'Hello, grace', 'Hello, alan']
+```
+
+The first block shows the bug. In the second, `name=name` evaluates the loop variable at the moment each lambda is created, and stores it as that function's own default.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the closure">
+In `make_counter` from this lesson, what do `a()`, `a()`, `b()` print, if `a = make_counter()` and `b = make_counter()`?
+
+<Solution>
+
+`1`, `2`, `1`. Each call to `make_counter` creates a fresh `count`, so `a` and `b` count independently. The counters only share the code of `increment`, not its captured variable.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A closure is a function plus the variables it uses from enclosing functions. It captures variables, not values.
+- `nonlocal` lets an inner function rebind a captured variable. Mutating a captured object needs no declaration.
+- Higher-order functions take or return functions. Fix lambdas-in-loops with a default argument, a factory or `partial`.
+- Next: decorators.
