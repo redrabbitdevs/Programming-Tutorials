@@ -13,6 +13,7 @@ const languages = defineCollection({
     firstAppeared: z.number().int().optional(),
     latestVersion: z.string().optional(),
     latestVersionDate: z.coerce.date().optional(),
+    wikipedia: z.string().nullish(),
     summary: z.string(),
     status: z.enum(['planned', 'in-progress', 'complete']),
   }),

@@ -4,6 +4,7 @@ name: "NewtonScript"
 tier: 3
 paradigm: ["prototype-based"]
 firstAppeared: 1993
+wikipedia: "https://en.wikipedia.org/wiki/NewtonScript"
 summary: "NewtonScript is a prototype-based programming language that first appeared in 1993."
 status: planned
 ---

@@ -4,6 +4,7 @@ name: "Easy PL/I"
 tier: 3
 paradigm: ["procedural", "imperative", "structured"]
 firstAppeared: 1964
+wikipedia: "https://en.wikipedia.org/wiki/PL%2FI"
 summary: "Easy PL/I is a procedural and imperative programming language that first appeared in 1964."
 status: planned
 ---

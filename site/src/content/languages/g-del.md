@@ -4,6 +4,7 @@ name: "Gödel"
 tier: 3
 paradigm: ["declarative", "logic"]
 firstAppeared: 1992
+wikipedia: "https://en.wikipedia.org/wiki/G%C3%B6del_(programming_language)"
 summary: "Gödel is a declarative and logic programming language that first appeared in 1992."
 status: planned
 ---
