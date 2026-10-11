@@ -1,0 +1,5 @@
+[0, 10, 20, 30, 3, 4, 5]
+['w', 10, 'x', 30, 'y', 4, 'z']
+['w', 30, 'y', 4, 'z']
+['w', 30, 'new', 'y', 4, 'z']
+ValueError: attempt to assign sequence of size 1 to extended slice of size 3

@@ -1,0 +1,211 @@
+---
+language: python
+level: beginner
+module: Collections
+order: 20
+title: Tuples and unpacking
+description: Group values in immutable tuples, return several results from a function, and unpack sequences with star syntax.
+minVersion: "3.8"
+objectives:
+  - Create tuples, including the one-item case
+  - Explain what immutability does and does not protect
+  - Unpack tuples and lists into names, including with a starred name
+  - Return several values from a function
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/13-sequences-and-arrays"]
+---
+
+A list says "a changeable pile of things". Sometimes you want the opposite: a small, fixed bundle, such as an (x, y) point or a (name, year) pair. That is a **tuple**. Tuples also power one of Python's nicest habits, unpacking, which lets you pull a bundle apart into named pieces in a single line.
+
+## Tuples
+
+```python title="tuple_basics.py"
+point = (3, 4)
+print(point[0], point[1], len(point))
+
+single = (5,)
+not_a_tuple = (5)
+print(type(single).__name__, type(not_a_tuple).__name__)
+
+try:
+    point[0] = 10
+except TypeError as error:
+    print("TypeError:", error)
+
+x, y = point
+print(x, y)
+
+# Swap without a temporary
+a, b = 1, 2
+a, b = b, a
+print(a, b)
+
+
+def min_max(numbers):
+    return min(numbers), max(numbers)
+
+
+low, high = min_max([4, 9, 2, 7])
+print(low, high)
+print(min_max([4, 9, 2, 7]))
+
+# Tuples can be dict keys; lists cannot
+visits = {(0, 0): "home", (1, 2): "shop"}
+print(visits[(1, 2)])
+try:
+    {[1, 2]: "x"}
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+3 4 2
+tuple int
+TypeError: 'tuple' object does not support item assignment
+3 4
+2 1
+2 9
+(2, 9)
+shop
+TypeError: cannot use 'list' as a dict key (unhashable type: 'list')
+```
+
+A tuple is an ordered sequence like a list, with indexing, slicing, `len` and `in`. The difference is that it is **immutable**: once built, you cannot assign to an index, append or remove. Use a tuple when the group is a single fixed thing, and a list when it is a collection that will grow or shrink.
+
+It is the **comma** that makes a tuple, not the parentheses. That is why `(5,)` is a one-item tuple while `(5)` is just the number 5 in brackets. The parentheses are only needed to avoid ambiguity, so `a, b = 1, 2` and `return min(numbers), max(numbers)` both build tuples without them.
+
+Immutability protects the tuple's own slots, not whatever those slots refer to. A tuple that contains a list still lets you change that list. Because a tuple of immutable things can never change, it is **hashable**, so it can be a dictionary key or a set member, as the `visits` dictionary shows. A list cannot.
+
+## Unpacking
+
+`x, y = point` is **unpacking**: the names on the left receive the items on the right, in order. It works with any iterable, not only tuples. The number of names must match the number of items, otherwise Python raises `ValueError`.
+
+Two everyday idioms fall out of this. `a, b = b, a` swaps two names without a temporary variable: the right side is fully built as a tuple before any assignment happens. And a function can "return several values" by returning a tuple, which the caller unpacks: `low, high = min_max(...)`. Strictly, the function returns one tuple. Unpacking just makes it feel like two values.
+
+## Star unpacking
+
+```python title="star_unpacking.py"
+first, *rest = [10, 20, 30, 40]
+print(first, rest)
+
+*init, last = "abcd"
+print(init, last)
+
+head, *middle, tail = range(1, 6)
+print(head, middle, tail)
+
+only, *none = [7]
+print(only, none)
+
+# Unpacking in a for loop
+pairs = [("Ada", 1815), ("Alan", 1912)]
+for name, year in pairs:
+    print(name, year)
+
+# Nested unpacking
+(a, b), c = (1, 2), 3
+print(a, b, c)
+
+# Unpacking into a call or a new list
+numbers = [1, 2, 3]
+print(*numbers)
+combined = [0, *numbers, 4]
+print(combined)
+
+try:
+    p, q = [1, 2, 3]
+except ValueError as error:
+    print("ValueError:", error)
+```
+
+```text
+10 [20, 30, 40]
+['a', 'b', 'c'] d
+1 [2, 3, 4] 5
+7 []
+Ada 1815
+Alan 1912
+1 2 3
+1 2 3
+[0, 1, 2, 3, 4]
+ValueError: too many values to unpack (expected 2, got 3)
+```
+
+Put a `*` in front of one name and it soaks up whatever the other names do not take. The starred name is always a **list**, even when the source is a string or a range, and it is an empty list when nothing is left over. Only one starred name is allowed per pattern.
+
+The same star also works in the other direction. `print(*numbers)` spreads a list into separate arguments, and `[0, *numbers, 4]` splices one into a new list. You have already used unpacking without noticing: `for name, year in pairs` and `for position, fruit in enumerate(...)` unpack each pair as the loop goes round.
+
+## Common pitfalls
+
+- **Forgetting the comma in a one-item tuple.** `(5)` is an `int`. Write `(5,)`.
+- **Expecting a tuple to be deeply frozen.** `([1], 2)` still lets you change the inner list. Immutability is one level deep.
+- **Mismatched counts.** `p, q = [1, 2, 3]` raises `ValueError`. Add a starred name if the length varies.
+- **Treating the starred name as a tuple.** It is a list, whatever the source was.
+- **Using a tuple of mutable items as a dict key.** `{([1], 2): "x"}` raises `TypeError`, because the list inside makes the whole tuple unhashable.
+
+<Exercise title="Parse coordinate strings">
+
+Write `parse_point(text)` that turns `"3,4"` into the tuple `(3, 4)`. Report a clear message for input that is not two integers.
+
+<Solution>
+
+```python title="parse_coords.py"
+def parse_point(text):
+    x_text, y_text = text.split(",")
+    return int(x_text), int(y_text)
+
+
+for raw in ["3,4", " 10, -2 ", "7,x", "1,2,3"]:
+    try:
+        print(parse_point(raw))
+    except ValueError as error:
+        print(f"bad input {raw!r}: {error}")
+```
+
+```text
+(3, 4)
+(10, -2)
+bad input '7,x': invalid literal for int() with base 10: 'x'
+bad input '1,2,3': too many values to unpack (expected 2, got 3)
+```
+
+Unpacking the result of `split` does the length check for us: a wrong count raises `ValueError`, the same error type that `int` raises for non-numbers, so one `except` handles both. `int` ignores the spaces around a number.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Summary statistics">
+
+Write `summarize(numbers)` that returns the minimum, maximum and mean as a tuple. Unpack the result into three names. Then use star unpacking to split `["Ada", "Ben", "Cy"]` into a winner and the others.
+
+<Solution>
+
+```python title="stats_tuple.py"
+def summarize(numbers):
+    return min(numbers), max(numbers), sum(numbers) / len(numbers)
+
+
+low, high, mean = summarize([4, 8, 15, 16, 23, 42])
+print(low, high, round(mean, 2))
+
+winner, *others = ["Ada", "Ben", "Cy"]
+print(winner, others)
+```
+
+```text
+4 42 18.0
+Ada ['Ben', 'Cy']
+```
+
+The function returns one tuple, and the caller unpacks it in a single assignment.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A tuple is an ordered, immutable sequence. The comma builds it, so a one-item tuple needs a trailing comma.
+- Unpacking assigns items to names in one line: `x, y = point`, `a, b = b, a`, and `*rest` collects the leftovers into a list.
+- Functions return several values by returning a tuple.
+
+Next: [dictionaries](../dicts/).

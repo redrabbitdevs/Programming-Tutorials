@@ -1,0 +1,234 @@
+---
+language: python
+level: beginner
+module: Collections
+order: 19
+title: Lists
+description: Create, change and sort Python lists, and avoid the aliasing bug that catches almost every beginner.
+minVersion: "3.8"
+objectives:
+  - Create lists and read, add, remove and replace items
+  - Choose between sort and sorted
+  - Explain why two names can refer to the same list
+  - Copy a list, and know when a copy is only shallow
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/13-sequences-and-arrays", "fundamentals/beginner/18-memory-and-references"]
+---
+
+Up to now every variable has held one value. Real programs hold many: the items in a basket, the lines in a file, the scores in a class. The **list** is Python's everyday answer. It is an ordered, changeable sequence of values, and you will use it constantly. The shared fundamentals lesson on arrays and lists (linked at the top of this page) explains the general idea of an indexed collection. This lesson covers how Python spells it.
+
+## Creating and changing a list
+
+```python title="list_basics.py"
+tasks = ["write", "test"]
+
+tasks.append("ship")
+tasks.extend(["celebrate", "rest"])
+tasks.insert(0, "plan")
+print(tasks)
+
+last = tasks.pop()
+first = tasks.pop(0)
+print(last, first, tasks)
+
+tasks.remove("test")
+print(tasks, len(tasks))
+
+print("ship" in tasks, "nap" in tasks)
+print(tasks.index("ship"))
+print(tasks[0], tasks[-1])
+
+tasks[0] = "draft"
+print(tasks)
+
+nested = [1, 2] + [3]
+print(nested, nested * 2)
+```
+
+```text
+['plan', 'write', 'test', 'ship', 'celebrate', 'rest']
+rest plan ['write', 'test', 'ship', 'celebrate']
+['write', 'ship', 'celebrate'] 3
+True False
+1
+write celebrate
+['draft', 'ship', 'celebrate']
+[1, 2, 3] [1, 2, 3, 1, 2, 3]
+```
+
+Square brackets make a list. Indexes start at 0, and negative indexes count from the end, so `tasks[-1]` is the last item. Assigning to an index replaces that item, which is the key difference from strings and tuples: a list is **mutable**.
+
+The methods you will use most:
+
+- `append(x)` adds one item at the end. `extend(iterable)` adds every item from another iterable.
+- `insert(i, x)` puts an item at position `i` and shifts the rest along.
+- `pop()` removes and returns the last item. `pop(i)` does the same for position `i`.
+- `remove(x)` deletes the first item equal to `x`, and raises `ValueError` if there is none.
+- `index(x)` finds the position of the first match. `x in items` just asks whether it is there.
+- `len(items)` counts them, and `items.clear()` empties the list.
+
+Notice that these methods change the list in place and mostly return `None`, with `pop` as the exception. Writing `tasks = tasks.append("x")` replaces your list with `None`.
+
+## sort versus sorted
+
+```python title="list_sort_alias.py"
+scores = [88, 95, 70, 91]
+
+ranked = sorted(scores, reverse=True)
+print(ranked, scores)
+
+result = scores.sort()
+print(result, scores)
+
+words = ["pear", "fig", "banana", "kiwi"]
+words.sort(key=len)
+print(words)
+
+# Aliasing: two names, one list
+a = [1, 2, 3]
+b = a
+b.append(4)
+print(a, b, a is b)
+
+# A copy is a separate list
+c = a.copy()
+c.append(5)
+print(a, c, a is c)
+
+# The shallow-copy trap
+grid = [[0, 0], [0, 0]]
+shallow = grid.copy()
+shallow[0][0] = 9
+print(grid)
+
+wrong = [[0] * 2] * 2
+wrong[0][0] = 9
+print(wrong)
+right = [[0] * 2 for _ in range(2)]
+right[0][0] = 9
+print(right)
+```
+
+```text
+[95, 91, 88, 70] [88, 95, 70, 91]
+None [70, 88, 91, 95]
+['fig', 'pear', 'kiwi', 'banana']
+[1, 2, 3, 4] [1, 2, 3, 4] True
+[1, 2, 3, 4] [1, 2, 3, 4, 5] False
+[[9, 0], [0, 0]]
+[[9, 0], [9, 0]]
+[[9, 0], [0, 0]]
+```
+
+`sorted(items)` builds a **new** sorted list and leaves the original alone. `items.sort()` sorts **in place** and returns `None`. Pick `sorted` when you still need the original order, and `sort` when you do not. Both accept `reverse=True` and a `key=` function that says what to sort by: `key=len` orders words by length. The sort is stable, so items with equal keys keep their original relative order (`pear` stays ahead of `kiwi`).
+
+## Aliasing and copies
+
+`b = a` does not copy a list. It gives the same list a second name, so a change through `b` shows up through `a`. The expression `a is b` confirms that both names point at one object. To get an independent list, call `a.copy()` or write `a[:]`, which the [slicing lesson](../slicing/) covers.
+
+Those copies are **shallow**. They copy the outer list but share the inner objects. Change `shallow[0][0]` and the original `grid` changes too, because both outer lists hold the same inner list at position 0. The same sharing explains the classic `[[0] * 2] * 2` mistake: the outer `*` repeats a reference to one inner list. Build a grid with a comprehension, as in `right`, and every row is its own list. The shared fundamentals track covers shallow versus deep copies in its memory and references lesson.
+
+## Common pitfalls
+
+- **Assigning the result of an in-place method.** `items = items.sort()` leaves `items` as `None`. Call `items.sort()` on its own line, or use `sorted`.
+- **Thinking `b = a` copies.** It adds a name. Use `a.copy()` when you need a second list.
+- **Repeating a list of lists with `*`.** `[[0] * 2] * 2` makes two references to one row. Use a comprehension.
+- **Removing items while looping.** Deleting from a list you are iterating over skips elements. Loop over a copy, or build a new list.
+- **`IndexError` on empty or short lists.** `[][0]` and `[1, 2][5]` both raise it. Check `if items:` or `len(items)` first.
+- **Using `remove` on a missing item.** It raises `ValueError`. Test with `in` first, or catch the error.
+
+<Exercise title="Todo list manager">
+
+Write `add(item)`, `done(item)` and `show()` functions around a module-level `todos` list. `done` should return `True` if it removed the item and `False` if the item was not there. `show` should print a numbered list starting at 1, or `Nothing to do.` when empty.
+
+<Solution>
+
+```python title="todo_list.py"
+todos = []
+
+
+def add(item):
+    todos.append(item)
+
+
+def done(item):
+    if item in todos:
+        todos.remove(item)
+        return True
+    return False
+
+
+def show():
+    if not todos:
+        print("Nothing to do.")
+        return
+    for number, item in enumerate(todos, start=1):
+        print(f"{number}. {item}")
+
+
+add("buy milk")
+add("call Ada")
+add("water plants")
+show()
+print(done("call Ada"))
+print(done("fly to the moon"))
+show()
+todos.sort()
+show()
+todos.clear()
+show()
+```
+
+```text
+1. buy milk
+2. call Ada
+3. water plants
+True
+False
+1. buy milk
+2. water plants
+1. buy milk
+2. water plants
+Nothing to do.
+```
+
+The functions change `todos` in place, so they never need to reassign the name. That is why no `global` statement is required (the scope lesson comes later in the functions module). `enumerate(..., start=1)` gives people-friendly numbering.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Top three, original untouched">
+
+Write `top_three(scores)` that returns the three highest scores, highest first, without changing the list passed in. It should still work when there are fewer than three scores.
+
+<Solution>
+
+```python title="top_three.py"
+def top_three(scores):
+    return sorted(scores, reverse=True)[:3]
+
+
+scores = [72, 95, 88, 64, 95, 81]
+print(top_three(scores))
+print(scores)
+print(top_three([50, 40]))
+```
+
+```text
+[95, 95, 88]
+[72, 95, 88, 64, 95, 81]
+[50, 40]
+```
+
+`sorted` returns a new list, so the argument is never modified. The slice `[:3]` stops quietly at the end of a short list instead of raising an error.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Lists are ordered and mutable. `append`, `extend`, `insert`, `pop` and `remove` change them in place.
+- `sorted(x)` returns a new list. `x.sort()` changes `x` and returns `None`.
+- `b = a` shares one list. `copy()` makes a shallow copy, and nested lists are still shared.
+
+Next: [tuples and unpacking](../tuples-unpacking/).

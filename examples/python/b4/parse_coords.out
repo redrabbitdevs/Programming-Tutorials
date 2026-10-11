@@ -1,0 +1,4 @@
+(3, 4)
+(10, -2)
+bad input '7,x': invalid literal for int() with base 10: 'x'
+bad input '1,2,3': too many values to unpack (expected 2, got 3)

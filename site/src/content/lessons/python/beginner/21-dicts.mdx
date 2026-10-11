@@ -1,0 +1,238 @@
+---
+language: python
+level: beginner
+module: Collections
+order: 21
+title: Dictionaries
+description: Map keys to values with dicts, look things up safely, merge dicts with the pipe operator, and preview the new immutable frozendict.
+minVersion: "3.9"
+objectives:
+  - Create dicts and read, add, update and delete entries
+  - Look up keys safely with get, setdefault and in
+  - Iterate over keys, values and items
+  - Merge dicts with the | and |= operators
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/14-maps-and-sets"]
+---
+
+A list finds things by position. A **dictionary** finds them by name: look up `"Ada"` and get her age, look up a word and get its definition. Dicts are among the most used structures in Python, and the language itself leans on them everywhere, from keyword arguments to object attributes. The shared fundamentals lesson on maps and sets explains the idea in the abstract. Here is how Python does it.
+
+## Creating and using a dict
+
+```python title="dict_basics.py"
+ages = {"Ada": 36, "Alan": 41}
+ages["Grace"] = 85
+ages["Ada"] = 37
+print(ages, len(ages))
+
+print(ages["Alan"])
+try:
+    ages["Linus"]
+except KeyError as error:
+    print("KeyError:", error)
+
+print(ages.get("Linus"))
+print(ages.get("Linus", 0))
+print("Ada" in ages, "Linus" in ages)
+
+# setdefault inserts only when the key is missing
+groups = {}
+for word in ["apple", "avocado", "banana", "blueberry", "cherry"]:
+    groups.setdefault(word[0], []).append(word)
+print(groups)
+
+del ages["Alan"]
+print(ages.pop("Grace"), ages)
+print(ages.pop("Nobody", "not there"))
+
+# Iteration follows insertion order
+stock = {"pens": 12, "ink": 3, "paper": 40}
+for key in stock:
+    print(key, end=" ")
+print()
+for item, count in stock.items():
+    print(f"{item}: {count}")
+print(list(stock.keys()), list(stock.values()))
+```
+
+```text
+{'Ada': 37, 'Alan': 41, 'Grace': 85} 3
+41
+KeyError: 'Linus'
+None
+0
+True False
+{'a': ['apple', 'avocado'], 'b': ['banana', 'blueberry'], 'c': ['cherry']}
+85 {'Ada': 37}
+not there
+pens ink paper 
+pens: 12
+ink: 3
+paper: 40
+['pens', 'ink', 'paper'] [12, 3, 40]
+```
+
+Curly braces with `key: value` pairs make a dict. Assigning to a key either adds a new entry or replaces an existing one, as `ages["Ada"] = 37` does. Each key appears once. Keys must be **hashable**, which in practice means immutable things such as strings, numbers and tuples. Values can be anything.
+
+## Safe lookups
+
+`ages["Linus"]` raises `KeyError` when the key is missing. That is right when a missing key is a bug, but often it is just a case to handle:
+
+- `d.get(key)` returns `None` if the key is absent, and `d.get(key, default)` returns your default instead. It never changes the dict.
+- `key in d` tests for a key.
+- `d.setdefault(key, default)` returns the value if the key exists, and otherwise stores the default and returns it. That makes the grouping idiom above a single line: fetch the list for this letter (creating an empty one the first time) and append to it.
+
+To remove entries, use `del d[key]` (raises `KeyError` if absent) or `d.pop(key)`, which also returns the value. `pop(key, default)` stays quiet when the key is missing.
+
+## Iterating
+
+A dict remembers the order in which keys were first inserted, and loops follow that order. `for key in d` visits keys. `d.values()` gives the values and `d.items()` gives `(key, value)` pairs, which you normally unpack in the loop header as `for item, count in stock.items()`. These "views" show the dict's current contents. Wrap them in `list(...)` when you want a snapshot. Do not add or delete keys while looping over the dict, because Python raises a `RuntimeError`.
+
+## Merging dicts <Since v="3.9" />
+
+```python title="dict_merge.py"
+defaults = {"theme": "light", "font": 12, "lang": "en"}
+user = {"theme": "dark", "font": 14}
+
+merged = defaults | user
+print(merged)
+print(defaults)
+
+defaults |= {"lang": "fr"}
+print(defaults)
+
+# The older spelling, which works everywhere
+print({**defaults, **user})
+
+# Later values win
+print({"a": 1} | {"a": 2})
+```
+
+```text
+{'theme': 'dark', 'font': 14, 'lang': 'en'}
+{'theme': 'light', 'font': 12, 'lang': 'en'}
+{'theme': 'light', 'font': 12, 'lang': 'fr'}
+{'theme': 'dark', 'font': 14, 'lang': 'fr'}
+{'a': 2}
+```
+
+`a | b` builds a **new** dict containing the entries of both. When a key appears in both, the right-hand value wins, so `defaults | user` is the standard way to layer user settings over defaults. `a |= b` updates `a` in place, like `a.update(b)`. These operators arrived in Python 3.9 (PEP 584). On older versions, `{**a, **b}` does the same job as `a | b`.
+
+## frozendict, an immutable dict <Since v="3.15" />
+
+Python 3.15 added a built-in `frozendict` (PEP 814). It looks like a dict but cannot be changed after it is created, which makes it hashable whenever its keys and values are.
+
+```python title="frozendict_demo.py"
+config = frozendict(host="localhost", port=8080)
+print(config)
+print(config["port"], config.get("debug", False))
+
+try:
+    config["port"] = 9090
+except TypeError as error:
+    print("TypeError:", error)
+
+# Order does not affect equality or hashing
+other = frozendict(port=8080, host="localhost")
+print(config == other, hash(config) == hash(other))
+
+# Hashable, so it can be a dict key or a set member
+cache = {config: "connection #1"}
+print(cache[other])
+
+# Not a dict subclass
+print(isinstance(config, dict))
+
+# "Changing" means building a new one
+updated = frozendict({**config, "port": 9090})
+print(updated, config)
+```
+
+```text
+frozendict({'host': 'localhost', 'port': 8080})
+8080 False
+TypeError: 'frozendict' object does not support item assignment
+True True
+connection #1
+False
+frozendict({'host': 'localhost', 'port': 9090}) frozendict({'host': 'localhost', 'port': 8080})
+```
+
+Three facts to remember. A `frozendict` keeps insertion order, but comparison ignores order, so `config == other` is true. It is **not** a subclass of `dict`, so `isinstance(x, dict)` is false for it. To accept both, test `isinstance(x, (dict, frozendict))` or, better, `isinstance(x, collections.abc.Mapping)`. And since it cannot be modified, "changing" one means building a new one, as the last lines do. This example needs Python 3.15, so it will raise `NameError` on 3.14 or earlier. For code that must run on older versions, stick to a plain `dict` and simply do not mutate it.
+
+## Common pitfalls
+
+- **`KeyError` from `d[key]`.** Use `get`, `in`, or `setdefault` when the key may be missing.
+- **Unhashable keys.** A list or another dict cannot be a key. Convert a list to a tuple first.
+- **Mutating while iterating.** Adding or removing keys inside `for k in d` raises `RuntimeError`. Loop over `list(d)` instead.
+- **Expecting `|` to modify its operands.** `a | b` returns a new dict. Use `|=` to update `a`.
+- **Mixing up `{}`.** An empty `{}` is an empty dict, not an empty set. Use `set()` for a set.
+- **Assuming `get` stores the default.** It does not. Only `setdefault` stores it.
+
+<Exercise title="Word-frequency counter">
+
+Count how often each word occurs in a text, ignoring case, then print the four most common words. Break ties alphabetically.
+
+<Solution>
+
+```python title="word_freq.py"
+text = """the quick brown fox jumps over the lazy dog
+The dog barks and the fox runs away"""
+
+counts = {}
+for word in text.lower().split():
+    counts[word] = counts.get(word, 0) + 1
+
+by_count = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+for word, count in by_count[:4]:
+    print(f"{word:6} {count}")
+print(len(counts), "distinct words")
+```
+
+```text
+the    4
+dog    2
+fox    2
+and    1
+12 distinct words
+```
+
+`counts.get(word, 0) + 1` reads "the current count, or zero if we have not seen it". The `key` function sorts by count descending (the minus sign) and then by word. The `lambda` is a tiny unnamed function. The functions module covers it properly.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Invert a dictionary">
+
+Write `invert(mapping)` that swaps keys and values. Several keys may share a value, so each value should map to a list of keys.
+
+<Solution>
+
+```python title="invert_dict.py"
+def invert(mapping):
+    result = {}
+    for key, value in mapping.items():
+        result.setdefault(value, []).append(key)
+    return result
+
+
+colors = {"apple": "red", "cherry": "red", "banana": "yellow", "lime": "green"}
+print(invert(colors))
+```
+
+```text
+{'red': ['apple', 'cherry'], 'yellow': ['banana'], 'green': ['lime']}
+```
+
+`setdefault` creates the empty list the first time a value appears, so one line handles both the first and later keys.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A dict maps hashable keys to values and iterates in insertion order. Use `get`, `in` and `setdefault` for safe lookups.
+- <Since v="3.9" /> `a | b` merges into a new dict and `a |= b` updates in place. The right side wins on clashes.
+- <Since v="3.15" /> `frozendict` is an immutable, hashable mapping that is not a `dict` subclass.
+
+Next: [sets](../sets/).

@@ -1,0 +1,208 @@
+---
+language: python
+level: beginner
+module: Collections
+order: 24
+title: Comprehensions
+description: Build lists, dicts and sets from loops in one expression, filter as you go, and flatten nested data with the Python 3.15 unpacking form.
+minVersion: "3.15"
+objectives:
+  - Write list, dict and set comprehensions with optional filters
+  - Read a comprehension with two for clauses
+  - Use a generator expression when you only need to loop once
+  - Flatten nested data with unpacking in a comprehension
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/08-loops", "fundamentals/beginner/13-sequences-and-arrays"]
+---
+
+A very common loop creates an empty list, then appends one transformed item per pass. Python has a compact form for that pattern: the **comprehension**. It states what the new collection contains rather than how to fill it. Most of this lesson runs on any Python 3. Only the last section, unpacking inside a comprehension, needs 3.15.
+
+## List, dict and set comprehensions
+
+```python title="comprehension_basics.py"
+squares = [n * n for n in range(1, 6)]
+print(squares)
+
+evens = [n for n in range(10) if n % 2 == 0]
+print(evens)
+
+labels = ["even" if n % 2 == 0 else "odd" for n in range(4)]
+print(labels)
+
+words = ["apple", "Bob", "cherry", "Dee"]
+print({w: len(w) for w in words})
+print(sorted({w[0].lower() for w in words}))
+
+# Same loop, written out
+result = []
+for n in range(1, 6):
+    result.append(n * n)
+print(result == squares)
+
+# Two loops in one comprehension: read left to right
+pairs = [(x, y) for x in range(3) for y in range(x)]
+print(pairs)
+
+# A generator expression computes lazily
+total = sum(n * n for n in range(1, 1001))
+print(total)
+gen = (n * n for n in range(3))
+print(next(gen), next(gen), next(gen))
+
+# The loop variable stays inside the comprehension
+n = "outer"
+_ = [n for n in range(3)]
+print(n)
+```
+
+```text
+[1, 4, 9, 16, 25]
+[0, 2, 4, 6, 8]
+['even', 'odd', 'even', 'odd']
+{'apple': 5, 'Bob': 3, 'cherry': 6, 'Dee': 3}
+['a', 'b', 'c', 'd']
+True
+[(1, 0), (2, 0), (2, 1)]
+333833500
+0 1 4
+outer
+```
+
+A list comprehension has the shape `[expression for name in iterable]`. Read it as "give me `expression` for each `name` in `iterable`". The loop version that follows it in the example builds the same list, and the check prints `True`. Add `if condition` at the end to keep only some items, as in `evens`.
+
+Two details trip people up. A filter (`if` at the end) *removes* items. A conditional expression (`"even" if ... else "odd"`) goes at the **front** and *chooses between two values* for every item, so it always needs its `else`.
+
+Change the brackets and you change the result. `{key: value for ...}` builds a dict and `{item for ...}` builds a set. A comprehension can contain more than one `for`, and the clauses read in the same order as nested loops would be written: `for x in range(3) for y in range(x)` means "for each `x`, for each `y` below it". Once a comprehension needs more than two clauses, or a condition you have to reread, write the plain loop instead. Clear beats clever.
+
+Round brackets make a **generator expression**. It produces items one at a time instead of building a whole list, which is ideal when something like `sum` or `max` will consume the values once. `next(gen)` pulls the next item by hand. The loop variable lives only inside the comprehension, so the outer `n` stays `"outer"`.
+
+## Unpacking in comprehensions <Since v="3.15" />
+
+Flattening nested data used to need two `for` clauses or `itertools.chain`. Python 3.15 (PEP 798) lets you put `*` or `**` in front of the expression, and it unpacks each item into the result.
+
+```python title="comprehension_unpacking.py"
+lists = [[1, 2], [3, 4], [5]]
+
+print([x for sub in lists for x in sub])
+print([*sub for sub in lists])
+
+sets = [{1, 2}, {2, 3}, {3, 4}]
+print(sorted({*s for s in sets}))
+
+dicts = [{"a": 1}, {"b": 2}, {"a": 3}]
+print({**d for d in dicts})
+
+gen = (*sub for sub in lists)
+print(list(gen))
+
+# Filtering still works
+print([*sub for sub in lists if len(sub) > 1])
+```
+
+```text
+[1, 2, 3, 4, 5]
+[1, 2, 3, 4, 5]
+[1, 2, 3, 4]
+{'a': 3, 'b': 2}
+[1, 2, 3, 4, 5]
+[1, 2, 3, 4]
+```
+
+`[*sub for sub in lists]` means the same as `[x for sub in lists for x in sub]`, with less to read. `{*s for s in sets}` joins sets, `{**d for d in dicts}` merges dicts (later keys win, so `"a"` ends up as 3), and `(*sub for sub in lists)` is the generator form. The `if` filter in the last line applies to each `sub`, not to the individual numbers.
+
+This syntax is a syntax error before 3.15, so use the nested form when your code must run on 3.14 or earlier. You will meet both styles in real code for years.
+
+## Common pitfalls
+
+- **Cramming in too much.** A comprehension with several loops and conditions is harder to read than a loop. Switch to a loop.
+- **Putting `else` in the filter position.** `[n for n in xs if n > 0 else 0]` is a syntax error. Move the conditional to the front: `[n if n > 0 else 0 for n in xs]`.
+- **Building a huge list just to loop once.** Use a generator expression, `sum(x for x in xs)`, to avoid holding everything in memory.
+- **Side effects inside comprehensions.** Calling `print` or appending to another list inside one works but hides intent. Use a loop.
+- **Expecting the flat form to filter inner items.** `[*sub for sub in lists if ...]` filters whole sublists. To filter items, build the inner list first or use the two-`for` form.
+- **Using `*` in a comprehension on 3.14 or earlier.** It is a `SyntaxError` there.
+
+<Exercise title="Flatten and filter nested data">
+
+Given a list of orders, each holding a list of items, collect every item from all orders except Ben's. Write it in two styles: nested `for` clauses, and the 3.15 unpacking form. Then list the distinct items sorted.
+
+<Solution>
+
+```python title="flatten_filter.py"
+orders = [
+    {"customer": "Ada", "items": ["pen", "ink", "pen"]},
+    {"customer": "Ben", "items": ["tape"]},
+    {"customer": "Cy", "items": []},
+    {"customer": "Dee", "items": ["paper", "pen"]},
+]
+
+# Style 1: nested comprehension (works on every Python 3)
+nested = [
+    item
+    for order in orders
+    if order["customer"] != "Ben"
+    for item in order["items"]
+]
+print(nested)
+
+# Style 2: unpacking comprehension (3.15 and later)
+unpacked = [*order["items"] for order in orders if order["customer"] != "Ben"]
+print(unpacked)
+
+print(nested == unpacked)
+
+# Filtering the inner items as well
+no_ink = [item for order in orders for item in order["items"] if item != "ink"]
+print(no_ink)
+print(sorted({item for order in orders for item in order["items"]}))
+```
+
+```text
+['pen', 'ink', 'pen', 'paper', 'pen']
+['pen', 'ink', 'pen', 'paper', 'pen']
+True
+['pen', 'pen', 'tape', 'paper', 'pen']
+['ink', 'paper', 'pen', 'tape']
+```
+
+The two styles give identical lists. The filter on customers sits between the two `for` clauses in the nested form, because it applies to each `order` before its items are visited. When you must filter the individual items, as in `no_ink`, the nested form is the better tool. The final line uses a set comprehension to find the distinct items.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Transpose a matrix">
+
+Turn `[[1, 2, 3], [4, 5, 6]]` into `[[1, 4], [2, 5], [3, 6]]` with a nested comprehension. Then build a dict mapping each name in `["Ada", "Ben", "Cy"]` to its position.
+
+<Solution>
+
+```python title="transpose.py"
+matrix = [[1, 2, 3], [4, 5, 6]]
+
+transposed = [[row[i] for row in matrix] for i in range(len(matrix[0]))]
+print(transposed)
+
+# zip does the same job, and the star unpacks the rows
+print([list(col) for col in zip(*matrix)])
+
+names = ["Ada", "Ben", "Cy"]
+print({name: index for index, name in enumerate(names)})
+```
+
+```text
+[[1, 4], [2, 5], [3, 6]]
+[[1, 4], [2, 5], [3, 6]]
+{'Ada': 0, 'Ben': 1, 'Cy': 2}
+```
+
+The inner comprehension builds one new row by taking element `i` from every old row. The outer one repeats that for each column index. The `zip(*matrix)` version spreads the rows into separate arguments and lets `zip` regroup them by column.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `[expr for x in items if cond]` builds a list. Braces build a set, `{k: v ...}` builds a dict, and parentheses make a lazy generator expression.
+- A filter goes at the end. A conditional expression with `else` goes at the front.
+- <Since v="3.15" /> `[*sub for sub in lists]` and `{**d for d in dicts}` flatten and merge without a second `for`.
+
+Next: [choosing the right collection](../choosing-collections/).
