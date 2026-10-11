@@ -1,6 +1,6 @@
 {
  "updated": "2026-10-11",
- "pr_counter": 30,
+ "pr_counter": 37,
  "phase": "content",
  "decisions": {
   "stack": "Astro + MDX, custom design (no stock docs theme), deployed to GitHub Pages",
@@ -231,11 +231,40 @@
   {
    "n": 28,
    "title": "Add Python beginner module B6: Putting it together"
+  },
+  {
+   "n": 30,
+   "title": "Add fundamentals module 4: Algorithms and complexity"
+  },
+  {
+   "n": 31,
+   "title": "Add Python intermediate module I1: Errors and files"
+  },
+  {
+   "n": 32,
+   "title": "Add fundamentals module 5: Working like a programmer"
+  },
+  {
+   "n": 33,
+   "title": "Add Python intermediate module I2: Modules, packages and tooling"
+  },
+  {
+   "n": 34,
+   "title": "Add Python intermediate module I3: Object-oriented Python"
+  },
+  {
+   "n": 35,
+   "title": "Rebalance fundamentals modules 1\u20133 to be language-neutral"
+  },
+  {
+   "n": 36,
+   "title": "Add Python intermediate module I4: Iteration and functional tools"
   }
  ],
  "next_actions": [
-  "Running: Python I1 'Errors and files' and fundamentals module 4",
-  "Then: Python I2\u2013I5, fundamentals modules 5+",
+  "Running: Python I5 'Testing, debugging and quality' (Writer)",
+  "Then: W4 intermediate audit (Gap Finder + Improver in parallel)",
+  "Then: Python advanced (Writer on Opus)",
   "Retry W5 batch 3 when Wikipedia allows"
  ],
  "escalations": [],
@@ -388,12 +417,42 @@
    "wf": "W2",
    "item": "Fundamentals F4",
    "status": "running"
+  },
+  {
+   "wf": "W2",
+   "item": "Fundamentals F5",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python I2",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python I3",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Fundamentals F1\u2013F3 rebalance",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python I4",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python I5",
+   "status": "running"
   }
  ],
  "agents": {
   "advisor": {
    "status": "waiting",
-   "task": "Routing round: I1 and fundamentals module 4"
+   "task": "Waiting on I5 Writer; I4 merged (#36)"
   },
   "researcher": {
    "status": "done",
@@ -405,7 +464,7 @@
   },
   "writer": {
    "status": "working",
-   "task": "W2 \u00d72: Python I1 'Errors and files' and fundamentals module 4 (language-neutral)"
+   "task": "W2: Python I5 'Testing, debugging and quality'"
   },
   "validator": {
    "status": "idle"
@@ -424,7 +483,7 @@
   }
  },
  "lessons": {
-  "written": 55,
+  "written": 96,
   "planned": 141
  },
  "language_status": {
@@ -712,6 +771,12 @@
    "from": "advisor",
    "to": "github",
    "msg": "PR 28 merged: B6 'Putting it together'. Beginner level complete (37 lessons). I1 and fundamentals module 4 dispatched."
+  },
+  {
+   "t": "15:20",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PRs 30\u201336 merged: fundamentals complete and language-neutral (28 lessons); Python intermediate I1\u2013I4 (31 lessons). I5 in progress."
   }
  ],
  "model_review": [
@@ -770,17 +835,22 @@
    "B3",
    "B4",
    "B5",
-   "B6"
+   "B6",
+   "I1",
+   "I2",
+   "I3",
+   "I4"
   ],
   "fundamentals": [
    "F1",
    "F2",
-   "F3"
+   "F3",
+   "F4",
+   "F5"
   ]
  },
  "catalog_fixes_needed": [],
  "audit_backlog": [
-  "Fundamentals track should be genuinely language-neutral (being applied from module 4)",
   "Retry W5 summaries batch 3+ when Wikipedia rate limit clears (545 templated summaries remain)"
  ]
 }
