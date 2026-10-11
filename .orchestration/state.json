@@ -1,6 +1,6 @@
 {
- "updated": "2026-10-10",
- "pr_counter": 12,
+ "updated": "2026-10-11",
+ "pr_counter": 19,
  "phase": "content",
  "decisions": {
   "stack": "Astro + MDX, custom design (no stock docs theme), deployed to GitHub Pages",
@@ -163,12 +163,41 @@
   {
    "n": 11,
    "title": "Add Python beginner module B1: Getting started"
+  },
+  {
+   "n": 12,
+   "title": "Record round 1 merges and round 2 dispatch in state"
+  },
+  {
+   "n": 13,
+   "title": "Add Python beginner module B2: Numbers and text"
+  },
+  {
+   "n": 14,
+   "title": "Add fundamentals module 2: Control flow and functions"
+  },
+  {
+   "n": 15,
+   "title": "Add Python beginner module B3: Control flow"
+  },
+  {
+   "n": 16,
+   "title": "Add fundamentals module 3: Data structures"
+  },
+  {
+   "n": 17,
+   "title": "Add tier-3 language summaries batch 2"
+  },
+  {
+   "n": 18,
+   "title": "Add Python beginner module B4: Collections"
   }
  ],
  "next_actions": [
-  "Running: W2 Python B2, W2 fundamentals module 2, W5 batch 2",
-  "Then: Python B3\u2013B5 and fundamentals modules 3+; W4 level audit (Gap Finder + Improver) after B5",
-  "W5 batches 3\u201315"
+  "Running: W2 Python B5 'Functions'",
+  "After B5: W4 beginner-level audit (Gap Finder \u2225 Improver) plus audit_backlog fixes",
+  "Retry W5 batch 3 later (Wikipedia rate limit); fix catalog_fixes_needed",
+  "Then W2 Python intermediate I1\u2013I5 and fundamentals modules 4+"
  ],
  "escalations": [],
  "workflows": [
@@ -254,23 +283,48 @@
   {
    "wf": "W2",
    "item": "Python B2",
-   "status": "running"
+   "status": "complete"
   },
   {
    "wf": "W2",
    "item": "Fundamentals F2",
-   "status": "running"
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python B3",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Fundamentals F3",
+   "status": "complete"
   },
   {
    "wf": "W5",
    "item": "Catalog batch 2",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python B4",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python B5",
    "status": "running"
+  },
+  {
+   "wf": "W5",
+   "item": "Catalog batch 3",
+   "status": "on hold"
   }
  ],
  "agents": {
   "advisor": {
    "status": "waiting",
-   "task": "Routing; waiting on round 2"
+   "task": "Routing; Opus again after a temporary switch to Haiku"
   },
   "researcher": {
    "status": "done",
@@ -282,11 +336,11 @@
   },
   "writer": {
    "status": "working",
-   "task": "W2 \u00d72: Python B2 'Numbers and text' and fundamentals module 2"
+   "task": "W2: Python B5 'Functions' (last beginner module)"
   },
   "validator": {
    "status": "done",
-   "task": "B1: FAIL (outdated Windows installer), then PASS after the fix"
+   "task": "B3 PASS ('~True' removal in 3.16 verified against the docs)"
   },
   "gapfinder": {
    "status": "idle"
@@ -295,12 +349,12 @@
    "status": "idle"
   },
   "summarizer": {
-   "status": "working",
-   "task": "W5 batch 2 (tier-3 entries 41\u201380)"
+   "status": "waiting",
+   "task": "W5 batch 3 on hold (Wikipedia rate limit)"
   }
  },
  "lessons": {
-  "written": 12,
+  "written": 43,
   "planned": 135
  },
  "language_status": {
@@ -486,6 +540,54 @@
    "from": "advisor",
    "to": "writer, writer, summarizer",
    "msg": "Round 2 dispatched: Python B2, fundamentals module 2, catalog batch 2."
+  },
+  {
+   "t": "10-10 17:40",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PRs 13 (B2) and 14 (fundamentals module 2) merged."
+  },
+  {
+   "t": "10-10 17:55",
+   "from": "validator",
+   "to": "advisor",
+   "msg": "B3 PASS. '~True' deprecated in 3.12, removal in 3.16, confirmed against the docs."
+  },
+  {
+   "t": "10-10 18:00",
+   "from": "system",
+   "to": "advisor",
+   "msg": "Session rate limit hit. Fundamentals module 3 and batch 2 stopped before committing."
+  },
+  {
+   "t": "10-11 01:50",
+   "from": "advisor",
+   "to": "github",
+   "msg": "Resumed: PR 15 (B3) opened and merged; fundamentals module 3 and batch 2 relaunched."
+  },
+  {
+   "t": "10-11 01:55",
+   "from": "user",
+   "to": "advisor",
+   "msg": "Reported a CI failure. Cause: GitHub's legacy Jekyll Pages build. The user switched the Pages source to GitHub Actions."
+  },
+  {
+   "t": "10-11 02:00",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PRs 16 (fundamentals module 3) and 17 (batch 2) merged. Only the Astro deploy runs now."
+  },
+  {
+   "t": "10-11 02:03",
+   "from": "summarizer",
+   "to": "advisor",
+   "msg": "Batch 3: Wikipedia rate-limited; only 3 of 40 verified. Held, not merged."
+  },
+  {
+   "t": "10-11 02:05",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PR 18 (B4) merged: PEP 584, 814 and 798 claims verified. B5 dispatched."
   }
  ],
  "model_review": [
@@ -532,16 +634,31 @@
  ],
  "board_url": "https://claude.ai/artifact/TqB2ni7EugVvy8cGDNBYiM",
  "catalog_progress": {
-  "tier3_summarized": 40,
+  "tier3_summarized": 80,
   "tier3_total": 601,
-  "next_batch": 3
+  "next_batch": 3,
+  "note": "Batch 3 on hold: Wikipedia rate-limits this environment, even with batched queries. Retry later."
  },
  "modules_done": {
   "python": [
-   "B1"
+   "B1",
+   "B2",
+   "B3",
+   "B4"
   ],
   "fundamentals": [
-   "F1"
+   "F1",
+   "F2",
+   "F3"
   ]
- }
+ },
+ "catalog_fixes_needed": [
+  "babbage: wikipedia link points to GEC 4000",
+  "cayenne: link points to a person",
+  "cg: link points to HLSL"
+ ],
+ "audit_backlog": [
+  "Redirect /learn/fundamentals/ to /fundamentals/",
+  "Older fundamentals lessons hard-code the /Programming-Tutorials/ base in links; switch them to relative links"
+ ]
 }
