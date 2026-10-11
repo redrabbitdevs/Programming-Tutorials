@@ -1,0 +1,4 @@
+PASS below the range
+PASS inside the range
+FAIL above the range - expected 10 but got 0
+1 failed

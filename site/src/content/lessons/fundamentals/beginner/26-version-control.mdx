@@ -1,0 +1,313 @@
+---
+language: fundamentals
+level: beginner
+module: Working like a programmer
+order: 26
+title: Version control with Git
+description: Track every change to your code with Git, work on ideas in branches, merge them back, resolve a conflict and share work through a remote.
+objectives:
+  - Explain what a repository, a commit, a branch and a remote are
+  - Use the everyday cycle of status, add, commit and log
+  - Create a branch, merge it and resolve a merge conflict
+  - Keep generated files and secrets out of a repository with .gitignore
+  - Describe how a pull request fits into working with others
+estimatedMinutes: 70
+fundamentals:
+  - fundamentals/beginner/02-tools-of-the-trade
+  - fundamentals/beginner/24-debugging
+  - fundamentals/beginner/25-testing-mindset
+---
+
+Sooner or later you will break something that worked ten minutes ago, and wish you could go back. Or you will want to try a risky idea without losing the working version. Or two people will edit the same file. **Version control** solves all three: it records the history of a project so you can inspect, compare, undo and combine changes.
+
+**Git** is the version control system used almost everywhere. It runs the same way whatever language you write, so this lesson uses no language tabs. You will type commands in the terminal from the [tools lesson](../tools-of-the-trade/). Git is installed on most systems; check with `git --version`.
+
+## The core ideas
+
+| Term | Meaning |
+|---|---|
+| **Repository** (repo) | A project folder plus its complete history, stored in a hidden `.git` folder inside it |
+| **Commit** | A saved snapshot of the project, with a message, an author, a time and a pointer to the previous commit |
+| **Working directory** | The files as you see and edit them now |
+| **Staging area** | A waiting room where you choose which changes go into the next commit |
+| **Branch** | A named line of commits. It lets you work on something without disturbing the main line |
+| **Merge** | Combining the changes from one branch into another |
+| **Remote** | Another copy of the repository, usually on a server, that you can push to and pull from |
+
+The staging area surprises beginners. Think of it like packing a box: you edit several files, then `git add` only the ones that belong together, then `git commit` seals the box with a label. This lets you make several small, focused commits from a messy afternoon of editing.
+
+Before your first commit, tell Git who you are. This is done once per computer:
+
+```text
+git config --global user.name "Your Name"
+git config --global user.email "you@example.com"
+```
+
+## The everyday cycle
+
+The following session is real output from a new folder. The `$` marks a command you type. Your commit identifiers (the short codes such as `f6292ee`) will differ from the ones shown, because each is computed from the content and time.
+
+```text
+$ git init -b main
+Initialized empty Git repository in .../gitdemo/.git/
+$ git status --short
+?? greeting.txt
+```
+
+`git init` turns the current folder into a repository, and `-b main` names the first branch `main`. The `??` in `git status` means Git sees `greeting.txt` but is not tracking it yet. Stage it and commit:
+
+```text
+$ git add greeting.txt
+$ git commit -m "Add greeting"
+[main (root-commit) f6292ee] Add greeting
+ 1 file changed, 1 insertion(+)
+ create mode 100644 greeting.txt
+```
+
+Now change the file to say `Hello, everyone`, and look at what changed with `git diff`:
+
+```text
+$ git diff
+diff --git a/greeting.txt b/greeting.txt
+index a5c1966..991915b 100644
+--- a/greeting.txt
++++ b/greeting.txt
+@@ -1 +1 @@
+-Hello, world
++Hello, everyone
+```
+
+A line starting with `-` was removed and one starting with `+` was added. Reading a diff before you commit is the best habit you can build: it shows what you are about to record, including debug prints you forgot to remove. Commit the change. The `-a` option stages every change to files Git already tracks, and `-m` gives the message:
+
+```text
+$ git commit -am "Greet everyone"
+[main a319838] Greet everyone
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+The four commands you will use most are `git status` (what has changed?), `git add` (stage this), `git commit` (record it) and `git log` (show the history). Good commit messages say what the change does, in the imperative: "Fix off-by-one in sum_to", not "stuff" or "fixed it". Each commit should be one logical change that you can describe in a line.
+
+## Branches and merging
+
+A branch lets you work on an idea in isolation. Create one with `git switch -c` (older Git versions use `git checkout -b`), make a commit on it, then go back to `main`:
+
+```text
+$ git switch -c friendly
+Switched to a new branch 'friendly'
+$ git commit -am "Greet a friend"
+[friendly ec4254a] Greet a friend
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+$ git switch main
+Switched to branch 'main'
+```
+
+On `friendly`, we changed the greeting to `Hello, friend`. Back on `main`, the file again says `Hello, everyone`. Switching branches swaps the files in your folder to match. Merging brings the branches back together: you switch to the branch that should receive the work, and run `git merge` with the other branch's name. When the two branches changed different files, or different lines, Git combines them automatically.
+
+## Resolving a conflict
+
+Here, though, `main` also changed the same line, to `Hello, everybody`, so both branches rewrote the same line differently. Git cannot know which is right, so it stops and asks you:
+
+```text
+$ git commit -am "Greet everybody"
+[main a9472e7] Greet everybody
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+$ git merge friendly
+Auto-merging greeting.txt
+CONFLICT (content): Merge conflict in greeting.txt
+Automatic merge failed; fix conflicts and then commit the result.
+$ git status --short
+UU greeting.txt
+```
+
+A conflict is not an error in the repository. It is Git saying "a human must decide". The file now holds both versions between markers:
+
+```text
+<<<<<<< HEAD
+Hello, everybody
+=======
+Hello, friend
+>>>>>>> friendly
+```
+
+Everything between `<<<<<<< HEAD` and `=======` is your current branch's version. Everything between `=======` and `>>>>>>> friendly` is the incoming version. To resolve it, open the file in your editor, decide what the final text should be (one side, the other, or a blend), and delete all three marker lines. Here we write `Hello, everyone and friends` and then tell Git the conflict is settled:
+
+```text
+$ git add greeting.txt
+$ git commit -m "Merge friendly"
+[main d838595] Merge friendly
+$ git log --oneline --graph
+*   d838595 Merge friendly
+|\
+| * ec4254a Greet a friend
+* | a9472e7 Greet everybody
+|/
+* a319838 Greet everyone
+* f6292ee Add greeting
+```
+
+The graph shows the history splitting where `friendly` began and rejoining at the merge commit. Run the tests from the [testing lesson](../testing-mindset/) after every merge: a merge can succeed without conflicts and still break the program.
+
+To abandon a merge that has gone wrong, run `git merge --abort`.
+
+## Remotes and pull requests
+
+So far everything lives on your computer. A **remote** is a copy of the repository elsewhere, typically on a hosting service such as GitHub, GitLab or Codeberg, that acts as the shared meeting point. The commands are:
+
+| Command | What it does |
+|---|---|
+| `git clone <url>` | Copy an existing repository to your computer, with its full history |
+| `git remote add origin <url>` | Connect your local repository to a remote, conventionally called `origin` |
+| `git push -u origin main` | Upload your `main` branch and remember the link for next time |
+| `git pull` | Download new commits from the remote and merge them into your branch |
+| `git fetch` | Download new commits without merging them, so you can look first |
+
+Teams rarely push straight to `main`. The usual workflow is:
+
+1. Create a branch for one task and make commits on it.
+2. Push the branch to the remote.
+3. Open a **pull request** (PR) on the hosting service. This asks the team to review your branch and merge it. It is not a Git command; it is a feature of the service.
+4. Teammates read the diff, comment, and ask for changes. Automated tests often run too.
+5. Once approved, the branch is merged into `main`.
+
+Small, focused pull requests are far easier to review than large ones, which is another reason to commit one logical change at a time.
+
+## What to keep out: .gitignore
+
+Not every file belongs in the history. Generated files (compiled output, caches), dependency folders, editor settings and above all **secrets** such as passwords and API keys should stay out. A file named `.gitignore` in the project root lists patterns Git will skip:
+
+```text
+# Python
+__pycache__/
+*.pyc
+
+# JavaScript
+node_modules/
+
+# Java and C build output
+*.class
+*.o
+build/
+
+# Secrets and local settings
+.env
+```
+
+A trailing slash matches a folder, `*` matches any run of characters, and a line starting with `#` is a comment. Add `.gitignore` early: a file that is already tracked stays tracked even if you list it afterwards.
+
+Secrets deserve extra care. History is permanent. If you commit a password and delete it in the next commit, it is still in the old one, and once pushed you must treat it as stolen and change it. The [last lesson](../clean-code-and-security-basics/) returns to this.
+
+## Common pitfalls
+
+- **Huge, vague commits.** "Update" with 40 changed files cannot be reviewed or undone cleanly. Commit small and often.
+- **Committing without looking.** Run `git status` and `git diff` first, so that stray files and debug prints do not go in.
+- **Committing secrets or generated files.** Set up `.gitignore` at the start.
+- **Panicking at a conflict.** Read the markers, decide, remove them, `git add`, `git commit`. Use `git merge --abort` if you want to back out.
+- **Leaving conflict markers in the file.** If a `<<<<<<<` line is still there, the program is probably broken. Search for them before committing.
+- **Working only on `main`.** Branches are cheap. Use one per task.
+- **Forgetting that a commit is local.** Until you push, nobody else has it, and it lives only on your disk.
+
+<Exercise title="Five commits, a branch, a merge and a conflict">
+
+In an empty folder, repeat the session from this lesson using your own words. Steps and what you should see:
+
+1. `git init -b main`, create `notes.txt` with the line `first`, and commit it with the message `Add notes`.
+2. Make two more commits on `main`: append the line `second`, commit; append `third`, commit. `git log --oneline` should now list 3 commits.
+3. Create a branch `edit` and change line 1 to `FIRST`. Commit.
+4. Switch back to `main` and change line 1 to `one`. Commit. You now have 5 commits in total across the two branches.
+5. On `main`, run `git merge edit`. Expected: `CONFLICT (content): Merge conflict in notes.txt`.
+6. Open `notes.txt`, and edit the first line so that it reads `One`, with the other two lines unchanged and all marker lines removed. Run `git add notes.txt` and `git commit -m "Merge edit"`.
+7. Check the result with `git log --oneline --graph`. Expected: a merge commit at the top with two parents, and `cat notes.txt` showing `One`, `second`, `third`.
+
+<Solution>
+
+The full sequence of commands:
+
+```text
+git init -b main
+echo "first" > notes.txt
+git add notes.txt
+git commit -m "Add notes"
+echo "second" >> notes.txt
+git commit -am "Add second line"
+echo "third" >> notes.txt
+git commit -am "Add third line"
+git switch -c edit
+sed -i 's/^first$/FIRST/' notes.txt
+git commit -am "Capitalise first line"
+git switch main
+sed -i 's/^first$/one/' notes.txt
+git commit -am "Rename first line"
+git merge edit
+```
+
+The last command stops with a conflict on line 1 (`one` against `FIRST`; lines 2 and 3 are unchanged on both sides, so only line 1 conflicts). Edit the file so it reads:
+
+```text
+One
+second
+third
+```
+
+Then finish:
+
+```text
+git add notes.txt
+git commit -m "Merge edit"
+git log --oneline --graph
+```
+
+(`sed -i` edits a file in place; `-i` behaves slightly differently on macOS, where you can simply use your editor.) The graph will show the two lines of work joining in the top commit.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict what gets ignored">
+
+A project has this `.gitignore`:
+
+```text
+*.log
+build/
+.env
+```
+
+For each path, say whether Git will track it or ignore it: (1) `app.log`, (2) `logs/debug.log`, (3) `build/output.o`, (4) `src/build.py`, (5) `.env`, (6) `.env.example`.
+
+<Solution>
+
+1. Ignored. `*.log` matches any file ending in `.log`.
+2. Ignored. A pattern without a slash in the middle matches at any depth.
+3. Ignored. `build/` matches the folder and everything in it.
+4. Tracked. `build/` only matches a folder; `src/build.py` is a file in `src`.
+5. Ignored. The exact name `.env`.
+6. Tracked. `.env.example` is a different name, so the pattern does not match. That is deliberate: a template file listing the setting names (without real values) is safe to commit.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Choose the command">
+
+Which Git command does each job? (1) See which files you have changed. (2) Record the staged changes with a message. (3) See the lines you changed. (4) Start a new line of work called `fix-typo`. (5) Download a teammate's new commits and merge them.
+
+<Solution>
+
+1. `git status`.
+2. `git commit -m "message"`.
+3. `git diff`.
+4. `git switch -c fix-typo`.
+5. `git pull`.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- A repository stores a project's whole history as commits. The cycle is edit, `git status` and `git diff`, `git add`, `git commit`.
+- Branches let you work on an idea in isolation. `git merge` combines them. When both sides edit the same lines you get a conflict: choose the final text, remove the markers, `git add`, `git commit`.
+- A remote is a shared copy. You `push` and `pull`, and a pull request is how a team reviews a branch before it is merged.
+- `.gitignore` keeps generated files and secrets out. A committed secret stays in history forever.
+
+You will spend a lot of time in code that is not yours, so the next lesson is about [reading documentation and other people's code](../reading-docs-and-code/).

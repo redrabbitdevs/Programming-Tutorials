@@ -1,0 +1,3 @@
+unsafe query: SELECT name FROM users WHERE name = 'nobody' OR '1'='1'
+unsafe rows: [('ada',), ('bob',)]
+safe rows: []

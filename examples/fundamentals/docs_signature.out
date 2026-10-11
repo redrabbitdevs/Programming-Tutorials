@@ -1,0 +1,6 @@
+sorted (iterable, /, *, key=None, reverse=False)
+str.split (self, /, sep=None, maxsplit=-1)
+round (number, ndigits=None)
+['banana', 'pear', 'fig']
+['a', 'b', 'c,d']
+3.14
