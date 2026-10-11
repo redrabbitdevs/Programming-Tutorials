@@ -1,0 +1,3 @@
+appends=10 copies=15
+appends=100 copies=127
+appends=1000 copies=1023

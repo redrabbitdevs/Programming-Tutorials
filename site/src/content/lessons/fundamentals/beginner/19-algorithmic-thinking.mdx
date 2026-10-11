@@ -1,0 +1,542 @@
+---
+language: fundamentals
+level: beginner
+module: Algorithms and complexity
+order: 19
+title: Algorithmic thinking
+description: Plan a solution in plain steps before you write code, using decomposition, pseudocode, worked examples and a deliberate hunt for edge cases.
+objectives:
+  - Break a problem into smaller steps that can each be checked on their own
+  - Write a solution as pseudocode and trace it by hand on a worked example
+  - List the edge cases of a problem before coding, and check the plan against them
+  - Recognise that a plan which works on every example can still be the wrong plan
+estimatedMinutes: 50
+fundamentals:
+  - fundamentals/beginner/08-loops
+  - fundamentals/beginner/09-functions
+  - fundamentals/beginner/13-sequences-and-arrays
+---
+
+The first three modules taught you the parts: values, decisions, loops, functions and collections. This module is about putting them together deliberately. An **algorithm** is a finite, unambiguous list of steps that turns an input into an output. You have already written several, so this lesson is not about a new construct. It is about the habit of working out the steps before you type them.
+
+## Why plan first
+
+Code forces you to be exact about syntax, and that is the wrong moment to also be working out the idea. If the idea is unclear, you end up changing lines at random until the output looks right. A plan separates the two jobs: first decide what the steps are, then spell them in a language.
+
+A good plan is built from four moves, and the rest of the lesson takes them in turn.
+
+| Move | The question it answers |
+|---|---|
+| Restate the problem | What exactly goes in, and what exactly comes out? |
+| Work an example by hand | What do I actually do, step by step, on a small input? |
+| Write the steps as pseudocode | Can I say it precisely without any language's syntax? |
+| Hunt for edge cases | Where would my steps break or give a silly answer? |
+
+## Decomposition
+
+**Decomposition** means splitting a problem into smaller problems until each one is easy. You did this in the [functions lesson](../functions/) when you broke a long script into four functions. The same idea applies before any code exists.
+
+Take the task "report the largest number in a list". Stated that way it sounds like a single step, but a person doing it by eye is doing several things at once. Written out, it is:
+
+1. Decide what to do if there are no numbers at all.
+2. Pick a starting candidate for "the largest so far".
+3. Look at each remaining number in turn, one at a time.
+4. Whenever a number beats the candidate, replace the candidate.
+5. When the numbers run out, the candidate is the answer.
+
+Each step is small enough that you can see it is right. Step 3 is a loop, step 4 is an `if`, and step 1 is a guard at the top. The decomposition has already told you the shape of the program.
+
+## Pseudocode
+
+**Pseudocode** is a plan written in structured plain language. It has no fixed syntax, so it is not run by anything. Its job is to be precise enough that you could translate it into any language without making new decisions. A reasonable style uses indentation for blocks and a few verbs: `set`, `if`, `for each`, `while`, `return`, `print`.
+
+```text
+procedure print_largest(numbers)
+    if numbers has no items
+        print "no numbers"
+        stop
+    set best to the first item
+    for each n in numbers
+        if n is greater than best
+            set best to n
+    print "largest:", best
+```
+
+Read it as you would read a recipe. Notice that it says nothing about `def`, braces, semicolons or types. That is deliberate. The same plan becomes code in any of the four languages used in this track, and the translation is mechanical.
+
+## Work an example by hand first
+
+Before trusting the plan, run it on paper. Use a small input and keep a table of the variables, exactly as you did when tracing variables in the [variables lesson](../variables-and-assignment/). For the numbers `3, 9, 4`:
+
+| Step | n | best | Comparison |
+|---|---|---|---|
+| start | | 3 | best is the first item |
+| 1 | 3 | 3 | 3 > 3? no |
+| 2 | 9 | 9 | 9 > 3? yes, replace |
+| 3 | 4 | 9 | 4 > 9? no |
+| end | | 9 | print "largest: 9" |
+
+A hand trace catches most planning mistakes cheaply. If the table ever contradicts what you expected, the plan is wrong, and you found out before writing a line of code. The first row also shows something you might have missed: the loop compares the first item with itself. That is harmless here, and noticing it is the kind of detail a trace gives you.
+
+## From plan to code
+
+Here is the plan in all four languages. Each tab is a complete program. The function name and the structure are the same in every tab, because they all come from the same pseudocode.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="largest_demo.py"
+def print_largest(nums):
+    if len(nums) == 0:
+        print("no numbers")
+        return
+    best = nums[0]
+    for n in nums:
+        if n > best:
+            best = n
+    print("largest:", best)
+
+
+print_largest([3, 9, 4])
+print_largest([-5, -2, -8])
+print_largest([])
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="largest_demo.js"
+function printLargest(nums) {
+  if (nums.length === 0) {
+    console.log("no numbers");
+    return;
+  }
+  let best = nums[0];
+  for (const n of nums) {
+    if (n > best) {
+      best = n;
+    }
+  }
+  console.log("largest:", best);
+}
+
+printLargest([3, 9, 4]);
+printLargest([-5, -2, -8]);
+printLargest([]);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="LargestDemo.java"
+public class LargestDemo {
+    static void printLargest(int[] nums) {
+        if (nums.length == 0) {
+            System.out.println("no numbers");
+            return;
+        }
+        int best = nums[0];
+        for (int n : nums) {
+            if (n > best) {
+                best = n;
+            }
+        }
+        System.out.println("largest: " + best);
+    }
+
+    public static void main(String[] args) {
+        printLargest(new int[] {3, 9, 4});
+        printLargest(new int[] {-5, -2, -8});
+        printLargest(new int[] {});
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="largest_demo.c"
+#include <stdio.h>
+
+static void print_largest(const int *nums, int count) {
+    if (count == 0) {
+        printf("no numbers\n");
+        return;
+    }
+    int best = nums[0];
+    for (int i = 0; i < count; i++) {
+        if (nums[i] > best) {
+            best = nums[i];
+        }
+    }
+    printf("largest: %d\n", best);
+}
+
+int main(void) {
+    int a[] = {3, 9, 4};
+    int b[] = {-5, -2, -8};
+    print_largest(a, 3);
+    print_largest(b, 3);
+    print_largest(NULL, 0);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+largest: 9
+largest: -2
+no numbers
+```
+
+C needs the length passed separately because an array does not know its own size, which is why `print_largest` takes `count`. Everything else lines up one for one with the pseudocode.
+
+## Edge cases
+
+An **edge case** is an input at the boundary of what your plan was designed for. Plans fail there far more often than in the middle. When you design, ask the same short list of questions every time:
+
+| Question | Example for "largest number" |
+|---|---|
+| What if the input is empty? | `[]` has no largest number at all |
+| What if it has exactly one item? | `[7]` should give 7 |
+| What if every item is equal? | `[4, 4, 4]` should give 4 |
+| What if values are negative or zero? | `[-5, -2, -8]` should give -2 |
+| What if the extremes sit at the first or last position? | `[9, 1, 2]` and `[1, 2, 9]` |
+| What if the input is huge? | Does the plan still finish in reasonable time? |
+
+The third line of output above is the empty case, and the second line is the negative case. The negative case guards against a very common wrong plan: starting `best` at `0`. That plan passes the example `3, 9, 4`, and then reports `0` for `-5, -2, -8`, which is not even in the list. Starting `best` at the first item, as the pseudocode does, removes the problem.
+
+Notice also that the empty case needed a decision, not just code. The plan has to say what the answer is when there is no answer. Here it prints a message. Other designs return a special value or raise an error, as the [errors lesson](../errors-and-exceptions/) described. Any of those is fine, as long as you chose it on purpose.
+
+## A plan can pass its examples and still be wrong
+
+Making change is a good problem for seeing this. Given an amount in cents and a list of coin values, produce a set of coins that adds up to the amount, using as few coins as possible.
+
+The natural plan is **greedy**: always take the biggest coin that still fits.
+
+```text
+procedure show_change(amount, coins)        # coins listed largest first
+    for each coin in coins
+        while amount is at least coin
+            print coin
+            subtract coin from amount
+```
+
+Trace it by hand for 63 cents with coins 25, 10, 5, 1. It takes 25 (38 left), 25 (13 left), 10 (3 left), then skips 5, then takes 1 three times. That is six coins, and it is the best possible. Now the code, once more in four languages:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="change_demo.py"
+def show_change(amount, coins):
+    print(f"{amount}:", end="")
+    for coin in coins:
+        while amount >= coin:
+            print(f" {coin}", end="")
+            amount -= coin
+    print()
+
+
+show_change(63, [25, 10, 5, 1])
+show_change(6, [4, 3, 1])
+show_change(0, [25, 10, 5, 1])
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="change_demo.js"
+function showChange(amount, coins) {
+  let line = `${amount}:`;
+  for (const coin of coins) {
+    while (amount >= coin) {
+      line += ` ${coin}`;
+      amount -= coin;
+    }
+  }
+  console.log(line);
+}
+
+showChange(63, [25, 10, 5, 1]);
+showChange(6, [4, 3, 1]);
+showChange(0, [25, 10, 5, 1]);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="ChangeDemo.java"
+public class ChangeDemo {
+    static void showChange(int amount, int[] coins) {
+        StringBuilder line = new StringBuilder(amount + ":");
+        for (int coin : coins) {
+            while (amount >= coin) {
+                line.append(" ").append(coin);
+                amount -= coin;
+            }
+        }
+        System.out.println(line);
+    }
+
+    public static void main(String[] args) {
+        showChange(63, new int[] {25, 10, 5, 1});
+        showChange(6, new int[] {4, 3, 1});
+        showChange(0, new int[] {25, 10, 5, 1});
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="change_demo.c"
+#include <stdio.h>
+
+static void show_change(int amount, const int *coins, int count) {
+    printf("%d:", amount);
+    for (int i = 0; i < count; i++) {
+        while (amount >= coins[i]) {
+            printf(" %d", coins[i]);
+            amount -= coins[i];
+        }
+    }
+    printf("\n");
+}
+
+int main(void) {
+    int us[] = {25, 10, 5, 1};
+    int odd[] = {4, 3, 1};
+    show_change(63, us, 4);
+    show_change(6, odd, 3);
+    show_change(0, us, 4);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+63: 25 25 10 1 1 1
+6: 4 1 1
+0:
+```
+
+The first line is right. The third line shows the zero-amount edge case behaving sensibly: no coins, and no crash. The second line is the lesson. With a coin system of 4, 3 and 1, the plan hands back three coins for 6 cents (4, 1, 1), but 3 + 3 does it with two. The greedy plan is correct for the coins in your pocket and wrong for this system.
+
+Nothing in the first example could have warned you. Only an edge case chosen to attack the plan, a different set of coins, exposed it. Fixing it needs a different plan (one that considers more than the biggest coin), and problem-solving patterns later in this module give you the tools for that. For now, the point is the habit: a plan is not finished until you have tried to break it.
+
+## Common pitfalls
+
+- **Coding before you can explain the steps aloud.** If you cannot say what the program does in five or six plain sentences, the code will not be clearer than your understanding.
+- **Testing only the example you were given.** Sample inputs are usually the easy middle. Write your own at the boundaries.
+- **Initialising a running best or total with a made-up number** such as `0` or `-1`, when the real answer could be anything. Start from the first real item instead.
+- **Leaving the "no answer" case undecided.** Choose a behaviour (message, special value, error) and write it into the plan.
+- **Assuming a greedy choice is optimal.** Taking the locally best step is simple and often wrong. Look for a counterexample before you rely on it.
+
+<Exercise title="Plan an average, including the awkward input">
+
+Write pseudocode for a procedure that prints the whole-number average of a list of integers (the sum divided by the count, rounded down). Then trace it by hand and implement it.
+
+Inputs and expected output:
+
+| Input | Expected output |
+|---|---|
+| `[4, 8, 6]` | `average: 6` |
+| `[1, 2]` | `average: 1` |
+| `[]` | `no numbers` |
+
+<Solution>
+
+The empty list is the edge case: dividing by a count of zero is an error in every language, so the plan must test for it first.
+
+```text
+procedure print_average(numbers)
+    if numbers has no items
+        print "no numbers"
+        stop
+    set total to 0
+    for each n in numbers
+        add n to total
+    print "average:", total divided by the count, rounded down
+```
+
+<Tabs>
+<Tab label="Python">
+
+```python title="avg_demo.py"
+def print_average(nums):
+    if len(nums) == 0:
+        print("no numbers")
+        return
+    total = 0
+    for n in nums:
+        total += n
+    print("average:", total // len(nums))
+
+
+print_average([4, 8, 6])
+print_average([1, 2])
+print_average([])
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="avg_demo.js"
+function printAverage(nums) {
+  if (nums.length === 0) {
+    console.log("no numbers");
+    return;
+  }
+  let total = 0;
+  for (const n of nums) {
+    total += n;
+  }
+  console.log("average:", Math.floor(total / nums.length));
+}
+
+printAverage([4, 8, 6]);
+printAverage([1, 2]);
+printAverage([]);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="AvgDemo.java"
+public class AvgDemo {
+    static void printAverage(int[] nums) {
+        if (nums.length == 0) {
+            System.out.println("no numbers");
+            return;
+        }
+        int total = 0;
+        for (int n : nums) {
+            total += n;
+        }
+        System.out.println("average: " + total / nums.length);
+    }
+
+    public static void main(String[] args) {
+        printAverage(new int[] {4, 8, 6});
+        printAverage(new int[] {1, 2});
+        printAverage(new int[] {});
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="avg_demo.c"
+#include <stdio.h>
+
+static void print_average(const int *nums, int count) {
+    if (count == 0) {
+        printf("no numbers\n");
+        return;
+    }
+    int total = 0;
+    for (int i = 0; i < count; i++) {
+        total += nums[i];
+    }
+    printf("average: %d\n", total / count);
+}
+
+int main(void) {
+    int a[] = {4, 8, 6};
+    int b[] = {1, 2};
+    print_average(a, 3);
+    print_average(b, 2);
+    print_average(NULL, 0);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+Output:
+
+```text
+average: 6
+average: 1
+no numbers
+```
+
+(`total / count` rounds down for non-negative whole numbers in Java and C because both operands are integers. In JavaScript, `Math.floor` does the rounding; in Python, `//` does.)
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Break the greedy plan">
+
+Trace `show_change` by hand for each case below, writing down the coins taken and the remaining amount after each step. Then answer the question.
+
+| Amount | Coins (largest first) | Expected result from the plan |
+|---|---|---|
+| 63 | 25, 10, 5, 1 | 25 25 10 1 1 1 |
+| 6 | 4, 3, 1 | 4 1 1 |
+| 8 | 5, 4, 1 | ? |
+
+For the last row, write down what the plan produces, then find a combination with fewer coins.
+
+<Solution>
+
+For 8 with coins 5, 4, 1, the plan works like this:
+
+```text
+take 5            -> 3 left
+5 does not fit again; 4 does not fit (3 < 4)
+take 1            -> 2 left
+take 1            -> 1 left
+take 1            -> 0 left
+result: 5 1 1 1
+```
+
+That is four coins, but `4 4` is two. The plan fails here just as it did for 6 with coins 4, 3, 1, and a hand trace is enough to see it. "It worked for the examples I tried" proves very little about a plan. You need cases chosen to attack it.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Hunt edge cases for second largest">
+
+You are asked to print the second-largest value in a list. Without writing code, list at least five edge cases, and for each say what answer you would want. Include inputs like `[5]`, `[5, 5]` and `[]`.
+
+<Solution>
+
+A reasonable set, with the decisions made explicit:
+
+| Input | Decision |
+|---|---|
+| `[]` | No answer. Print "no second largest" |
+| `[5]` | No answer, because there is only one item |
+| `[5, 5]` | Decide whether duplicates count. If they do, the answer is 5. If you mean the second-largest distinct value, there is no answer |
+| `[1, 9, 9]` | Same decision: 9 if duplicates count, 1 if distinct values are meant |
+| `[-3, -7]` | -7, which shows `0` is the wrong starting value |
+| `[9, 1]` and `[1, 9]` | 1 both times, so the order of the input must not matter |
+
+Any consistent choice about duplicates is correct. Having to make it at all is what the exercise is for: the problem statement did not say, and a plan that quietly assumes one answer would give a surprise on `[5, 5]`.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- An algorithm is a finite list of unambiguous steps. Plan it before you code it.
+- Decomposition splits a problem into steps small enough to check by eye; pseudocode states them without any language's syntax, so the same plan translates into Python, JavaScript, Java or C.
+- Trace a small example by hand with a table of variables. It is the cheapest test there is.
+- Go through the standard edge cases (empty, one item, all equal, negative, extremes, huge) and decide the behaviour for each.
+- Passing the examples you were given does not make a plan right. The greedy change-making plan fails on some coin systems, which only a chosen counterexample reveals.
+
+The next lesson gives you a way to measure how much work a plan does as the input grows, in [Complexity and Big-O](../big-o/).

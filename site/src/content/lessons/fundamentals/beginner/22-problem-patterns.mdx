@@ -1,0 +1,916 @@
+---
+language: fundamentals
+level: beginner
+module: Algorithms and complexity
+order: 22
+title: Common problem-solving patterns
+description: Learn five reusable ideas, two pointers, sliding window, hashing for lookup, divide and conquer and memoisation, that each turn a slow solution into a fast one.
+objectives:
+  - Recognise the problem shapes that two pointers, a sliding window, hashing, divide and conquer and memoisation fit
+  - Implement each pattern and state the cost it saves, in Big-O terms
+  - Choose between a brute-force solution and a pattern by looking at the input size
+  - Name the precondition each pattern relies on
+estimatedMinutes: 65
+fundamentals:
+  - fundamentals/beginner/11-recursion
+  - fundamentals/beginner/14-maps-and-sets
+  - fundamentals/beginner/20-big-o
+  - fundamentals/beginner/21-searching-and-sorting
+---
+
+Most programming problems are not new. They are a familiar shape in a new costume, and experienced programmers solve them quickly because they recognise the shape. This lesson names five shapes. Each one has a slow, obvious solution (**brute force**: try everything) and a faster one that exploits some structure in the problem.
+
+| Pattern | Use it when | Brute force | With the pattern |
+|---|---|---|---|
+| Two pointers | The data is sorted, or you work from both ends | O(n²) | O(n) |
+| Sliding window | You need something about every run of `k` consecutive items | O(n × k) | O(n) |
+| Hashing for lookup | You keep asking "have I seen this?" | O(n²) | O(n) |
+| Divide and conquer | A big problem splits into smaller copies of itself | O(n) | O(log n) or O(n log n) |
+| Memoisation | The same sub-problem is solved repeatedly | O(2ⁿ) | O(n) |
+
+Every example below is a complete program in four languages and prints the same lines in each.
+
+## Two pointers
+
+Keep two positions in the data and move them toward each other (or in step) according to a rule, instead of testing every pair.
+
+**The problem.** Given a sorted list and a target, find two values that add up to the target.
+
+**Brute force** tries every pair: O(n²). **With two pointers**, put one pointer at the smallest value and one at the largest. If their sum is too small, the only way to increase it is to move the left pointer up. If it is too big, move the right pointer down. Each move discards a value that can no longer be part of the answer, so the pointers meet after at most `n` moves: O(n).
+
+```text
+ [1, 3, 4, 6, 8, 11]    target 10
+  L                R     1 + 11 = 12, too big   -> move R down
+  L             R        1 + 8  =  9, too small -> move L up
+     L          R        3 + 8  = 11, too big   -> move R down
+     L       R           3 + 6  =  9, too small -> move L up
+        L    R           4 + 6  = 10, found
+```
+
+The pattern only works because the list is sorted. Sortedness is what makes "too small, so move left up" a safe conclusion.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="two_pointers.py"
+def find_pair(sorted_nums, target):
+    left = 0
+    right = len(sorted_nums) - 1
+    while left < right:
+        total = sorted_nums[left] + sorted_nums[right]
+        if total == target:
+            print(f"{sorted_nums[left]} + {sorted_nums[right]} = {target}")
+            return
+        if total < target:
+            left += 1            # need a bigger sum: move the small end up
+        else:
+            right -= 1           # need a smaller sum: move the large end down
+    print(f"no pair adds up to {target}")
+
+
+nums = [1, 3, 4, 6, 8, 11]
+find_pair(nums, 10)
+find_pair(nums, 100)
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="two_pointers.js"
+function findPair(sortedNums, target) {
+  let left = 0;
+  let right = sortedNums.length - 1;
+  while (left < right) {
+    const total = sortedNums[left] + sortedNums[right];
+    if (total === target) {
+      console.log(`${sortedNums[left]} + ${sortedNums[right]} = ${target}`);
+      return;
+    }
+    if (total < target) {
+      left += 1;               // need a bigger sum: move the small end up
+    } else {
+      right -= 1;              // need a smaller sum: move the large end down
+    }
+  }
+  console.log(`no pair adds up to ${target}`);
+}
+
+const nums = [1, 3, 4, 6, 8, 11];
+findPair(nums, 10);
+findPair(nums, 100);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="TwoPointers.java"
+public class TwoPointers {
+    static void findPair(int[] sortedNums, int target) {
+        int left = 0;
+        int right = sortedNums.length - 1;
+        while (left < right) {
+            int total = sortedNums[left] + sortedNums[right];
+            if (total == target) {
+                System.out.println(sortedNums[left] + " + " + sortedNums[right] + " = " + target);
+                return;
+            }
+            if (total < target) {
+                left += 1;           // need a bigger sum: move the small end up
+            } else {
+                right -= 1;          // need a smaller sum: move the large end down
+            }
+        }
+        System.out.println("no pair adds up to " + target);
+    }
+
+    public static void main(String[] args) {
+        int[] nums = {1, 3, 4, 6, 8, 11};
+        findPair(nums, 10);
+        findPair(nums, 100);
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="two_pointers.c"
+#include <stdio.h>
+
+static void find_pair(const int *sorted_nums, int count, int target) {
+    int left = 0;
+    int right = count - 1;
+    while (left < right) {
+        int total = sorted_nums[left] + sorted_nums[right];
+        if (total == target) {
+            printf("%d + %d = %d\n", sorted_nums[left], sorted_nums[right], target);
+            return;
+        }
+        if (total < target) {
+            left += 1;               /* need a bigger sum: move the small end up */
+        } else {
+            right -= 1;              /* need a smaller sum: move the large end down */
+        }
+    }
+    printf("no pair adds up to %d\n", target);
+}
+
+int main(void) {
+    int nums[] = {1, 3, 4, 6, 8, 11};
+    find_pair(nums, 6, 10);
+    find_pair(nums, 6, 100);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+4 + 6 = 10
+no pair adds up to 100
+```
+
+## Sliding window
+
+When a question concerns every run of `k` consecutive items, recomputing each run from scratch repeats almost all the work. Consecutive windows share `k − 1` items. Instead, keep a running value and update it as the window slides one step: add the item entering on the right, subtract the item leaving on the left.
+
+**The problem.** Find the largest sum of any 3 consecutive values.
+
+**Brute force** adds up each window separately: about `n × k` additions. **The sliding window** adds up the first window once, then does two operations per step: O(n), no matter how big `k` is.
+
+```text
+ [2, 1, 5, 1, 3, 2, 9, 1]    k = 3
+  [2  1  5]                  sum 8   (first window, added up directly)
+     [1  5  1]               sum 8 + 1 - 2 = 7
+        [5  1  3]            sum 7 + 3 - 1 = 9
+           [1  3  2]         sum 9 + 2 - 5 = 6
+              [3  2  9]      sum 6 + 9 - 1 = 14   <- best
+                 [2  9  1]   sum 14 + 1 - 3 = 12
+```
+
+<Tabs>
+<Tab label="Python">
+
+```python title="sliding_window.py"
+def best_window_sum(nums, k):
+    window = 0
+    for i in range(k):
+        window += nums[i]                  # the first window, added up once
+    best = window
+    for i in range(k, len(nums)):
+        window += nums[i]                  # one value enters on the right
+        window -= nums[i - k]              # one value leaves on the left
+        if window > best:
+            best = window
+    return best
+
+
+print("best sum of 3:", best_window_sum([2, 1, 5, 1, 3, 2, 9, 1], 3))
+print("best sum of 2:", best_window_sum([4, -1, -2, 5], 2))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="sliding_window.js"
+function bestWindowSum(nums, k) {
+  let window = 0;
+  for (let i = 0; i < k; i++) {
+    window += nums[i];                     // the first window, added up once
+  }
+  let best = window;
+  for (let i = k; i < nums.length; i++) {
+    window += nums[i];                     // one value enters on the right
+    window -= nums[i - k];                 // one value leaves on the left
+    if (window > best) {
+      best = window;
+    }
+  }
+  return best;
+}
+
+console.log("best sum of 3:", bestWindowSum([2, 1, 5, 1, 3, 2, 9, 1], 3));
+console.log("best sum of 2:", bestWindowSum([4, -1, -2, 5], 2));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="SlidingWindow.java"
+public class SlidingWindow {
+    static int bestWindowSum(int[] nums, int k) {
+        int window = 0;
+        for (int i = 0; i < k; i++) {
+            window += nums[i];                 // the first window, added up once
+        }
+        int best = window;
+        for (int i = k; i < nums.length; i++) {
+            window += nums[i];                 // one value enters on the right
+            window -= nums[i - k];             // one value leaves on the left
+            if (window > best) {
+                best = window;
+            }
+        }
+        return best;
+    }
+
+    public static void main(String[] args) {
+        System.out.println("best sum of 3: " + bestWindowSum(new int[] {2, 1, 5, 1, 3, 2, 9, 1}, 3));
+        System.out.println("best sum of 2: " + bestWindowSum(new int[] {4, -1, -2, 5}, 2));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="sliding_window.c"
+#include <stdio.h>
+
+static int best_window_sum(const int *nums, int count, int k) {
+    int window = 0;
+    for (int i = 0; i < k; i++) {
+        window += nums[i];                 /* the first window, added up once */
+    }
+    int best = window;
+    for (int i = k; i < count; i++) {
+        window += nums[i];                 /* one value enters on the right */
+        window -= nums[i - k];             /* one value leaves on the left */
+        if (window > best) {
+            best = window;
+        }
+    }
+    return best;
+}
+
+int main(void) {
+    int a[] = {2, 1, 5, 1, 3, 2, 9, 1};
+    int b[] = {4, -1, -2, 5};
+    printf("best sum of 3: %d\n", best_window_sum(a, 8, 3));
+    printf("best sum of 2: %d\n", best_window_sum(b, 4, 2));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+best sum of 3: 14
+best sum of 2: 3
+```
+
+The second line uses negative numbers on purpose: the windows are `3`, `-3`, `3`, and the best is 3. The function assumes `k` is at least 1 and no larger than the list. Decide how to handle other cases before you call it, as the [algorithmic thinking lesson](../algorithmic-thinking/) advised.
+
+## Hashing for lookup
+
+If you repeatedly ask "have I seen this value before?", scanning everything seen so far costs O(n) per question and O(n²) overall. A **set** answers the question in about one step, because it finds items by a computed position rather than by searching, as the [maps and sets lesson](../maps-and-sets/) explained. Trading memory (the set holds up to n items) for speed is the whole pattern.
+
+**The problem.** Report the first value in a list that has already appeared earlier.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="first_repeat.py"
+def first_repeat(nums):
+    seen = set()
+    for n in nums:
+        if n in seen:                # one lookup instead of a scan of everything so far
+            print("first repeat:", n)
+            return
+        seen.add(n)
+    print("no repeat")
+
+
+first_repeat([3, 7, 1, 7, 3])
+first_repeat([1, 2, 3])
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="first_repeat.js"
+function firstRepeat(nums) {
+  const seen = new Set();
+  for (const n of nums) {
+    if (seen.has(n)) {               // one lookup instead of a scan of everything so far
+      console.log("first repeat:", n);
+      return;
+    }
+    seen.add(n);
+  }
+  console.log("no repeat");
+}
+
+firstRepeat([3, 7, 1, 7, 3]);
+firstRepeat([1, 2, 3]);
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="FirstRepeat.java"
+import java.util.HashSet;
+import java.util.Set;
+
+public class FirstRepeat {
+    static void firstRepeat(int[] nums) {
+        Set<Integer> seen = new HashSet<>();
+        for (int n : nums) {
+            if (seen.contains(n)) {          // one lookup instead of a scan of everything so far
+                System.out.println("first repeat: " + n);
+                return;
+            }
+            seen.add(n);
+        }
+        System.out.println("no repeat");
+    }
+
+    public static void main(String[] args) {
+        firstRepeat(new int[] {3, 7, 1, 7, 3});
+        firstRepeat(new int[] {1, 2, 3});
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="first_repeat.c"
+#include <stdio.h>
+#include <stdbool.h>
+
+/* C has no built-in hash table. When the values are small whole numbers
+   (here 0 to 99), a plain array indexed by the value does the same job. */
+static void first_repeat(const int *nums, int count) {
+    bool seen[100] = {false};
+    for (int i = 0; i < count; i++) {
+        if (seen[nums[i]]) {
+            printf("first repeat: %d\n", nums[i]);
+            return;
+        }
+        seen[nums[i]] = true;
+    }
+    printf("no repeat\n");
+}
+
+int main(void) {
+    int a[] = {3, 7, 1, 7, 3};
+    int b[] = {1, 2, 3};
+    first_repeat(a, 5);
+    first_repeat(b, 3);
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+first repeat: 7
+no repeat
+```
+
+The C version is honest about what C lacks. The standard library has no hash set, so the example uses the simplest relative of one: an array with one slot per possible value. It is fast and tiny, but only workable when values are small non-negative integers. For anything else in C you would write a hash table or use a library. Note that 3 appears twice too, but 7 repeats first, so 7 is the answer.
+
+## Divide and conquer
+
+Split the problem into smaller copies of itself, solve those, and combine the answers. You have already used it in merge sort and binary search. It pays off when each split cuts the work substantially.
+
+**The problem.** Compute `base` raised to a whole-number `exponent`.
+
+**Brute force** multiplies `base` by itself `exponent` times: O(exponent). **Divide and conquer** uses the fact that `x¹⁰ = (x⁵)²` and `x¹³ = (x⁶)² × x`. Compute the half-sized power once, square it, and multiply by one extra `base` when the exponent is odd. The exponent halves each time, so there are about log₂(exponent) levels: O(log n).
+
+<Tabs>
+<Tab label="Python">
+
+```python title="fast_power.py"
+def power(base, exponent):
+    if exponent == 0:
+        return 1
+    half = power(base, exponent // 2)      # solve one half-sized problem
+    if exponent % 2 == 0:
+        return half * half
+    return half * half * base
+
+
+print("2^10 =", power(2, 10))
+print("3^13 =", power(3, 13))
+print("5^0 =", power(5, 0))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="fast_power.js"
+function power(base, exponent) {
+  if (exponent === 0) {
+    return 1;
+  }
+  const half = power(base, Math.floor(exponent / 2));   // solve one half-sized problem
+  if (exponent % 2 === 0) {
+    return half * half;
+  }
+  return half * half * base;
+}
+
+console.log("2^10 =", power(2, 10));
+console.log("3^13 =", power(3, 13));
+console.log("5^0 =", power(5, 0));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="FastPower.java"
+public class FastPower {
+    static long power(long base, int exponent) {
+        if (exponent == 0) {
+            return 1;
+        }
+        long half = power(base, exponent / 2);      // solve one half-sized problem
+        if (exponent % 2 == 0) {
+            return half * half;
+        }
+        return half * half * base;
+    }
+
+    public static void main(String[] args) {
+        System.out.println("2^10 = " + power(2, 10));
+        System.out.println("3^13 = " + power(3, 13));
+        System.out.println("5^0 = " + power(5, 0));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="fast_power.c"
+#include <stdio.h>
+
+static long long power(long long base, int exponent) {
+    if (exponent == 0) {
+        return 1;
+    }
+    long long half = power(base, exponent / 2);     /* solve one half-sized problem */
+    if (exponent % 2 == 0) {
+        return half * half;
+    }
+    return half * half * base;
+}
+
+int main(void) {
+    printf("2^10 = %lld\n", power(2, 10));
+    printf("3^13 = %lld\n", power(3, 13));
+    printf("5^0 = %lld\n", power(5, 0));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+2^10 = 1024
+3^13 = 1594323
+5^0 = 1
+```
+
+The base case is `exponent == 0`. Computing `half` once and reusing it matters: writing `power(base, e/2) * power(base, e/2)` would make two recursive calls per level and lose the entire saving. Java and C use wider integer types (`long`, `long long`) so that larger results do not overflow, the same hazard discussed in the [expressions lesson](../expressions-and-operators/).
+
+## Memoisation
+
+Some recursive solutions solve the same sub-problem again and again. **Memoisation** stores each result the first time it is computed, in a table keyed by the input, and looks it up thereafter. It is the cheapest way to repair a slow recursion.
+
+The classic case is the Fibonacci numbers, where each value is the sum of the previous two. The direct recursion `fib(n) = fib(n-1) + fib(n-2)` recomputes `fib(n-2)` inside both branches, and the repetition snowballs. The program below counts calls, so you can see the cost:
+
+<Tabs>
+<Tab label="Python">
+
+```python title="memo_fib.py"
+calls = 0
+
+
+def fib_plain(n):
+    global calls
+    calls += 1
+    if n < 2:
+        return n
+    return fib_plain(n - 1) + fib_plain(n - 2)
+
+
+def fib_memo(n, cache):
+    global calls
+    calls += 1
+    if n < 2:
+        return n
+    if n not in cache:                       # compute each n only once
+        cache[n] = fib_memo(n - 1, cache) + fib_memo(n - 2, cache)
+    return cache[n]
+
+
+fib_plain(25)
+print("fib(25) plain calls:", calls)
+
+calls = 0
+fib_memo(25, {})
+print("fib(25) memo calls:", calls)
+
+print("fib(50) =", fib_memo(50, {}))
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="memo_fib.js"
+let calls = 0;
+
+function fibPlain(n) {
+  calls += 1;
+  if (n < 2) {
+    return n;
+  }
+  return fibPlain(n - 1) + fibPlain(n - 2);
+}
+
+function fibMemo(n, cache) {
+  calls += 1;
+  if (n < 2) {
+    return n;
+  }
+  if (!cache.has(n)) {                       // compute each n only once
+    cache.set(n, fibMemo(n - 1, cache) + fibMemo(n - 2, cache));
+  }
+  return cache.get(n);
+}
+
+fibPlain(25);
+console.log("fib(25) plain calls:", calls);
+
+calls = 0;
+fibMemo(25, new Map());
+console.log("fib(25) memo calls:", calls);
+
+console.log("fib(50) =", fibMemo(50, new Map()));
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="MemoFib.java"
+import java.util.HashMap;
+import java.util.Map;
+
+public class MemoFib {
+    static int calls = 0;
+
+    static long fibPlain(int n) {
+        calls += 1;
+        if (n < 2) {
+            return n;
+        }
+        return fibPlain(n - 1) + fibPlain(n - 2);
+    }
+
+    static long fibMemo(int n, Map<Integer, Long> cache) {
+        calls += 1;
+        if (n < 2) {
+            return n;
+        }
+        if (!cache.containsKey(n)) {             // compute each n only once
+            cache.put(n, fibMemo(n - 1, cache) + fibMemo(n - 2, cache));
+        }
+        return cache.get(n);
+    }
+
+    public static void main(String[] args) {
+        fibPlain(25);
+        System.out.println("fib(25) plain calls: " + calls);
+
+        calls = 0;
+        fibMemo(25, new HashMap<>());
+        System.out.println("fib(25) memo calls: " + calls);
+
+        System.out.println("fib(50) = " + fibMemo(50, new HashMap<>()));
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="memo_fib.c"
+#include <stdio.h>
+#include <string.h>
+
+static int calls = 0;
+
+static long long fib_plain(int n) {
+    calls += 1;
+    if (n < 2) {
+        return n;
+    }
+    return fib_plain(n - 1) + fib_plain(n - 2);
+}
+
+/* cache[n] holds fib(n), or -1 if it has not been computed yet. */
+static long long fib_memo(int n, long long *cache) {
+    calls += 1;
+    if (n < 2) {
+        return n;
+    }
+    if (cache[n] == -1) {                    /* compute each n only once */
+        cache[n] = fib_memo(n - 1, cache) + fib_memo(n - 2, cache);
+    }
+    return cache[n];
+}
+
+int main(void) {
+    long long cache[51];
+
+    fib_plain(25);
+    printf("fib(25) plain calls: %d\n", calls);
+
+    calls = 0;
+    memset(cache, -1, sizeof cache);         /* all bytes 0xFF makes every entry -1 */
+    fib_memo(25, cache);
+    printf("fib(25) memo calls: %d\n", calls);
+
+    memset(cache, -1, sizeof cache);
+    printf("fib(50) = %lld\n", fib_memo(50, cache));
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+All four print:
+
+```text
+fib(25) plain calls: 242785
+fib(25) memo calls: 49
+fib(50) = 12586269025
+```
+
+From 242,785 calls down to 49 for the same answer. The plain version is O(2ⁿ); the memoised one is O(n), since each value is computed once and every other call is a quick lookup (the 49 counts those cheap calls too). That is also why the last line is possible at all: the plain recursion would need over 40 billion calls for `fib(50)`.
+
+Memoisation is only safe when a function always returns the same result for the same inputs. That is the **pure function** property from the [functions lesson](../functions/), and the next lesson returns to it. The global counter in these examples is there only to count the calls; the Fibonacci functions themselves do not depend on it. The cache costs memory, so it trades space for time, as hashing does.
+
+## Choosing a pattern
+
+You rarely announce "I will use a sliding window". You notice a symptom in the slow version:
+
+| Symptom in the brute-force version | Pattern to try |
+|---|---|
+| Checking every pair, and the data can be sorted | Two pointers |
+| Re-adding the same items for each consecutive run | Sliding window |
+| An inner loop that only asks "is this value somewhere?" | A set or map |
+| The problem contains a smaller copy of itself, and the pieces are independent | Divide and conquer |
+| A recursion that revisits the same arguments | Memoisation |
+
+Also check the size. For ten items, brute force is fine and simpler. Reach for a pattern when the input can be large, or when you have measured a slowdown.
+
+## Common pitfalls
+
+- **Two pointers on unsorted data.** The reasoning "too small, so move the left up" is only valid if the data is in order.
+- **Off-by-one errors at the window edges.** The first window covers indices `0` to `k - 1`; the loop that slides it starts at `k`.
+- **A set that fits the wrong notion of "equal".** Hashing treats values as the same only when the language says they are equal. Check that for objects and strings.
+- **Divide and conquer that calls itself twice for the same half.** Compute the sub-result once and reuse it.
+- **Memoising a function that depends on hidden state.** A cached answer goes stale as soon as the function's result can change between calls.
+- **Using a pattern on tiny input.** A clear brute-force loop beats a clever one that nobody can read.
+
+<Exercise title="Name the pattern">
+
+For each problem, name the pattern that gives a fast solution and say what the brute force would be.
+
+1. Does a sorted list of ticket prices contain two prices that add up to exactly your budget?
+2. What is the highest total rainfall across any 7 consecutive days in a year of daily readings?
+3. Find the first customer ID that appears twice in a log of purchases.
+4. Compute 7 raised to the power 100 000 without multiplying 100 000 times.
+5. Count the ways to climb a staircase of 40 steps taking 1 or 2 steps at a time, where `ways(n) = ways(n-1) + ways(n-2)`.
+
+<Solution>
+
+1. **Two pointers.** Brute force tries every pair of prices: O(n²).
+2. **Sliding window** with `k = 7`. Brute force re-adds seven readings for each of about 360 windows.
+3. **Hashing** (a set of IDs seen so far). Brute force compares each ID with all earlier ones: O(n²).
+4. **Divide and conquer**, as in `power`. Brute force is 100 000 multiplications; the pattern halves the exponent about 17 times, with at most two multiplications per level.
+5. **Memoisation.** The recurrence has the same shape as Fibonacci, so plain recursion repeats sub-problems exponentially often, while a cache makes it linear.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Palindrome with two pointers">
+
+A **palindrome** reads the same forwards and backwards. Write a function that uses two pointers, one at each end of a string, moving inward, and prints `yes` or `no` for each input below. Do not build a reversed copy.
+
+| Input | Expected output |
+|---|---|
+| `racecar` | `'racecar': yes` |
+| `abca` | `'abca': no` |
+| `noon` | `'noon': yes` |
+| `a` | `'a': yes` |
+| (empty string) | `'': yes` |
+
+<Solution>
+
+Compare the characters at the two pointers; any mismatch means "no". If the pointers meet or cross without a mismatch, it is a palindrome. A single character and the empty string both pass, because the loop never runs.
+
+<Tabs>
+<Tab label="Python">
+
+```python title="palindrome_pointers.py"
+def is_palindrome(text):
+    left = 0
+    right = len(text) - 1
+    while left < right:
+        if text[left] != text[right]:
+            return False
+        left += 1
+        right -= 1
+    return True
+
+
+for word in ["racecar", "abca", "noon", "a", ""]:
+    print(f"{word!r}: {'yes' if is_palindrome(word) else 'no'}")
+```
+
+</Tab>
+<Tab label="JavaScript">
+
+```javascript title="palindrome_pointers.js"
+function isPalindrome(text) {
+  let left = 0;
+  let right = text.length - 1;
+  while (left < right) {
+    if (text[left] !== text[right]) {
+      return false;
+    }
+    left += 1;
+    right -= 1;
+  }
+  return true;
+}
+
+for (const word of ["racecar", "abca", "noon", "a", ""]) {
+  console.log(`'${word}': ${isPalindrome(word) ? "yes" : "no"}`);
+}
+```
+
+</Tab>
+<Tab label="Java">
+
+```java title="PalindromePointers.java"
+public class PalindromePointers {
+    static boolean isPalindrome(String text) {
+        int left = 0;
+        int right = text.length() - 1;
+        while (left < right) {
+            if (text.charAt(left) != text.charAt(right)) {
+                return false;
+            }
+            left += 1;
+            right -= 1;
+        }
+        return true;
+    }
+
+    public static void main(String[] args) {
+        String[] words = {"racecar", "abca", "noon", "a", ""};
+        for (String word : words) {
+            System.out.println("'" + word + "': " + (isPalindrome(word) ? "yes" : "no"));
+        }
+    }
+}
+```
+
+</Tab>
+<Tab label="C">
+
+```c title="palindrome_pointers.c"
+#include <stdio.h>
+#include <string.h>
+#include <stdbool.h>
+
+static bool is_palindrome(const char *text) {
+    int left = 0;
+    int right = (int)strlen(text) - 1;
+    while (left < right) {
+        if (text[left] != text[right]) {
+            return false;
+        }
+        left += 1;
+        right -= 1;
+    }
+    return true;
+}
+
+int main(void) {
+    const char *words[] = {"racecar", "abca", "noon", "a", ""};
+    for (int i = 0; i < 5; i++) {
+        printf("'%s': %s\n", words[i], is_palindrome(words[i]) ? "yes" : "no");
+    }
+    return 0;
+}
+```
+
+</Tab>
+</Tabs>
+
+Output:
+
+```text
+'racecar': yes
+'abca': no
+'noon': yes
+'a': yes
+'': yes
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Slide a window of four">
+
+Using the sliding-window method, find the largest sum of 4 consecutive values in `[1, 4, 2, 10, 2, 3, 1, 0, 20]`. Write down each window's sum, built from the previous one.
+
+Expected answer: 24.
+
+<Solution>
+
+| Window | Calculation | Sum |
+|---|---|---|
+| `1 4 2 10` | added directly | 17 |
+| `4 2 10 2` | 17 + 2 − 1 | 18 |
+| `2 10 2 3` | 18 + 3 − 4 | 17 |
+| `10 2 3 1` | 17 + 1 − 2 | 16 |
+| `2 3 1 0` | 16 + 0 − 10 | 6 |
+| `3 1 0 20` | 6 + 20 − 2 | 24 |
+
+The best is 24, from the last window. Each step costs two operations whatever the window size.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Two pointers, a sliding window, hashing, divide and conquer and memoisation each replace a slow, obvious method with a fast one, by using structure in the problem.
+- Two pointers needs sorted data. A sliding window updates a running value instead of recomputing it. Hashing trades memory for fast "seen it?" checks. Divide and conquer halves the work, provided you reuse each sub-result. Memoisation turns a repeated recursion into a one-time computation.
+- Recognise a pattern by the symptom in the brute-force version, and only reach for one when the input is big enough to matter.
+- Memoisation relies on a function giving the same answer for the same input. That idea is the thread into the next lesson.
+
+Next, [Programming paradigms](../paradigms/) steps back from individual algorithms to the different styles in which whole programs can be organised.
