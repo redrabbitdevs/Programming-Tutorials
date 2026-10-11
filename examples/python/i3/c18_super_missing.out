@@ -1,0 +1,2 @@
+['sit']
+AttributeError: 'Dog' object has no attribute 'name'

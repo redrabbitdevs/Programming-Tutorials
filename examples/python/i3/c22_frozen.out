@@ -1,0 +1,2 @@
+FrozenInstanceError: cannot assign to field 'x'
+{Point(x=1, y=2)}

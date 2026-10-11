@@ -1,0 +1,4 @@
+Settings(host='localhost', port=8000, debug=False)
+Settings(host='example.org', port=443, debug=False)
+ValueError: port out of range: 70000
+TypeError: keyword arguments only

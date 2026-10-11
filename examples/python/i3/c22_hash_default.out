@@ -1,0 +1,2 @@
+True
+TypeError: a mutable dataclass is unhashable

@@ -1,0 +1,3 @@
+10 15
+ValueError: quantity cannot be negative: -5
+Item(name='pen', price=1.5, quantity=15)

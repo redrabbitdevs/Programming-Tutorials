@@ -1,0 +1,6 @@
+enter outer
+enter inner
+body
+exit inner
+exit outer
+caught

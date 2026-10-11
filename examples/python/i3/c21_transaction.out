@@ -1,0 +1,5 @@
+committed
+{'a': 50, 'b': 50}
+rolled back
+error: insufficient funds
+{'a': 50, 'b': 50}

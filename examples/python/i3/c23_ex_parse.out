@@ -1,0 +1,3 @@
+INFO info
+ERROR error
+error: unknown level: 'loud'
