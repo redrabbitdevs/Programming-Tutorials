@@ -3,6 +3,6 @@ slug: "agora"
 name: "Agora"
 tier: 3
 paradigm: ["unclassified"]
-summary: "Agora is a programming language."
+summary: "Agora is a programming language. A full overview has not been written yet."
 status: planned
 ---

@@ -7,10 +7,11 @@ infobox, fetched in batches of 50 titles. Tier 1 and tier 2 come from
 research/_catalog/ranking.md (mirrored in TIERS below); everything else is tier 3.
 
 Usage:
-    python3 research/_catalog/build.py [--cache DIR] [--offline]
+    python3 research/_catalog/build.py [--cache DIR] [--offline] [--renormalise]
 
 --cache DIR  store raw API responses in DIR and reuse them on later runs
 --offline    use only the cache (fails if a response is missing)
+--renormalise  skip Wikipedia; re-normalise paradigms in the existing languages.json
 
 Output: an array of
     {slug, name, tier, paradigm[], firstAppeared|null, aliases[], wikipedia}
@@ -228,52 +229,108 @@ def infobox_field(box, names):
     return None
 
 
-PARADIGM_MAP = {
-    "multi paradigm": "multi-paradigm",
-    "object oriented": "object-oriented",
-    "object-oriented programming": "object-oriented",
-    "functional programming": "functional",
-    "imperative programming": "imperative",
-    "procedural programming": "procedural",
-    "structured programming": "structured",
-    "declarative programming": "declarative",
-    "concurrent computing": "concurrent",
-    "logic programming": "logic",
-    "event-driven programming": "event-driven",
-    "generic programming": "generic",
-    "reflective programming": "reflective",
-    "prototype-based programming": "prototype-based",
-    "class-based programming": "class-based",
-    "array programming": "array",
-    "stack-oriented programming": "stack-oriented",
-    "metaprogramming": "metaprogramming",
+# Controlled vocabulary for the catalog's paradigm field. Every scraped value is
+# mapped onto one of these terms through CANONICAL_PARADIGMS; unknown values are
+# dropped, never kept.
+PARADIGM_VOCAB = [
+    "imperative", "procedural", "structured", "object-oriented", "prototype-based",
+    "functional", "logic", "declarative", "constraint", "concurrent", "array",
+    "scripting", "event-driven", "generic", "reflective", "metaprogramming",
+    "stack-based", "dataflow", "aspect-oriented", "multi-paradigm", "esoteric",
+    "educational", "domain-specific", "query", "markup-adjacent", "systems",
+]
+CANONICAL_PARADIGMS = {
+    "imperative": "imperative", "unstructured": "imperative", "non-structured": "imperative",
+    "procedural": "procedural", "later procedural": "procedural", "procedure hiding": "procedural",
+    "block structured": "structured", "structured": "structured",
+    "block-structured procedural language": "structured",
+    "object-oriented": "object-oriented", "object oriented": "object-oriented",
+    "object-based": "object-oriented", "class-based": "object-oriented",
+    "class-based object-oriented": "object-oriented", "structured object-oriented": "object-oriented",
+    "later object-oriented": "object-oriented", "object-oriented-paradigm": "object-oriented",
+    "component-based": "object-oriented", "protocol-oriented": "object-oriented",
+    "multiple dispatch": "object-oriented",
+    "prototype-based": "prototype-based", "prototype object-oriented": "prototype-based",
+    "object-oriented prototype-based": "prototype-based",
+    "functional": "functional", "purely functional": "functional", "total functional": "functional",
+    "strict purely functional": "functional", "non-strict": "functional", "lazy": "functional",
+    "function-level": "functional", "functional reactive": "functional", "tacit": "functional",
+    "algebraic types": "functional", "pattern-matching": "functional", "term-rewriting": "functional",
+    "term rewriting": "functional",
+    "logic": "logic", "logical": "logic", "logic-paradigm": "logic", "constraint logic": "logic",
+    "concurrent constraint logic": "logic", "nondeterministic": "logic", "expert system": "logic",
+    "rule processing": "logic", "knowledge representation": "logic",
+    "declarative": "declarative", "declarative language": "declarative",
+    "constraint": "constraint",
+    "concurrent": "concurrent", "parallel": "concurrent", "distributed": "concurrent",
+    "synchronous": "concurrent", "actor": "concurrent", "actor model": "concurrent",
+    "message passing": "concurrent", "communicating sequential processes": "concurrent",
+    "process-oriented": "concurrent", "partitioned global address space": "concurrent",
+    "agent-oriented": "concurrent", "real-time": "concurrent",
+    "array": "array", "vector-oriented": "array",
+    "scripting": "scripting", "interactive": "scripting",
+    "event-driven": "event-driven", "task-driven": "event-driven",
+    "generic": "generic", "generics": "generic",
+    "reflective": "reflective", "meta": "metaprogramming", "metaprogramming": "metaprogramming",
+    "macro": "metaprogramming", "through macros": "metaprogramming",
+    "general-purpose macro processor": "metaprogramming", "language-oriented": "metaprogramming",
+    "stack-based": "stack-based", "stack-oriented": "stack-based", "stack machine": "stack-based",
+    "concatenative": "stack-based",
+    "dataflow": "dataflow", "data-driven": "dataflow", "pipeline": "dataflow",
+    "scientific workflow": "dataflow", "visual composition language": "dataflow",
+    "aspect-oriented": "aspect-oriented",
+    "multi-paradigm": "multi-paradigm", "multiparadigm": "multi-paradigm", "multi-dis": "multi-paradigm",
+    "esoteric": "esoteric", "reversible": "esoteric",
+    "educational": "educational", "people-oriented": "educational",
+    "domain-specific": "domain-specific", "simulation": "domain-specific",
+    "agent-based": "domain-specific", "numerical control": "domain-specific",
+    "quantum": "domain-specific", "parser generator": "domain-specific",
+    "analytic transformations": "domain-specific", "calculations in arbitrary algebras": "domain-specific",
+    "natural language": "domain-specific", "safe infrastructure": "domain-specific",
+    "query": "query", "database-oriented": "query", "with declarative sql elements": "query",
+    "4gl": "query",
+    "markup": "markup-adjacent", "text-oriented": "markup-adjacent",
+    "json-oriented processing": "markup-adjacent", "data exchange": "markup-adjacent",
+    "data": "markup-adjacent",
+    "systems": "systems", "assembly language": "systems", "embedded": "systems",
 }
+# Template names and wiki-markup debris that must never reach the vocabulary step.
+JUNK_RE = re.compile(r"^(cite\b.*|citation.*|sfn|efn|cn|refn|flatlist|plainlist|ubl|hlist|cslist|"
+                     r"nowrap|small|nbsp|br|primary|primary paradigm|delphi dialect only)$")
+
+
+def normalise_paradigms(values):
+    """Map scraped paradigm strings onto PARADIGM_VOCAB; drop anything unknown."""
+    out = []
+    for v in values or []:
+        v = re.sub(r"\s+", " ", str(v).strip().lower())
+        if not v or JUNK_RE.match(v):
+            continue
+        canon = CANONICAL_PARADIGMS.get(v) or CANONICAL_PARADIGMS.get(re.sub(r"\s+programming$", "", v))
+        if canon and canon not in out:
+            out.append(canon)
+    return out
 
 
 def parse_paradigms(raw):
     if not raw:
         return []
-    s = re.sub(r"<ref[^>]*/>", "", raw)
+    s = re.sub(r"<!--.*?-->", "", raw, flags=re.S)
+    s = re.sub(r"<ref[^>]*/>", "", s)
     s = re.sub(r"<ref[^>]*>.*?</ref>", "", s, flags=re.S)
-    s = re.sub(r"\{\{\s*(?:sfn|efn|citation needed|cn|r|refn)[^{}]*\}\}", "", s, flags=re.I)
+    # remove whole citation / footnote templates, then link markup
+    for _ in range(4):
+        s = re.sub(r"\{\{\s*(?:cite|citation|sfn|efn|cn|citation needed|r|refn)\b[^{}]*\}\}", "", s, flags=re.I)
     s = LINK_RE.sub(lambda m: m.group(2) or m.group(1), s)
-    s = re.sub(r"\{\{\s*cite[^{}]*\}\}", "", s, flags=re.I)
     s = re.sub(r"\{\{\s*[\w -]+\s*(\||\}\})", "|", s)  # drop template names (flatlist, cslist, ...)
     s = s.replace("}}", "|").replace("{{", "|").replace("(", "|").replace(")", "|").replace(":", "|")
     s = re.sub(r"<[^>]+>", "|", s)
-    out = []
+    parts = []
     for part in re.split(r"[|,;\n*•]|\band\b", s):
-        p = part.strip().strip(":.'\"").lower()
-        p = re.sub(r"\s+", " ", p)
-        if not p or len(p) > 40 or "=" in p or "http" in p:
-            continue
-        p = PARADIGM_MAP.get(p, p)
-        p = re.sub(r"\s+programming$", "", p)
-        if p in ("often metaprogramming",):
-            p = "metaprogramming"
-        if p and p not in out:
-            out.append(p)
-    return out[:10]
+        p = re.sub(r"\s+", " ", part.strip().strip(":.'\"").lower())
+        if p and len(p) <= 40 and "=" not in p and "http" not in p:
+            parts.append(p)
+    return normalise_paradigms(parts)[:10]
 
 
 def parse_year(raw):
@@ -356,7 +413,20 @@ def main():
     ap.add_argument("--cache")
     ap.add_argument("--offline", action="store_true")
     ap.add_argument("--out", default=str(OUT))
+    ap.add_argument("--renormalise", action="store_true",
+                    help="no network: re-clean the paradigm field of the existing catalog in place, "
+                         "keeping every other field (including manual corrections such as null links)")
     args = ap.parse_args()
+    if args.renormalise:
+        path = pathlib.Path(args.out)
+        langs = json.loads(path.read_text(encoding="utf-8"))
+        before = {p for r in langs for p in r["paradigm"]}
+        for r in langs:
+            r["paradigm"] = normalise_paradigms(r["paradigm"])
+        after = {p for r in langs for p in r["paradigm"]}
+        path.write_text(json.dumps(langs, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"paradigms: {len(before)} distinct before, {len(after)} after")
+        return
     f = Fetcher(args.cache, args.offline)
 
     wikitext = f.get({"action": "parse", "page": LIST_PAGE, "prop": "wikitext"})["parse"]["wikitext"]
@@ -407,7 +477,7 @@ def main():
                 extra = [e["name"]] + extra
             rec.update(slug=slug, name=name, tier=tier, _order=order,
                        aliases=list(dict.fromkeys(extra + e["aliases"])))
-            rec["paradigm"] = rec["paradigm"] or PARADIGM_FALLBACK.get(slug, [])
+            rec["paradigm"] = rec["paradigm"] or normalise_paradigms(PARADIGM_FALLBACK.get(slug, []))
         langs.append(rec)
 
     for c, (tier, order, slug, name, extra) in tier_canons.items():  # tiered but not on the list page

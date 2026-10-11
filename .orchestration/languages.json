@@ -62,7 +62,6 @@
    "multi-paradigm",
    "generic",
    "object-oriented",
-   "class-based",
    "functional",
    "imperative",
    "reflective",
@@ -82,7 +81,6 @@
    "imperative",
    "object-oriented",
    "event-driven",
-   "task-driven",
    "functional",
    "generic",
    "reflective",
@@ -105,9 +103,7 @@
    "functional",
    "object-oriented",
    "generic",
-   "modular",
-   "reflective",
-   "design by contract"
+   "reflective"
   ],
   "firstAppeared": 1985,
   "aliases": [
@@ -217,7 +213,7 @@
    "object-oriented",
    "functional",
    "imperative",
-   "block structured",
+   "structured",
    "generic",
    "reflective",
    "concurrent"
@@ -232,11 +228,10 @@
   "tier": 1,
   "paradigm": [
    "multi-paradigm",
-   "protocol-oriented",
    "object-oriented",
    "functional",
    "imperative",
-   "block structured",
+   "structured",
    "declarative",
    "concurrent"
   ],
@@ -252,7 +247,7 @@
   "tier": 2,
   "paradigm": [
    "imperative",
-   "pipeline",
+   "dataflow",
    "object-oriented",
    "functional",
    "reflective"
@@ -275,7 +270,7 @@
    "prototype-based",
    "object-oriented",
    "functional",
-   "meta",
+   "metaprogramming",
    "reflective"
   ],
   "firstAppeared": 1993,
@@ -288,9 +283,7 @@
   "tier": 2,
   "paradigm": [
    "imperative",
-   "unstructured",
-   "metaprogramming",
-   "through macros"
+   "metaprogramming"
   ],
   "firstAppeared": 1947,
   "aliases": [
@@ -433,7 +426,7 @@
    "procedural",
    "functional",
    "object-oriented",
-   "meta",
+   "metaprogramming",
    "reflective",
    "generic"
   ],
@@ -451,9 +444,7 @@
   "paradigm": [
    "multi-paradigm",
    "functional",
-   "concurrent",
-   "distributed",
-   "process-oriented"
+   "concurrent"
   ],
   "firstAppeared": 2012,
   "aliases": [],
@@ -465,7 +456,7 @@
   "tier": 2,
   "paradigm": [
    "reflective",
-   "class-based object-oriented"
+   "object-oriented"
   ],
   "firstAppeared": 1984,
   "aliases": [
@@ -478,7 +469,7 @@
   "name": "Haskell",
   "tier": 2,
   "paradigm": [
-   "purely functional"
+   "functional"
   ],
   "firstAppeared": 1990,
   "aliases": [],
@@ -508,8 +499,6 @@
    "structured",
    "object-oriented",
    "functional",
-   "delphi dialect only",
-   "component-based",
    "event-driven",
    "generic"
   ],
@@ -556,15 +545,14 @@
   "tier": 2,
   "paradigm": [
    "multi-paradigm",
-   "multiple dispatch",
-   "primary paradigm",
+   "object-oriented",
    "functional",
    "array",
    "procedural",
    "imperative",
    "structured",
    "reflective",
-   "meta"
+   "metaprogramming"
   ],
   "firstAppeared": 2012,
   "aliases": [],
@@ -576,12 +564,11 @@
   "tier": 2,
   "paradigm": [
    "multi-paradigm",
-   "agent-oriented",
    "concurrent",
    "functional",
    "logic",
-   "macro",
-   "pipeline"
+   "metaprogramming",
+   "dataflow"
   ],
   "firstAppeared": 2007,
   "aliases": [],
@@ -612,7 +599,6 @@
    "aspect-oriented",
    "concurrent",
    "array",
-   "distributed",
    "generic",
    "procedural"
   ],
@@ -629,10 +615,9 @@
    "functional",
    "imperative",
    "object-oriented",
-   "agent-oriented",
+   "concurrent",
    "metaprogramming",
-   "reflective",
-   "concurrent"
+   "reflective"
   ],
   "firstAppeared": 2005,
   "aliases": [
@@ -647,9 +632,7 @@
   "paradigm": [
    "multi-paradigm",
    "functional",
-   "imperative",
-   "modular",
-   "cite web"
+   "imperative"
   ],
   "firstAppeared": 1996,
   "aliases": [],
@@ -699,7 +682,6 @@
   "paradigm": [
    "multi-paradigm",
    "imperative",
-   "primary",
    "functional",
    "generic"
   ],
@@ -713,8 +695,8 @@
   "tier": 3,
   "paradigm": [
    "multi-paradigm",
-   "logic-paradigm",
-   "object-oriented-paradigm"
+   "logic",
+   "object-oriented"
   ],
   "firstAppeared": 2007,
   "aliases": [],
@@ -869,7 +851,7 @@
   "name": "Agda",
   "tier": 3,
   "paradigm": [
-   "total functional"
+   "functional"
   ],
   "firstAppeared": 1999,
   "aliases": [],
@@ -913,7 +895,6 @@
    "object-oriented",
    "functional",
    "imperative",
-   "dependent typed",
    "logic"
   ],
   "firstAppeared": 1990,
@@ -925,7 +906,6 @@
   "name": "Alef",
   "tier": 3,
   "paradigm": [
-   "compiled",
    "concurrent",
    "structured"
   ],
@@ -1009,7 +989,6 @@
    "multi-paradigm",
    "imperative",
    "functional",
-   "distributed",
    "concurrent",
    "constraint"
   ],
@@ -1080,8 +1059,7 @@
   "name": "Analitik",
   "tier": 3,
   "paradigm": [
-   "calculations in arbitrary algebras",
-   "analytic transformations"
+   "domain-specific"
   ],
   "firstAppeared": 1968,
   "aliases": [],
@@ -1130,8 +1108,7 @@
   "paradigm": [
    "array",
    "functional",
-   "structured",
-   "modular"
+   "structured"
   ],
   "firstAppeared": 1966,
   "aliases": [],
@@ -1153,7 +1130,7 @@
   "name": "AppleScript",
   "tier": 3,
   "paradigm": [
-   "natural language",
+   "domain-specific",
    "scripting"
   ],
   "firstAppeared": 1993,
@@ -1165,7 +1142,7 @@
   "name": "APT",
   "tier": 3,
   "paradigm": [
-   "numerical control"
+   "domain-specific"
   ],
   "firstAppeared": 1956,
   "aliases": [],
@@ -1178,7 +1155,7 @@
   "paradigm": [
    "multi-paradigm",
    "functional",
-   "meta",
+   "metaprogramming",
    "procedural"
   ],
   "firstAppeared": 2008,
@@ -1242,8 +1219,7 @@
    "functional",
    "imperative",
    "object-oriented",
-   "concurrent",
-   "modular"
+   "concurrent"
   ],
   "firstAppeared": 2006,
   "aliases": [],
@@ -1283,7 +1259,7 @@
    "functional",
    "procedural",
    "reflective",
-   "meta"
+   "metaprogramming"
   ],
   "firstAppeared": 1986,
   "aliases": [
@@ -1296,7 +1272,7 @@
   "name": "Averest",
   "tier": 3,
   "paradigm": [
-   "synchronous"
+   "concurrent"
   ],
   "firstAppeared": null,
   "aliases": [],
@@ -1309,7 +1285,7 @@
   "paradigm": [
    "scripting",
    "procedural",
-   "data-driven"
+   "dataflow"
   ],
   "firstAppeared": 1977,
   "aliases": [],
@@ -1361,9 +1337,9 @@
   "name": "BASIC",
   "tier": 3,
   "paradigm": [
-   "non-structured",
-   "later procedural",
-   "later object-oriented"
+   "imperative",
+   "procedural",
+   "object-oriented"
   ],
   "firstAppeared": 1964,
   "aliases": [],
@@ -1487,8 +1463,7 @@
   "tier": 3,
   "paradigm": [
    "multi-paradigm",
-   "functional",
-   "typed"
+   "functional"
   ],
   "firstAppeared": 2019,
   "aliases": [],
@@ -1512,7 +1487,7 @@
   "paradigm": [
    "multi-paradigm",
    "imperative",
-   "parallel"
+   "concurrent"
   ],
   "firstAppeared": 1987,
   "aliases": [],
@@ -1618,7 +1593,7 @@
   "name": "CEEMAC",
   "tier": 3,
   "paradigm": [
-   "visual composition language"
+   "dataflow"
   ],
   "firstAppeared": null,
   "aliases": [],
@@ -1684,8 +1659,7 @@
   "tier": 3,
   "paradigm": [
    "object-oriented",
-   "partitioned global address space",
-   "parallel"
+   "concurrent"
   ],
   "firstAppeared": 2009,
   "aliases": [
@@ -1712,7 +1686,7 @@
    "multi-paradigm",
    "functional",
    "imperative",
-   "meta"
+   "metaprogramming"
   ],
   "firstAppeared": 2000,
   "aliases": [],
@@ -1757,7 +1731,7 @@
    "imperative",
    "procedural",
    "structured",
-   "parallel"
+   "concurrent"
   ],
   "firstAppeared": 1994,
   "aliases": [
@@ -1773,8 +1747,7 @@
    "multi-paradigm",
    "functional",
    "object-oriented",
-   "class-based",
-   "rule processing",
+   "logic",
    "reflective"
   ],
   "firstAppeared": 1994,
@@ -1822,7 +1795,7 @@
   "tier": 3,
   "paradigm": [
    "object-oriented",
-   "expert system"
+   "logic"
   ],
   "firstAppeared": 1985,
   "aliases": [],
@@ -1843,7 +1816,7 @@
   "tier": 3,
   "paradigm": [
    "multi-paradigm",
-   "class-based",
+   "object-oriented",
    "procedural"
   ],
   "firstAppeared": 1975,
@@ -1964,7 +1937,6 @@
   "paradigm": [
    "imperative",
    "structured",
-   "modular",
    "object-oriented"
   ],
   "firstAppeared": 1997,
@@ -1998,7 +1970,7 @@
   "name": "Constraint Handling Rules",
   "tier": 3,
   "paradigm": [
-   "constraint logic",
+   "logic",
    "declarative"
   ],
   "firstAppeared": 1991,
@@ -2106,7 +2078,7 @@
   "tier": 3,
   "paradigm": [
    "functional",
-   "scientific workflow"
+   "dataflow"
   ],
   "firstAppeared": 2013,
   "aliases": [],
@@ -2119,7 +2091,7 @@
   "paradigm": [
    "multi-paradigm",
    "object-oriented",
-   "markup"
+   "markup-adjacent"
   ],
   "firstAppeared": 1998,
   "aliases": [],
@@ -2131,9 +2103,7 @@
   "tier": 3,
   "paradigm": [
    "functional",
-   "logic",
-   "non-strict",
-   "modular"
+   "logic"
   ],
   "firstAppeared": 1995,
   "aliases": [],
@@ -2339,9 +2309,7 @@
   "slug": "drakon",
   "name": "DRAKON",
   "tier": 3,
-  "paradigm": [
-   "visual"
-  ],
+  "paradigm": [],
   "firstAppeared": 1996,
   "aliases": [],
   "wikipedia": "https://en.wikipedia.org/wiki/DRAKON"
@@ -2375,7 +2343,7 @@
   "paradigm": [
    "multi-paradigm",
    "object-oriented",
-   "message passing"
+   "concurrent"
   ],
   "firstAppeared": 1997,
   "aliases": [],
@@ -2386,8 +2354,7 @@
   "name": "Ease",
   "tier": 3,
   "paradigm": [
-   "concurrent",
-   "communicating sequential processes"
+   "concurrent"
   ],
   "firstAppeared": 1991,
   "aliases": [],
@@ -2455,7 +2422,6 @@
   "paradigm": [
    "multi-paradigm",
    "object-oriented",
-   "class-based",
    "generic",
    "concurrent"
   ],
@@ -2492,7 +2458,7 @@
   "tier": 3,
   "paradigm": [
    "functional",
-   "meta",
+   "metaprogramming",
    "reflective"
   ],
   "firstAppeared": 1985,
@@ -2527,7 +2493,6 @@
   "tier": 3,
   "paradigm": [
    "multi-paradigm",
-   "compiled",
    "imperative",
    "procedural",
    "object-oriented",
@@ -2574,7 +2539,7 @@
   "tier": 3,
   "paradigm": [
    "imperative",
-   "synchronous"
+   "concurrent"
   ],
   "firstAppeared": null,
   "aliases": [],
@@ -2585,7 +2550,7 @@
   "name": "Etoys",
   "tier": 3,
   "paradigm": [
-   "object-oriented prototype-based",
+   "prototype-based",
    "educational"
   ],
   "firstAppeared": 1996,
@@ -2664,7 +2629,6 @@
   "name": "Ezhil",
   "tier": 3,
   "paradigm": [
-   "interpreted",
    "imperative",
    "structured"
   ],
@@ -2678,8 +2642,7 @@
   "tier": 3,
   "paradigm": [
    "array",
-   "procedural",
-   "modular"
+   "procedural"
   ],
   "firstAppeared": null,
   "aliases": [],
@@ -2704,7 +2667,6 @@
   "tier": 3,
   "paradigm": [
    "multi-paradigm",
-   "concatenative",
    "stack-based",
    "functional",
    "object-oriented"
@@ -2720,7 +2682,7 @@
   "paradigm": [
    "multi-paradigm",
    "object-oriented",
-   "actor",
+   "concurrent",
    "functional"
   ],
   "firstAppeared": 2005,
@@ -2732,8 +2694,7 @@
   "name": "FAUST",
   "tier": 3,
   "paradigm": [
-   "functional",
-   "visual"
+   "functional"
   ],
   "firstAppeared": 2002,
   "aliases": [],
@@ -2765,7 +2726,6 @@
   "name": "FL",
   "tier": 3,
   "paradigm": [
-   "function-level",
    "functional"
   ],
   "firstAppeared": 1989,
@@ -2865,7 +2825,6 @@
   "name": "Forth",
   "tier": 3,
   "paradigm": [
-   "concatenative",
    "stack-based",
    "procedural",
    "reflective"
@@ -2902,7 +2861,7 @@
   "name": "FP",
   "tier": 3,
   "paradigm": [
-   "function-level"
+   "functional"
   ],
   "firstAppeared": 1977,
   "aliases": [
@@ -2919,7 +2878,7 @@
    "functional",
    "procedural",
    "reflective",
-   "meta"
+   "metaprogramming"
   ],
   "firstAppeared": 1980,
   "aliases": [],
@@ -3072,7 +3031,7 @@
    "logic",
    "functional",
    "imperative",
-   "object-based"
+   "object-oriented"
   ],
   "firstAppeared": 2003,
   "aliases": [],
@@ -3120,7 +3079,6 @@
   "paradigm": [
    "multi-paradigm",
    "object-oriented",
-   "class-based",
    "functional",
    "imperative",
    "reflective"
@@ -3162,9 +3120,7 @@
   "slug": "grasshopper",
   "name": "Grasshopper",
   "tier": 3,
-  "paradigm": [
-   "visual"
-  ],
+  "paradigm": [],
   "firstAppeared": 2007,
   "aliases": [],
   "wikipedia": "https://en.wikipedia.org/wiki/Grasshopper_3D"
@@ -3214,7 +3170,7 @@
    "procedural",
    "imperative",
    "structured",
-   "real-time"
+   "concurrent"
   ],
   "firstAppeared": 1964,
   "aliases": [],
@@ -3226,7 +3182,7 @@
   "tier": 3,
   "paradigm": [
    "functional",
-   "parallel"
+   "concurrent"
   ],
   "firstAppeared": 2012,
   "aliases": [],
@@ -3374,7 +3330,7 @@
    "procedural",
    "functional",
    "object-oriented",
-   "meta",
+   "metaprogramming",
    "reflective",
    "generic"
   ],
@@ -3399,7 +3355,7 @@
   "name": "IBM Basic assembly language and successors",
   "tier": 3,
   "paradigm": [
-   "assembly language"
+   "systems"
   ],
   "firstAppeared": 1964,
   "aliases": [],
@@ -3414,9 +3370,7 @@
    "procedural",
    "imperative",
    "structured",
-   "database-oriented",
-   "4gl",
-   "with declarative sql elements"
+   "query"
   ],
   "firstAppeared": 1986,
   "aliases": [],
@@ -3442,7 +3396,7 @@
   "paradigm": [
    "multi-paradigm",
    "structured",
-   "text-oriented"
+   "markup-adjacent"
   ],
   "firstAppeared": 1977,
   "aliases": [],
@@ -3453,7 +3407,7 @@
   "name": "IDL",
   "tier": 3,
   "paradigm": [
-   "vector-oriented"
+   "array"
   ],
   "firstAppeared": 1977,
   "aliases": [],
@@ -3493,7 +3447,7 @@
   "name": "Io",
   "tier": 3,
   "paradigm": [
-   "object-oriented prototype-based"
+   "prototype-based"
   ],
   "firstAppeared": 2002,
   "aliases": [],
@@ -3509,7 +3463,7 @@
    "procedural",
    "object-oriented",
    "reflective",
-   "meta"
+   "metaprogramming"
   ],
   "firstAppeared": 1997,
   "aliases": [],
@@ -3523,10 +3477,7 @@
    "array",
    "functional",
    "object-oriented",
-   "class-based",
-   "prototype-based",
-   "function-level",
-   "tacit"
+   "prototype-based"
   ],
   "firstAppeared": 1990,
   "aliases": [],
@@ -3555,7 +3506,6 @@
    "multi-paradigm",
    "generic",
    "object-oriented",
-   "class-based",
    "imperative"
   ],
   "firstAppeared": 1996,
@@ -3591,7 +3541,7 @@
   "name": "Janus (concurrent constraint programming language)",
   "tier": 3,
   "paradigm": [
-   "concurrent constraint logic"
+   "logic"
   ],
   "firstAppeared": 1990,
   "aliases": [
@@ -3606,7 +3556,7 @@
   "paradigm": [
    "imperative",
    "procedural",
-   "reversible"
+   "esoteric"
   ],
   "firstAppeared": 1982,
   "aliases": [
@@ -3664,8 +3614,7 @@
   "name": "Join Java",
   "tier": 3,
   "paradigm": [
-   "concurrent",
-   "distributed"
+   "concurrent"
   ],
   "firstAppeared": null,
   "aliases": [],
@@ -3676,9 +3625,8 @@
   "name": "JOSS",
   "tier": 3,
   "paradigm": [
-   "non-structured",
-   "procedural",
-   "imperative"
+   "imperative",
+   "procedural"
   ],
   "firstAppeared": 1963,
   "aliases": [],
@@ -3691,7 +3639,7 @@
   "paradigm": [
    "multi-paradigm",
    "object-oriented",
-   "distributed",
+   "concurrent",
    "dataflow"
   ],
   "firstAppeared": 1996,
@@ -3718,8 +3666,7 @@
   "paradigm": [
    "multi-paradigm",
    "functional",
-   "concatenative",
-   "stack-oriented"
+   "stack-based"
   ],
   "firstAppeared": 2001,
   "aliases": [],
@@ -3730,9 +3677,8 @@
   "name": "jq",
   "tier": 3,
   "paradigm": [
-   "purely functional",
-   "json-oriented processing",
-   "tacit"
+   "functional",
+   "markup-adjacent"
   ],
   "firstAppeared": 2012,
   "aliases": [],
@@ -3889,7 +3835,7 @@
   "name": "KRL",
   "tier": 3,
   "paradigm": [
-   "knowledge representation"
+   "logic"
   ],
   "firstAppeared": 1976,
   "aliases": [],
@@ -3968,13 +3914,11 @@
   "tier": 3,
   "paradigm": [
    "multi-paradigm",
-   "structured object-oriented",
-   "multi-dis",
+   "object-oriented",
    "imperative",
    "procedural",
    "concurrent",
-   "exp-oriented",
-   "meta",
+   "metaprogramming",
    "reflective"
   ],
   "firstAppeared": 1995,
@@ -3995,8 +3939,7 @@
   "name": "Lean",
   "tier": 3,
   "paradigm": [
-   "strict purely functional",
-   "dependently typed"
+   "functional"
   ],
   "firstAppeared": 2013,
   "aliases": [],
@@ -4097,7 +4040,7 @@
    "functional",
    "procedural",
    "reflective",
-   "meta"
+   "metaprogramming"
   ],
   "firstAppeared": 1960,
   "aliases": [],
@@ -4260,7 +4203,7 @@
   "paradigm": [
    "dataflow",
    "declarative",
-   "synchronous"
+   "concurrent"
   ],
   "firstAppeared": null,
   "aliases": [],
@@ -4272,8 +4215,7 @@
   "tier": 3,
   "paradigm": [
    "functional",
-   "structured",
-   "modular"
+   "structured"
   ],
   "firstAppeared": 1964,
   "aliases": [],
@@ -4302,7 +4244,7 @@
   "name": "M4",
   "tier": 3,
   "paradigm": [
-   "macro"
+   "metaprogramming"
   ],
   "firstAppeared": 1977,
   "aliases": [],
@@ -4455,7 +4397,7 @@
    "functional",
    "procedural",
    "reflective",
-   "meta"
+   "metaprogramming"
   ],
   "firstAppeared": 1971,
   "aliases": [],
@@ -4508,10 +4450,7 @@
   "name": "Microsoft Power Fx",
   "tier": 3,
   "paradigm": [
-   "low-code",
-   "general-purpose",
    "imperative",
-   "strongly typed",
    "declarative",
    "functional"
   ],
@@ -4525,7 +4464,7 @@
   "tier": 3,
   "paradigm": [
    "procedural",
-   "database-oriented"
+   "query"
   ],
   "firstAppeared": null,
   "aliases": [],
@@ -4557,7 +4496,6 @@
   "name": "Miranda",
   "tier": 3,
   "paradigm": [
-   "lazy",
    "functional",
    "declarative"
   ],
@@ -4585,7 +4523,7 @@
    "functional",
    "generic",
    "imperative",
-   "interactive"
+   "scripting"
   ],
   "firstAppeared": 1973,
   "aliases": [],
@@ -4605,7 +4543,7 @@
   "name": "Modelica",
   "tier": 3,
   "paradigm": [
-   "declarative language"
+   "declarative"
   ],
   "firstAppeared": 1997,
   "aliases": [],
@@ -4617,8 +4555,7 @@
   "tier": 3,
   "paradigm": [
    "imperative",
-   "structured",
-   "modular"
+   "structured"
   ],
   "firstAppeared": 1975,
   "aliases": [],
@@ -4631,9 +4568,8 @@
   "paradigm": [
    "imperative",
    "structured",
-   "modular",
-   "data",
-   "procedure hiding",
+   "markup-adjacent",
+   "procedural",
    "concurrent"
   ],
   "firstAppeared": 1978,
@@ -4648,7 +4584,6 @@
    "imperative",
    "structured",
    "procedural",
-   "modular",
    "concurrent",
    "object-oriented",
    "generic"
@@ -4802,7 +4737,7 @@
    "functional",
    "generic",
    "imperative",
-   "meta",
+   "metaprogramming",
    "object-oriented",
    "reflective"
   ],
@@ -4815,7 +4750,7 @@
   "name": "NESL",
   "tier": 3,
   "paradigm": [
-   "parallel",
+   "concurrent",
    "functional",
    "array"
   ],
@@ -4840,8 +4775,7 @@
    "multi-paradigm",
    "educational",
    "procedural",
-   "agent-based",
-   "simulation"
+   "domain-specific"
   ],
   "firstAppeared": 1999,
   "aliases": [],
@@ -4852,7 +4786,7 @@
   "name": "NetRexx",
   "tier": 3,
   "paradigm": [
-   "multiparadigm",
+   "multi-paradigm",
    "object-oriented",
    "procedural",
    "structured"
@@ -4889,7 +4823,7 @@
   "name": "NewtonScript",
   "tier": 3,
   "paradigm": [
-   "prototype object-oriented"
+   "prototype-based"
   ],
   "firstAppeared": 1993,
   "aliases": [],
@@ -4912,13 +4846,12 @@
   "tier": 3,
   "paradigm": [
    "multi-paradigm",
-   "compiled",
    "concurrent",
    "procedural",
    "imperative",
    "functional",
    "object-oriented",
-   "meta"
+   "metaprogramming"
   ],
   "firstAppeared": 2008,
   "aliases": [],
@@ -5020,7 +4953,6 @@
   "paradigm": [
    "imperative",
    "structured",
-   "modular",
    "object-oriented"
   ],
   "firstAppeared": null,
@@ -5052,7 +4984,6 @@
   "paradigm": [
    "multi-paradigm",
    "object-oriented",
-   "class-based",
    "procedural",
    "imperative",
    "structured"
@@ -5069,10 +5000,9 @@
    "multi-paradigm",
    "imperative",
    "structured",
-   "modular",
    "object-oriented",
    "prototype-based",
-   "parallel"
+   "concurrent"
   ],
   "firstAppeared": 1993,
   "aliases": [],
@@ -5142,7 +5072,7 @@
   "paradigm": [
    "imperative",
    "structured",
-   "embedded"
+   "systems"
   ],
   "firstAppeared": 1984,
   "aliases": [
@@ -5216,7 +5146,7 @@
   "tier": 3,
   "paradigm": [
    "concurrent",
-   "nondeterministic"
+   "logic"
   ],
   "firstAppeared": 2004,
   "aliases": [],
@@ -5248,7 +5178,6 @@
   "name": "Orwell",
   "tier": 3,
   "paradigm": [
-   "lazy",
    "functional"
   ],
   "firstAppeared": 1984,
@@ -5280,7 +5209,6 @@
    "imperative",
    "object-oriented",
    "constraint",
-   "distributed",
    "concurrent"
   ],
   "firstAppeared": 1991,
@@ -5301,7 +5229,6 @@
   "name": "P4",
   "tier": 3,
   "paradigm": [
-   "compiled",
    "domain-specific",
    "imperative"
   ],
@@ -5314,7 +5241,6 @@
   "name": "ParaSail",
   "tier": 3,
   "paradigm": [
-   "compiled",
    "concurrent",
    "imperative",
    "structured",
@@ -5444,7 +5370,7 @@
    "object-oriented",
    "declarative",
    "reflective",
-   "meta"
+   "metaprogramming"
   ],
   "firstAppeared": 1988,
   "aliases": [],
@@ -5489,8 +5415,8 @@
   "name": "Pizza",
   "tier": 3,
   "paradigm": [
-   "generics",
-   "algebraic types"
+   "generic",
+   "functional"
   ],
   "firstAppeared": null,
   "aliases": [],
@@ -5678,7 +5604,7 @@
   "name": "Pony",
   "tier": 3,
   "paradigm": [
-   "actor model",
+   "concurrent",
    "object-oriented",
    "imperative"
   ],
@@ -5770,7 +5696,6 @@
   "paradigm": [
    "multi-paradigm",
    "object-oriented",
-   "visual",
    "dataflow"
   ],
   "firstAppeared": 1983,
@@ -5782,7 +5707,7 @@
   "name": "Project Verona",
   "tier": 3,
   "paradigm": [
-   "safe infrastructure"
+   "domain-specific"
   ],
   "firstAppeared": 2019,
   "aliases": [],
@@ -5834,8 +5759,7 @@
   "tier": 3,
   "paradigm": [
    "functional",
-   "declarative",
-   "term rewriting"
+   "declarative"
   ],
   "firstAppeared": 2008,
   "aliases": [],
@@ -5890,7 +5814,7 @@
   "name": "Q#",
   "tier": 3,
   "paradigm": [
-   "quantum",
+   "domain-specific",
    "functional",
    "imperative"
   ],
@@ -5967,8 +5891,7 @@
    "functional",
    "imperative",
    "logic",
-   "meta",
-   "modular",
+   "metaprogramming",
    "object-oriented",
    "reflective"
   ],
@@ -6025,7 +5948,7 @@
   "tier": 3,
   "paradigm": [
    "imperative",
-   "pipeline"
+   "dataflow"
   ],
   "firstAppeared": 1989,
   "aliases": [
@@ -6041,7 +5964,6 @@
    "multi-paradigm",
    "functional",
    "imperative",
-   "modular",
    "object-oriented"
   ],
   "firstAppeared": 2016,
@@ -6053,8 +5975,8 @@
   "name": "REBOL",
   "tier": 3,
   "paradigm": [
-   "language-oriented",
-   "data exchange",
+   "metaprogramming",
+   "markup-adjacent",
    "functional",
    "prototype-based",
    "imperative"
@@ -6070,8 +5992,7 @@
   "paradigm": [
    "multi-paradigm",
    "imperative",
-   "functional",
-   "symbolic"
+   "functional"
   ],
   "firstAppeared": 2011,
   "aliases": [],
@@ -6091,8 +6012,7 @@
   "name": "REFAL",
   "tier": 3,
   "paradigm": [
-   "pattern-matching",
-   "term-rewriting"
+   "functional"
   ],
   "firstAppeared": 1968,
   "aliases": [],
@@ -6106,7 +6026,6 @@
    "multi-paradigm",
    "functional",
    "imperative",
-   "modular",
    "object-oriented"
   ],
   "firstAppeared": 2020,
@@ -6118,7 +6037,7 @@
   "name": "REXX",
   "tier": 3,
   "paradigm": [
-   "multiparadigm",
+   "multi-paradigm",
    "procedural",
    "structured"
   ],
@@ -6142,7 +6061,6 @@
   "name": "RPL",
   "tier": 3,
   "paradigm": [
-   "concatenative",
    "stack-based",
    "structured"
   ],
@@ -6167,7 +6085,7 @@
    "multi-paradigm",
    "imperative",
    "structured",
-   "real-time"
+   "concurrent"
   ],
   "firstAppeared": 1972,
   "aliases": [],
@@ -6336,7 +6254,7 @@
    "multi-paradigm",
    "functional",
    "imperative",
-   "meta"
+   "metaprogramming"
   ],
   "firstAppeared": 1975,
   "aliases": [],
@@ -6356,8 +6274,7 @@
   "name": "Scratch",
   "tier": 3,
   "paradigm": [
-   "event-driven",
-   "block-based programming language"
+   "event-driven"
   ],
   "firstAppeared": 2003,
   "aliases": [],
@@ -6378,7 +6295,7 @@
   "tier": 3,
   "paradigm": [
    "imperative",
-   "meta",
+   "metaprogramming",
    "scripting"
   ],
   "firstAppeared": null,
@@ -6402,7 +6319,6 @@
   "tier": 3,
   "paradigm": [
    "multi-paradigm",
-   "extensible",
    "object-oriented",
    "imperative",
    "structured",
@@ -6430,7 +6346,7 @@
   "name": "SenseTalk",
   "tier": 3,
   "paradigm": [
-   "people-oriented",
+   "educational",
    "multi-paradigm",
    "object-oriented"
   ],
@@ -6443,9 +6359,8 @@
   "name": "SequenceL",
   "tier": 3,
   "paradigm": [
-   "parallel",
+   "concurrent",
    "functional",
-   "purely functional",
    "declarative"
   ],
   "firstAppeared": 1989,
@@ -6483,7 +6398,7 @@
   "paradigm": [
    "dataflow",
    "declarative",
-   "synchronous"
+   "concurrent"
   ],
   "firstAppeared": null,
   "aliases": [],
@@ -6596,8 +6511,7 @@
   "paradigm": [
    "multi-paradigm",
    "functional",
-   "imperative",
-   "modular"
+   "imperative"
   ],
   "firstAppeared": 1983,
   "aliases": [],
@@ -6622,8 +6536,7 @@
   "tier": 3,
   "paradigm": [
    "imperative",
-   "procedural",
-   "unstructured"
+   "procedural"
   ],
   "firstAppeared": 1962,
   "aliases": [
@@ -6697,7 +6610,6 @@
    "aspect-oriented",
    "concurrent",
    "array",
-   "distributed",
    "generic",
    "procedural"
   ],
@@ -6809,8 +6721,7 @@
    "multi-paradigm",
    "educational",
    "procedural",
-   "agent-based",
-   "simulation"
+   "domain-specific"
   ],
   "firstAppeared": 2001,
   "aliases": [],
@@ -6905,10 +6816,7 @@
   "tier": 3,
   "paradigm": [
    "dataflow",
-   "distributed",
-   "grid",
    "concurrent",
-   "scientific workflow",
    "scripting"
   ],
   "firstAppeared": 2007,
@@ -6944,7 +6852,7 @@
    "object-oriented",
    "imperative",
    "functional",
-   "meta"
+   "metaprogramming"
   ],
   "firstAppeared": 1982,
   "aliases": [],
@@ -6983,8 +6891,7 @@
   "paradigm": [
    "multi-paradigm",
    "functional",
-   "object-oriented",
-   "class-based"
+   "object-oriented"
   ],
   "firstAppeared": 1997,
   "aliases": [],
@@ -7078,7 +6985,7 @@
   "name": "TRAC",
   "tier": 3,
   "paradigm": [
-   "general-purpose macro processor"
+   "metaprogramming"
   ],
   "firstAppeared": 1964,
   "aliases": [],
@@ -7100,7 +7007,7 @@
   "name": "Transaction Application Language",
   "tier": 3,
   "paradigm": [
-   "block-structured procedural language"
+   "structured"
   ],
   "firstAppeared": null,
   "aliases": [
@@ -7124,7 +7031,7 @@
   "name": "TTM",
   "tier": 3,
   "paradigm": [
-   "general-purpose macro processor"
+   "metaprogramming"
   ],
   "firstAppeared": 1968,
   "aliases": [],
@@ -7162,8 +7069,7 @@
   "name": "TXL",
   "tier": 3,
   "paradigm": [
-   "pattern-matching",
-   "term-rewriting"
+   "functional"
   ],
   "firstAppeared": null,
   "aliases": [],
@@ -7321,7 +7227,7 @@
   "tier": 3,
   "paradigm": [
    "multi-paradigm",
-   "logical",
+   "logic",
    "functional",
    "object-oriented",
    "imperative",
@@ -7348,7 +7254,7 @@
   "tier": 3,
   "paradigm": [
    "structured",
-   "stack machine"
+   "stack-based"
   ],
   "firstAppeared": 2017,
   "aliases": [],
@@ -7372,7 +7278,6 @@
   "tier": 3,
   "paradigm": [
    "multi-paradigm",
-   "term-rewriting",
    "functional",
    "procedural",
    "array"
@@ -7440,8 +7345,7 @@
   "paradigm": [
    "declarative",
    "dataflow",
-   "functional reactive",
-   "visual"
+   "functional"
   ],
   "firstAppeared": 2016,
   "aliases": [],
@@ -7479,7 +7383,7 @@
    "procedural",
    "imperative",
    "structured",
-   "parser generator"
+   "domain-specific"
   ],
   "firstAppeared": 1964,
   "aliases": [],
@@ -7500,8 +7404,7 @@
   "tier": 3,
   "paradigm": [
    "declarative",
-   "functional",
-   "modular"
+   "functional"
   ],
   "firstAppeared": 2007,
   "aliases": [],
@@ -7606,7 +7509,6 @@
   "paradigm": [
    "imperative",
    "structured",
-   "modular",
    "object-oriented"
   ],
   "firstAppeared": 2013,

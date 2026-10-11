@@ -2,8 +2,8 @@
 slug: "franz-lisp"
 name: "Franz Lisp"
 tier: 3
-paradigm: ["multi-paradigm", "functional", "procedural", "reflective", "meta"]
+paradigm: ["multi-paradigm", "functional", "procedural", "reflective", "metaprogramming"]
 firstAppeared: 1980
-summary: "Franz Lisp is a multi-paradigm language first appeared in 1980."
+summary: "Franz Lisp is a multi-paradigm and functional programming language that first appeared in 1980."
 status: planned
 ---

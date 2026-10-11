@@ -2,8 +2,8 @@
 slug: "clips"
 name: "CLIPS"
 tier: 3
-paradigm: ["object-oriented", "expert system"]
+paradigm: ["object-oriented", "logic"]
 firstAppeared: 1985
-summary: "CLIPS is an object-oriented language first appeared in 1985."
+summary: "CLIPS is an object-oriented and logic programming language that first appeared in 1985."
 status: planned
 ---

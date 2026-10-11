@@ -2,8 +2,8 @@
 slug: "swift"
 name: "Swift"
 tier: 1
-paradigm: ["multi-paradigm", "protocol-oriented", "object-oriented", "functional", "imperative", "block structured", "declarative", "concurrent"]
+paradigm: ["multi-paradigm", "object-oriented", "functional", "imperative", "structured", "declarative", "concurrent"]
 firstAppeared: 2014
-summary: "Swift is a multi-paradigm language first appeared in 2014."
+summary: "Swift is a multi-paradigm and object-oriented programming language that first appeared in 2014."
 status: planned
 ---

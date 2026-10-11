@@ -3,6 +3,6 @@ slug: "xpl0"
 name: "XPL0"
 tier: 3
 paradigm: ["unclassified"]
-summary: "XPL0 is a programming language."
+summary: "XPL0 is a programming language. A full overview has not been written yet."
 status: planned
 ---

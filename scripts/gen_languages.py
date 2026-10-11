@@ -53,16 +53,19 @@ def load_summaries():
 
 
 def fallback_summary(name, paradigms, year):
-    """Neutral sentence from known fields only."""
-    if paradigms:
-        first = paradigms[0]
-        article = "an" if first[:1] in VOWELS else "a"
-        if year:
-            return f"{name} is {article} {first} language first appeared in {year}."
-        return f"{name} is {article} {first} language."
+    """Short honest sentence built only from verified fields; missing fields are left out."""
+    if not paradigms and not year:
+        return f"{name} is a programming language. A full overview has not been written yet."
+    kinds = [p for p in paradigms if p and p != PLACEHOLDER_PARADIGM][:2]
+    if kinds:
+        phrase = " and ".join(kinds)
+        article = "an" if phrase[:1] in VOWELS else "a"
+        text = f"{name} is {article} {phrase} programming language"
+    else:
+        text = f"{name} is a programming language"
     if year:
-        return f"{name} is a programming language first appeared in {year}."
-    return f"{name} is a programming language."
+        text += f" that first appeared in {year}"
+    return text + "."
 
 
 def yaml_str(value):

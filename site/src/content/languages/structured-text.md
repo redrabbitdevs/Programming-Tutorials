@@ -3,6 +3,6 @@ slug: "structured-text"
 name: "Structured Text"
 tier: 3
 paradigm: ["unclassified"]
-summary: "Structured Text is a programming language."
+summary: "Structured Text is a programming language. A full overview has not been written yet."
 status: planned
 ---

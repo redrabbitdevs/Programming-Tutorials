@@ -2,8 +2,8 @@
 slug: "emacs-lisp"
 name: "Emacs Lisp"
 tier: 3
-paradigm: ["functional", "meta", "reflective"]
+paradigm: ["functional", "metaprogramming", "reflective"]
 firstAppeared: 1985
-summary: "Emacs Lisp is a functional language first appeared in 1985."
+summary: "Emacs Lisp is a functional and metaprogramming programming language that first appeared in 1985."
 status: planned
 ---
