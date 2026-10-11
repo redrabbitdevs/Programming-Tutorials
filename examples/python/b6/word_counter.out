@@ -1,0 +1,11 @@
+File to read: Cannot find 'missing.txt'. Try again.
+File to read: How many top words? Please type a whole number.
+How many top words? The number must be at least 1.
+How many top words? 
+15 different words, 33 in total
+the      10
+cat       3
+dog       3
+on        3
+café      2
+Report saved to word_report.txt

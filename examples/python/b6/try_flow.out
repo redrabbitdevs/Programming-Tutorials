@@ -1,0 +1,6 @@
+Trying '12'
+  else: got 12
+  finally: finished with '12'
+Trying 'twelve'
+  except: not a number
+  finally: finished with 'twelve'

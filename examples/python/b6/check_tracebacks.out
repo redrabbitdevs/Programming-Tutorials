@@ -1,0 +1,94 @@
+--- attr_wrong.py (exit code 1)
+Traceback (most recent call last):
+  File "/home/you/project/attr_wrong.py", line 2, in <module>
+    print(name.uppercase())
+          ^^^^^^^^^^^^^^
+AttributeError: 'str' object has no attribute 'uppercase'
+--- average.py (exit code 1)
+Traceback (most recent call last):
+  File "/home/you/project/average.py", line 10, in <module>
+    report([])
+    ~~~~~~^^^^
+  File "/home/you/project/average.py", line 6, in report
+    mean = average(scores)
+  File "/home/you/project/average.py", line 2, in average
+    return sum(numbers) / len(numbers)
+           ~~~~~~~~~~~~~^~~~~~~~~~~~~~
+ZeroDivisionError: division by zero
+--- bad_indent.py (exit code 1)
+  File "/home/you/project/bad_indent.py", line 2
+    print("Hello,", name)
+    ^^^^^
+IndentationError: expected an indented block after function definition on line 1
+--- chain.py (exit code 1)
+Traceback (most recent call last):
+  File "/home/you/project/chain.py", line 9, in <module>
+    print(read_ages(["31", "n/a", "27"]))
+          ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/home/you/project/chain.py", line 6, in read_ages
+    return [parse_age(line) for line in lines]
+            ~~~~~~~~~^^^^^^
+  File "/home/you/project/chain.py", line 2, in parse_age
+    return int(text)
+ValueError: invalid literal for int() with base 10: 'n/a'
+--- index_out.py (exit code 1)
+Traceback (most recent call last):
+  File "/home/you/project/index_out.py", line 2, in <module>
+    print(colours[3])
+          ~~~~~~~^^^
+IndexError: list index out of range
+--- key_missing.py (exit code 1)
+Traceback (most recent call last):
+  File "/home/you/project/key_missing.py", line 2, in <module>
+    print(prices["plum"])
+          ~~~~~~^^^^^^^^
+KeyError: 'plum'
+--- missing_colon.py (exit code 1)
+  File "/home/you/project/missing_colon.py", line 2
+    if age >= 18
+                ^
+SyntaxError: expected ':'
+--- name_typo.py (exit code 1)
+Traceback (most recent call last):
+  File "/home/you/project/name_typo.py", line 2, in <module>
+    print(total_prise)
+          ^^^^^^^^^^^
+NameError: name 'total_prise' is not defined. Did you mean: 'total_price'?
+--- puzzle1.py (exit code 1)
+  File "/home/you/project/puzzle1.py", line 2
+    print("Total:" price * 3)
+          ^^^^^^^^^^^^^^^^^^
+SyntaxError: invalid syntax. Perhaps you forgot a comma?
+--- puzzle2.py (exit code 1)
+Traceback (most recent call last):
+  File "/home/you/project/puzzle2.py", line 2, in <module>
+    numbers.add(4)
+    ^^^^^^^^^^^
+AttributeError: 'list' object has no attribute 'add'. Did you mean to use a 'set' object?
+--- puzzle3.py (exit code 1)
+Traceback (most recent call last):
+  File "/home/you/project/puzzle3.py", line 2, in <module>
+    print("Characters:", len(count))
+                         ~~~^^^^^^^
+TypeError: object of type 'int' has no len()
+--- puzzle4.py (exit code 1)
+  File "/home/you/project/puzzle4.py", line 3
+    print("done")
+                 ^
+IndentationError: unindent does not match any outer indentation level
+--- puzzle5.py (exit code 1)
+Traceback (most recent call last):
+  File "/home/you/project/puzzle5.py", line 1, in <module>
+    height = int("1.75")
+ValueError: invalid literal for int() with base 10: '1.75'
+--- type_mix.py (exit code 1)
+Traceback (most recent call last):
+  File "/home/you/project/type_mix.py", line 2, in <module>
+    print(age + 1)
+          ~~~~^~~
+TypeError: can only concatenate str (not "int") to str
+--- value_bad.py (exit code 1)
+Traceback (most recent call last):
+  File "/home/you/project/value_bad.py", line 1, in <module>
+    quantity = int("three")
+ValueError: invalid literal for int() with base 10: 'three'

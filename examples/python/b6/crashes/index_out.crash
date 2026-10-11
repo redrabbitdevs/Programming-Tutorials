@@ -1,0 +1,2 @@
+colours = ["red", "green", "blue"]
+print(colours[3])

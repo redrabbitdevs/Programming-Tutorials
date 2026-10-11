@@ -1,0 +1,292 @@
+---
+language: python
+level: beginner
+module: Putting it together
+order: 36
+title: Debugging habits
+description: Find logic bugs with print debugging, f"{x=}" and !r, and pause a running program with breakpoint() and the pdb debugger.
+minVersion: "3.8"
+objectives:
+  - Describe a repeatable routine for finding a bug
+  - Use print with f"{x=}" and !r to see what a variable really holds
+  - Stop a program with breakpoint() and inspect it with the basic pdb commands
+  - Decide when to use print and when to use the debugger
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/12-errors-and-exceptions"]
+---
+
+The hardest bugs are not the ones that crash. A crash comes with a [traceback](../reading-tracebacks/) that points at a line. The hard ones run to the end and print the wrong answer. Nothing tells you where to look, so you need a method. This lesson gives you a small routine and two tools: `print` used with care, and the `pdb` debugger.
+
+## A routine that works
+
+1. **Reproduce it.** Find the smallest input that gives the wrong answer, and write down what you expected.
+2. **Guess where it goes wrong.** Pick the first place where the program could have a wrong value, not the last place it shows.
+3. **Look at the real values.** Do not trust your picture of the program. Print the variable or inspect it.
+4. **Change one thing at a time**, then run again.
+5. **Explain it aloud.** If you are stuck, describe the code line by line to a friend, or to a rubber duck on your desk. Saying "this line adds the tax to the total" while reading the line `total * 1 + rate` is often enough to hear the mistake.
+
+Here is a function that should add tax to a total. With prices 10 and 20 and a tax rate of 0.1 (10 per cent), the answer should be 33.0.
+
+```python title="tax_bug.py"
+def total_with_tax(prices, rate):
+    total = 0
+    for price in prices:
+        total += price
+    return total * 1 + rate
+
+
+print(total_with_tax([10, 20], 0.1))
+```
+
+```text
+30.1
+```
+
+The program runs and prints a plausible number that is wrong. The expected value was 33.0, so the bug is somewhere between the input and the `return`.
+
+## Print debugging with `{x=}`
+
+The oldest debugging tool is also the simplest: print the values. The f-string form `f"{total=}"` prints the name and the value together, so you do not have to type the label yourself. It comes from the [f-strings lesson](../f-strings/).
+
+```python title="tax_debug.py"
+def total_with_tax(prices, rate):
+    total = 0
+    for price in prices:
+        total += price
+    print(f"{total=} {rate=}")
+    result = total * 1 + rate
+    print(f"{result=}")
+    return result
+
+
+print(total_with_tax([10, 20], 0.1))
+```
+
+```text
+total=30 rate=0.1
+result=30.1
+```
+
+The first line shows that `total` and `rate` are correct, so the loop is fine. The second shows that the problem is in the line between them: `total * 1 + rate` adds 0.1 to 30 instead of multiplying by 1.1. The fix is to put the addition in brackets:
+
+```python title="tax_fixed.py"
+def total_with_tax(prices, rate):
+    total = 0
+    for price in prices:
+        total += price
+    return round(total * (1 + rate), 2)
+
+
+print(total_with_tax([10, 20], 0.1))
+```
+
+```text
+33.0
+```
+
+The two prints were a way of asking "is it here yet?" and moving closer. Remove them when you are done, or the final program is full of noise.
+
+### Seeing invisible differences with `!r`
+
+Plain `print` shows what a string looks like. `!r` (or `repr`) shows what it **is**, with quotes, so spaces and special characters become visible.
+
+```python title="repr_demo.py"
+answer = "yes "
+print(answer == "yes")
+print("plain print:", answer, "|")
+print(f"{answer=}")
+print(f"{answer!r}")
+print(f"{len(answer)=}")
+```
+
+```text
+False
+plain print: yes  |
+answer='yes '
+'yes '
+len(answer)=4
+```
+
+The comparison is `False` and plain `print` gives no clue why. The `{answer=}` form shows the quotes, and a trailing space becomes obvious. `len` confirms four characters rather than three. The cure is in the [string methods lesson](../string-methods/): `answer.strip()`.
+
+## Stopping the program with `breakpoint()`
+
+Print debugging has a cost: add a print, run, read, add another. The alternative is to **pause** the program in the middle and look around. Call the built-in `breakpoint()` where you want to stop. When Python reaches it, it starts the **debugger**, `pdb`, and waits for your commands.
+
+```python title="pdb_demo.py"
+def total_with_tax(prices, rate):
+    total = 0
+    for price in prices:
+        total += price
+    breakpoint()
+    return total * 1 + rate
+
+
+print(total_with_tax([10, 20], 0.1))
+```
+
+Run the file as usual. The program stops and shows a `(Pdb)` prompt. Type a command after it. Here is a session, with the commands you type after each prompt. The path on your machine will differ.
+
+```text
+> /home/you/project/pdb_demo.py(5)total_with_tax()
+-> breakpoint()
+(Pdb) p total
+30
+(Pdb) p rate
+0.1
+(Pdb) n
+> /home/you/project/pdb_demo.py(6)total_with_tax()
+-> return total * 1 + rate
+(Pdb) p total * 1 + rate
+30.1
+(Pdb) c
+30.1
+```
+
+The first two lines say which file, line and function you are in, and which line is **about to run** (the one with `->`). Then `p total` printed 30, so the loop did its job. `n` (next) ran one line and showed the next. The expression `p total * 1 + rate` produced the wrong 30.1, which points straight at the bug. `c` (continue) let the program run to the end.
+
+The commands you need most:
+
+| Command | Meaning |
+|---|---|
+| `p expression` | Print the value of any expression |
+| `n` | Run the next line, staying in this function |
+| `s` | Step into a function call on the line |
+| `c` | Continue until the next breakpoint, or the end |
+| `l` or `ll` | List the source around the current line, or the whole function |
+| `w` | Show where you are in the chain of calls (the same frames as a traceback) |
+| `q` | Quit the debugger and stop the program |
+
+You can also type any Python statement at the prompt. If the name collides with a command, such as a variable called `n` or `c`, write `p n` or `!n`.
+
+<Callout type="note">
+
+`breakpoint()` is available in Python 3.7 and later. Set the environment variable `PYTHONBREAKPOINT=0` to turn all breakpoints off without editing the file. Remove the `breakpoint()` line before you share your code. A forgotten one will freeze a program that has nobody at the keyboard.
+
+</Callout>
+
+You can also start a script under the debugger from the beginning with `python -m pdb script.py`. The intermediate level goes deeper into `pdb`, post-mortem debugging and the other tools.
+
+## Print or debugger?
+
+Use `print` when you know roughly where the problem is and want a quick look, or when the program runs somewhere you cannot pause, such as a script started by another tool. Use `breakpoint()` when you do not know which value is wrong, because one pause lets you look at many values and try expressions without re-running. Most programmers use both.
+
+## Common pitfalls
+
+- **Printing the wrong thing.** A print placed after the bug tells you nothing. Print before and after the suspect line.
+- **Changing several things at once.** If the output changes, you do not know which change did it.
+- **Trusting what `print` shows for strings.** Use `{x=}` or `!r` to see spaces and quotes.
+- **Leaving debug prints or `breakpoint()` in finished code.**
+- **Typing a variable name that is also a pdb command.** `p name` always prints the variable.
+- **Debugging a different bug than the one you have.** Re-read the expected result. Sometimes the program is right and the expectation is wrong.
+
+<Exercise title="Find the bug in average">
+
+This function should return the mean of a list. `average([2, 4, 6])` should print `4.0`, but it prints something else. Use `print(f"{total=}")` inside the loop to find out what goes wrong, then fix it.
+
+```python title="average_bug.py"
+def average(numbers):
+    total = 0
+    for n in numbers:
+        total = n
+    return total / len(numbers)
+
+
+print(average([2, 4, 6]))
+print(average([5]))
+```
+
+Expected output after the fix:
+
+```text
+4.0
+5.0
+```
+
+<Solution>
+
+With the debug print in the loop you see `total=2`, `total=4`, `total=6`: each pass replaces the total instead of adding to it. The function returns `6 / 3 = 2.0`. The line should be `total += n`.
+
+```python title="average_fixed.py"
+def average(numbers):
+    total = 0
+    for n in numbers:
+        total += n
+    return total / len(numbers)
+
+
+print(average([2, 4, 6]))
+print(average([5]))
+```
+
+```text
+4.0
+5.0
+```
+
+Notice that `average([5])` was already correct before the fix. A single-item list hides the bug, since `=` and `+=` give the same result when you start from 0. This is why you test with more than one item.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Why is it Cancelled?">
+
+This program should print `Confirmed`, but it prints `Cancelled`. Use `{answer!r}` to see why, and fix it so that `"yes "`, `"YES"` and `"Yes"` all count as yes.
+
+```python title="yes_bug.py"
+answer = "yes "
+if answer == "yes":
+    print("Confirmed")
+else:
+    print("Cancelled")
+```
+
+<Solution>
+
+`print(f"{answer!r}")` shows `'yes '`, with a trailing space, so it is not equal to `"yes"`. Clean the text before comparing it:
+
+```python title="yes_fixed.py"
+answer = "yes "
+if answer.strip().lower() == "yes":
+    print("Confirmed")
+else:
+    print("Cancelled")
+```
+
+```text
+Confirmed
+```
+
+`strip()` removes the spaces and `lower()` ignores capitals. This is a common fix for text that came from `input()` or a file.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Use pdb on the tax function">
+
+Copy `pdb_demo.py` from above and run it. At the `(Pdb)` prompt, type `p prices`, then `p sum(prices) * (1 + rate)`, then `c`. What do the three commands print?
+
+<Solution>
+
+```text
+(Pdb) p prices
+[10, 20]
+(Pdb) p sum(prices) * (1 + rate)
+33.0
+(Pdb) c
+30.1
+```
+
+The correct expression gives 33.0 while the program's own `return` line gives 30.1. You have tried out the fix inside the debugger before touching the file. The last line is the program's own output after `c`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Reproduce the bug with the smallest input, look at the real values, and change one thing at a time.
+- `print(f"{x=}")` shows a name with its value, and `!r` shows quotes so hidden spaces appear.
+- `breakpoint()` pauses the program under `pdb`. Use `p` to print, `n` for the next line, `s` to step into a call, `c` to continue and `q` to quit.
+- Remove debug prints and `breakpoint()` when the bug is fixed.
+
+Next: [mini-project, a word-frequency counter](../mini-project-word-counter/).

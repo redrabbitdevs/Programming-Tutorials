@@ -1,0 +1,10 @@
+def average(numbers):
+    return sum(numbers) / len(numbers)
+
+
+def report(scores):
+    mean = average(scores)
+    print("Mean score:", mean)
+
+
+report([])

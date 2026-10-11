@@ -1,0 +1,375 @@
+---
+language: python
+level: beginner
+module: Putting it together
+order: 32
+title: Reading tracebacks and error messages
+description: Read a Python traceback from the bottom up, tell the common exception types apart, and use the message and caret markers to find the real problem.
+minVersion: "3.11"
+objectives:
+  - Read a traceback from the last line upwards and name its three parts
+  - Recognise SyntaxError, IndentationError, NameError, TypeError, ValueError, IndexError, KeyError, AttributeError and ZeroDivisionError
+  - Use the caret markers and "Did you mean" hints to find the exact spot that failed
+  - Diagnose a broken snippet from its error message alone
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/12-errors-and-exceptions"]
+---
+
+Sooner or later every script you write stops with a wall of red-looking text. That text is not an insult. It is Python telling you, quite precisely, what went wrong and where. The [errors and exceptions lesson](../../../fundamentals/beginner/errors-and-exceptions/) in the fundamentals track explains the three kinds of error in general terms: syntax errors, runtime errors and logic errors. This lesson is about reading Python's report, so that the wall of text becomes the first thing you look at rather than the thing you scroll past.
+
+Every output block below was produced by running the code on Python 3.15. The file path in your own traceback will be different, because it shows where your file lives.
+
+## A traceback, bottom first
+
+Here is a small program with a bug. `average` divides by the length of a list, and we are about to give it an empty list.
+
+```python title="average.py"
+def average(numbers):
+    return sum(numbers) / len(numbers)
+
+
+def report(scores):
+    mean = average(scores)
+    print("Mean score:", mean)
+
+
+report([])
+```
+
+Running it prints nothing from `report`, because the program stops first:
+
+```text
+Traceback (most recent call last):
+  File "/home/you/project/average.py", line 10, in <module>
+    report([])
+    ~~~~~~^^^^
+  File "/home/you/project/average.py", line 6, in report
+    mean = average(scores)
+  File "/home/you/project/average.py", line 2, in average
+    return sum(numbers) / len(numbers)
+           ~~~~~~~~~~~~~^~~~~~~~~~~~~~
+ZeroDivisionError: division by zero
+```
+
+Read it from the **last line**, which is the answer to "what happened?". It has two parts: the exception type, `ZeroDivisionError`, and the message, `division by zero`.
+
+The lines above it answer "how did we get here?". Each pair of lines is one **frame**: a function that was running when the error happened. The file name and line number come first, then the function name after `in`, then a copy of the line of code. Frames are listed oldest first, so the program started at the module level (`<module>` means "the top of the file"), called `report`, which called `average`, which is where the failure happened. The **last frame is the one that matters most**, because it is the line that actually raised the error.
+
+<Callout type="note">
+
+"Most recent call last" is printed on the first line of every traceback as a reminder of the order. The bottom is the newest, so start there and climb upwards only if you need to find out who called the failing code.
+
+</Callout>
+
+## The caret markers
+
+<Since v="3.11" /> Under the failing line, Python draws markers that point at the exact piece of the line that failed. Look again at the last frame:
+
+```text
+    return sum(numbers) / len(numbers)
+           ~~~~~~~~~~~~~^~~~~~~~~~~~~~
+```
+
+The tildes (`~`) cover the whole expression, and the single caret (`^`) sits under the operator that went wrong, the `/`. So the problem is the division, not `sum` and not `len`. When a line holds several calls, this tells you which one to suspect. A run of carets, as in `^^^^^^^^^^^`, simply underlines the whole piece that failed.
+
+<Since v="3.13" /> Tracebacks are also coloured in a terminal: the exception line stands out and the file names are highlighted. That is only decoration. If your terminal shows no colour, the text is identical.
+
+The fix for this particular bug is a question for you, not for Python: what should the average of nothing be? A later lesson in this module, on `try` and `except`, shows how to handle it.
+
+## Errors in the chain
+
+The frames matter most when the bad value was created in one place and the crash happens in another. Here a list of ages contains a text that is not a number.
+
+```python title="chain.py"
+def parse_age(text):
+    return int(text)
+
+
+def read_ages(lines):
+    return [parse_age(line) for line in lines]
+
+
+print(read_ages(["31", "n/a", "27"]))
+```
+
+```text
+Traceback (most recent call last):
+  File "/home/you/project/chain.py", line 9, in <module>
+    print(read_ages(["31", "n/a", "27"]))
+          ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/home/you/project/chain.py", line 6, in read_ages
+    return [parse_age(line) for line in lines]
+            ~~~~~~~~~^^^^^^
+  File "/home/you/project/chain.py", line 2, in parse_age
+    return int(text)
+ValueError: invalid literal for int() with base 10: 'n/a'
+```
+
+The last line names the culprit: `'n/a'` cannot become an integer. The last frame shows that `int(text)` raised it, and the frame above shows who handed that value over. The bug in your program is rarely in the last frame itself. `parse_age` is working correctly, and the real question is why `"n/a"` reached it. The frames are your trail back to that question.
+
+## SyntaxError and IndentationError
+
+These two are different from the rest. They are found when Python first reads the file, before any line has run, so there is no list of frames, only the line that Python could not understand.
+
+```python title="missing_colon.py"
+age = 20
+if age >= 18
+    print("adult")
+```
+
+```text
+  File "/home/you/project/missing_colon.py", line 2
+    if age >= 18
+                ^
+SyntaxError: expected ':'
+```
+
+The caret points at the place where Python noticed the problem, and the message says what it expected. Common messages include `expected ':'`, `invalid syntax` and `'(' was never closed`. Sometimes the mistake is on the line before the one reported, for example an unclosed bracket, so if the marked line looks fine, check the line above it.
+
+`IndentationError` is a kind of `SyntaxError` for blocks that are not lined up:
+
+```python title="bad_indent.py"
+def greet(name):
+print("Hello,", name)
+```
+
+```text
+  File "/home/you/project/bad_indent.py", line 2
+    print("Hello,", name)
+    ^^^^^
+IndentationError: expected an indented block after function definition on line 1
+```
+
+Python even tells you which line opened the block. The [comments and style lesson](../comments-and-style/) covers the indentation rule itself.
+
+## NameError and the "Did you mean" hint
+
+`NameError` means you used a name that does not exist at that point: a typo, a variable you never created, or a name used before the line that creates it.
+
+```python title="name_typo.py"
+total_price = 12.5
+print(total_prise)
+```
+
+```text
+Traceback (most recent call last):
+  File "/home/you/project/name_typo.py", line 2, in <module>
+    print(total_prise)
+          ^^^^^^^^^^^
+NameError: name 'total_prise' is not defined. Did you mean: 'total_price'?
+```
+
+Since Python 3.10, when a similar name exists Python suggests it. Treat the suggestion as a hint rather than an order, but for typos it is usually exactly right.
+
+## TypeError, ValueError and friends
+
+The most common runtime errors fall into a few types. The type name tells you the category, and the message gives the detail.
+
+`TypeError` means the operation does not fit the type of the value. Adding a number to text is the classic case:
+
+```python title="type_mix.py"
+age = "17"
+print(age + 1)
+```
+
+```text
+Traceback (most recent call last):
+  File "/home/you/project/type_mix.py", line 2, in <module>
+    print(age + 1)
+          ~~~~^~~
+TypeError: can only concatenate str (not "int") to str
+```
+
+`ValueError` means the type is right but this particular value is not acceptable. `int` accepts text, but not every text:
+
+```python title="value_bad.py"
+quantity = int("three")
+```
+
+```text
+Traceback (most recent call last):
+  File "/home/you/project/value_bad.py", line 1, in <module>
+    quantity = int("three")
+ValueError: invalid literal for int() with base 10: 'three'
+```
+
+Compare the two: `"17" + 1` is a `TypeError` because the types cannot be combined at all, while `int("three")` is a `ValueError` because `str` is a fine type for `int()` but `"three"` is not a number.
+
+`IndexError` is for a position that does not exist in a sequence, and `KeyError` is for a key that is not in a dictionary:
+
+```python title="index_out.py"
+colours = ["red", "green", "blue"]
+print(colours[3])
+```
+
+```text
+Traceback (most recent call last):
+  File "/home/you/project/index_out.py", line 2, in <module>
+    print(colours[3])
+          ~~~~~~~^^^
+IndexError: list index out of range
+```
+
+The list has three items, at positions 0, 1 and 2, so position 3 is out of range.
+
+```python title="key_missing.py"
+prices = {"apple": 0.5, "pear": 0.75}
+print(prices["plum"])
+```
+
+```text
+Traceback (most recent call last):
+  File "/home/you/project/key_missing.py", line 2, in <module>
+    print(prices["plum"])
+          ~~~~~~^^^^^^^^
+KeyError: 'plum'
+```
+
+A `KeyError` message is just the missing key. The [dictionaries lesson](../dicts/) shows `get`, which avoids the error.
+
+`AttributeError` means the value has no such method or attribute, usually because of a typo or a wrong guess about the type:
+
+```python title="attr_wrong.py"
+name = "ada"
+print(name.uppercase())
+```
+
+```text
+Traceback (most recent call last):
+  File "/home/you/project/attr_wrong.py", line 2, in <module>
+    print(name.uppercase())
+          ^^^^^^^^^^^^^^
+AttributeError: 'str' object has no attribute 'uppercase'
+```
+
+The message names the type (`'str'`) and the missing attribute. The method you want is `upper`, from the [string methods lesson](../string-methods/).
+
+## A reading checklist
+
+When an error appears, work through these in order:
+
+1. Read the last line. Say the exception type out loud, then the message.
+2. Look at the last frame: the file, the line number and the marked part of the line.
+3. If the line looks correct, climb to the frame above and ask who passed in the bad value.
+4. Change one thing, run again, and read the new message. A different error is progress.
+
+## Common pitfalls
+
+- **Reading from the top.** The first frame is where the program began, not where it broke.
+- **Fixing the last frame when the bug is earlier.** A function that crashes on bad input is often fine. Find where the bad input came from.
+- **Skipping the message.** `ValueError` alone tells you little. The text after the colon usually names the exact value that was rejected.
+- **Trusting the reported line of a `SyntaxError` blindly.** The real mistake can be one line above, such as a missing closing bracket.
+- **Searching for the whole message including your own names.** When you look up an error, search for the type and the fixed part of the message (`can only concatenate str (not "int") to str`), not for `'total_prise'`.
+
+<Exercise title="Name the exception">
+
+Each snippet below fails. Without running it, write down the exception type it raises and the one-line reason, then run it to check. The exact inputs are given in the code.
+
+```python title="predict_errors.py"
+nums = [10, 20, 30]
+print(nums[len(nums)])
+```
+
+```python
+word = "42"
+print(word * 2.5)
+```
+
+```python
+settings = {"theme": "dark"}
+print(settings["Theme"])
+```
+
+<Solution>
+
+The first raises `IndexError: list index out of range`. `len(nums)` is 3, but the last valid position is 2.
+
+The second raises `TypeError`. A string can be repeated only by an integer. The real message is `can't multiply sequence by non-int of type 'float'`.
+
+The third raises `KeyError: 'Theme'`. Keys are case-sensitive, and only `"theme"` exists.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Diagnose five broken snippets">
+
+Each pair below shows a snippet and the exact error Python 3.15 printed for it. For each one, name the exception type, say what is wrong in one sentence, and write the corrected code. The expected result of the fixed code is given.
+
+**1.** Expected output after the fix: `Total: 12`
+
+```python title="puzzle1.py"
+price = 4
+print("Total:" price * 3)
+```
+
+```text
+SyntaxError: invalid syntax. Perhaps you forgot a comma?
+```
+
+**2.** Expected output after the fix: `[1, 2, 3, 4]`
+
+```python title="puzzle2.py"
+numbers = [1, 2, 3]
+numbers.add(4)
+print(numbers)
+```
+
+```text
+AttributeError: 'list' object has no attribute 'add'. Did you mean to use a 'set' object?
+```
+
+**3.** Expected output after the fix: `Characters: 2`
+
+```python title="puzzle3.py"
+count = 12
+print("Characters:", len(count))
+```
+
+```text
+TypeError: object of type 'int' has no len()
+```
+
+**4.** Expected output after the fix: `0`, `1`, `2` on separate lines, then `done`.
+
+```python title="puzzle4.py"
+for i in range(3):
+        print(i)
+    print("done")
+```
+
+```text
+IndentationError: unindent does not match any outer indentation level
+```
+
+**5.** Expected output after the fix: `1.75`
+
+```python title="puzzle5.py"
+height = int("1.75")
+print(height)
+```
+
+```text
+ValueError: invalid literal for int() with base 10: '1.75'
+```
+
+<Solution>
+
+1. `SyntaxError`. The text and the multiplication need a comma between them. Fix: `print("Total:", price * 3)`.
+2. `AttributeError`. Lists grow with `append`, and `add` belongs to sets. Fix: `numbers.append(4)`.
+3. `TypeError`. `len` needs something with a length, such as text, and `12` is a number. Fix: `print("Characters:", len(str(count)))`.
+4. `IndentationError`. The `print("done")` line is indented by four spaces but the loop body by eight, so it matches neither level. Fix: indent the loop body by four spaces and put `print("done")` at column zero, which prints `done` once after the loop.
+5. `ValueError`. `int` cannot read a decimal point. Fix: `height = float("1.75")`.
+
+The five original snippets and their messages are checked by `examples/python/b6/check_tracebacks.py`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Read a traceback from the bottom: the last line gives the exception type and message, the last frame gives the line that failed, and the frames above show the path that led there.
+- <Since v="3.11" /> The `~` and `^` markers point at the exact part of the line that failed.
+- `SyntaxError` and `IndentationError` are found before the program runs. `NameError`, `TypeError`, `ValueError`, `IndexError`, `KeyError`, `AttributeError` and `ZeroDivisionError` happen while it runs.
+- Read the message and any "Did you mean" hint before you change anything.
+
+Next: [handling errors with try and except](../try-except/).

@@ -1,0 +1,389 @@
+---
+language: python
+level: beginner
+module: Putting it together
+order: 37
+title: "Mini-project: a word-frequency counter"
+description: Build a complete program in five stages that reads a text file, counts its words, ranks them and saves a report, using everything from the beginner level.
+minVersion: "3.8"
+objectives:
+  - Break a program into small functions and build it one stage at a time
+  - Combine dictionaries, sorting, files, input validation and try/except in one program
+  - Test each stage on its own before moving on
+  - Extend a finished program with a new feature
+estimatedMinutes: 60
+fundamentals: ["fundamentals/beginner/14-maps-and-sets", "fundamentals/beginner/12-errors-and-exceptions"]
+---
+
+This lesson has no new syntax. You will build one complete program from the pieces you already have: dictionaries, functions, loops, sorting, f-strings, files, `input` and `try`. If a piece feels shaky, the stage that uses it links back to its lesson.
+
+The program is a **word-frequency counter**. It asks for a text file and a number, counts how often each word appears, and prints and saves the most frequent ones.
+
+## The specification
+
+- Ask for the name of a text file. If it does not exist, say so and ask again.
+- Count every word. Ignore capital letters and the punctuation around words, so `The`, `the` and `"the,"` are all `the`.
+- Ask how many top words to show. Accept only a whole number of at least 1.
+- Print the number of different words and the number of words in total, then the top words in order. Words with the same count are listed alphabetically.
+- Save the same list to a report file.
+
+The test data is `sample.txt`, three lines of text in the same folder as the scripts:
+
+```text
+The cat sat on the mat. The dog sat on the log!
+"Is the cat on the mat?" asked the dog.
+Café owners say: the cat, the dog, and the café all agree.
+```
+
+Build the program in stages. After each stage, run it and check the result. Never write the next stage on top of code you have not seen working.
+
+## Stage 1: count the words in a string
+
+Start with the core idea only: no files, no punctuation, no input. The [dictionaries lesson](../dicts/) showed `get` with a default for exactly this.
+
+```python title="stage1.py"
+text = "the cat and the dog and the bird"
+
+counts = {}
+for word in text.split():
+    counts[word] = counts.get(word, 0) + 1
+
+print(counts)
+```
+
+```text
+{'the': 3, 'cat': 1, 'and': 2, 'dog': 1, 'bird': 1}
+```
+
+`text.split()` makes a list of words. For each word, `counts.get(word, 0)` returns the current count, or 0 if the word is new, and we store one more. Dictionaries keep the order in which keys were first added, so `the` comes first. The numbers are right, so this stage is done.
+
+## Stage 2: clean the words, and make functions
+
+Real text has capitals and punctuation. `str.strip` takes a string of characters to remove from both ends, and `lower` handles the capitals, as in the [string methods lesson](../string-methods/). Now is also the time to turn the code into functions, so each stage can be tested separately.
+
+```python title="stage2.py"
+PUNCTUATION = ".,;:!?\"'()-"
+
+
+def clean_word(raw):
+    return raw.strip(PUNCTUATION).lower()
+
+
+def count_words(text):
+    counts = {}
+    for raw in text.split():
+        word = clean_word(raw)
+        if word:
+            counts[word] = counts.get(word, 0) + 1
+    return counts
+
+
+print(clean_word('"Mat?"'), clean_word("Café,"), repr(clean_word("--")))
+print(count_words('The cat. "The" CAT! the - dog'))
+```
+
+```text
+mat café ''
+{'the': 3, 'cat': 2, 'dog': 1}
+```
+
+The constant `PUNCTUATION` is written in capitals by convention, as the [variables lesson](../variables-py/) said. The test line shows `clean_word` working on three awkward inputs. The last one, `--`, becomes an empty string, and `if word:` uses truthiness to skip it, so a lone dash is not counted as a word. The second print confirms that `The`, `"The"` and `the` are one word.
+
+## Stage 3: read the text from a file
+
+Now get the text from a file. A missing file is an expected problem, so `read_text` catches `FileNotFoundError` and returns `None`, which means "no text". From here on, the earlier functions stay the same and we add new ones, so this code repeats them.
+
+```python title="stage3.py"
+PUNCTUATION = ".,;:!?\"'()-"
+
+
+def clean_word(raw):
+    return raw.strip(PUNCTUATION).lower()
+
+
+def count_words(text):
+    counts = {}
+    for raw in text.split():
+        word = clean_word(raw)
+        if word:
+            counts[word] = counts.get(word, 0) + 1
+    return counts
+
+
+def read_text(filename):
+    try:
+        with open(filename, encoding="utf-8") as file:
+            return file.read()
+    except FileNotFoundError:
+        return None
+
+
+for name in ["sample.txt", "missing.txt"]:
+    text = read_text(name)
+    if text is None:
+        print(name, "-> not found")
+    else:
+        counts = count_words(text)
+        print(name, "->", len(counts), "different words,", sum(counts.values()), "in total")
+```
+
+```text
+sample.txt -> 15 different words, 33 in total
+missing.txt -> not found
+```
+
+You can check the 33 by hand: the three lines hold 12, 9 and 12 words. Checking one number against your own count is a good habit, and the [debugging lesson](../debugging-habits/) is for the day it does not match. Note `is None`, not `== None`, from the [booleans lesson](../booleans-truthiness/).
+
+## Stage 4: rank the words
+
+A dictionary has no ranking, so we sort its `items()`. Sorting by count alone would leave ties in an arbitrary order. A `key` that returns a tuple fixes that: Python compares the first item, and uses the second only on a tie. Using `-item[1]` puts the biggest counts first, and `item[0]` breaks ties alphabetically. The [lambdas lesson](../lambdas-higher-order/) covers `key=`.
+
+```python title="stage4.py"
+def top_words(counts, n):
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return ranked[:n]
+
+
+counts = {"cat": 3, "dog": 3, "the": 9, "mat": 2, "sat": 2, "log": 1}
+for word, count in top_words(counts, 4):
+    print(f"{word:<6}{count:>3}")
+```
+
+```text
+the     9
+cat     3
+dog     3
+mat     2
+```
+
+`cat` and `dog` both have 3, and `cat` comes first because `"cat" < "dog"`. `mat` and `sat` are tied at 2, so `mat` wins the last place. The slice `[:n]` keeps the first `n` rows. In the format spec, `<6` pads the word on the right to six characters and `>3` aligns the number to the right, as in the [f-strings lesson](../f-strings/).
+
+## Stage 5: the whole program
+
+The last stage adds the conversation with the user and the report file. Both questions use the pattern from the [try and except lesson](../try-except/): loop until the answer is acceptable. The `main` function at the bottom shows the whole plan in a few lines.
+
+```python title="word_counter.py"
+"""Word-frequency counter: the finished mini-project."""
+
+PUNCTUATION = ".,;:!?\"'()-"
+REPORT_NAME = "word_report.txt"
+
+
+def clean_word(raw):
+    return raw.strip(PUNCTUATION).lower()
+
+
+def count_words(text):
+    counts = {}
+    for raw in text.split():
+        word = clean_word(raw)
+        if word:
+            counts[word] = counts.get(word, 0) + 1
+    return counts
+
+
+def top_words(counts, n):
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return ranked[:n]
+
+
+def read_text(filename):
+    try:
+        with open(filename, encoding="utf-8") as file:
+            return file.read()
+    except FileNotFoundError:
+        return None
+
+
+def ask_for_text():
+    while True:
+        filename = input("File to read: ").strip()
+        text = read_text(filename)
+        if text is None:
+            print(f"Cannot find {filename!r}. Try again.")
+        else:
+            return filename, text
+
+
+def ask_for_count():
+    while True:
+        answer = input("How many top words? ")
+        try:
+            n = int(answer)
+        except ValueError:
+            print("Please type a whole number.")
+        else:
+            if n < 1:
+                print("The number must be at least 1.")
+            else:
+                return n
+
+
+def write_report(rows, source):
+    with open(REPORT_NAME, "w", encoding="utf-8") as file:
+        print(f"Top words in {source}", file=file)
+        for word, count in rows:
+            print(f"{word:<8}{count:>3}", file=file)
+
+
+def main():
+    filename, text = ask_for_text()
+    counts = count_words(text)
+    n = ask_for_count()
+    rows = top_words(counts, n)
+
+    print()
+    print(f"{len(counts)} different words, {sum(counts.values())} in total")
+    for word, count in rows:
+        print(f"{word:<8}{count:>3}")
+
+    write_report(rows, filename)
+    print(f"Report saved to {REPORT_NAME}")
+
+
+main()
+```
+
+Each function does one job, and only `main` knows the order. The two `ask_` functions use `return` inside a `while True` loop, so there is no need for `break`. Here is a session with deliberate mistakes. The lines after each prompt are what the user typed: `missing.txt`, `sample.txt`, `many`, `0` and `5`.
+
+```text
+File to read: missing.txt
+Cannot find 'missing.txt'. Try again.
+File to read: sample.txt
+How many top words? many
+Please type a whole number.
+How many top words? 0
+The number must be at least 1.
+How many top words? 5
+
+15 different words, 33 in total
+the      10
+cat       3
+dog       3
+on        3
+café      2
+Report saved to word_report.txt
+```
+
+The file `word_report.txt` now contains the title line `Top words in sample.txt` followed by the same five rows. The tie between `cat`, `dog` and `on` at 3 is listed alphabetically, and `café` beats `mat` and `sat` at 2 for the same reason, which is also why the accented word needed UTF-8 to be read and written correctly.
+
+## Where to go from here
+
+The project touches almost every module of the beginner level: variables, strings, `if`, loops, dictionaries, functions, files, `try`, f-strings and sorting. If you understood every line, you are ready for the intermediate level. Where something was unclear, the lesson linked at that stage is the place to revisit.
+
+## Common pitfalls
+
+- **Writing everything first, testing later.** If stage 5 fails, you will not know which stage caused it. Run after every stage.
+- **Forgetting to clean the words.** Without `clean_word`, `cat.` and `cat` are different keys.
+- **Sorting `counts` directly.** `sorted(counts)` returns only the keys. Use `counts.items()` to keep the numbers.
+- **Opening the report with `"a"` by mistake.** Every run would add to the old report instead of replacing it.
+- **Expecting a program to find `sample.txt` from any folder.** Run the script from the folder that holds the file.
+
+<Exercise title="Add stop words">
+
+Words such as `the` and `on` dominate every ranking. Change `count_words` so that it skips words in a set called `STOP_WORDS = {"the", "on"}`. Read `sample.txt` directly, without questions, and print the top 3 words. Expected output:
+
+```text
+cat       3
+dog       3
+café      2
+```
+
+<Solution>
+
+```python title="stop_words.py"
+PUNCTUATION = ".,;:!?\"'()-"
+STOP_WORDS = {"the", "on"}
+
+
+def clean_word(raw):
+    return raw.strip(PUNCTUATION).lower()
+
+
+def count_words(text):
+    counts = {}
+    for raw in text.split():
+        word = clean_word(raw)
+        if word and word not in STOP_WORDS:
+            counts[word] = counts.get(word, 0) + 1
+    return counts
+
+
+def top_words(counts, n):
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return ranked[:n]
+
+
+with open("sample.txt", encoding="utf-8") as file:
+    counts = count_words(file.read())
+
+for word, count in top_words(counts, 3):
+    print(f"{word:<8}{count:>3}")
+```
+
+```text
+cat       3
+dog       3
+café      2
+```
+
+The only change is `and word not in STOP_WORDS`. A set is the right container, because membership tests are fast, as the [sets lesson](../sets/) explained. The words `mat` and `sat` also have a count of 2, and `café` is ahead of them alphabetically.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A number-guessing game">
+
+Build a second small program from the same ingredients. The computer picks a secret number from 1 to 20 with `random.randint`. The player guesses until correct. After each guess print `Too low.` or `Too high.`. A guess that is not a whole number prints `Please type a whole number.` and does not count as an attempt. At the end print how many guesses were needed.
+
+To make your output repeatable, put `random.seed(3)` before picking the number. With that seed the secret is 8. For the guesses `10`, `ten`, `5` and `8`, the expected output is:
+
+```text
+I am thinking of a number from 1 to 20.
+Your guess: Too high.
+Your guess: Please type a whole number.
+Your guess: Too low.
+Your guess: Correct! You needed 3 guesses.
+```
+
+The typed guesses do not appear in this output because they come from a file, not a keyboard. At a real keyboard they appear after each `Your guess:` prompt.
+
+<Solution>
+
+```python title="guess_game.py"
+import random
+
+random.seed(3)  # remove this line to get a different number every game
+secret = random.randint(1, 20)
+attempts = 0
+
+print("I am thinking of a number from 1 to 20.")
+while True:
+    answer = input("Your guess: ")
+    try:
+        guess = int(answer)
+    except ValueError:
+        print("Please type a whole number.")
+        continue
+
+    attempts += 1
+    if guess < secret:
+        print("Too low.")
+    elif guess > secret:
+        print("Too high.")
+    else:
+        print(f"Correct! You needed {attempts} guesses.")
+        break
+```
+
+The `continue` in the `except` block skips back to the next prompt before `attempts` is increased, which is how bad input avoids counting as an attempt. Without `random.seed(3)` the secret changes on every run.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A bigger program is built stage by stage: get the core idea working on tiny data, then add cleaning, files, ranking and the conversation, testing after each one.
+- Small functions that do one job can be tested separately, and a short `main` shows the plan.
+- Dictionaries with `get` count things, `sorted` with a tuple key ranks them with a fair tie-break, `with open` reads and writes, and `try` with a loop makes input forgiving.
+- You now have the whole beginner toolkit. The intermediate level builds on it with object-oriented programming, raising your own errors, writing your own modules and more.

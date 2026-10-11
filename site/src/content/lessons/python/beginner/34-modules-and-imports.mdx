@@ -1,0 +1,294 @@
+---
+language: python
+level: beginner
+module: Putting it together
+order: 34
+title: Modules and the import statement
+description: Bring in code from Python's standard library with import and from, explore a module with dir and help, and use math, random, statistics and datetime.
+minVersion: "3.8"
+objectives:
+  - Use import, from ... import and import ... as to bring in a module
+  - Explore an unfamiliar module with dir() and help()
+  - Use the basics of math and random
+  - Avoid giving your own file the name of a standard library module
+estimatedMinutes: 35
+fundamentals: []
+---
+
+Python ships with hundreds of ready-made tools, and almost none of them are loaded until you ask. A **module** is a file of Python code, and the **standard library** is the collection of modules that comes with every Python installation. This lesson shows how to ask for one, how to find out what is inside, and how to use the two you will meet first: `math` and `random`.
+
+You have already seen `import math` in the [numbers lesson](../numbers/). Now you will see what that line does.
+
+## import
+
+`import math` loads the module and gives you one new name, `math`. Everything inside the module is reached with a dot.
+
+```python title="import_math.py"
+import math
+
+print(math.sqrt(16))
+print(math.floor(2.7), math.ceil(2.1))
+print(round(math.pi, 4))
+```
+
+```text
+4.0
+2 3
+3.1416
+```
+
+`math.sqrt` means "the name `sqrt` inside `math`". `floor` rounds down, `ceil` rounds up, and `pi` is a number, not a function, so it has no brackets. The dotted names tell the reader where each tool comes from, which is useful in a long program.
+
+## from ... import and as
+
+If you use a few names often, `from` brings them in directly, so you write `sqrt` rather than `math.sqrt`. The word `as` gives a module or a name a different, usually shorter, label.
+
+```python title="from_import.py"
+from math import sqrt, pi
+import statistics as stats
+
+print(sqrt(25))
+print(round(pi * 2**2, 2))
+print(stats.mean([2, 4, 9]))
+```
+
+```text
+5.0
+12.57
+5
+```
+
+After `from math import sqrt, pi`, the names `sqrt` and `pi` exist on their own, but `math` does not. After `import statistics as stats`, the module is called `stats`, and `statistics` is not defined. Use `from` for a small number of names that are clear without their module. Use plain `import` when the module name adds meaning.
+
+Avoid `from math import *`. It dumps every name into your file, hides where each one came from, and can silently replace names you defined earlier.
+
+## Finding out what is inside
+
+Nobody remembers every module. Python can describe its own. `dir(module)` lists the names inside a module, and `help(module.name)` prints the documentation. In the REPL, `help(math.hypot)` opens the full text. In a script, the same text is available as `__doc__`.
+
+```python title="explore_module.py"
+import math
+
+print("hypot" in dir(math))
+print(math.hypot.__doc__.splitlines()[0])
+print(type(math))
+```
+
+```text
+True
+Multidimensional Euclidean distance from the origin to a point.
+<class 'module'>
+```
+
+A module is a value like any other: `type(math)` is `module`. The first line of a docstring is a one-line summary, so `help` is the quickest way to learn what an unfamiliar function does. The documentation at docs.python.org/3/library/ describes every module.
+
+## random
+
+The `random` module makes unpredictable numbers, which is what games and simulations need. Its output changes every run, so the example below prints `True` for each check instead of the random value.
+
+```python title="random_basics.py"
+import random
+
+roll = random.randint(1, 6)
+print(1 <= roll <= 6)
+
+colour = random.choice(["red", "green", "blue"])
+print(colour in ["red", "green", "blue"])
+
+cards = [1, 2, 3, 4, 5]
+random.shuffle(cards)
+print(sorted(cards))
+
+picked = random.sample(range(1, 50), 6)
+print(len(picked), len(set(picked)))
+
+random.seed(5)
+first = [random.randint(1, 6) for _ in range(5)]
+random.seed(5)
+second = [random.randint(1, 6) for _ in range(5)]
+print(first == second)
+```
+
+```text
+True
+True
+[1, 2, 3, 4, 5]
+6 6
+True
+```
+
+- `randint(1, 6)` includes **both** ends, unlike `range`. It is a dice roll.
+- `choice` picks one item from a sequence.
+- `shuffle` mixes a list **in place** and returns `None`, so write `random.shuffle(cards)`, not `cards = random.shuffle(cards)`.
+- `sample` picks several different items, here six distinct numbers for a lottery ticket.
+- `seed(5)` fixes the starting point of the sequence. The same seed gives the same "random" numbers every time, which is why `first == second` is `True`. Seeds are useful for repeatable tests and for exercises like the ones below.
+
+The numbers from `random` are fine for games. They are not secure, so never use them to make passwords. The `secrets` module is for that.
+
+## A short tour of two more modules
+
+Two more modules are worth knowing about now. You do not need to master them yet.
+
+```python title="stdlib_tour.py"
+import statistics
+from datetime import date
+
+marks = [70, 85, 90, 85, 60]
+print(statistics.mean(marks), statistics.median(marks))
+
+release = date(2026, 10, 9)
+print(release.strftime("%A"))
+print((date(2026, 12, 25) - release).days)
+```
+
+```text
+78 85
+Friday
+77
+```
+
+`statistics` gives the average and the middle value of a list. `datetime` provides dates: you can ask for the weekday name, and subtracting two dates gives a duration whose `.days` is a number. Python 3.15 itself was released on Friday 9 October 2026, which is the date used above.
+
+## Do not name your file after a module
+
+When you write `import random`, Python looks in the folder of your running script **before** it looks at the standard library. If you have a file called `random.py` next to your script, Python finds your file instead.
+
+```python title="game.py"
+import random
+
+print(random.randint(1, 6))
+```
+
+With a file called `random.py` in the same folder, this fails:
+
+```text
+Traceback (most recent call last):
+  File "/home/you/project/game.py", line 3, in <module>
+    print(random.randint(1, 6))
+          ^^^^^^^^^^^^^^
+AttributeError: module 'random' has no attribute 'randint' (consider renaming '/home/you/project/random.py' since it has the same name as the standard library module named 'random' and prevents importing that standard library module)
+```
+
+The message reads strangely, because the module is real, just not the one you wanted. The fix is to rename your file. Avoid `random.py`, `math.py`, `statistics.py`, `datetime.py` and `test.py`.
+
+The intermediate level covers writing your own modules, packages and how Python searches for them. For now, one file per program is enough.
+
+## Common pitfalls
+
+- **Forgetting the module name.** After `import math`, writing `sqrt(16)` raises `NameError`. Write `math.sqrt(16)`.
+- **Using the module name after `from`.** After `from math import pi`, `math.sqrt` fails because `math` was never defined.
+- **`from module import *`.** It hides where names come from and can overwrite yours.
+- **Reusing a standard name for a variable.** `random = 7` after `import random` replaces the module with a number. Name the variable `roll`.
+- **Expecting `randint` to exclude the top end.** `randint(1, 6)` can return 6.
+- **Writing `cards = random.shuffle(cards)`.** It sets `cards` to `None`.
+
+<Exercise title="Circle and triangle">
+
+Using only `math`, compute these for a circle of radius `2.5`: the area rounded to 2 decimal places, the hypotenuse of a right triangle with sides 3 and 4, and the area rounded up to a whole number. Expected output:
+
+```text
+19.63
+5.0
+20
+```
+
+Hint: `math.pi`, `math.hypot` and `math.ceil`.
+
+<Solution>
+
+```python title="circle_ring.py"
+import math
+
+radius = 2.5
+area = math.pi * radius**2
+print(round(area, 2))
+print(math.hypot(3, 4))
+print(math.ceil(area))
+```
+
+```text
+19.63
+5.0
+20
+```
+
+The area is 19.634954..., so `ceil` gives 20 while `round(area, 2)` gives 19.63.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Days until the new year">
+
+Using `datetime.date`, work out how many days there are from 9 October 2026 to 1 January 2027, and show them as whole weeks and left-over days. Expected output:
+
+```text
+Days: 84
+Weeks and days: 12 0
+```
+
+<Solution>
+
+```python title="days_until.py"
+from datetime import date
+
+start = date(2026, 10, 9)
+end = date(2027, 1, 1)
+days = (end - start).days
+print("Days:", days)
+print("Weeks and days:", days // 7, days % 7)
+```
+
+```text
+Days: 84
+Weeks and days: 12 0
+```
+
+Subtracting two `date` values gives a `timedelta`, and its `days` is a plain integer. After that, `//` and `%` from the [operators lesson](../operators-py/) do the rest. It happens that 84 is exactly 12 weeks.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix the broken dice">
+
+This program should print `True`, but it fails with `NameError: name 'randint' is not defined`. Fix it two different ways, without changing the last line.
+
+```python
+import random
+
+roll = randint(1, 6)
+print(1 <= roll <= 6)
+```
+
+<Solution>
+
+Way one: add the module name to the call.
+
+```python
+import random
+
+roll = random.randint(1, 6)
+print(1 <= roll <= 6)
+```
+
+Way two: import the name directly.
+
+```python
+from random import randint
+
+roll = randint(1, 6)
+print(1 <= roll <= 6)
+```
+
+Both print `True`. The first keeps the origin of `randint` visible. The second is shorter and is fine for one or two names.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `import module` gives you the module, used as `module.name`. `from module import name` brings in just the name. `as` renames either.
+- `dir(module)` lists what is inside, and `help(module.name)` or its `__doc__` explains it.
+- `math` has `sqrt`, `floor`, `ceil`, `pi` and more. `random` has `randint` (both ends included), `choice`, `shuffle`, `sample` and `seed`.
+- Never name your own file after a standard library module, because Python will find yours first.
+
+Next: [reading and writing files](../files-first-look/).
