@@ -2,10 +2,33 @@
 import { getCollection } from 'astro:content';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { STATUS_LABEL, TIER_INFO, languageHref } from '../../lib/lessons';
+import { PARADIGM_GROUPS, paradigmGroups, groupLabel } from '../../lib/paradigms';
 
 const all = (await getCollection('languages')).sort((a, b) => a.data.name.localeCompare(b.data.name));
-const tiers = ([1, 2, 3] as const).map((t) => ({ tier: t, items: all.filter((l) => l.data.tier === t) })).filter((g) => g.items.length);
-const paradigms = [...new Set(all.flatMap((l) => l.data.paradigm))].sort((a, b) => a.localeCompare(b));
+const lessonLangs = new Set((await getCollection('lessons')).map((l) => l.data.language));
+
+const letterOf = (name: string) => {
+  const c = name.trim().charAt(0).toUpperCase();
+  return /[A-Z]/.test(c) ? c : '#';
+};
+
+const rows = all.map((l) => {
+  const groups = paradigmGroups(l.data.paradigm);
+  return { l, groups, letter: letterOf(l.data.name), hasLessons: lessonLangs.has(l.data.slug) || l.data.status !== 'planned' };
+});
+
+const tiers = ([1, 2, 3] as const).map((t) => ({ tier: t, items: rows.filter((r) => r.l.data.tier === t) })).filter((g) => g.items.length);
+
+// Jump-bar targets: the first row for each letter, preferring the longest list (tier 3) so the bar works as an index.
+const jumpTarget = new Map<string, string>();
+for (const g of [...tiers].reverse()) for (const r of g.items) if (!jumpTarget.has(r.letter)) jumpTarget.set(r.letter, r.l.data.slug);
+const letters = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ#'];
+
+const withLessons = rows.filter((r) => r.hasLessons).length;
+const overviewOnly = rows.length - withLessons;
+const groupCounts = new Map<string, number>();
+for (const r of rows) for (const g of r.groups) groupCounts.set(g, (groupCounts.get(g) ?? 0) + 1);
+const paradigmOptions = PARADIGM_GROUPS.filter((g) => groupCounts.has(g.id));
 ---
 
 <BaseLayout title="Languages" section="languages" description="Every programming language in the catalogue, grouped by tier, with search and filters.">
@@ -13,8 +36,8 @@ const paradigms = [...new Set(all.flatMap((l) => l.data.paradigm))].sort((a, b) 
     <div class="wrap">
       <h1>Languages</h1>
       <p class="lede">
-        {all.length} {all.length === 1 ? 'language' : 'languages'}, grouped by how deeply they are covered. Search by name,
-        paradigm or a word from the summary.
+        {all.length} {all.length === 1 ? 'language' : 'languages'}, {withLessons} with lessons and {overviewOnly} with an
+        overview page. Search by name, paradigm or a word from the summary.
       </p>
     </div>
   </div>
@@ -26,22 +49,31 @@ const paradigms = [...new Set(all.flatMap((l) => l.data.paradigm))].sort((a, b) 
         <input id="f-q" type="search" autocomplete="off" placeholder="Name, paradigm or keyword" />
       </div>
       <div class="field">
-        <label for="f-status">Status</label>
-        <select id="f-status">
-          <option value="">Any status</option>
-          <option value="complete">Complete</option>
-          <option value="in-progress">In progress</option>
-          <option value="planned">Planned</option>
+        <label for="f-cov">Coverage</label>
+        <select id="f-cov">
+          <option value="">All ({rows.length})</option>
+          <option value="lessons">Has lessons ({withLessons})</option>
+          <option value="overview">Overview only ({overviewOnly})</option>
         </select>
       </div>
       <div class="field">
         <label for="f-par">Paradigm</label>
         <select id="f-par">
           <option value="">Any paradigm</option>
-          {paradigms.map((p) => <option value={p.toLowerCase()}>{p}</option>)}
+          {paradigmOptions.map((g) => <option value={g.id}>{g.label} ({groupCounts.get(g.id)})</option>)}
         </select>
       </div>
     </form>
+
+    <nav class="az" aria-label="Jump to letter">
+      <ul>
+        {letters.map((c) => (
+          jumpTarget.has(c)
+            ? <li><a href={`#lang-${jumpTarget.get(c)}`} data-letter={c}>{c}</a></li>
+            : <li><span aria-hidden="true">{c}</span></li>
+        ))}
+      </ul>
+    </nav>
 
     <p class="result-count" id="count" role="status" aria-live="polite"></p>
 
@@ -52,17 +84,24 @@ const paradigms = [...new Set(all.flatMap((l) => l.data.paradigm))].sort((a, b) 
           <p>{TIER_INFO[g.tier].note}. <span class="tier-n">{g.items.length}</span> shown</p>
         </header>
         <ul class="lang-list">
-          {g.items.map((l) => (
+          {g.items.map((r, i) => (
             <li
-              data-status={l.data.status}
-              data-par={l.data.paradigm.join('|').toLowerCase()}
-              data-q={`${l.data.name} ${l.data.slug} ${l.data.paradigm.join(' ')} ${l.data.summary}`.toLowerCase()}
+              id={`lang-${r.l.data.slug}`}
+              data-i={all.indexOf(r.l)}
+              data-letter={r.letter}
+              data-name={r.l.data.name.toLowerCase()}
+              data-slug={r.l.data.slug}
+              data-cov={r.hasLessons ? 'lessons' : 'overview'}
+              data-par={r.groups.join('|')}
+              data-q={`${r.l.data.paradigm.join(' ')} ${r.groups.map(groupLabel).join(' ')} ${r.l.data.summary}`.toLowerCase()}
             >
-              <a class="lang-row" href={languageHref(l.data.slug)}>
-                <span class="name">{l.data.name}</span>
-                <span class="summary">{l.data.summary}</span>
-                <span class="tags">{l.data.paradigm.join(', ')}</span>
-                <span class="status" data-status={l.data.status}>{STATUS_LABEL[l.data.status]}</span>
+              <a class="lang-row" href={languageHref(r.l.data.slug)}>
+                <span class="name">{r.l.data.name}</span>
+                <span class="summary">{r.l.data.summary}</span>
+                <span class="tags">{r.groups.filter((x) => x !== 'other').map(groupLabel).join(', ')}</span>
+                <span class="status" data-status={r.hasLessons ? r.l.data.status : 'planned'}>
+                  {r.hasLessons ? STATUS_LABEL[r.l.data.status] : 'Overview only'}
+                </span>
               </a>
             </li>
           ))}
@@ -75,33 +114,62 @@ const paradigms = [...new Set(all.flatMap((l) => l.data.paradigm))].sort((a, b) 
 
 <script>
   const q = document.getElementById('f-q') as HTMLInputElement;
-  const st = document.getElementById('f-status') as HTMLSelectElement;
+  const cov = document.getElementById('f-cov') as HTMLSelectElement;
   const par = document.getElementById('f-par') as HTMLSelectElement;
   const count = document.getElementById('count')!;
   const none = document.getElementById('none')!;
   const groups = Array.from(document.querySelectorAll<HTMLElement>('.tier-group'));
+  const lists = Array.from(document.querySelectorAll<HTMLElement>('.lang-list'));
+  const jump = Array.from(document.querySelectorAll<HTMLAnchorElement>('.az a'));
   const rows = Array.from(document.querySelectorAll<HTMLElement>('.lang-list > li')).map((el) => ({
     el,
+    list: el.parentElement as HTMLElement,
+    i: Number(el.dataset.i),
+    letter: el.dataset.letter ?? '',
+    name: el.dataset.name ?? '',
+    slug: el.dataset.slug ?? '',
     q: el.dataset.q ?? '',
-    status: el.dataset.status ?? '',
+    cov: el.dataset.cov ?? '',
     par: (el.dataset.par ?? '').split('|'),
   }));
 
   const params = new URLSearchParams(location.search);
   q.value = params.get('q') ?? '';
-  st.value = params.get('status') ?? '';
+  cov.value = params.get('cov') ?? '';
   par.value = params.get('par') ?? '';
 
+  // Lower is better: exact name, name prefix, alias (slug), name substring, then paradigm or summary text.
+  function rank(r: (typeof rows)[number], query: string, terms: string[]): number {
+    if (r.name === query) return 0;
+    if (r.name.startsWith(query)) return 1;
+    if (r.slug === query || r.slug.startsWith(query)) return 2;
+    if (r.name.includes(query)) return 3;
+    const hay = `${r.name} ${r.slug} ${r.q}`;
+    return terms.every((t) => hay.includes(t)) ? 4 : -1;
+  }
+
   function apply() {
-    const terms = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+    const query = q.value.trim().toLowerCase();
+    const terms = query.split(/\s+/).filter(Boolean);
     let shown = 0;
+    const visibleLetters = new Set<string>();
+    const scored: { r: (typeof rows)[number]; s: number }[] = [];
     for (const r of rows) {
-      const ok =
-        terms.every((t) => r.q.includes(t)) &&
-        (!st.value || r.status === st.value) &&
-        (!par.value || r.par.includes(par.value));
+      const s = terms.length ? rank(r, query, terms) : 0;
+      const ok = s >= 0 && (!cov.value || r.cov === cov.value) && (!par.value || r.par.includes(par.value));
       r.el.hidden = !ok;
-      if (ok) shown++;
+      if (ok) {
+        shown++;
+        visibleLetters.add(r.letter);
+        scored.push({ r, s });
+      }
+    }
+    // Reorder within each tier: best match first when searching, alphabetical otherwise.
+    for (const list of lists) {
+      scored
+        .filter((x) => x.r.list === list)
+        .sort((a, b) => a.s - b.s || a.r.i - b.r.i)
+        .forEach((x) => list.appendChild(x.r.el));
     }
     for (const g of groups) {
       const n = g.querySelectorAll('.lang-list > li:not([hidden])').length;
@@ -109,15 +177,32 @@ const paradigms = [...new Set(all.flatMap((l) => l.data.paradigm))].sort((a, b) 
       const label = g.querySelector('.tier-n');
       if (label) label.textContent = String(n);
     }
+    for (const a of jump) a.classList.toggle('off', !visibleLetters.has(a.dataset.letter ?? ''));
     none.hidden = shown !== 0;
     count.textContent = `${shown} of ${rows.length} ${rows.length === 1 ? 'language' : 'languages'}`;
 
     const next = new URLSearchParams();
     if (q.value) next.set('q', q.value);
-    if (st.value) next.set('status', st.value);
+    if (cov.value) next.set('cov', cov.value);
     if (par.value) next.set('par', par.value);
     const s = next.toString();
     history.replaceState(null, '', s ? `?${s}` : location.pathname);
+  }
+
+  // With filters on, the letter link goes to the first row of that letter that is still visible.
+  for (const a of jump) {
+    a.addEventListener('click', (e) => {
+      const letter = a.dataset.letter;
+      const tierOf = (r: (typeof rows)[number]) => Number(r.list.closest<HTMLElement>('.tier-group')?.dataset.tier ?? 0);
+      const hit = rows
+        .filter((r) => r.letter === letter && !r.el.hidden)
+        .sort((a, b) => tierOf(b) - tierOf(a) || a.i - b.i)[0];
+      const target = hit?.el.querySelector<HTMLElement>('a');
+      e.preventDefault();
+      if (!target) return;
+      target.scrollIntoView({ block: 'start' });
+      target.focus({ preventScroll: true });
+    });
   }
 
   let timer: number | undefined;
@@ -125,7 +210,7 @@ const paradigms = [...new Set(all.flatMap((l) => l.data.paradigm))].sort((a, b) 
     clearTimeout(timer);
     timer = window.setTimeout(apply, 80);
   });
-  st.addEventListener('change', apply);
+  cov.addEventListener('change', apply);
   par.addEventListener('change', apply);
   apply();
 </script>

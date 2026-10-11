@@ -444,6 +444,30 @@ a:hover { color: var(--accent-hover); text-decoration-thickness: 2px; }
   .lang-row .status { text-align: right; }
 }
 
+.lang-list li, .lang-row { scroll-margin-top: calc(var(--header-h) + 12rem); }
+.az { padding-top: var(--s-3); }
+.az ul { list-style: none; display: flex; flex-wrap: wrap; gap: 2px; }
+.az li { display: block; }
+.az a, .az li > span {
+  display: grid; place-items: center; min-width: 2rem; min-height: 2rem;
+  font-size: var(--step--1); font-weight: 600; font-variant-numeric: tabular-nums; border-radius: var(--radius);
+}
+.az a { color: var(--accent); text-decoration: none; }
+.az a:hover { background: var(--bg-sunk); }
+.az a.off { color: var(--ink-3); font-weight: 400; }
+.az li > span { color: var(--ink-3); opacity: 0.55; font-weight: 400; }
+
+/* Overview-only language page */
+.overview { display: grid; gap: var(--s-7); padding-top: var(--s-6); padding-bottom: var(--s-8); max-width: var(--measure); margin-inline: 0; }
+.facts { display: grid; gap: 0; border-top: 1px solid var(--rule); }
+.facts > div { display: grid; gap: var(--s-1) var(--s-4); padding: var(--s-3) 0; border-bottom: 1px solid var(--rule); }
+@media (min-width: 40rem) { .facts > div { grid-template-columns: 10rem minmax(0, 1fr); } }
+.facts dt { color: var(--ink-3); font-size: 0.95rem; }
+.facts dd { margin: 0; font-weight: 560; }
+.not-yet { border-left: 4px solid var(--rule-strong); padding-left: var(--s-4); }
+.not-yet h2 { font-size: var(--step-1); margin-bottom: var(--s-2); }
+.not-yet p { color: var(--ink-2); }
+
 /* Curriculum map */
 .curriculum { display: grid; gap: var(--s-8); padding-top: var(--s-7); }
 .level-block { display: grid; gap: var(--s-5); }

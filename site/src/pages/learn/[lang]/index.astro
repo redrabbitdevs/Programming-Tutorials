@@ -3,7 +3,8 @@ import { getCollection } from 'astro:content';
 import BaseLayout from '../../../layouts/BaseLayout.astro';
 import Crumbs from '../../../components/Crumbs.astro';
 import { url } from '../../../lib/url';
-import { STATUS_LABEL, getLessonsFor, groupLessons, lessonHref } from '../../../lib/lessons';
+import { STATUS_LABEL, getLessonsFor, groupLessons, lessonHref, languageHref } from '../../../lib/lessons';
+import { paradigmGroups, groupLabel } from '../../../lib/paradigms';
 
 export async function getStaticPaths() {
   const langs = await getCollection('languages');
@@ -16,9 +17,40 @@ const lessons = await getLessonsFor(d.slug);
 const groups = groupLessons(lessons);
 const first = lessons[0];
 const fmtDate = (x: Date) => x.toLocaleDateString('en-GB', { year: 'numeric', month: 'long', timeZone: 'UTC' });
+const overviewOnly = lessons.length === 0;
+const shownGroups = paradigmGroups(d.paradigm).filter((g) => g !== 'other').map(groupLabel);
+// Optional: only rendered if the language data carries a Wikipedia URL.
+const wikipedia = (d as { wikipedia?: string }).wikipedia;
 ---
 
-<BaseLayout title={`${d.name} curriculum`} section="languages" description={d.summary}>
+<BaseLayout title={overviewOnly ? d.name : `${d.name} curriculum`} section="languages" description={d.summary}>
+  {overviewOnly ? (
+    <div class="page-head">
+      <div class="wrap">
+        <Crumbs items={[{ label: 'Languages', href: url('/languages/') }, { label: d.name }]} />
+        <h1>{d.name}</h1>
+        <p class="lede">{d.summary}</p>
+      </div>
+    </div>
+    <div class="wrap overview">
+      <dl class="facts">
+        {shownGroups.length > 0 && (
+          <div><dt>{shownGroups.length === 1 ? 'Paradigm' : 'Paradigms'}</dt><dd>{shownGroups.join(', ')}</dd></div>
+        )}
+        {d.firstAppeared && <div><dt>First appeared</dt><dd>{d.firstAppeared}</dd></div>}
+        {wikipedia && <div><dt>Reference</dt><dd><a href={wikipedia} rel="noopener">Wikipedia article</a></dd></div>}
+      </dl>
+      <aside class="not-yet" aria-labelledby="not-yet">
+        <h2 id="not-yet">Not yet on the curriculum</h2>
+        <p>
+          There are no {d.name} lessons yet. The ideas that carry across every language, such as variables, control flow and
+          functions, are covered in <a href={url('/fundamentals/')}>Fundamentals</a>. For a full track to see how lessons
+          are structured, start with <a href={languageHref('python')}>Python</a>.
+        </p>
+      </aside>
+    </div>
+  ) : (
+  <Fragment>
   <div class="page-head">
     <div class="wrap">
       <Crumbs items={[{ label: 'Languages', href: url('/languages/') }, { label: d.name }]} />
@@ -74,4 +106,6 @@ const fmtDate = (x: Date) => x.toLocaleDateString('en-GB', { year: 'numeric', mo
       </section>
     ))}
   </div>
+  </Fragment>
+  )}
 </BaseLayout>
