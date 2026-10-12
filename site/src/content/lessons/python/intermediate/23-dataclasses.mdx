@@ -1,0 +1,525 @@
+---
+language: python
+level: intermediate
+module: Object-oriented Python
+order: 23
+title: Dataclasses
+description: Generate __init__, __repr__ and __eq__ from a list of annotated fields, then add frozen, slots and keyword-only options as needed.
+minVersion: "3.8"
+objectives:
+  - Declare a class's fields with @dataclass and use the generated __init__, __repr__ and __eq__
+  - Give fields defaults, including mutable ones with default_factory
+  - Validate fields in __post_init__
+  - Make instances immutable with frozen=True, and create modified copies with replace
+  - Use slots=True and kw_only=True, and say which Python version added each
+estimatedMinutes: 55
+fundamentals: ["fundamentals/beginner/15-records-and-objects"]
+---
+
+Many classes exist mainly to hold data: an inventory item, a point, a configuration. You have seen how much ceremony that takes. There is an `__init__` that copies each parameter onto `self`, a `__repr__` that lists them again, and an `__eq__` that lists them a third time. A **dataclass** writes all of that for you from a list of field declarations.
+
+## The boilerplate you no longer write
+
+Here is a plain class that holds three values and supports printing and comparison:
+
+```python title="c22_boilerplate.py"
+class Item:
+    def __init__(self, name, price, quantity=0):
+        self.name = name
+        self.price = price
+        self.quantity = quantity
+
+    def __repr__(self):
+        return f"Item(name={self.name!r}, price={self.price!r}, quantity={self.quantity!r})"
+
+    def __eq__(self, other):
+        if not isinstance(other, Item):
+            return NotImplemented
+        return (self.name, self.price, self.quantity) == (other.name, other.price, other.quantity)
+
+
+print(Item("pen", 1.5, 10))
+```
+
+```text
+Item(name='pen', price=1.5, quantity=10)
+```
+
+Every field name appears in `__init__`, `__repr__` and `__eq__`. Add a field and you must edit all three, or the class is quietly wrong. The decorator `@dataclass` from the `dataclasses` module removes the repetition. (Decorators are a later topic. Read `@dataclass` as "generate the usual methods for the fields declared below.")
+
+```python title="c22_basic.py"
+from dataclasses import dataclass
+
+
+@dataclass
+class Item:
+    name: str
+    price: float
+    quantity: int = 0
+
+
+pen = Item("pen", 1.5, 10)
+print(pen)
+print(pen == Item("pen", 1.5, 10))
+pen.quantity = 8
+print(pen.quantity)
+```
+
+```text
+Item(name='pen', price=1.5, quantity=10)
+True
+8
+```
+
+Each line in the body that has the form `name: type` declares a field. `quantity: int = 0` gives it a default, so `Item("pen", 1.5)` works too. The generated `__repr__` shows every field, and the generated `__eq__` compares them as a group. The instance is an ordinary object, so you can still change `pen.quantity`.
+
+The type annotations are required, because they are how `@dataclass` finds the fields. Python does not enforce them at run time. `Item("pen", "cheap")` would be accepted, and a type checker would flag it.
+
+## Defaults for lists and other mutable values
+
+A mutable default would be shared between instances, exactly like the class attribute trap from the first lesson. Dataclasses refuse it outright:
+
+```python title="c22_mutable_default.py"
+from dataclasses import dataclass
+
+try:
+
+    @dataclass
+    class Basket:
+        owner: str
+        items: list[str] = []
+
+except ValueError as error:
+    print("ValueError:", error)
+```
+
+```text
+ValueError: mutable default <class 'list'> for field items is not allowed: use default_factory
+```
+
+For a field that needs a fresh list, dictionary or set per instance, use `field(default_factory=...)`. The factory is a callable that runs once for each new instance:
+
+```python title="c22_defaults.py"
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Basket:
+    owner: str
+    items: list[str] = field(default_factory=list)
+
+
+a = Basket("Asha")
+b = Basket("Ben")
+a.items.append("apple")
+print(a)
+print(b)
+```
+
+```text
+Basket(owner='Asha', items=['apple'])
+Basket(owner='Ben', items=[])
+```
+
+`list` was passed without parentheses. It is the function to call, not a list. Each `Basket` got its own, so `b` stayed empty.
+
+## Checking values: __post_init__
+
+The generated `__init__` copies values in without looking at them. To validate, or to compute extra fields, define `__post_init__`. The generated `__init__` calls it after all fields are set:
+
+```python title="c22_post_init.py"
+from dataclasses import dataclass
+
+
+@dataclass
+class Item:
+    name: str
+    price: float
+    quantity: int = 0
+
+    def __post_init__(self):
+        if self.price < 0:
+            raise ValueError(f"price cannot be negative: {self.price}")
+
+
+print(Item("pen", 1.5))
+try:
+    Item("pen", -1)
+except ValueError as error:
+    print("ValueError:", error)
+```
+
+```text
+Item(name='pen', price=1.5, quantity=0)
+ValueError: price cannot be negative: -1
+```
+
+## Ordering and hashing
+
+Pass options to the decorator in parentheses. `order=True` adds `<`, `<=`, `>` and `>=`, comparing the fields in the order they were declared. That is the tuple comparison you wrote by hand in the data model lesson:
+
+```python title="c22_order.py"
+from dataclasses import dataclass
+
+
+@dataclass(order=True)
+class Version:
+    major: int
+    minor: int
+
+
+versions = [Version(3, 12), Version(2, 7), Version(3, 9)]
+print(sorted(versions))
+print(Version(3, 9) < Version(3, 12))
+```
+
+```text
+[Version(major=2, minor=7), Version(major=3, minor=9), Version(major=3, minor=12)]
+True
+```
+
+The data model lesson warned that defining `__eq__` removes `__hash__`. A dataclass follows the same rule, so an ordinary one cannot go into a set:
+
+```python title="c22_hash_default.py"
+from dataclasses import dataclass
+
+
+@dataclass
+class Point:
+    x: int
+    y: int
+
+
+p = Point(1, 2)
+print(p == Point(1, 2))
+try:
+    {p}
+except TypeError:
+    print("TypeError: a mutable dataclass is unhashable")
+```
+
+```text
+True
+TypeError: a mutable dataclass is unhashable
+```
+
+## Immutable instances: frozen=True
+
+`frozen=True` makes assignment to a field an error after the object is created. A frozen dataclass with `eq=True`, the default, also gets a `__hash__`, because it is now safe to hash:
+
+```python title="c22_frozen.py"
+from dataclasses import dataclass, FrozenInstanceError
+
+
+@dataclass(frozen=True)
+class Point:
+    x: int
+    y: int
+
+
+p = Point(1, 2)
+try:
+    p.x = 10
+except FrozenInstanceError as error:
+    print("FrozenInstanceError:", error)
+print({p, Point(1, 2)})
+```
+
+```text
+FrozenInstanceError: cannot assign to field 'x'
+{Point(x=1, y=2)}
+```
+
+Freezing gives you the safe, hashable value objects the data model lesson described, with a single option. The error message text is not a promise, so catch `FrozenInstanceError` by type.
+
+### Making a changed copy with replace
+
+A frozen object cannot be updated, but you can make a near-identical new one. `dataclasses.replace` takes the object and the fields to change:
+
+```python title="c22_replace.py"
+from dataclasses import dataclass, replace
+
+
+@dataclass(frozen=True)
+class Item:
+    name: str
+    quantity: int
+
+
+old = Item("pen", 10)
+new = replace(old, quantity=7)
+print(old)
+print(new)
+```
+
+```text
+Item(name='pen', quantity=10)
+Item(name='pen', quantity=7)
+```
+
+The original stays as it was. Notice that `replace` calls the class again, so `__post_init__` runs and validation applies to the new value too.
+
+Python 3.13 <Since v="3.13" /> added `copy.replace()`, a general function that does the same for dataclasses and for any class that provides a `__replace__` method:
+
+```python title="c22_copy_replace.py"
+import copy
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Item:
+    name: str
+    quantity: int
+
+
+old = Item("pen", 10)
+new = copy.replace(old, quantity=7)
+print(old, new)
+```
+
+```text
+Item(name='pen', quantity=10) Item(name='pen', quantity=7)
+```
+
+On older versions, `dataclasses.replace` is the one to use. It is also the clearer name when you know you have a dataclass.
+
+## Smaller instances: slots=True <Since v="3.10" />
+
+Normally each instance stores its attributes in a dictionary, which is what lets you attach new attributes at any time. With `slots=True` <Since v="3.10" />, Python generates a `__slots__` declaration instead. Instances become smaller and a little faster to use, and they no longer accept attributes the class did not declare:
+
+```python title="c22_slots.py"
+from dataclasses import dataclass
+
+
+@dataclass(slots=True)
+class Point:
+    x: int
+    y: int
+
+
+p = Point(1, 2)
+print(hasattr(p, "__dict__"))
+try:
+    p.z = 3
+except AttributeError:
+    print("AttributeError: no room for a new attribute")
+```
+
+```text
+False
+AttributeError: no room for a new attribute
+```
+
+This also closes the typo trap from the first lesson: `p.z = 3` is an error, not a new attribute.
+
+## Keyword-only fields: kw_only=True <Since v="3.10" />
+
+Dataclasses with many fields are hard to read at the call site: `Connection("db", 5432, False)` says nothing about which value is which. `kw_only=True` <Since v="3.10" /> makes every field keyword-only in the generated `__init__`:
+
+```python title="c22_kw_only.py"
+from dataclasses import dataclass
+
+
+@dataclass(kw_only=True)
+class Connection:
+    host: str
+    port: int = 5432
+    use_tls: bool = True
+
+
+print(Connection(host="db.example", use_tls=False))
+try:
+    Connection("db.example")
+except TypeError:
+    print("TypeError: positional arguments are not accepted")
+```
+
+```text
+Connection(host='db.example', port=5432, use_tls=False)
+TypeError: positional arguments are not accepted
+```
+
+The call with a positional value was rejected. A side benefit is that keyword-only fields may have defaults in any order, because the usual "non-default after default" rule applies only to positional parameters. For a single field, `field(kw_only=True)` does the same.
+
+## When not to use a dataclass
+
+A dataclass fits classes whose main job is to hold values. If the class has complex setup, hides its data behind properties, or is mostly behaviour, a plain class is clearer. You can mix the two: a dataclass can have methods and properties like any other class.
+
+## Common pitfalls
+
+**Forgetting the annotation.** A line `quantity = 0` with no annotation is a class attribute, not a field. The generated `__init__` ignores it. Write `quantity: int = 0`.
+
+**A mutable default.** `items: list = []` raises `ValueError`. Use `field(default_factory=list)`.
+
+**A required field after one with a default.** Declaring `y: int` below `x: int = 0` fails with `TypeError`, for the same reason that a function cannot have a required parameter after an optional one. Reorder the fields, or use `kw_only=True`.
+
+**Expecting `frozen=True` to be deep.** It only blocks assignment to the fields. A frozen dataclass holding a list can still have that list modified by `item.tags.append(...)`. Hold tuples if you need real immutability.
+
+**Mutating a shared object.** If two names refer to the same non-frozen dataclass, changing one changes the other. Use `replace` to make an independent copy.
+
+<Exercise title="Inventory with immutable updates">
+Write a frozen dataclass `Item` with fields `name: str`, `price: float` and `quantity: int = 0`. A `__post_init__` should raise `ValueError` with the message `quantity cannot be negative: -5` (using the real number) when the quantity is below zero.
+
+Then write two functions, `restock(item, amount)` and `sell(item, amount)`. Each returns a new item and leaves the original untouched.
+
+Test script:
+
+```python title="inventory_check.py"
+pen = Item("pen", 1.5, 10)
+more = restock(pen, 5)
+print(pen.quantity, more.quantity)
+try:
+    sell(more, 20)
+except ValueError as error:
+    print("ValueError:", error)
+print(more)
+```
+
+Expected output:
+
+```text
+10 15
+ValueError: quantity cannot be negative: -5
+Item(name='pen', price=1.5, quantity=15)
+```
+
+<Solution>
+
+```python title="c22_ex_inventory.py"
+from dataclasses import dataclass, replace
+
+
+@dataclass(frozen=True)
+class Item:
+    name: str
+    price: float
+    quantity: int = 0
+
+    def __post_init__(self):
+        if self.quantity < 0:
+            raise ValueError(f"quantity cannot be negative: {self.quantity}")
+
+
+def restock(item, amount):
+    return replace(item, quantity=item.quantity + amount)
+
+
+def sell(item, amount):
+    return replace(item, quantity=item.quantity - amount)
+
+
+pen = Item("pen", 1.5, 10)
+more = restock(pen, 5)
+print(pen.quantity, more.quantity)
+try:
+    sell(more, 20)
+except ValueError as error:
+    print("ValueError:", error)
+print(more)
+```
+
+```text
+10 15
+ValueError: quantity cannot be negative: -5
+Item(name='pen', price=1.5, quantity=15)
+```
+
+`replace` calls `__init__` again, so selling more than is in stock triggers the check in `__post_init__` without any extra code in `sell`. The original `more` is untouched, because frozen instances are never modified in place.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Keyword-only settings">
+Write a dataclass `Settings` with `kw_only=True` and `slots=True`, with fields `host: str`, `port: int = 8000` and `debug: bool = False`. In `__post_init__`, raise `ValueError` with the message `port out of range: 70000` (real value) unless the port is from 1 to 65535.
+
+Create `Settings(host="localhost")`, `Settings(host="example.org", port=443)`, then try `Settings(host="x", port=70000)` and `Settings("localhost")`. Print each result, the `ValueError` message for the bad port, and `TypeError: keyword arguments only` for the positional call. Expected output:
+
+```text
+Settings(host='localhost', port=8000, debug=False)
+Settings(host='example.org', port=443, debug=False)
+ValueError: port out of range: 70000
+TypeError: keyword arguments only
+```
+
+<Solution>
+
+```python title="c22_ex_settings.py"
+from dataclasses import dataclass
+
+
+@dataclass(kw_only=True, slots=True)
+class Settings:
+    host: str
+    port: int = 8000
+    debug: bool = False
+
+    def __post_init__(self):
+        if not 1 <= self.port <= 65535:
+            raise ValueError(f"port out of range: {self.port}")
+
+
+print(Settings(host="localhost"))
+print(Settings(host="example.org", port=443))
+try:
+    Settings(host="x", port=70000)
+except ValueError as error:
+    print("ValueError:", error)
+try:
+    Settings("localhost")
+except TypeError:
+    print("TypeError: keyword arguments only")
+```
+
+```text
+Settings(host='localhost', port=8000, debug=False)
+Settings(host='example.org', port=443, debug=False)
+ValueError: port out of range: 70000
+TypeError: keyword arguments only
+```
+
+The two options combine freely. Because the fields are keyword-only, the order of the declarations no longer matters to callers. The condition `not 1 <= self.port <= 65535` is Python's chained comparison: it is true only when the port is outside the range.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict equality and hashing">
+This frozen dataclass has a weight that defaults to 1. Write down the three lines before running it, and say why the set has the size it does.
+
+```python title="c22_ex_predict.py"
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Tag:
+    label: str
+    weight: int = 1
+
+
+a = Tag("py")
+b = Tag("py", 1)
+c = Tag("py", 2)
+print(a == b)
+print(a == c)
+print(len({a, b, c}))
+```
+
+<Solution>
+
+```text
+True
+False
+2
+```
+
+`a` and `b` have the same fields, so they are equal. `c` differs in `weight`, so it is not equal to `a`. The set keeps one entry for the equal pair `a` and `b`, plus one for `c`, so its length is 2. The set works because `frozen=True` with the default `eq=True` generates a `__hash__` over the same fields.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `@dataclass` generates `__init__`, `__repr__` and `__eq__` from the annotated fields in the class body.
+- Use `field(default_factory=list)` for mutable defaults. A plain mutable default is an error.
+- `__post_init__` runs after the generated `__init__`, which makes it the place to validate.
+- `order=True` adds comparisons. `frozen=True` makes the instance immutable and hashable. `dataclasses.replace` makes a changed copy, and `copy.replace()` <Since v="3.13" /> does the same.
+- `slots=True` <Since v="3.10" /> and `kw_only=True` <Since v="3.10" /> reduce memory and clarify calls.

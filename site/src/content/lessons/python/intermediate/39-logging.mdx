@@ -1,0 +1,476 @@
+---
+language: python
+level: intermediate
+module: Testing, debugging and quality
+order: 39
+title: Logging instead of print
+description: Replace print statements with the logging module, choose levels, send records to the console and a file, and keep secrets out of the log.
+minVersion: "3.8"
+objectives:
+  - Log at the right level and configure the output with basicConfig
+  - Create named loggers per module and explain why libraries do not configure logging
+  - Attach handlers and formatters, and give each handler its own level
+  - Record exceptions with tracebacks, and keep secrets out of the log
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/24-debugging"]
+---
+
+A `print` shows a message and nothing else: no severity, no source, no way to turn it off without editing the code. That is fine for a ten-line script and a problem for anything that runs unattended. The `logging` module gives each message a **level**, sends it where you choose, and lets you change how much is shown without touching the code that produced it. The [beginner debugging lesson](../../beginner/debugging-habits/) used `print` to see values. Logging is the permanent version of that habit.
+
+## Levels and basicConfig
+
+There are five standard levels, from least to most severe: `DEBUG` (10), `INFO` (20), `WARNING` (30), `ERROR` (40) and `CRITICAL` (50). Use them like this:
+
+- `DEBUG`: details for whoever is diagnosing a problem.
+- `INFO`: normal events worth recording, such as "server started".
+- `WARNING`: something unexpected, but the program carried on.
+- `ERROR`: an operation failed.
+- `CRITICAL`: the program cannot continue.
+
+`logging.basicConfig` sets up the output in one call. Here it sends everything from `DEBUG` upward to standard output, with a custom line format:
+
+```python title="c38_basic.py"
+import logging
+import sys
+
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.DEBUG,
+    format="%(levelname)s:%(name)s:%(message)s",
+)
+
+logging.debug("reading settings")
+logging.info("server started on port %d", 8080)
+logging.warning("disk is %d%% full", 91)
+logging.error("could not open %s", "report.csv")
+logging.critical("out of memory")
+```
+
+```text
+DEBUG:root:reading settings
+INFO:root:server started on port 8080
+WARNING:root:disk is 91% full
+ERROR:root:could not open report.csv
+CRITICAL:root:out of memory
+```
+
+`root` is the name of the default logger, used by the module-level functions. The `format` string uses `%(...)s` fields, and `%(asctime)s` for a timestamp and `%(funcName)s` for the function are two you will add in real programs. The values passed after the message (`8080`, `91`) fill the `%d` and `%s` placeholders. We will see why they are not an f-string in a moment.
+
+Without any configuration, the root logger shows only `WARNING` and above, on standard error, as a bare message. That is why a forgotten `logging.info(...)` seems to do nothing.
+
+## The level decides what gets through
+
+Each logger has a level, and messages below it are dropped. Changing the level changes the volume without editing a single log call. This script emits the same four messages three times and raises the verbosity in between:
+
+```python title="c38_levels.py"
+import logging
+import sys
+
+logging.basicConfig(stream=sys.stdout, format="%(levelname)-8s %(message)s")
+log = logging.getLogger("demo")
+
+
+def emit_all():
+    log.debug("a detail for developers")
+    log.info("a normal event")
+    log.warning("something unexpected, but handled")
+    log.error("an operation failed")
+
+
+print("-- default level (WARNING)")
+emit_all()
+
+print("-- after log.setLevel(logging.INFO)")
+log.setLevel(logging.INFO)
+emit_all()
+
+print("-- after log.setLevel(logging.DEBUG)")
+log.setLevel(logging.DEBUG)
+emit_all()
+
+print(logging.getLevelName(30), logging.WARNING, logging.getLevelName(logging.ERROR))
+```
+
+```text
+-- default level (WARNING)
+WARNING  something unexpected, but handled
+ERROR    an operation failed
+-- after log.setLevel(logging.INFO)
+INFO     a normal event
+WARNING  something unexpected, but handled
+ERROR    an operation failed
+-- after log.setLevel(logging.DEBUG)
+DEBUG    a detail for developers
+INFO     a normal event
+WARNING  something unexpected, but handled
+ERROR    an operation failed
+```
+
+(The script's last line also prints `WARNING 30 ERROR`: `getLevelName` converts between a number and its name in both directions.) `logging.getLogger("demo")` returned a named logger. It has no level of its own until `setLevel` is called, so it first inherits the root logger's `WARNING`.
+
+## One logger per module
+
+Name a logger after the module that uses it. The convention is one line near the top of each file:
+
+```python title="c38_orders.py"
+"""A module that logs but never configures logging. The application does that."""
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def total(prices):
+    logger.debug("adding %d prices", len(prices))
+    result = sum(prices)
+    if result > 100:
+        logger.warning("large order: %s", result)
+    return result
+```
+
+`__name__` is the module's import name, so records say where they came from. Loggers form a tree by dotted name: `app.db` is a child of `app`, and a child passes its records up to its parent's handlers. The module above **only emits**. It does not call `basicConfig`, add handlers or set levels. That decision belongs to the application, which knows where output should go. A library that configured logging itself would override the choices of every program that imports it.
+
+The application configures logging once, usually at start-up:
+
+```python title="c38_app.py"
+import logging
+import sys
+
+import c38_orders
+
+print("before configuring:", c38_orders.total([60, 70]))
+
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.DEBUG,
+    format="%(name)s %(levelname)s %(message)s",
+)
+
+print("after configuring:", c38_orders.total([60, 70]))
+```
+
+```text
+before configuring: 130
+c38_orders DEBUG adding 2 prices
+c38_orders WARNING large order: 130
+after configuring: 130
+```
+
+Before the configuration the warning appeared on standard error as plain text (`large order: 130`), which is not part of the output above, and the debug message was dropped. After it, both records appear on standard output with the module's name. Same module, no change to its code.
+
+## Handlers and formatters: where records go
+
+`basicConfig` is enough for scripts. For more control, learn the three parts it creates for you. A **logger** receives your calls and checks the level. A **handler** sends a record somewhere: `StreamHandler` to a stream such as the console, `FileHandler` to a file. A **formatter** turns the record into text. Each handler can have its own level and formatter, so one logger can show only `INFO` and above on screen while writing everything to a file:
+
+```python title="c38_handlers.py"
+import logging
+import sys
+import tempfile
+from pathlib import Path
+
+log = logging.getLogger("backup")
+log.setLevel(logging.DEBUG)  # the logger lets everything through...
+
+# ...and each handler decides what it shows.
+console = logging.StreamHandler(sys.stdout)
+console.setLevel(logging.INFO)
+console.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+
+with tempfile.TemporaryDirectory() as folder:
+    logfile = Path(folder) / "backup.log"
+    to_file = logging.FileHandler(logfile, encoding="utf-8")
+    to_file.setLevel(logging.DEBUG)
+    to_file.setFormatter(logging.Formatter("%(levelname)s %(name)s %(funcName)s: %(message)s"))
+
+    log.addHandler(console)
+    log.addHandler(to_file)
+
+    def run():
+        log.debug("scanning %s", "/data")
+        log.info("copied %d files", 12)
+        log.warning("skipped %s: permission denied", "/data/private")
+
+    run()
+
+    log.removeHandler(to_file)
+    to_file.close()
+    print("--- contents of the file")
+    print(logfile.read_text(encoding="utf-8"), end="")
+```
+
+```text
+INFO: copied 12 files
+WARNING: skipped /data/private: permission denied
+--- contents of the file
+DEBUG backup run: scanning /data
+INFO backup run: copied 12 files
+WARNING backup run: skipped /data/private: permission denied
+```
+
+The console got two lines and the file got three, because the handlers filter independently. The temporary folder keeps the example tidy, and `encoding="utf-8"` follows the habit from [text and binary files](../text-and-binary/). The folder is deleted when the `with` block ends, so the handler is closed first. A real program would write to a fixed path, and `logging.handlers.RotatingFileHandler` starts a new file when the old one gets big.
+
+For simple one-call setups with a prepared formatter object, `basicConfig` also accepts a `formatter` argument <Since v="3.15" />. This was added in 3.15 according to the [logging documentation](https://docs.python.org/3/library/logging.html#logging.basicConfig):
+
+```python title="c38_formatter_315.py"
+import logging
+import sys
+
+# Python 3.15 or newer: basicConfig accepts a ready-made Formatter object.
+formatter = logging.Formatter("[{levelname}] {name}: {message}", style="{")
+logging.basicConfig(stream=sys.stdout, level=logging.INFO, formatter=formatter)
+
+logging.getLogger("billing").info("invoice %s sent", "A-17")
+logging.getLogger("billing.retry").warning("attempt %d failed", 2)
+```
+
+```text
+[INFO] billing: invoice A-17 sent
+[WARNING] billing.retry: attempt 2 failed
+```
+
+On older versions, pass `format=` and `style=` instead, or create the handler yourself and call `setFormatter` as above. `force=True` in `basicConfig` replaces handlers that are already installed, and it has been available since 3.8. It is useful in notebooks and tests where something configured logging first.
+
+## Log exceptions with their traceback
+
+Inside an `except` block, `log.exception("message")` logs at `ERROR` level and appends the full traceback. That is the logging equivalent of letting the exception propagate, for code that must keep going.
+
+```python title="c38_exception.py"
+import io
+import logging
+
+stream = io.StringIO()
+logging.basicConfig(stream=stream, format="%(levelname)s %(message)s")
+log = logging.getLogger("importer")
+
+
+def parse_row(row):
+    return int(row)
+
+
+for row in ["12", "x7"]:
+    try:
+        print("parsed", parse_row(row))
+    except ValueError:
+        log.exception("bad row %r", row)
+
+lines = stream.getvalue().splitlines()
+print(lines[0])
+print("traceback included:", "Traceback (most recent call last):" in lines)
+print(lines[-1])
+```
+
+```text
+parsed 12
+ERROR bad row 'x7'
+traceback included: True
+ValueError: invalid literal for int() with base 10: 'x7'
+```
+
+The log went to a `StringIO` here only so the example could inspect it. In real use it goes to the console or a file. The first log line has your message, followed by the traceback lines you saw in [reading tracebacks](../../beginner/reading-tracebacks/), and the last one is the exception itself. Use `log.exception` only inside an `except` block. Elsewhere, pass `exc_info=True` to a normal call.
+
+## Why the arguments are not an f-string
+
+A log call like `log.debug("state: %s", obj)` hands the template and the values to the logging system separately. If `DEBUG` is turned off, the message is never built. With an f-string, the text is built before `log.debug` is even called, and then thrown away:
+
+```python title="c38_lazy.py"
+import logging
+import sys
+
+logging.basicConfig(stream=sys.stdout, level=logging.WARNING, format="%(message)s")
+log = logging.getLogger("lazy")
+
+
+class Expensive:
+    def __str__(self):
+        print("(building the message)")
+        return "expensive text"
+
+
+print("with an f-string:")
+log.debug(f"state: {Expensive()}")
+
+print("with %s arguments:")
+log.debug("state: %s", Expensive())
+
+print("when the level is enabled:")
+log.warning("state: %s", Expensive())
+```
+
+```text
+with an f-string:
+(building the message)
+with %s arguments:
+when the level is enabled:
+(building the message)
+state: expensive text
+```
+
+The f-string paid for the work even though nothing was logged. The `%s` form did not. Most of the time the cost is small, but the habit also keeps the template constant, which log tools use to group similar messages. A linter can flag the f-string form for you; see [ruff and type checking](../ruff-and-type-checking/) for how to select more rules.
+
+## Keep secrets out of the log
+
+Logs are copied, shipped to other systems and read by more people than the program's input. Never log passwords, tokens, keys, full card numbers or personal data. The safest policy is not to put them in a log message at all. As a second line of defence, a `logging.Filter` can rewrite records on their way out:
+
+```python title="c38_redact.py"
+import logging
+import re
+import sys
+
+
+class RedactSecrets(logging.Filter):
+    """Mask the value after password= or token= in every message."""
+
+    pattern = re.compile(r"(password|token)=\S+")
+
+    def filter(self, record):
+        record.msg = self.pattern.sub(r"\1=***", record.getMessage())
+        record.args = None
+        return True
+
+
+handler = logging.StreamHandler(sys.stdout)
+handler.addFilter(RedactSecrets())
+logging.basicConfig(handlers=[handler], level=logging.INFO, format="%(levelname)s %(message)s")
+
+logging.info("connecting as ana with password=hunter2")
+logging.info("calling the API with token=abc123 for user %s", "ana")
+logging.info("done")
+```
+
+```text
+INFO connecting as ana with password=***
+INFO calling the API with token=*** for user ana
+INFO done
+```
+
+The filter builds the final message with `record.getMessage()`, masks the secrets in it, and returns `True` to let the record through. This catches `key=value` text only. It will not recognise a secret printed in some other form, which is why it is a backup, not a plan. Also be careful with `log.exception` and `exc_info`: tracebacks can include argument values.
+
+## Common pitfalls
+
+- **Calling `basicConfig` after something else configured logging.** It does nothing the second time unless you pass `force=True`.
+- **Configuring logging inside a library module.** Leave it to the application, and only create the logger.
+- **`logging.info("...")` showing nothing.** The default level is `WARNING`. Set `level=` in `basicConfig`.
+- **Logging an exception and re-raising it at every level.** The same traceback appears five times. Log where you handle it, not where you pass it on.
+- **Using `print` for diagnostics in a library.** The caller cannot silence it or redirect it. Use a logger.
+- **Putting user input into the format string.** `log.info(user_text)` fails or misformats if the text contains `%`. Use `log.info("%s", user_text)`.
+- **Hiding a handler's level.** A logger at `DEBUG` with a handler at `INFO` shows only `INFO`. When output is missing, check both levels.
+
+<Exercise title="Predict the output">
+
+Work out what this script prints. Two loggers have their own levels, and the handler installed by `basicConfig` has none. Which of the five log calls appear?
+
+```python title="c38_ex_predict.py"
+import logging
+import sys
+
+logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
+
+app = logging.getLogger("app")
+db = logging.getLogger("app.db")
+net = logging.getLogger("net")
+
+db.setLevel(logging.ERROR)
+net.setLevel(logging.DEBUG)
+
+app.info("starting")
+app.debug("config loaded")
+db.warning("slow query")
+db.error("connection lost")
+net.debug("sending %d bytes", 512)
+```
+
+<Solution>
+
+```text
+app INFO starting
+app.db ERROR connection lost
+net DEBUG sending 512 bytes
+```
+
+`app` inherits `INFO` from the root, so `starting` appears and `config loaded` (DEBUG) does not. `app.db` has its own level, `ERROR`, so its warning is dropped and its error appears. `net` is set to `DEBUG`, so its debug message passes the logger check. Then it goes to the root logger's handler, which has no level of its own and accepts it, even though the root logger's level is `INFO`. The level that matters is the one on the logger where the call is made, and the handler's own level.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Add logging with a verbosity switch">
+
+This function prints what it does. Replace the prints with logging calls, and add a command-line switch so that the default shows only warnings, `-v` adds `INFO`, `-vv` adds `DEBUG`, and `-q` shows errors only. It checks `["a.tmp", ".env", "notes.txt"]`: a name ending in `.tmp` is "removed" (an info event), a name starting with `.` gets a warning that the hidden file is left alone, and every name is first announced at debug level. A final "done" is an info event. Parse the four argument lists `[]`, `["-v"]`, `["-vv"]` and `["-q"]` in turn and print the log output for each. Expected output for `[]` is one line: `WARNING leaving hidden file .env`.
+
+```python
+def cleanup(names):
+    for name in names:
+        print("checking", name)
+        if name.endswith(".tmp"):
+            print("removing", name)
+        elif name.startswith("."):
+            print("leaving hidden file", name)
+    print("done")
+```
+
+<Solution>
+
+```python title="c38_switch.py"
+"""A script with a -v / -q switch that controls how much it logs."""
+
+import argparse
+import logging
+import sys
+
+log = logging.getLogger("cleanup")
+
+
+def configure(verbosity):
+    level = {-1: logging.ERROR, 0: logging.WARNING, 1: logging.INFO}.get(verbosity, logging.DEBUG)
+    logging.basicConfig(stream=sys.stdout, level=level, format="%(levelname)s %(message)s", force=True)
+
+
+def cleanup(names):
+    for name in names:
+        log.debug("checking %s", name)
+        if name.endswith(".tmp"):
+            log.info("removing %s", name)
+        elif name.startswith("."):
+            log.warning("leaving hidden file %s", name)
+    log.info("done")
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-v", "--verbose", action="count", default=0)
+parser.add_argument("-q", "--quiet", action="store_true")
+
+for argv in ([], ["-v"], ["-vv"], ["-q"]):
+    args = parser.parse_args(argv)
+    configure(-1 if args.quiet else args.verbose)
+    print("== arguments:", argv)
+    cleanup(["a.tmp", ".env", "notes.txt"])
+```
+
+```text
+== arguments: []
+WARNING leaving hidden file .env
+== arguments: ['-v']
+INFO removing a.tmp
+WARNING leaving hidden file .env
+INFO done
+== arguments: ['-vv']
+DEBUG checking a.tmp
+INFO removing a.tmp
+DEBUG checking .env
+WARNING leaving hidden file .env
+DEBUG checking notes.txt
+INFO done
+== arguments: ['-q']
+```
+
+`-q` prints nothing here because no `ERROR` was logged. `action="count"` makes each `-v` add one to the number, and `force=True` lets the loop reconfigure logging four times in one process; a real program configures once. The same `cleanup` function ran four times without any change, which is the point of using levels.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Log with `DEBUG` to `CRITICAL`, configure once with `basicConfig`, and change the level instead of the code. The default level is `WARNING`.
+- Create `logger = logging.getLogger(__name__)` in each module. Only the application configures handlers and levels.
+- Handlers send records to places and have their own levels and formatters. `log.exception(...)` inside `except` adds the traceback.
+- Pass values as arguments (`"%s", value`) instead of building an f-string, and never log secrets.
+- The [next lesson](../debugging-pdb/) goes beyond print and logging, to stopping a running program and looking around.

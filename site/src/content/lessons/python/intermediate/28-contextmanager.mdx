@@ -1,0 +1,328 @@
+---
+language: python
+level: intermediate
+module: Iteration and functional tools
+order: 28
+title: Writing context managers with generators
+description: Turn a generator function into a context manager with contextlib.contextmanager, and make sure the clean-up runs even when the block fails.
+minVersion: "3.8"
+objectives:
+  - Write a context manager as a generator decorated with @contextmanager
+  - Use try and finally around yield so that clean-up always runs
+  - Yield a value for the as clause, and let the manager handle an exception on purpose
+  - Compare the generator form with a class that defines __enter__ and __exit__
+estimatedMinutes: 30
+fundamentals: []
+---
+
+The [with statement lesson](../context-managers/) showed how to use the context managers that come with Python, and set aside the question of writing your own because it needed generators. Now you have them. A generator that yields exactly once is a context manager waiting to be wrapped, and `contextlib.contextmanager` does the wrapping.
+
+## One yield splits the function in two
+
+Everything before the `yield` is the entry step. Everything after it is the exit step. The `yield` is where the body of the `with` block runs:
+
+```python title="cm_announce.py"
+from contextlib import contextmanager
+
+
+@contextmanager
+def announce(name):
+    print("enter", name)
+    yield
+    print("exit", name)
+
+
+with announce("job"):
+    print("working")
+print("after")
+```
+
+```text
+enter job
+working
+exit job
+after
+```
+
+Behind the scenes, `with` starts the generator and runs it to the `yield`. When the block finishes, `with` resumes the generator, which runs off its end. You never call `next` yourself.
+
+For comparison, here is the same manager written as a class. It means the same thing, but with more ceremony:
+
+```python title="cm_class_version.py"
+class Announce:
+    def __init__(self, name):
+        self.name = name
+
+    def __enter__(self):
+        print("enter", self.name)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        print("exit", self.name)
+        return False
+
+
+with Announce("job"):
+    print("working")
+```
+
+```text
+enter job
+working
+exit job
+```
+
+Use the class form when the manager carries a lot of state or other methods. Use `@contextmanager` for the common case of "set something up, hand control back, tear it down".
+
+## Always use try and finally
+
+There is one trap, and it is the reason this lesson exists. If the `with` block raises an error, the exception is thrown into the generator **at the `yield`**. Without protection, the lines after `yield` never run:
+
+```python title="cm_no_finally.py"
+from contextlib import contextmanager
+
+
+@contextmanager
+def announce(name):
+    print("enter", name)
+    yield
+    print("exit", name)
+
+
+try:
+    with announce("job"):
+        raise ValueError("boom")
+except ValueError:
+    print("caught")
+```
+
+```text
+enter job
+caught
+```
+
+The `exit job` line is missing, so the clean-up was skipped. A file would stay open, a directory change would stay in force. The fix is to wrap the `yield` in `try` and `finally`, which is exactly the pattern from the earlier lesson:
+
+```python title="cm_error.py"
+from contextlib import contextmanager
+
+
+@contextmanager
+def announce(name):
+    print("enter", name)
+    try:
+        yield
+    finally:
+        print("exit", name)
+
+
+try:
+    with announce("job"):
+        print("working")
+        raise ValueError("boom")
+except ValueError as error:
+    print("caught", error)
+```
+
+```text
+enter job
+working
+exit job
+caught boom
+```
+
+Now `exit job` runs before the error moves on. The error is not swallowed: the `finally` block does its work and the exception carries on to the `except` outside. Make `try`/`finally` your default whenever the exit step must happen.
+
+## Yielding a value
+
+Whatever you yield becomes the name after `as`. This manager changes the working directory and always changes back, handing the new directory to the block:
+
+```python title="cm_chdir.py"
+import os
+import tempfile
+from contextlib import contextmanager
+from pathlib import Path
+
+
+@contextmanager
+def working_directory(path):
+    """Change the working directory, and always change back."""
+    previous = Path.cwd()
+    os.chdir(path)
+    try:
+        yield Path.cwd()
+    finally:
+        os.chdir(previous)
+
+
+start = Path.cwd()
+with tempfile.TemporaryDirectory() as folder:
+    with working_directory(folder) as here:
+        Path("note.txt").write_text("hi", encoding="utf-8")
+        print("inside:", here.samefile(folder), sorted(p.name for p in Path.cwd().iterdir()))
+    print("back:", Path.cwd() == start)
+```
+
+```text
+inside: True ['note.txt']
+back: True
+```
+
+The relative path `note.txt` landed in the temporary folder because the working directory was changed. The inner `with` leaves before the outer one, so the program is back in its original folder before the temporary folder is deleted.
+
+## Handling the exception on purpose
+
+If you catch the exception inside the generator and do not re-raise it, the `with` statement swallows it, and the program continues after the block. This is how `contextlib.suppress` works. Do this only when it is the whole point of the manager:
+
+```python title="cm_swallow.py"
+from contextlib import contextmanager
+
+
+@contextmanager
+def ignore_missing_keys():
+    try:
+        yield
+    except KeyError as error:
+        print("ignored missing key", error)
+
+
+settings = {"theme": "dark"}
+with ignore_missing_keys():
+    print(settings["theme"])
+    print(settings["font"])
+    print("not reached")
+print("carried on")
+```
+
+```text
+dark
+ignored missing key 'font'
+carried on
+```
+
+The line after the failing lookup was skipped, as with any exception, and the program resumed after the block. A manager that catches too much hides bugs, so name the exact exception type, as here.
+
+<Callout type="note">
+
+A manager made with `@contextmanager` can also be used as a decorator, so that a whole function body runs inside it. You will rarely need that. The decorator lesson later in this module explains the idea behind it.
+
+</Callout>
+
+## Common pitfalls
+
+- **Yielding more than once.** The generator must yield exactly once. A second `yield` makes `with` raise `RuntimeError: generator didn't stop`.
+- **Leaving out `finally`.** Without it, the exit step is skipped when the block fails (shown above).
+- **Reusing the manager object.** `announce("job")` returns a one-shot object. To enter it again, call `announce("job")` again.
+
+<Exercise title="An indentation helper">
+Write a context manager `indented()` that makes a helper `say(text)` print its text with two more spaces of indentation inside the block, and restores the indentation afterwards, even in nested blocks. Keep the depth in a module-level variable. Expected output:
+
+```text
+top
+  one
+    two
+  one again
+top again
+```
+
+<Solution>
+
+```python title="cm_indent_solution.py"
+from contextlib import contextmanager
+
+depth = 0
+
+
+def say(text):
+    print("  " * depth + text)
+
+
+@contextmanager
+def indented():
+    global depth
+    depth += 1
+    try:
+        yield
+    finally:
+        depth -= 1
+
+
+say("top")
+with indented():
+    say("one")
+    with indented():
+        say("two")
+    say("one again")
+say("top again")
+```
+
+```text
+top
+  one
+    two
+  one again
+top again
+```
+
+`depth` goes up on entry and down in `finally`, so nested blocks stack and unwind correctly. If `say` raised an error inside a block, the `finally` would still put the depth back.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the output">
+Look at `announce` in the `cm_no_finally.py` example above. If the `with` block does not raise, which lines print? And with the `try`/`finally` version, what is the difference when the block does raise?
+
+<Solution>
+
+Without an error, both versions print `enter job`, then the body, then `exit job`. They differ only when the block raises. The version without `finally` skips the exit line (`enter job` then `caught`), and the version with `finally` prints `exit job` before the error continues outward. The `try`/`finally` costs nothing on the happy path, which is why it is the default.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Temporary environment variable">
+Write a context manager `temp_env(name, value)` that sets an environment variable for the duration of a block and then restores it, or removes it if it did not exist before. Use `os.environ`. Print the variable inside the block, and print it with `os.environ.get` afterwards. Expected output:
+
+```text
+inside: debug
+after: None
+```
+
+<Solution>
+
+```python title="cm_env_solution.py"
+import os
+from contextlib import contextmanager
+
+
+@contextmanager
+def temp_env(name, value):
+    old = os.environ.get(name)
+    os.environ[name] = value
+    try:
+        yield
+    finally:
+        if old is None:
+            del os.environ[name]
+        else:
+            os.environ[name] = old
+
+
+with temp_env("I4_DEMO_MODE", "debug"):
+    print("inside:", os.environ["I4_DEMO_MODE"])
+print("after:", os.environ.get("I4_DEMO_MODE"))
+```
+
+```text
+inside: debug
+after: None
+```
+
+The old value is saved before the change, so the exit step can tell "restore" from "delete". Because the restore is in `finally`, the environment is clean even if the block fails.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `@contextmanager` turns a generator with a single `yield` into a context manager: code before `yield` is the entry, code after is the exit, and the yielded value is the `as` target.
+- Wrap the `yield` in `try`/`finally` so the exit step runs even when the block raises.
+- Next: `itertools` and `functools`.

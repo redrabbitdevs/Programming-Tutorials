@@ -1,0 +1,527 @@
+---
+language: python
+level: intermediate
+module: Object-oriented Python
+order: 19
+title: Inheritance and composition
+description: Reuse code with subclasses and super(), mark intentional overrides with @override, and know when to hold another object instead of inheriting from it.
+minVersion: "3.8"
+objectives:
+  - Write a subclass that inherits, overrides and extends methods of its parent
+  - Call the parent's version of a method with super(), including in __init__
+  - Mark an intentional override with @override and say what it checks
+  - Choose between inheritance (is-a) and composition (has-a) for a design
+estimatedMinutes: 55
+fundamentals: ["fundamentals/beginner/23-paradigms"]
+---
+
+Two classes often share most of their behaviour. Copying the code into both means every fix has to be made twice. **Inheritance** lets one class build on another, and **composition** lets one class use another as a part. Both reuse code, and they suit different situations. The [fundamentals lesson on paradigms](../../../fundamentals/beginner/paradigms/) places object-oriented design among other styles. Here is how Python writes it.
+
+## A subclass
+
+Put the parent class in parentheses after the new class's name. The new class, the **subclass**, gets everything the parent has:
+
+```python title="c18_subclass.py"
+class Animal:
+    def __init__(self, name):
+        self.name = name
+
+    def speak(self):
+        return "..."
+
+    def describe(self):
+        return f"{self.name} says {self.speak()}"
+
+
+class Dog(Animal):
+    def speak(self):
+        return "Woof"
+
+
+class Cat(Animal):
+    pass
+
+
+print(Dog("Rex").describe())
+print(Cat("Tib").describe())
+```
+
+```text
+Rex says Woof
+Tib says ...
+```
+
+`Dog` defines only `speak`, but `Dog("Rex")` still has a `name` and a `describe` method, both inherited from `Animal`. `Cat` adds nothing, so it behaves exactly like `Animal`. When Python looks for an attribute, it checks the instance, then the class, then each parent in turn.
+
+`Dog.speak` **overrides** `Animal.speak`. Notice that `describe`, written once in `Animal`, calls `self.speak()` and so picks up whichever version the object's own class provides.
+
+## Calling the parent with super()
+
+A subclass often needs to add to what the parent does, not replace it. `super()` gives access to the parent's version. The most common use is in `__init__`:
+
+```python title="c18_super.py"
+class Animal:
+    def __init__(self, name):
+        self.name = name
+
+
+class Dog(Animal):
+    def __init__(self, name, tricks):
+        super().__init__(name)
+        self.tricks = tricks
+
+
+rex = Dog("Rex", ["sit", "roll"])
+print(rex.name, rex.tricks)
+```
+
+```text
+Rex ['sit', 'roll']
+```
+
+`super().__init__(name)` ran `Animal.__init__`, which set `self.name`. `Dog.__init__` then added its own attribute. The same tool extends any method:
+
+```python title="c18_extend.py"
+class Animal:
+    def speak(self):
+        return "..."
+
+
+class Puppy(Animal):
+    def speak(self):
+        return super().speak() + " (squeaky) Yip"
+
+
+print(Puppy().speak())
+```
+
+```text
+... (squeaky) Yip
+```
+
+## Marking an override with @override <Since v="3.12" />
+
+Overriding by accident is easy: a typo in a method name makes a brand new method, and the parent's version silently stays in charge. The `@override` decorator from the `typing` module states your intention, so a type checker can verify it. <Since v="3.12" /> It was added by [PEP 698](https://peps.python.org/pep-0698/).
+
+```python title="c18_override.py"
+from typing import override
+
+
+class Animal:
+    def speak(self):
+        return "..."
+
+
+class Dog(Animal):
+    @override
+    def speak(self):
+        return "Woof"
+
+
+print(Dog().speak())
+print(Dog.speak.__override__)
+```
+
+```text
+Woof
+True
+```
+
+At run time the decorator only sets a marker, `__override__`, to `True`. The real work is done by a type checker such as mypy or pyright, which reports an error if a method marked `@override` does not override anything. Here is what happens when the name is misspelled:
+
+```python title="c18_override_typo.py"
+from typing import override
+
+
+class Animal:
+    def speak(self):
+        return "..."
+
+
+class Dog(Animal):
+    @override
+    def spek(self):  # typo: overrides nothing
+        return "Woof"
+
+
+print(Dog().speak())
+```
+
+```text
+...
+```
+
+Python itself ran this without complaint, and `Dog().speak()` still returned the parent's answer. A type checker would flag the typo before the program ran, because `spek` overrides nothing. That is the whole value of the decorator: it turns a silent bug into a reported one.
+
+<Callout type="note">
+
+On Python before 3.12, `from typing import override` fails. The third-party `typing_extensions` package provides the same decorator for older versions, which matters for code that still has to run on 3.11.
+
+</Callout>
+
+## Asking about the family tree
+
+`isinstance` accepts instances of subclasses too, and `issubclass` compares two classes:
+
+```python title="c18_isinstance.py"
+class Animal:
+    pass
+
+
+class Dog(Animal):
+    pass
+
+
+rex = Dog()
+print(isinstance(rex, Dog))
+print(isinstance(rex, Animal))
+print(isinstance(Animal(), Dog))
+print(issubclass(Dog, Animal))
+```
+
+```text
+True
+True
+False
+True
+```
+
+A `Dog` is an `Animal`, so the second line is `True`. An `Animal` is not necessarily a `Dog`, so the third is `False`.
+
+Python records the lookup order in `__mro__`, the **method resolution order**. You saw it in the exception lesson, where it explained which `except` clause matched:
+
+```python title="c18_mro.py"
+class Animal:
+    pass
+
+
+class Dog(Animal):
+    pass
+
+
+class Puppy(Dog):
+    pass
+
+
+for cls in Puppy.__mro__:
+    print(cls.__name__)
+```
+
+```text
+Puppy
+Dog
+Animal
+object
+```
+
+Python searches for an attribute in this order and stops at the first match. Every class ends at `object`, the root of all classes. A class can have more than one parent, and `super()` then follows this order. Multiple inheritance is a legitimate tool, but it is rare in everyday code, so this course does not go into it.
+
+## Composition: has-a instead of is-a
+
+Inheritance models "is-a": a `Dog` is an `Animal`. Many relationships are really "has-a": a `Car` has an `Engine`, and a car is not a kind of engine. For those, the object holds another object as an attribute and hands it work:
+
+```python title="c18_composition.py"
+class Engine:
+    def __init__(self, horsepower):
+        self.horsepower = horsepower
+        self.running = False
+
+    def start(self):
+        self.running = True
+
+
+class Car:
+    def __init__(self, name, horsepower):
+        self.name = name
+        self.engine = Engine(horsepower)  # a Car has an Engine
+
+    def start(self):
+        self.engine.start()
+        return f"{self.name} started, {self.engine.horsepower} hp"
+
+
+car = Car("Mini", 120)
+print(car.start())
+print(car.engine.running)
+```
+
+```text
+Mini started, 120 hp
+True
+```
+
+`Car` offers its own small interface, `start()`, and uses `Engine` behind the scenes. If you later replace the engine with an electric motor, the code that calls `car.start()` does not change.
+
+### Why composition is often the better default
+
+A subclass inherits everything its parent has, including methods you did not want to promise. Suppose you build a stack by subclassing `list`:
+
+```python title="c18_inherit_trap.py"
+class Stack(list):
+    def push(self, item):
+        self.append(item)
+
+    def pop_top(self):
+        return self.pop()
+
+
+s = Stack()
+s.push(1)
+s.push(2)
+s.insert(0, 99)  # a list method, now part of the Stack's public face
+print(list(s))
+```
+
+```text
+[99, 1, 2]
+```
+
+A stack is meant to be pushed and popped from one end only, yet `insert(0, 99)` worked, because `Stack` is a `list` and keeps all its methods. Every method of the parent becomes part of your class's public face. Holding a list instead exposes only what you write:
+
+```python title="c18_stack_composition.py"
+class Stack:
+    def __init__(self):
+        self._items = []
+
+    def push(self, item):
+        self._items.append(item)
+
+    def pop(self):
+        return self._items.pop()
+
+    def is_empty(self):
+        return not self._items
+
+
+s = Stack()
+s.push(1)
+s.push(2)
+print(s.pop(), s.pop(), s.is_empty())
+print(hasattr(s, "insert"))
+```
+
+```text
+2 1 True
+False
+```
+
+The second line prints `False`. Callers cannot reach in and break the stack discipline. Here is a rule of thumb that works well: use inheritance when the subclass really is a more specific kind of its parent and can be used anywhere the parent can. Otherwise use composition. When you are unsure, choose composition, which is easier to change later.
+
+## Common pitfalls
+
+**Forgetting `super().__init__()`.** If the subclass defines `__init__` and never calls the parent's, the parent's setup does not run:
+
+```python title="c18_super_missing.py"
+class Animal:
+    def __init__(self, name):
+        self.name = name
+
+
+class Dog(Animal):
+    def __init__(self, name, tricks):
+        self.tricks = tricks  # forgot super().__init__(name)
+
+
+rex = Dog("Rex", ["sit"])
+print(rex.tricks)
+try:
+    print(rex.name)
+except AttributeError as error:
+    print("AttributeError:", error)
+```
+
+```text
+['sit']
+AttributeError: 'Dog' object has no attribute 'name'
+```
+
+Nothing warns you at definition time. The failure appears later, when other code reads the missing attribute.
+
+**Inheriting for convenience.** Subclassing `list` or `dict` just to borrow a few methods, as in the `Stack(list)` example, couples your class to the full interface of the parent. Ask whether the parent's whole interface is one you want to promise.
+
+**Deep hierarchies.** Each level makes it harder to know which version of a method runs. Two or three levels is normal. If you are past four, look for a way to flatten the design with composition.
+
+**Overriding with a different meaning.** If a subclass changes what a method accepts or returns, code written for the parent breaks when it receives the subclass. A subclass should be usable wherever its parent is.
+
+<Exercise title="A shapes hierarchy">
+Write a base class `Shape` with an `__init__(self, name)`, an `area()` method that raises `NotImplementedError`, and a `describe()` method returning a string like `circle: area 3.14` (two decimals). Then write `Rectangle(width, height)`, `Circle(radius)`, and `Square(side)`, where `Square` extends `Rectangle`.
+
+Build `[Rectangle(3, 4), Circle(1), Square(2)]`, print each `describe()`, and then print the total area. Expected output:
+
+```text
+rectangle: area 12.00
+circle: area 3.14
+square: area 4.00
+total: 19.14
+```
+
+<Solution>
+
+```python title="c18_ex_shapes.py"
+import math
+
+
+class Shape:
+    def __init__(self, name):
+        self.name = name
+
+    def area(self):
+        raise NotImplementedError("subclasses must define area()")
+
+    def describe(self):
+        return f"{self.name}: area {self.area():.2f}"
+
+
+class Rectangle(Shape):
+    def __init__(self, width, height):
+        super().__init__("rectangle")
+        self.width = width
+        self.height = height
+
+    def area(self):
+        return self.width * self.height
+
+
+class Square(Rectangle):
+    def __init__(self, side):
+        super().__init__(side, side)
+        self.name = "square"
+
+
+class Circle(Shape):
+    def __init__(self, radius):
+        super().__init__("circle")
+        self.radius = radius
+
+    def area(self):
+        return math.pi * self.radius**2
+
+
+shapes = [Rectangle(3, 4), Circle(1), Square(2)]
+for shape in shapes:
+    print(shape.describe())
+print(f"total: {sum(s.area() for s in shapes):.2f}")
+```
+
+```text
+rectangle: area 12.00
+circle: area 3.14
+square: area 4.00
+total: 19.14
+```
+
+`describe` is written once, in `Shape`, and calls `self.area()`, so each shape's own formula is used. `Square` reuses `Rectangle` completely: it passes the same side twice to the parent's `__init__`, then renames itself. If you add `@override` to the three `area` methods, a type checker will confirm that each really replaces `Shape.area`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Refactor to composition">
+This cart inherits from `list`, so callers can sort it, insert into it, or clear it:
+
+```python title="c18_ex_cart_before.py"
+class Cart(list):
+    def total(self):
+        return sum(self)
+
+
+cart = Cart()
+cart.append(2.5)
+cart.append(4.0)
+print(cart.total())
+```
+
+Rewrite `Cart` so it does not inherit from `list`. It should hold a private list and offer only `add(price)`, `total()` and `count()`. With the script below, the output should be `6.5`, then `2`, then `False` (the last line asks whether the cart still has a list's `append` method).
+
+```python title="cart_check.py"
+cart = Cart()
+cart.add(2.5)
+cart.add(4.0)
+print(cart.total())
+print(cart.count())
+print(hasattr(cart, "append"))
+```
+
+<Solution>
+
+```python title="c18_ex_cart_after.py"
+class Cart:
+    def __init__(self):
+        self._prices = []
+
+    def add(self, price):
+        self._prices.append(price)
+
+    def total(self):
+        return sum(self._prices)
+
+    def count(self):
+        return len(self._prices)
+
+
+cart = Cart()
+cart.add(2.5)
+cart.add(4.0)
+print(cart.total())
+print(cart.count())
+print(hasattr(cart, "append"))
+```
+
+```text
+6.5
+2
+False
+```
+
+The list is now an implementation detail stored in `_prices`. Callers get three methods and nothing else. If you later store prices in a different structure, no calling code needs to change.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the order">
+What does this print, and in what order? Work out the three `print` lines and the final value before you run it.
+
+```python title="c18_ex_predict.py"
+class A:
+    def __init__(self):
+        print("A starts")
+        self.tag = "A"
+
+
+class B(A):
+    def __init__(self):
+        print("B starts")
+        super().__init__()
+        self.tag = self.tag + "B"
+
+
+class C(B):
+    def __init__(self):
+        super().__init__()
+        print("C starts")
+        self.tag = self.tag + "C"
+
+
+print(C().tag)
+```
+
+<Solution>
+
+```text
+B starts
+A starts
+C starts
+ABC
+```
+
+`C()` starts in `C.__init__`, whose first line is `super().__init__()`, so it hands control up to `B` before printing anything. `B` prints `B starts` and calls up to `A`, which prints `A starts` and sets the tag to `"A"`. Control then returns down the chain: `B` appends its letter, `C` prints `C starts` and appends its letter. The position of the `super()` call decides whether the parent's output comes before or after the subclass's own.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `class Child(Parent):` inherits every attribute and method. Defining a method with the same name overrides the parent's.
+- `super()` reaches the parent's version. Call `super().__init__(...)` in a subclass `__init__` so the parent's setup runs.
+- `@override` from `typing` <Since v="3.12" /> marks a deliberate override. Python only sets `__override__`, and a type checker reports a method that overrides nothing.
+- `isinstance` and `issubclass` respect inheritance, and `__mro__` shows the lookup order.
+- Inheritance means "is-a" and composition means "has-a". Inheriting exposes the parent's whole interface, so prefer composition when a class merely uses another.

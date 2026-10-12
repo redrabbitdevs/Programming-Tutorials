@@ -1,0 +1,395 @@
+---
+language: python
+level: intermediate
+module: Testing, debugging and quality
+order: 37
+title: Mocking with unittest.mock
+description: Replace slow, random or external parts of a program with test doubles using Mock, patch and autospec, and check how your code called them.
+minVersion: "3.8"
+objectives:
+  - Create a Mock, set return values and side effects, and inspect the calls it received
+  - Replace a name with patch, as a decorator and as a context manager
+  - Say where to patch, and why the module that uses a name is the one to patch
+  - Use autospec so a mock rejects typos and wrong signatures
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/25-testing-mindset"]
+---
+
+Some code cannot be tested by calling it and comparing the answer. It asks a web service for the temperature, reads the clock, rolls dice, or sends an email. In a test you want none of that: no network, a clock that stands still, and no real mail. The tool is a **test double**, an object that stands in for the real one. Python's standard library has a complete kit in `unittest.mock`, and it works the same under `unittest` and pytest.
+
+## Mock: an object that accepts anything and remembers it
+
+A `Mock` allows any attribute access and any call. It records what happened, so afterwards you can ask.
+
+```python title="c36_mock_basics.py"
+from unittest.mock import Mock, call
+
+# A Mock accepts any call and remembers it.
+sender = Mock()
+sender.send("ana@example.com", "Hello")
+sender.send("ben@example.com", "Hi")
+
+print(sender.send.call_count)
+print(sender.send.call_args)
+print(sender.send.call_args_list == [
+    call("ana@example.com", "Hello"),
+    call("ben@example.com", "Hi"),
+])
+sender.send.assert_any_call("ben@example.com", "Hi")
+```
+
+```text
+2
+call('ben@example.com', 'Hi')
+True
+```
+
+`call_count` is the number of calls, `call_args` the last one, and `call_args_list` all of them. `sender.send` was created the moment you used it. `assert_any_call` raises `AssertionError` if no call matched, so as a line in a test it needs no `print`. The other assert methods are `assert_called_once()`, `assert_called_once_with(...)`, `assert_called_with(...)` (last call only) and `assert_not_called()`.
+
+The second half of the same script controls what the mock gives back. `return_value` is a fixed answer, and `side_effect` is more flexible: give it a list for one answer per call, or an exception to raise.
+
+```python title="c36_mock_results.py"
+from unittest.mock import Mock
+
+sender = Mock()
+sender.send("ana@example.com", "Hello")
+sender.send("ben@example.com", "Hi")
+
+lookup = Mock(return_value=42)
+print(lookup("anything"))
+
+dice = Mock(side_effect=[3, 5, 1])
+print(dice(), dice(), dice())
+
+broken = Mock(side_effect=ConnectionError("network down"))
+try:
+    broken()
+except ConnectionError as error:
+    print("raised:", error)
+
+try:
+    sender.send.assert_called_once()
+except AssertionError as error:
+    print("assertion:", str(error).splitlines()[0])
+```
+
+```text
+42
+3 5 1
+raised: network down
+assertion: Expected 'send' to have been called once. Called 2 times.
+```
+
+The two `send` calls at the top repeat the set-up from the first script. `side_effect` with an exception is how you test the unhappy path, such as what your code does when the network is down, without needing a broken network. When a list runs out, the next call raises `StopIteration`.
+
+## patch: swap a name for the duration of a test
+
+Mocks are most useful when they replace something that real code calls. `patch("module.name")` replaces `name` in `module` with a `MagicMock` (a `Mock` that also supports operators like `len()` and `in`) and restores the original when it exits. Here is code that depends on the network:
+
+```python title="c36_weather.py"
+"""Code that talks to the network, split so the network part can be replaced."""
+
+import json
+from urllib.request import urlopen
+
+
+def fetch_temperature(city):
+    url = f"https://weather.example.com/api?city={city}"
+    with urlopen(url, timeout=5) as response:
+        return json.load(response)["celsius"]
+
+
+def describe(city):
+    celsius = fetch_temperature(city)
+    if celsius < 5:
+        return f"{city}: {celsius} C, wear a coat"
+    return f"{city}: {celsius} C, no coat needed"
+```
+
+`describe` holds the logic worth testing: the threshold and the wording. `fetch_temperature` is the part that needs the network. Patch that one:
+
+```python title="c36_patch_basic.py"
+import unittest
+from unittest.mock import patch
+
+import c36_weather
+from showtests import run_tests
+
+
+class DescribeTests(unittest.TestCase):
+    @patch("c36_weather.fetch_temperature")
+    def test_cold_day(self, fake_fetch):
+        fake_fetch.return_value = 2
+        self.assertEqual(c36_weather.describe("Oslo"), "Oslo: 2 C, wear a coat")
+        fake_fetch.assert_called_once_with("Oslo")
+
+    def test_warm_day(self):
+        with patch("c36_weather.fetch_temperature", return_value=21) as fake_fetch:
+            result = c36_weather.describe("Lima")
+        self.assertEqual(result, "Lima: 21 C, no coat needed")
+        self.assertEqual(fake_fetch.call_count, 1)
+
+    def test_network_failure_reaches_the_caller(self):
+        with patch("c36_weather.fetch_temperature", side_effect=ConnectionError):
+            with self.assertRaises(ConnectionError):
+                c36_weather.describe("Oslo")
+
+
+print(run_tests(DescribeTests, verbosity=2))
+
+# Outside the tests the real function is back in place.
+print(c36_weather.fetch_temperature.__module__, c36_weather.fetch_temperature.__name__)
+```
+
+```text
+test_cold_day (__main__.DescribeTests.test_cold_day) ... ok
+test_network_failure_reaches_the_caller (__main__.DescribeTests.test_network_failure_reaches_the_caller) ... ok
+test_warm_day (__main__.DescribeTests.test_warm_day) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+OK
+
+c36_weather fetch_temperature
+```
+
+`patch` appears in two forms. As a **decorator** (`test_cold_day`), the fake is passed in as an extra argument. As a **context manager** (`test_warm_day`), the patch lasts only for the `with` block, and arguments such as `return_value=21` configure the mock directly. Both undo themselves, even if the test fails, which is what the last line demonstrates. No test needed the internet, and all three finish in a millisecond.
+
+Under pytest, the same patches work with `with patch(...)` inside a plain test function. For a patch that should last a whole test, pytest's `monkeypatch.setattr` from the [previous lesson](../fixtures-and-parametrize/) does the same job without the `unittest.mock` machinery. Reach for `patch` when you also want to inspect the calls.
+
+## Patch where the name is looked up
+
+The most common mocking mistake is patching the right function in the wrong place. Consider two small modules:
+
+```python title="c36_clock.py"
+from datetime import datetime
+
+
+def current_hour():
+    return datetime.now().hour
+```
+
+This naive `datetime.now()` is fine for a demonstration. For real timestamps, prefer an aware `datetime.now(tz=UTC)`, as explained in the [dates and times lesson](../dates-times/).
+
+```python title="c36_shop.py"
+from c36_clock import current_hour
+
+
+def banner():
+    return "Good morning" if current_hour() < 12 else "Good afternoon"
+```
+
+`c36_shop` did `from c36_clock import current_hour`. That statement copied the function object into the shop module under its own name. Patching `c36_clock.current_hour` replaces the name in the clock module and leaves the shop's copy alone:
+
+```python title="c36_patch_where.py"
+from unittest.mock import patch
+
+import c36_shop
+
+# c36_shop did `from c36_clock import current_hour`, so the shop module holds its
+# own name for the function. Patching the clock module replaces a different name.
+with patch("c36_clock.current_hour", return_value=9):
+    print("shop sees:", type(c36_shop.current_hour).__name__)
+
+# Patch the name where it is looked up: in the shop module.
+with patch("c36_shop.current_hour", return_value=9):
+    print("shop sees:", type(c36_shop.current_hour).__name__)
+    print(c36_shop.banner())
+
+with patch("c36_shop.current_hour", return_value=15):
+    print(c36_shop.banner())
+```
+
+```text
+shop sees: function
+shop sees: MagicMock
+Good morning
+Good afternoon
+```
+
+The rule: **patch the name in the module that uses it**, not the module that defines it. If `c36_shop` had written `import c36_clock` and called `c36_clock.current_hour()`, then patching `c36_clock.current_hour` would work, because the lookup happens through the clock module at call time. The [modules and imports lesson](../modules-imports/) explains why the two import forms behave differently.
+
+## autospec: mocks that know the real signature
+
+A plain `Mock` accepts any attribute, so a typo in your *code under test* can pass unnoticed. A mock created from the real class refuses what the real object would refuse.
+
+```python title="c36_autospec.py"
+from unittest.mock import Mock, create_autospec
+
+
+class Mailer:
+    def send(self, to, subject):
+        raise RuntimeError("would really send mail")
+
+
+# A plain Mock accepts any attribute, so a typo goes unnoticed.
+loose = Mock()
+loose.sned("ana@example.com", "Hi")
+print("typo accepted:", loose.sned.called)
+
+# A spec'd mock only has the attributes of the real class.
+strict = create_autospec(Mailer, instance=True)
+strict.send("ana@example.com", "Hi")
+print("send called:", strict.send.called)
+
+try:
+    strict.sned("ana@example.com", "Hi")
+except AttributeError as error:
+    print("AttributeError:", error)
+
+# autospec also checks the signature of each call.
+try:
+    strict.send("ana@example.com")
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+typo accepted: True
+send called: True
+AttributeError: Mock object has no attribute 'sned'
+TypeError: missing a required argument: 'subject'
+```
+
+`patch("module.name", autospec=True)` gives the same protection to a patched name. Prefer it whenever the real thing exists, because a test using a loose mock can keep passing after the real function's signature changes.
+
+## What not to mock
+
+Mocking has a cost: the test now checks that your code calls the mock the way you *believe* the real thing works. If you are wrong, the test still passes. Keep mocks for the edges of your program, such as the network, the clock, randomness, and the file system when real files are awkward. Do not mock your own pure functions: call them for real. A test that mocks every collaborator checks wiring and nothing else. For files, the `tmp_path` fixture is usually better than mocking `open`.
+
+## Common pitfalls
+
+- **Patching in the wrong module.** If the mock seems ignored, read the section above again and patch where the name is used.
+- **Forgetting that `Mock` invents attributes.** `mock.sned(...)` is a valid call on a plain mock, so a misspelt method in your own code goes unnoticed. Use `autospec` for mocks of real classes and functions.
+- **Decorator argument order.** With several `@patch` decorators, the mocks are passed bottom-up: the decorator closest to the function gives the first argument.
+- **Asserting on the mock instead of the behaviour.** If the code returns a value, assert the value. Check calls only when the call *is* the behaviour, such as "an email was sent".
+- **Leaving a patch running.** Use the decorator or `with` forms, which clean up. A `patcher.start()` without `stop()` leaks into later tests.
+- **Mocking what you could simply pass in.** If `fetch_with_retry(fetch)` takes the function as a parameter, a test can hand it a plain `Mock`, with no `patch` at all. Designing code that way is often the simplest fix.
+
+<Exercise title="Predict what the mock prints">
+
+Work out the output of this script before running it. Pay attention to `reset_mock()`.
+
+```python title="c36_ex_predict.py"
+from unittest.mock import Mock
+
+clock = Mock(side_effect=[10, 20, ValueError("no more ticks")])
+
+print(clock())
+print(clock())
+try:
+    clock()
+except ValueError as error:
+    print("error:", error)
+
+clock.reset_mock()
+print(clock.call_count)
+
+greeter = Mock(return_value="hi")
+print(greeter("Ana"), greeter("Ben"))
+print(greeter.call_args_list)
+print(greeter.call_args.args)
+```
+
+<Solution>
+
+```text
+10
+20
+error: no more ticks
+0
+hi hi
+[call('Ana'), call('Ben')]
+('Ben',)
+```
+
+When an item of a `side_effect` list is an exception, the mock raises it. `reset_mock()` clears the recorded calls, so `call_count` goes back to 0. It does not clear the configured `side_effect` or `return_value` unless you ask. `call_args` is the last call, and its `.args` is the tuple of positional arguments.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Test a retry loop without waiting">
+
+Write tests for this function with `unittest.mock`. A real run would sleep for seconds, so patch `time.sleep`. Check three things. First, a fetch that fails twice and then returns 7 gives 7 after three calls, with sleeps of 1 and 2 seconds. Second, a fetch that always fails with `ConnectionError` is called twice when `attempts=2`, the error reaches the caller, and sleep was called once with 1. Third, a fetch that works straight away never sleeps.
+
+```python
+def fetch_with_retry(fetch, attempts=3):
+    """Call fetch() until it works, at most `attempts` times, pausing between tries."""
+    import time
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return fetch()
+        except ConnectionError:
+            if attempt == attempts:
+                raise
+            time.sleep(attempt)
+```
+
+<Solution>
+
+```python title="c36_ex_retry.py"
+import unittest
+from unittest.mock import Mock, patch
+
+from showtests import run_tests
+
+
+def fetch_with_retry(fetch, attempts=3):
+    """Call fetch() until it works, at most `attempts` times, pausing between tries."""
+    import time
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return fetch()
+        except ConnectionError:
+            if attempt == attempts:
+                raise
+            time.sleep(attempt)
+
+
+class RetryTests(unittest.TestCase):
+    @patch("time.sleep")
+    def test_succeeds_on_the_third_try(self, fake_sleep):
+        fetch = Mock(side_effect=[ConnectionError, ConnectionError, 7])
+        self.assertEqual(fetch_with_retry(fetch), 7)
+        self.assertEqual(fetch.call_count, 3)
+        self.assertEqual([c.args for c in fake_sleep.call_args_list], [(1,), (2,)])
+
+    @patch("time.sleep")
+    def test_gives_up_after_the_last_attempt(self, fake_sleep):
+        fetch = Mock(side_effect=ConnectionError("down"))
+        with self.assertRaises(ConnectionError):
+            fetch_with_retry(fetch, attempts=2)
+        self.assertEqual(fetch.call_count, 2)
+        fake_sleep.assert_called_once_with(1)
+
+    @patch("time.sleep")
+    def test_no_pause_when_the_first_call_works(self, fake_sleep):
+        self.assertEqual(fetch_with_retry(Mock(return_value="ok")), "ok")
+        fake_sleep.assert_not_called()
+
+
+print(run_tests(RetryTests))
+```
+
+```text
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+OK
+```
+
+The function takes `fetch` as a parameter, so no patch was needed for it. A `Mock` is passed in directly. Only `time.sleep` is patched, because the function imports `time` itself and calls `time.sleep` at run time, which makes `"time.sleep"` the right place to patch.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A `Mock` accepts any call and records it. `return_value` and `side_effect` (a list, or an exception) decide what it gives back, and `call_args_list` and the `assert_called_*` methods check how it was used.
+- `patch("module.name")` swaps a name for a mock as a decorator or a `with` block and restores it afterwards. Patch the name in the module that looks it up.
+- Use `autospec` so a mock matches the real object's attributes and signature. Mock only the edges of your program, and pass collaborators as arguments when you can.
+- The [next lesson](../doctest-and-docstrings/) turns the examples in documentation into tests.

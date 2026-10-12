@@ -1,0 +1,320 @@
+---
+language: python
+level: intermediate
+module: Modules, packages and tooling
+order: 16
+title: A tour of the standard library
+description: Learn where the standard library already solves common jobs, from the operating system to statistics, and how to find the right module in the documentation.
+minVersion: "3.9"
+objectives:
+  - Use os, sys, shutil and subprocess for everyday system tasks
+  - Reach for statistics and math instead of writing your own
+  - Preview argparse for command-line options
+  - Find a module and check its version notes in the Python documentation
+estimatedMinutes: 40
+fundamentals: []
+---
+
+After a lesson on installing packages, the useful reflex to build is the opposite one: before installing anything, check whether the standard library already does the job. It has no install step, no version conflicts, and it is documented in one place. This lesson is a guided walk past the modules you will use most. None is covered in full, because the aim is to know that each exists.
+
+## Where to look
+
+The reference for everything is the Library Reference at `docs.python.org/3/library/`. Each module page opens with a one-line summary, then lists functions with their signatures. Two habits make it quick to use:
+
+- Look for the **"Added in version"** and **"Changed in version"** notes. They say when a function appeared, which matters if you must support an older Python. The module `math.integer`, for example, is marked as added in 3.15.
+- Use the REPL for the details you half remember. `dir(module)` lists names and `help(module.name)` prints the documentation, as in the [beginner module lesson](../../beginner/modules-and-imports/).
+
+Searching the docs for what you want to do, in plain words, usually finds the module faster than guessing its name.
+
+## The system: os and sys
+
+`os` talks to the operating system, and `sys` talks to the interpreter. These are the parts you will touch most:
+
+```python title="os_sys.py"
+import os
+import sys
+
+print(os.environ.get("NO_SUCH_VARIABLE_XYZ", "not set"))
+print(os.path.join("data", "2026", "report.txt"))
+print(os.path.basename("/home/you/notes.txt"))
+
+print(sys.version_info >= (3, 11))
+print(len(sys.argv))
+print(sys.platform in {"linux", "darwin", "win32"})
+```
+
+```text
+not set
+data/2026/report.txt
+notes.txt
+True
+1
+True
+```
+
+`os.environ` is a dictionary of environment variables, so `.get` with a default is the safe way to read one. `os.path.join` builds a path with the right separator for the machine (backslashes on Windows, so the second line differs there), though `pathlib` from the files lesson is the more modern way to do the same. `sys.version_info` compares with a tuple, `sys.argv` is the list of command-line arguments (just the script name here), and `sys.platform` names the operating system.
+
+## Files and folders: shutil
+
+`pathlib` reads and writes single files. `shutil` handles the bigger operations, such as copying, moving and archiving. This example works in a temporary folder that is deleted afterwards, so it is safe to run:
+
+```python title="shutil_demo.py"
+import shutil
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as tmp:
+    work = Path(tmp)
+    source = work / "notes.txt"
+    source.write_text("remember the milk\n", encoding="utf-8")
+
+    shutil.copy(source, work / "copy.txt")
+    print(sorted(p.name for p in work.iterdir()))
+
+    archive = shutil.make_archive(str(work / "backup"), "zip", root_dir=work)
+    print(Path(archive).name)
+
+    shutil.move(work / "copy.txt", work / "renamed.txt")
+    print(sorted(p.name for p in work.iterdir()))
+
+print(work.exists())
+```
+
+```text
+['copy.txt', 'notes.txt']
+backup.zip
+['backup.zip', 'notes.txt', 'renamed.txt']
+False
+```
+
+`shutil.copy` copies a file, `make_archive` builds a zip from a folder, and `move` renames or relocates. `tempfile.TemporaryDirectory` is a context manager from the previous module that removes the folder and everything in it on exit, which is why the last line prints `False`.
+
+## Other programs: subprocess
+
+`subprocess.run` starts another program, waits, and gives you its result. Pass the command as a list of strings, one per argument, rather than a single string.
+
+```python title="subprocess_demo.py"
+import subprocess
+import sys
+
+result = subprocess.run(
+    [sys.executable, "-c", "print('hello from a child process')"],
+    capture_output=True,
+    text=True,
+)
+print(result.returncode)
+print(result.stdout.strip())
+
+failing = [sys.executable, "-c", "import sys; sys.exit(3)"]
+print(subprocess.run(failing).returncode)
+
+try:
+    subprocess.run(failing, check=True)
+except subprocess.CalledProcessError as error:
+    print("failed with status", error.returncode)
+```
+
+```text
+0
+hello from a child process
+3
+failed with status 3
+```
+
+`sys.executable` is the path of the interpreter that is running, so the child uses the same Python. `capture_output=True` collects what the program prints, `text=True` decodes it into a string, and `returncode` is the exit status (zero means success). By default a failing command does not raise anything, which is easy to miss, so add `check=True` to turn a non-zero status into a `CalledProcessError`.
+
+## Numbers: statistics, random and math
+
+These three save you from writing numeric code that already exists and is already correct:
+
+```python title="stats_demo.py"
+import random
+import statistics
+
+scores = [70, 85, 90, 85, 60, 95]
+print(statistics.mean(scores))
+print(statistics.median(scores))
+print(statistics.mode(scores))
+print(round(statistics.stdev(scores), 2))
+
+random.seed(11)
+first = random.sample(range(100), 3)
+random.seed(11)
+print(first == random.sample(range(100), 3))
+```
+
+```text
+80.83333333333333
+85.0
+85
+13.2
+True
+```
+
+`mean`, `median`, `mode` and `stdev` (sample standard deviation) cover the first questions anyone asks of a list of numbers. `random.seed` makes a random sequence repeatable, which is how you write a test for code that uses chance. <Since v="3.15" /> Python 3.15 adds `math.integer`, a module that gathers the exact integer functions `comb`, `factorial`, `gcd`, `isqrt`, `lcm` and `perm`:
+
+```python title="math_integer_demo.py"
+import math
+
+try:
+    from math.integer import comb, gcd, isqrt, lcm  # Python 3.15 and later
+except ImportError:
+    from math import comb, gcd, isqrt, lcm  # older versions
+
+print(comb(10, 3))
+print(gcd(84, 36), lcm(4, 6))
+print(isqrt(50))
+print(comb(10, 3) == math.comb(10, 3))
+```
+
+```text
+120
+12 12
+7
+True
+```
+
+The `try`/`except ImportError` fallback makes the file run on older versions as well: `math.integer` does not exist there, so Python raises `ModuleNotFoundError` (a kind of `ImportError`), and the names come from `math` instead. The two give the same answers, so this is only about where the names live.
+
+## Command-line options: an argparse preview
+
+`argparse` turns the strings in `sys.argv` into named, converted values and writes the `--help` text for you. This preview passes a list directly instead of reading the real command line, so that the output is fixed:
+
+```python title="argparse_preview.py"
+import argparse
+
+parser = argparse.ArgumentParser(description="Repeat a word.")
+parser.add_argument("word")
+parser.add_argument("--count", type=int, default=1)
+parser.add_argument("--shout", action="store_true")
+
+args = parser.parse_args(["--count", "3", "hello"])
+text = args.word.upper() if args.shout else args.word
+print(" ".join([text] * args.count))
+
+args = parser.parse_args(["--shout", "hi"])
+print(args.word, args.count, args.shout)
+```
+
+```text
+hello hello hello
+hi 1 True
+```
+
+A bare argument (`word`) is required and positional. An option such as `--count` has a type and a default. A flag such as `--shout` is `True` when present and `False` otherwise. In a real script you call `parser.parse_args()` with no argument and it reads `sys.argv`; if the arguments are wrong, it prints a usage message and exits.
+
+<Exercise title="Pick the module">
+
+For each job, name the standard library module you would reach for: (a) the middle value of a list of numbers, (b) running `git status` from Python and reading its output, (c) copying a whole folder, (d) the number of command-line arguments passed to a script, (e) reading the `HOME` environment variable.
+
+<Solution>
+
+(a) `statistics.median`. (b) `subprocess.run(["git", "status"], capture_output=True, text=True)`. (c) `shutil.copytree`. (d) `len(sys.argv) - 1`, where `sys` provides the list (the first item is the script's own name). (e) `os.environ.get("HOME")`.
+
+Ask yourself "which part of the system is this about?" The operating system points to `os` and `shutil`, another program to `subprocess`, and the interpreter itself to `sys`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Add options with argparse">
+
+Using the preview above, write a script `greet.py` with a positional `name` and an optional `--times` (an integer, default 1). Calling `parse_args(["Ana", "--times", "2"])` should lead to two lines of `Hello, Ana!`. Pass the list in the code so the output is fixed.
+
+<Solution>
+
+```python title="greet.py"
+import argparse
+
+parser = argparse.ArgumentParser(description="Greet someone.")
+parser.add_argument("name")
+parser.add_argument("--times", type=int, default=1)
+
+args = parser.parse_args(["Ana", "--times", "2"])
+for _ in range(args.times):
+    print(f"Hello, {args.name}!")
+```
+
+```text
+Hello, Ana!
+Hello, Ana!
+```
+
+Replace the list with no argument, `parser.parse_args()`, to read the real command line: `python greet.py Ana --times 2`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Scavenger hunt">
+
+Solve each of these using only the standard library, in one script that prints one result per task. You will need to search the documentation for some of them.
+
+1. How many ways are there to choose 3 books from 10?
+2. What is the greatest common divisor of 84 and 36?
+3. What is the median of `[7, 1, 5, 3, 9, 2]`?
+4. Wrap `"The quick brown fox jumps over the lazy dog"` into lines of at most 20 characters.
+5. Run a child Python process that prints `child`, and capture the output.
+6. Copy a file into a new folder and show that the two files have the same size (print `True`).
+
+Expected output:
+
+```text
+120
+12
+4.0
+The quick brown fox
+jumps over the lazy
+dog
+child
+True
+```
+
+<Solution>
+
+```python title="scavenger.py"
+import math
+import shutil
+import statistics
+import subprocess
+import sys
+import tempfile
+import textwrap
+from pathlib import Path
+
+# 1. Ways to choose 3 books from 10
+print(math.comb(10, 3))
+
+# 2. Greatest common divisor of 84 and 36
+print(math.gcd(84, 36))
+
+# 3. Median of an unsorted list
+print(statistics.median([7, 1, 5, 3, 9, 2]))
+
+# 4. Wrap a sentence at 20 characters
+print(textwrap.fill("The quick brown fox jumps over the lazy dog", width=20))
+
+# 5. Run a child Python process and capture its output
+child = subprocess.run(
+    [sys.executable, "-c", "print('child')"], capture_output=True, text=True
+)
+print(child.stdout.strip())
+
+# 6. Copy a file into a new folder and compare sizes
+with tempfile.TemporaryDirectory() as tmp:
+    source = Path(tmp) / "a.txt"
+    source.write_text("hello\n", encoding="utf-8")
+    target = Path(tmp) / "backup"
+    target.mkdir()
+    copied = shutil.copy(source, target)
+    print(source.stat().st_size == Path(copied).stat().st_size)
+```
+
+Task 4 is the only module in the list you probably had not met: `textwrap`. If you got there by searching the docs for "wrap text", that is the skill this exercise is practising. `shutil.copy` returns the path of the new file, which makes the size check easy.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Check the standard library before installing a package. `os`, `sys`, `shutil` and `subprocess` cover the system, `statistics`, `random` and `math` cover numbers, and `argparse` handles command-line options.
+- The Library Reference notes the version each function was added in. <Since v="3.15" /> `math.integer` is new in 3.15, and `math.comb` and friends remain available.
+- `subprocess.run` does not raise on failure unless you pass `check=True`.

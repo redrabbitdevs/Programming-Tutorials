@@ -1,0 +1,3 @@
+False
+TypeError: can't compare offset-naive and offset-aware datetimes
+True

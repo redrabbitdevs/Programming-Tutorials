@@ -1,0 +1,249 @@
+---
+language: python
+level: intermediate
+module: Modules, packages and tooling
+order: 12
+title: pyproject.toml and uv
+description: Describe a Python project in one pyproject.toml file, install it into an environment, and manage environments, dependencies and lock files with uv.
+minVersion: "3.11"
+objectives:
+  - Read and write the [project], [build-system] and [dependency-groups] tables of a pyproject.toml
+  - Install your own package in editable mode and run its command
+  - Use uv to create a project, add dependencies, run code and lock versions
+  - Explain what a lock file adds on top of a list of dependencies
+estimatedMinutes: 45
+fundamentals: []
+---
+
+A `requirements.txt` says which packages to install. It does not say what your project is called, which Python it needs, what command it provides, or how to build it. `pyproject.toml` is the single file that says all of that, and every modern Python tool reads it.
+
+The file is written in TOML, the same format that `tomllib` parses in the standard library. That means Python can read its own project file, which makes the structure easy to see:
+
+```python title="read_pyproject.py"
+import tomllib
+from pathlib import Path
+
+with Path("pyproject.toml").open("rb") as f:
+    config = tomllib.load(f)
+
+project = config["project"]
+print(project["name"], project["version"])
+print("needs Python", project["requires-python"])
+print("dependencies:", project["dependencies"])
+print("commands:", list(project["scripts"]))
+print("build backend:", config["build-system"]["build-backend"])
+print("dev group:", config["dependency-groups"]["dev"])
+```
+
+Here is the file it reads, from the `textkit` package of the previous lessons laid out in the src structure:
+
+```toml title="pyproject.toml"
+[project]
+name = "textkit"
+version = "0.1.0"
+description = "Small text utilities"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+textkit = "textkit.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest"]
+```
+
+```text
+textkit 0.1.0
+needs Python >=3.11
+dependencies: []
+commands: ['textkit']
+build backend: hatchling.build
+dev group: ['pytest']
+```
+
+(`tomllib` opens files in binary mode, hence `"rb"`.)
+
+## The tables, one at a time
+
+**`[project]`** holds the metadata defined by [PEP 621](https://peps.python.org/pep-0621/). `name` and `version` identify the package. `requires-python` states which interpreters can run it, so installers can refuse an unsuitable one. `dependencies` is the list of packages it needs at run time, written as requirement strings such as `"requests>=2"`.
+
+**`[project.scripts]`** turns a function into a command. The line `textkit = "textkit.cli:main"` means "install a command called `textkit` that imports `textkit.cli` and calls `main()`". That `main` is the function from the `__name__` lesson.
+
+**`[build-system]`** names the tool that turns the source folder into something installable ([PEP 517](https://peps.python.org/pep-0517/) and [PEP 518](https://peps.python.org/pep-0518/)). `requires` lists what must be installed to build, and `build-backend` names the entry point. Setuptools, hatchling and others all work; the choice rarely affects the code you write. The file above uses hatchling, which found the package in `src/` for this project.
+
+**`[dependency-groups]`** ([PEP 735](https://peps.python.org/pep-0735/)) lists packages you need to develop the project but that your users do not, such as a test runner. They live in the file, not in the built package.
+
+**`[tool.*]`** tables hold configuration for other tools. You will put `ruff`'s settings in `[tool.ruff]` in the lesson after next, so there is no need for a separate config file per tool.
+
+## Installing your own project
+
+With a `pyproject.toml` and the layout from the packages lesson, `pip` can install the project. The `-e` flag makes the install *editable*: it links to your source folder, so edits take effect without reinstalling.
+
+```console
+$ python -m venv .venv
+$ source .venv/bin/activate
+(.venv) $ python -m pip install -e .
+(.venv) $ textkit to be or not to be
+to 2
+be 2
+or 1
+```
+
+Two things happened. The package `textkit` became importable from anywhere in that environment, without any `sys.path` tricks, which is why the src layout works. And the `[project.scripts]` entry created a `textkit` command in the environment's `bin` folder.
+
+## uv: environments and dependencies in one tool
+
+`uv` is a Python project and package manager that covers the steps above with fewer commands. It can install Python versions, create environments, resolve and lock dependencies, and run code. This course teaches `pip` and `venv` first because they ship with Python and every tutorial assumes them. uv is widely used for new projects, and it reads and writes the same `pyproject.toml`.
+
+Install it by following the instructions on the uv documentation site, then:
+
+```console
+$ uv init demo-app
+$ cd demo-app
+```
+
+`uv init` creates a `pyproject.toml` and starter code. The exact set of files it makes depends on the uv release and on flags such as `--lib` and `--bare`, so open what it made rather than assuming. The file it writes has the same `[project]` table you just read. Now add a dependency:
+
+```console
+$ uv add requests
+Using CPython 3.15.0
+Creating virtual environment at: .venv
+Resolved 6 packages in ...
+Installed 6 packages in ...
+ + certifi==...
+ + charset-normalizer==...
+ + idna==...
+ + requests==...
+ + urllib3==...
+```
+
+One command did four jobs: it created the `.venv` folder, chose versions, installed them, and recorded `requests` under `dependencies` in `pyproject.toml`, with a lower version bound. You never activate anything. `uv run` uses the project's environment automatically:
+
+```console
+$ uv run python -c "import requests; print(requests.codes.ok)"
+200
+```
+
+Development-only packages go in a dependency group with `--dev`:
+
+```console
+$ uv add --dev pytest
+```
+
+That writes `pytest` into the `dev` entry of `[dependency-groups]`, as in the file above.
+
+## Lock files
+
+`dependencies = ["requests>=2"]` is a *range*. Today it resolves to one set of versions and next month to another, which is how code that worked yesterday breaks on a teammate's machine. A **lock file** records the exact version of every package, including indirect ones, that was resolved. uv writes `uv.lock` next to `pyproject.toml` and updates it when you add or remove dependencies. Commit it to version control.
+
+| Command | What it does |
+|---|---|
+| `uv add NAME` | Adds the dependency to `pyproject.toml`, updates `uv.lock`, installs it |
+| `uv remove NAME` | The reverse |
+| `uv lock` | Re-resolves and rewrites `uv.lock` |
+| `uv sync` | Makes `.venv` match `uv.lock` exactly |
+| `uv run CMD` | Runs `CMD` in the project environment, syncing first if needed |
+| `uv tree` | Shows the dependency tree |
+
+A teammate who clones your project runs `uv sync` and gets the same versions you tested with. There is also a tool-neutral lock format, `pylock.toml`, defined by [PEP 751](https://peps.python.org/pep-0751/).
+
+<Callout type="note">
+
+You do not need uv to follow the rest of this course. `pip` and `venv` do the same jobs with more steps. The `pyproject.toml` file is the same either way, which is why it is the part worth learning properly.
+
+</Callout>
+
+<Exercise title="Read a project file">
+
+Look at the `pyproject.toml` above. Answer without running anything: Which command does installing this project add to the environment? Which function does that command call? Would `pip install textkit` into a Python 3.10 environment succeed, and why or why not?
+
+<Solution>
+
+The command is `textkit`. It calls the function `main` in the module `textkit.cli`, because the entry is `textkit = "textkit.cli:main"`.
+
+The install would be refused: `requires-python = ">=3.11"` excludes 3.10, and pip checks that field before installing. (Python 3.10 reached end of life on 2026-10-01 in any case.)
+
+</Solution>
+</Exercise>
+
+<Exercise title="Add a dependency group by hand">
+
+Edit the `pyproject.toml` so that the `dev` group also contains `mypy`, and add a second group called `docs` containing a single package of your choice. Then run `read_pyproject.py` again. What should the last line print?
+
+<Solution>
+
+```toml
+[dependency-groups]
+dev = ["pytest", "mypy"]
+docs = ["mkdocs"]
+```
+
+The script reads `config["dependency-groups"]["dev"]`, so the last line becomes:
+
+```text
+dev group: ['pytest', 'mypy']
+```
+
+The `docs` group does not appear in that line, because the script only prints `dev`. Each group is an independent list.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Turn the package into a uv project">
+
+Take the `textkit` package, with `__init__.py`, `cleaning.py` and `counting.py`, and make a proper project of it. Use the src layout, write a `pyproject.toml` with a `textkit` command, create the environment with uv, and run the command with `uv run`. The command should print the three most common words of its arguments, so `uv run textkit a a b` should print `a 2` and `b 1`.
+
+<Solution>
+
+Lay the files out like this:
+
+```text
+textkit-project/
+├── pyproject.toml
+├── README.md
+└── src/
+    └── textkit/
+        ├── __init__.py
+        ├── cleaning.py
+        ├── counting.py
+        └── cli.py
+```
+
+The new module is the command's entry point:
+
+```python title="src/textkit/cli.py"
+import sys
+
+from .counting import top_words
+
+
+def main():
+    text = " ".join(sys.argv[1:])
+    for word, count in top_words(text, 3):
+        print(word, count)
+```
+
+Use the `pyproject.toml` shown earlier in the lesson, then run:
+
+```console
+$ uv lock
+$ uv run textkit a a b
+a 2
+b 1
+```
+
+`uv run` builds and installs the project into `.venv` on first use, so the `textkit` command exists without a separate install step. The same project installs with `python -m pip install -e .` into any environment.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `pyproject.toml` describes the project: `[project]` for metadata and dependencies, `[build-system]` for how to build it, `[dependency-groups]` for development-only packages, and `[tool.*]` for other tools.
+- `pip install -e .` installs your own package in editable mode, and `[project.scripts]` turns a function into a command.
+- uv creates the environment, edits `pyproject.toml`, and writes `uv.lock` so everyone resolves the same versions. Commit the lock file.
