@@ -273,6 +273,14 @@ a ['b', 'c'] []
 <Exercise title="Make Countdown reusable">
 Change your countdown so that the same object can be looped over more than once. Keep two classes: `Countdown`, the iterable, which stores the start number, and `CountdownIterator`, which does the counting. Check that `list(countdown)` gives `[3, 2, 1]` twice in a row, and that `sum(countdown)` is 6.
 
+Expected output for `countdown = Countdown(3)`, printing `list(countdown)`, `list(countdown)` and `sum(countdown)`:
+
+```text
+[3, 2, 1]
+[3, 2, 1]
+6
+```
+
 <Solution>
 
 ```python title="fix_reusable.py"

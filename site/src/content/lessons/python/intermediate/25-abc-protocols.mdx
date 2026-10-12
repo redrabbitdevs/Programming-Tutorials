@@ -5,7 +5,7 @@ module: Object-oriented Python
 order: 25
 title: Abstract base classes and protocols
 description: Define what an interface looks like in Python, using duck typing, abstract base classes that refuse incomplete subclasses, and Protocols that checkers verify without inheritance.
-minVersion: "3.8"
+minVersion: "3.9"
 objectives:
   - Explain duck typing and its trade-off
   - Define an abstract base class with @abstractmethod, and explain when instantiation fails
@@ -180,7 +180,7 @@ sales: 42
 === end ===
 ```
 
-### Marking implementations with @override <Since v="3.12" />
+### Marking implementations with @override
 
 The `@override` decorator from the inheritance lesson fits naturally here: it states that a method implements something from the parent, and a type checker confirms that the parent has it. <Since v="3.12" />
 

@@ -162,6 +162,8 @@ You do not need uv to follow the rest of this course. `pip` and `venv` do the sa
 
 Look at the `pyproject.toml` above. Answer without running anything: Which command does installing this project add to the environment? Which function does that command call? Would `pip install textkit` into a Python 3.10 environment succeed, and why or why not?
 
+Expected: three short answers, in order: a command name, a `module:function` target, and `yes` or `no` with the line of the file that decides it.
+
 <Solution>
 
 The command is `textkit`. It calls the function `main` in the module `textkit.cli`, because the entry is `textkit = "textkit.cli:main"`.
@@ -174,6 +176,8 @@ The install would be refused: `requires-python = ">=3.11"` excludes 3.10, and pi
 <Exercise title="Add a dependency group by hand">
 
 Edit the `pyproject.toml` so that the `dev` group also contains `mypy`, and add a second group called `docs` containing a single package of your choice. Then run `read_pyproject.py` again. What should the last line print?
+
+Expected: one line of the form `dev group: [...]`, with the list that your edited `dev` group holds.
 
 <Solution>
 
@@ -197,6 +201,16 @@ The `docs` group does not appear in that line, because the script only prints `d
 <Exercise title="Turn the package into a uv project">
 
 Take the `textkit` package, with `__init__.py`, `cleaning.py` and `counting.py`, and make a proper project of it. Use the src layout, write a `pyproject.toml` with a `textkit` command, create the environment with uv, and run the command with `uv run`. The command should print the three most common words of its arguments, so `uv run textkit a a b` should print `a 2` and `b 1`.
+
+Expected:
+
+```text
+$ uv run textkit a a b
+a 2
+b 1
+$ uv run textkit x
+x 1
+```
 
 <Solution>
 

@@ -122,9 +122,9 @@ print(number)
 
 `int(None)` raises `TypeError`, while `int("x")` raises `ValueError`. One clause covers both.
 
-### Without the parentheses <Since v="3.14" />
+### Without the parentheses
 
-[PEP 758](https://peps.python.org/pep-0758/) allows the parentheses to be left out when the clause has no `as` name:
+<Since v="3.14" /> [PEP 758](https://peps.python.org/pep-0758/) allows the parentheses to be left out when the clause has no `as` name:
 
 ```python title="no_parens.py"
 for text in ["12", "x", None]:

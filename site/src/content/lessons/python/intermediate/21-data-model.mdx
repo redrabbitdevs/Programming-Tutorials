@@ -11,6 +11,7 @@ objectives:
   - Write __repr__ and __str__ for readable output
   - Implement __eq__ and __hash__ together, and say why defining one affects the other
   - Make instances sortable with __lt__, and countable and iterable with __len__ and __iter__
+  - Support obj[i], in, if obj and obj() with __getitem__, __contains__, __bool__ and __call__
   - Overload an operator such as + and return NotImplemented for unsupported operands
 estimatedMinutes: 60
 fundamentals: []
@@ -259,6 +260,142 @@ True False
 
 `__iter__` here hands back an iterator over the inner list, using the built-in `iter`. The next module explains iterators in full, and for now this one-line form is all you need. Three things came free. The `in` check worked, because Python falls back to looping through `__iter__`. `list(mix)` worked. And `bool(Playlist([]))` is `False`, because an object with `__len__` is falsy when its length is zero, the same rule you learned for empty lists.
 
+## Indexing, membership, truth and calls
+
+Four more dunder methods cover everyday syntax: `x[i]`, `in`, `if x:` and `x()`. A small `Shelf` class and a `Multiplier` class show them one at a time.
+
+### Indexing: __getitem__
+
+`obj[key]` calls `obj.__getitem__(key)`. The key can be an integer, a negative integer or a slice, and passing it on to the inner list handles all three:
+
+```python title="c20_getitem.py"
+class Shelf:
+    def __init__(self, books):
+        self._books = list(books)
+
+    def __getitem__(self, index):
+        return self._books[index]
+
+
+shelf = Shelf(["Dune", "Emma", "Ulysses"])
+print(shelf[0])
+print(shelf[-1])
+print(shelf[0:2])
+```
+
+```text
+Dune
+Ulysses
+['Dune', 'Emma']
+```
+
+`shelf[0:2]` reached `__getitem__` as a slice object, and the list knew what to do with it. Python also has an older fallback: with `__getitem__` and no `__iter__`, a `for` loop and the `in` operator try `shelf[0]`, `shelf[1]` and so on until an `IndexError` ends the loop:
+
+```python title="c20_getitem_for.py"
+class Shelf:
+    def __init__(self, books):
+        self._books = list(books)
+
+    def __getitem__(self, index):
+        return self._books[index]
+
+
+shelf = Shelf(["Dune", "Emma", "Ulysses"])
+for book in shelf:
+    print(book)
+print("Emma" in shelf)
+```
+
+```text
+Dune
+Emma
+Ulysses
+True
+```
+
+For a class that holds a sequence, `__getitem__` alone is enough to be read like one. Add `__len__` as well so that `len(shelf)` works.
+
+### Membership: __contains__
+
+`item in obj` calls `obj.__contains__(item)` when it exists. Define it when the check should follow your own rule, here ignoring capitals:
+
+```python title="c20_contains.py"
+class Shelf:
+    def __init__(self, books):
+        self._books = list(books)
+
+    def __contains__(self, title):
+        return title.lower() in [book.lower() for book in self._books]
+
+
+shelf = Shelf(["Dune", "Emma"])
+print("dune" in shelf)
+print("Hamlet" in shelf)
+print("Hamlet" not in shelf)
+```
+
+```text
+True
+False
+True
+```
+
+`not in` needs nothing extra: Python negates the answer of `__contains__`.
+
+### Truth: __bool__
+
+`if obj:` and `bool(obj)` call `obj.__bool__()`, which must return `True` or `False`. Without it, Python uses `__len__` (zero is falsy), and without that every instance is truthy:
+
+```python title="c20_bool.py"
+class Wallet:
+    def __init__(self, cents):
+        self.cents = cents
+
+    def __bool__(self):
+        return self.cents > 0
+
+
+for wallet in (Wallet(250), Wallet(0)):
+    if wallet:
+        print("has money")
+    else:
+        print("empty")
+print(bool(Wallet(1)))
+```
+
+```text
+has money
+empty
+True
+```
+
+### Calling: __call__
+
+`obj(args)` calls `obj.__call__(args)`. An instance with `__call__` behaves like a function that also remembers state:
+
+```python title="c20_call.py"
+class Multiplier:
+    def __init__(self, factor):
+        self.factor = factor
+
+    def __call__(self, value):
+        return value * self.factor
+
+
+triple = Multiplier(3)
+print(triple(14))
+print(callable(triple))
+print(list(map(triple, [1, 2, 3])))
+```
+
+```text
+42
+True
+[3, 6, 9]
+```
+
+`callable(triple)` is `True`, so `triple` can be passed anywhere a function is expected, such as `map` or the `key=` argument of `sorted`. The [decorators lesson](../decorators/) uses this to build decorators from classes.
+
 ## Operators: __add__ and friends
 
 Every operator maps to a dunder method: `+` to `__add__`, `*` to `__mul__`, `-` to `__sub__`, `abs()` to `__abs__`, and so on. Implement one and the operator works:
@@ -497,5 +634,6 @@ True
 - `__repr__` is the developer view and the fallback for `__str__`. `__str__` is the friendly text used by `print` and f-strings.
 - `__eq__` compares by value. If you define it, define `__hash__` as well, over the same fields, and only for objects that do not change.
 - `__lt__` is enough for `sorted`, `min`, `max` and for `>`.
-- `__len__` and `__iter__` make a class sized, loop-able and usable with `in`.
+- `__len__` and `__iter__` make a class sized, loop-able and usable with `in`. The [iterators lesson](../iterators/) explains what `__iter__` must return.
+- `__getitem__` gives `obj[i]` and slices, `__contains__` customises `in`, `__bool__` sets truthiness, and `__call__` makes an instance callable.
 - Return `NotImplemented`, not an exception, for operands you do not support.

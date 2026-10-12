@@ -17,9 +17,9 @@ fundamentals: ["fundamentals/beginner/12-errors-and-exceptions"]
 
 The last lesson changed one error into another. Two other situations call for something different. Sometimes the error is right and only needs extra information, such as which line of a file it came from. And sometimes several things go wrong at once, and reporting only the first would send the user through the same fix-and-rerun loop several times.
 
-## Adding a note <Since v="3.11" />
+## Adding a note
 
-`add_note` attaches a string to an exception without changing its type or message ([PEP 678](https://peps.python.org/pep-0678/)). The notes are stored in a list called `__notes__`.
+<Since v="3.11" /> `add_note` attaches a string to an exception without changing its type or message ([PEP 678](https://peps.python.org/pep-0678/)). The notes are stored in a list called `__notes__`.
 
 ```python title="add_note.py"
 lines = ["10", "20", "x3"]
@@ -56,9 +56,9 @@ on line 3: 'x3'
 
 Compare this with chaining. `raise NewError from error` gives you a second exception and a longer traceback. A note keeps the one exception and adds a line to it, which is lighter when the original message is already fine. Only strings are accepted: `error.add_note(5)` raises `TypeError`.
 
-## Several errors at once <Since v="3.11" />
+## Several errors at once
 
-Here is a form with two problems. A function that raises on the first one hides the second. An **exception group** carries both. `ExceptionGroup` takes a message and a non-empty list of exceptions:
+<Since v="3.11" /> Here is a form with two problems. A function that raises on the first one hides the second. An **exception group** carries both. `ExceptionGroup` takes a message and a non-empty list of exceptions:
 
 ```python title="group_basic.py"
 problems = [ValueError("name is empty"), TypeError("age must be a number")]
@@ -79,9 +79,9 @@ invalid form (2 sub-exceptions)
 
 The members live in the `exceptions` tuple. Groups are ordinary exceptions, so you raise them with `raise` and can put them in `try` blocks. They are defined by [PEP 654](https://peps.python.org/pep-0654/). You will meet them most often from library code that runs several tasks together, such as `asyncio.TaskGroup`, where more than one task can fail in the same moment. You can also raise them yourself, to report everything that was wrong with some input.
 
-## Handling members with except* <Since v="3.11" />
+## Handling members with except*
 
-A plain `except ValueError:` does not catch a group that contains a `ValueError`. The group is the exception, and it is not a `ValueError`. To handle the members, use `except*` (read "except star"). Each `except*` clause receives a new group holding the members that match its type:
+<Since v="3.11" /> A plain `except ValueError:` does not catch a group that contains a `ValueError`. The group is the exception, and it is not a `ValueError`. To handle the members, use `except*` (read "except star"). Each `except*` clause receives a new group holding the members that match its type:
 
 ```python title="except_star.py"
 def check(form):

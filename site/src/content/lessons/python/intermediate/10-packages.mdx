@@ -77,15 +77,19 @@ The last line shows how Python names things. A module inside a package gets a do
 Inside the package, `counting.py` needs `normalise` from its neighbour. There are two ways to write that.
 
 ```python title="textkit/counting.py"
-from collections import Counter
-
 from .cleaning import normalise
 
 
 def top_words(text, n):
     """Return the n most common words as (word, count) pairs."""
-    return Counter(normalise(text)).most_common(n)
+    counts = {}
+    for word in normalise(text):
+        counts[word] = counts.get(word, 0) + 1
+    ranked = sorted(counts.items(), key=lambda pair: pair[1], reverse=True)
+    return ranked[:n]
 ```
+
+The function counts words in a plain dictionary and sorts the pairs from the highest count down. Words with equal counts keep the order in which they first appeared.
 
 `from .cleaning import normalise` is a **relative import**. The leading dot means "the package I am in". The absolute equivalent is `from textkit.cleaning import normalise`, spelled out from the top of the package. A second dot goes up one level:
 
@@ -184,7 +188,9 @@ Namespace packages exist for large projects that distribute one package name in 
 
 <Exercise title="Write the import">
 
-In `textkit/formats/table.py`, you want to use `normalise` from `textkit/cleaning.py`. Write the line twice: once as a relative import and once as an absolute import. Then say how you would run `textkit/counting.py` to check that it imports cleanly, given that `python textkit/counting.py` fails.
+In `textkit/formats/table.py`, you want to use `normalise` from `textkit/cleaning.py`. Write the line twice: once as a relative import and once as an absolute import. Then say how you would run `textkit/counting.py` to check that it imports cleanly, given that `python textkit/counting.py` fails with `ImportError: attempted relative import with no known parent package`.
+
+Expected: two lines of code, one relative and one absolute, that each make `normalise` available in `table.py`; and one command that prints nothing when the imports work.
 
 <Solution>
 
@@ -209,6 +215,15 @@ No output and no error means the imports resolved.
 <Exercise title="Predict the dotted names">
 
 For the `textkit` layout shown earlier, what is `__name__` inside each of these when it is imported: `textkit/__init__.py`, `textkit/cleaning.py`, `textkit/formats/__init__.py`? And what is `__name__` inside `textkit/__main__.py` when you run `python -m textkit`?
+
+Expected: four lines in this form, with the three `?` filled in:
+
+```text
+textkit/__init__.py: textkit
+textkit/cleaning.py: ?
+textkit/formats/__init__.py: ?
+textkit/__main__.py: ?
+```
 
 <Solution>
 

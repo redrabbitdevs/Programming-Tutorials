@@ -132,6 +132,8 @@ Inline metadata suits one file that you run, share by email, or keep in a `bin` 
 
 Which of these blocks will not work as intended, and why?
 
+Expected: one line per block, in order, reading `works` or `broken: <symptom>`.
+
 ```python
 # /// script
 # dependencies = ["requests"]
@@ -198,6 +200,12 @@ A list on one line is fine in TOML. The block must come before the first line of
 <Exercise title="A script with a dependency of your choice">
 
 Write a script called `shout.py` that takes words from the command line and prints them with `rich` markup, for example `uv run shout.py hello world` printing `hello world` in bold. Declare `rich` in the metadata, and add `requires-python`. Run it with uv. Then run it with plain `python` outside any environment where `rich` is installed and read the error.
+
+Expected: `uv run shout.py hello world` prints `hello world` in bold, and the last line of the plain `python` run is:
+
+```text
+ModuleNotFoundError: No module named 'rich'
+```
 
 <Solution>
 

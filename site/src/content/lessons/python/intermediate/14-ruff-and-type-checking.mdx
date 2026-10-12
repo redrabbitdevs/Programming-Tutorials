@@ -5,7 +5,7 @@ module: Modules, packages and tooling
 order: 14
 title: Linting, formatting and type checking
 description: Use ruff to catch mistakes and normalise formatting, configure it in pyproject.toml, and run a type checker over annotated code.
-minVersion: "3.11"
+minVersion: "3.10"
 objectives:
   - Run ruff check and ruff format, and tell what each one is for
   - Apply safe automatic fixes and review the ones ruff will not apply
@@ -21,12 +21,19 @@ Python runs code that is badly formatted, imports things it never uses, and pass
 
 `ruff` is a linter and a formatter in a single tool. Install it into your project's environment or as a command of its own:
 
+In a venv, install it with pip:
+
 ```console
 $ python -m pip install ruff
+```
+
+In a uv project, add it to the development group instead:
+
+```console
 $ uv add --dev ruff
 ```
 
-Either works. The first suits a venv from earlier in this module, the second a uv project. Here is a file that runs correctly and still has problems:
+Use whichever matches your setup. Here is a file that runs correctly and still has problems:
 
 ```python title="messy.py"
 import os
@@ -211,11 +218,24 @@ By default mypy skips the body of any function that has no annotations at all, s
 
 <Exercise title="Count the findings">
 
-Without running anything, how many of the findings for `messy.py` would still be reported by `ruff check --select E,F,I` after `ruff format messy.py`? Then explain why the answer is not zero, and what `--fix` would add.
+Take `messy.py` from the lesson. Without running anything, predict how many findings `ruff check --select E,F,I --output-format concise messy.py` reports after you have run `ruff format messy.py`. Then explain why the answer is not zero, and what `--fix` would add.
+
+Expected: the number `N` from the `Found N errors.` line, and the rule codes with their count.
 
 <Solution>
 
-All five. Formatting changes layout, not content: it does not remove imports or variables, and it leaves the import order as written. The three `F401` findings, the unsorted-imports `I001` and the `F841` unused variable all remain (the last one moves down a line, because the formatter added a blank line).
+All five. The command reports:
+
+```text
+messy.py:1:1: I001 [*] Import block is un-sorted or un-formatted
+messy.py:1:8: F401 [*] `os` imported but unused
+messy.py:2:8: F401 [*] `sys` imported but unused
+messy.py:3:8: F401 [*] `json` imported but unused
+messy.py:10:5: F841 Local variable `unused` is assigned to but never used
+Found 5 errors.
+```
+
+Formatting changes layout, not content: it does not remove imports or variables, and it leaves the import order as written. The three `F401` findings, the unsorted-imports `I001` and the `F841` unused variable all remain (the last one moves down a line, because the formatter added a blank line).
 
 Running `ruff check --fix` then removes the three unused imports, which also clears the sorting finding, since nothing is left to sort. It leaves the unused variable for you to edit by hand. Linting and formatting are complementary, and neither replaces the other.
 
@@ -263,6 +283,13 @@ print(average([]))
 <Exercise title="Set up the checks for a project">
 
 Take the `textkit` project from the previous lesson. Add ruff to its development group, select the rule families `E`, `F` and `I` in `pyproject.toml`, and run both ruff commands from the project root without any flags. What command would you run before each commit?
+
+Expected: the `pyproject.toml` tables you add, and this output when a clean project passes both checks:
+
+```text
+All checks passed!
+2 files already formatted
+```
 
 <Solution>
 

@@ -227,6 +227,31 @@ The context is still stored, only the traceback display skips it. Reach for `fro
 - **Raising a new error and forgetting `from`.** The result is the "during handling" wording, which looks like a bug in your handler. Say `from error` when the conversion is on purpose.
 - **Logging and re-raising at every level.** If each layer prints the error and raises it again, one failure appears in the log five times. Handle an error at the layer that can do something about it.
 - **Putting `raise` in a function and expecting the caller to know.** Nothing in the signature says a function can raise. Mention it in a comment or docstring, as you would a return value.
+- **Returning from a `finally` block.** A `return` inside `finally` throws away any exception that is on its way out. The next block shows it.
+
+```python title="finally_return.py"
+def read_port(text):
+    try:
+        return int(text)
+    finally:
+        return 8080
+
+
+print(read_port("x"))
+```
+
+```text
+8080
+```
+
+`int("x")` raises `ValueError`, but the `finally` block runs before the exception leaves the function, and its `return` replaces the exception with a normal result. The error vanishes and the caller sees a valid-looking `8080`. A `break` or `continue` that leaves a `finally` block has the same effect. <Since v="3.14" /> Python 3.14 (PEP 765) makes the compiler warn about all three. Running the file prints the result above, plus this on the error stream:
+
+```console
+finally_return.py:5: SyntaxWarning: 'return' in a 'finally' block
+  return 8080
+```
+
+Keep `finally` for cleanup only, and put the `return` outside it.
 
 <Exercise title="Refuse bad withdrawals">
 Write `withdraw(balance, amount)`. It returns the new balance, but raises `ValueError("amount must be positive")` when `amount` is zero or less, and `ValueError` with the message `insufficient funds: balance 100, requested 500` (using the real numbers) when `amount` is more than `balance`. Call it with a balance of 100 and amounts 30, 0 and 500, catching the error each time. Expected output:

@@ -95,9 +95,9 @@ c ['cherry']
 
 Each `group` is itself a lazy iterator that shares the underlying data. Use it, or turn it into a list, before the loop moves to the next key; afterwards it is empty.
 
-## Consecutive pairs <Since v="3.10" />
+## Consecutive pairs
 
-`pairwise` yields each item together with the one after it. It replaces the old `zip(items, items[1:])` and works on any iterable, including a generator:
+<Since v="3.10" /> `pairwise` yields each item together with the one after it. It replaces the old `zip(items, items[1:])` and works on any iterable, including a generator:
 
 ```python title="it_pairwise.py"
 from itertools import pairwise
@@ -114,9 +114,9 @@ print([b - a for a, b in pairwise(temps)])
 
 `itertools.pairwise` was added in Python 3.10, according to the [itertools documentation](https://docs.python.org/3/library/itertools.html). On 3.8 or 3.9, write `zip(items, items[1:])` for lists.
 
-## Fixed-size batches <Since v="3.12" />
+## Fixed-size batches
 
-`batched` cuts an iterable into tuples of a given length. The last tuple is shorter if the items do not divide evenly. It is the tool for sending 100 ids at a time to an API:
+<Since v="3.12" /> `batched` cuts an iterable into tuples of a given length. The last tuple is shorter if the items do not divide evenly. It is the tool for sending 100 ids at a time to an API:
 
 ```python title="it_batched.py"
 from itertools import batched
@@ -243,9 +243,9 @@ CacheInfo(hits=1, misses=4, maxsize=2, currsize=2)
 
 The second `double(1)` was a hit and printed nothing. After `double(3)`, the cache was full, and `2` was the least recently used entry, so it was discarded and had to be computed again at the end.
 
-### cache <Since v="3.9" />
+### cache
 
-If you do not want a size limit, `@functools.cache` is the shorter spelling of an unbounded `lru_cache`. It was added in Python 3.9 (see the [functools documentation](https://docs.python.org/3/library/functools.html)); on 3.8 use `@lru_cache(maxsize=None)`.
+<Since v="3.9" /> If you do not want a size limit, `@functools.cache` is the shorter spelling of an unbounded `lru_cache`. It was added in Python 3.9 (see the [functools documentation](https://docs.python.org/3/library/functools.html)); on 3.8 use `@lru_cache(maxsize=None)`.
 
 ```python title="ft_cache.py"
 from functools import cache

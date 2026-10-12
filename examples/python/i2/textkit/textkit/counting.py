@@ -1,8 +1,10 @@
-from collections import Counter
-
 from .cleaning import normalise
 
 
 def top_words(text, n):
     """Return the n most common words as (word, count) pairs."""
-    return Counter(normalise(text)).most_common(n)
+    counts = {}
+    for word in normalise(text):
+        counts[word] = counts.get(word, 0) + 1
+    ranked = sorted(counts.items(), key=lambda pair: pair[1], reverse=True)
+    return ranked[:n]
