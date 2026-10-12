@@ -1,0 +1,3 @@
+('Hi ', '!') ('ada',)
+True ('ada',)
+TypeError: can only concatenate string.templatelib.Template (not "str") to string.templatelib.Template

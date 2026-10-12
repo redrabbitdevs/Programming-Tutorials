@@ -1,0 +1,459 @@
+---
+language: python
+level: advanced
+module: Metaprogramming
+order: 21
+title: Descriptors
+description: See how Python looks up an attribute, write descriptors with __get__, __set__ and __set_name__, and recognise properties and methods as descriptors in disguise.
+minVersion: "3.8"
+objectives:
+  - Explain what happens when Python evaluates obj.attr, including the lookup order
+  - Write a data descriptor that validates values, using __set_name__ to learn its name
+  - Tell data descriptors from non-data descriptors, and use the difference for caching
+  - Recognise property, methods and cached_property as descriptors
+estimatedMinutes: 45
+fundamentals: []
+---
+
+Metaprogramming is code that works on code: classes that shape other classes, functions that read other functions. This module covers the tools Python gives you for it, starting with the one you have used most without seeing it. `@property` from [methods and properties](../../intermediate/methods-properties/), every method call, and `functools.cached_property` all run through the same small protocol: descriptors.
+
+## A property is an object in the class
+
+When you write `@property`, the class gets an attribute that is a `property` object. That object has a `__get__` method, and Python calls it when you read the attribute from an instance:
+
+```python title="property_is_descriptor.py"
+class Account:
+    def __init__(self, balance):
+        self._balance = balance
+
+    @property
+    def balance(self):
+        return self._balance
+
+
+attr = Account.__dict__["balance"]
+print(type(attr).__name__)
+print(hasattr(attr, "__get__"), hasattr(attr, "__set__"))
+account = Account(50)
+print(attr.__get__(account, Account))
+print(account.balance)
+```
+
+```text
+property
+True True
+50
+50
+```
+
+Calling `attr.__get__(account, Account)` by hand gives the same result as `account.balance`. That is the whole trick. Any object stored in a class that defines `__get__`, `__set__` or `__delete__` is a **descriptor**, and Python hands attribute access on instances over to it.
+
+## Writing a descriptor
+
+`__get__(self, obj, objtype)` receives the descriptor itself, the instance the attribute was read from, and the class. When the attribute is read from the class rather than an instance, `obj` is `None`:
+
+```python title="first_descriptor.py"
+class Loud:
+    def __get__(self, obj, objtype=None):
+        print(f"__get__(obj={obj!r}, objtype={objtype.__name__})")
+        return 42
+
+
+class Thing:
+    answer = Loud()
+
+    def __repr__(self):
+        return "Thing()"
+
+
+print(Thing().answer)
+print(Thing.answer)
+```
+
+```text
+__get__(obj=Thing(), objtype=Thing)
+42
+__get__(obj=None, objtype=Thing)
+42
+```
+
+Most descriptors return `self` when `obj` is `None`, so that `Thing.answer` gives back the descriptor object for inspection. You will see that line in every descriptor below.
+
+## A validated field with __set_name__
+
+A descriptor that also defines `__set__` controls assignment. That makes it a reusable version of a property setter: write the check once and use it on any number of attributes.
+
+The descriptor needs to know which attribute it is, both for the error message and for where to store the value. `__set_name__(self, owner, name)` tells it: Python calls it once, when the class body finishes, with the class and the attribute name.
+
+```python title="positive_field.py"
+class Positive:
+    def __set_name__(self, owner, name):
+        self.name = name
+        self.private = "_" + name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return getattr(obj, self.private)
+
+    def __set__(self, obj, value):
+        if value <= 0:
+            raise ValueError(f"{self.name} must be > 0, got {value}")
+        setattr(obj, self.private, value)
+```
+
+```python title="positive_field.py (continued)"
+class Order:
+    quantity = Positive()
+    price = Positive()
+
+    def __init__(self, quantity, price):
+        self.quantity = quantity
+        self.price = price
+
+
+order = Order(3, 9.5)
+print(order.quantity, order.price, vars(order))
+try:
+    order.price = -1
+except ValueError as error:
+    print("ValueError:", error)
+```
+
+```text
+3 9.5 {'_quantity': 3, '_price': 9.5}
+ValueError: price must be > 0, got -1
+```
+
+`vars(order)` shows where the values live: in the instance, under `_quantity` and `_price`. The descriptor object is shared by every `Order`, so it must never keep per-instance data on `self`. One descriptor class now validates two fields, where properties would have needed two getters and two setters.
+
+## The lookup order
+
+When you read `obj.name`, Python looks in three places, in this order:
+
+1. A **data descriptor** on the class (one with `__set__` or `__delete__`).
+2. The instance's own `__dict__`.
+3. A **non-data descriptor** (only `__get__`) or a plain class attribute.
+
+So a data descriptor wins over the instance dictionary, and the instance dictionary wins over a non-data descriptor:
+
+```python title="lookup_order.py"
+class Data:
+    def __get__(self, obj, objtype=None):
+        return "from the data descriptor"
+
+    def __set__(self, obj, value):
+        raise AttributeError("read-only")
+
+
+class NonData:
+    def __get__(self, obj, objtype=None):
+        return "from the non-data descriptor"
+
+
+class Box:
+    a = Data()
+    b = NonData()
+
+
+box = Box()
+box.__dict__["a"] = "from the instance"
+box.__dict__["b"] = "from the instance"
+print(box.a)
+print(box.b)
+```
+
+```text
+from the data descriptor
+from the instance
+```
+
+This order explains several things you already know. A property always runs, even if the instance dictionary has an entry with the same name, because `property` defines `__set__` (it raises if there is no setter). And methods can be replaced per instance, because functions are non-data descriptors.
+
+## Methods are descriptors
+
+A function stored in a class is a descriptor. Its `__get__` returns a **bound method**: the function with the instance filled in as `self`. That is how `greeter.hello()` gets its `self` argument:
+
+```python title="methods_are_descriptors.py"
+class Greeter:
+    def hello(self):
+        return f"hello from {type(self).__name__}"
+
+
+func = Greeter.__dict__["hello"]
+print(type(func).__name__, hasattr(func, "__get__"))
+bound = func.__get__(Greeter(), Greeter)
+print(type(bound).__name__, bound())
+print(Greeter.hello is func)
+```
+
+```text
+function True
+method hello from Greeter
+True
+```
+
+Read from the class, `obj` is `None`, and the function returns itself. `classmethod` and `staticmethod` are descriptors too: theirs return a function bound to the class, or the plain function.
+
+## Caching with a non-data descriptor
+
+Because the instance dictionary beats a non-data descriptor, a descriptor can compute a value once, store it in the instance under its own name, and never be called again for that instance:
+
+```python title="lazy_attribute.py"
+class lazy:
+    def __init__(self, func):
+        self.func = func
+
+    def __set_name__(self, owner, name):
+        self.name = name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        value = self.func(obj)
+        obj.__dict__[self.name] = value
+        return value
+```
+
+```python title="lazy_attribute.py (continued)"
+class Report:
+    def __init__(self, rows):
+        self.rows = rows
+
+    @lazy
+    def total(self):
+        print("computing total")
+        return sum(self.rows)
+
+
+report = Report([3, 4, 5])
+print(report.total)
+print(report.total)
+print("total" in vars(report))
+```
+
+```text
+computing total
+12
+12
+True
+```
+
+The second read found `total` in the instance dictionary and skipped the descriptor. The standard library ships this as `functools.cached_property`, so use that in real code. Since it stores into `__dict__`, it does not work on classes with `__slots__` and no `__dict__`.
+
+## When not to use a descriptor
+
+Write a descriptor when the same attribute logic repeats across fields or classes. For one attribute in one class, `@property` is clearer. If you are validating many fields of a record, a [dataclass](../../intermediate/dataclasses/) with a `__post_init__` check, or a validation library, is often less code than a descriptor and easier for colleagues to follow.
+
+## Common pitfalls
+
+- **Storing values on the descriptor.** `self.value = value` in `__set__` shares one value across every instance. Store it on `obj`.
+- **Forgetting `obj is None`.** Without the check, `Class.attr` calls your getter with `None` and usually fails with a confusing `AttributeError`.
+- **Expecting a non-data descriptor to validate.** Without `__set__`, assignment just writes to the instance dictionary and the descriptor is bypassed from then on.
+- **Defining the descriptor after the class exists.** `__set_name__` only runs during class creation. `Class.x = Positive()` later needs a manual `Class.x.__set_name__(Class, "x")`.
+
+<Exercise title="A typed field">
+Write a data descriptor `Typed(kind)` that only accepts instances of `kind`. With it, this code prints the output below:
+
+```python title="typed_check.py"
+class Product:
+    name = Typed(str)
+    price = Typed(float)
+
+    def __init__(self, name, price):
+        self.name = name
+        self.price = price
+
+
+p = Product("pen", 1.5)
+print(p.name, p.price)
+try:
+    p.price = "cheap"
+except TypeError as error:
+    print("TypeError:", error)
+print(Product.price.kind.__name__)
+```
+
+```text
+pen 1.5
+TypeError: price must be float, got str
+float
+```
+
+<Solution>
+
+```python title="typed_field.py"
+class Typed:
+    def __init__(self, kind):
+        self.kind = kind
+
+    def __set_name__(self, owner, name):
+        self.name = name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return obj.__dict__[self.name]
+
+    def __set__(self, obj, value):
+        if not isinstance(value, self.kind):
+            raise TypeError(f"{self.name} must be {self.kind.__name__}, "
+                            f"got {type(value).__name__}")
+        obj.__dict__[self.name] = value
+```
+
+```python title="typed_field.py (continued)"
+class Product:
+    name = Typed(str)
+    price = Typed(float)
+
+    def __init__(self, name, price):
+        self.name = name
+        self.price = price
+
+
+p = Product("pen", 1.5)
+print(p.name, p.price)
+try:
+    p.price = "cheap"
+except TypeError as error:
+    print("TypeError:", error)
+print(Product.price.kind.__name__)
+```
+
+```text
+pen 1.5
+TypeError: price must be float, got str
+float
+```
+
+`Typed` stores the value in the instance dictionary under the attribute's own name. That is safe for a data descriptor, which always takes priority over the instance dictionary, so reads still go through `__get__`. The last line works because `__get__` returns the descriptor when it is read from the class.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict: which one wins?">
+Predict all four lines. `Shout` has only `__get__`; `size` is a property with no setter.
+
+```python title="predict_lookup.py"
+class Shout:
+    def __get__(self, obj, objtype=None):
+        return "SHOUT"
+
+
+class Word:
+    text = Shout()
+
+    @property
+    def size(self):
+        return 3
+
+
+w = Word()
+print(w.text)
+w.text = "quiet"
+print(w.text)
+try:
+    w.size = 10
+except AttributeError as error:
+    print("AttributeError:", error)
+print(w.size)
+```
+
+<Solution>
+
+```text
+SHOUT
+quiet
+AttributeError: property 'size' of 'Word' object has no setter
+3
+```
+
+`Shout` is a non-data descriptor, so `w.text = "quiet"` writes to the instance dictionary, and from then on the instance entry wins. `property` is a data descriptor: assignment goes to its `__set__`, which refuses, and reads keep calling the getter.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix: two accounts, one balance">
+This descriptor validates balances, but the accounts interfere with each other:
+
+```python title="balance_shared.py"
+class NonNegative:
+    def __set_name__(self, owner, name):
+        self.name = name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return self.value
+
+    def __set__(self, obj, value):
+        if value < 0:
+            raise ValueError(f"{self.name} must be >= 0")
+        self.value = value
+
+
+class Account:
+    balance = NonNegative()
+
+    def __init__(self, balance):
+        self.balance = balance
+
+
+a = Account(10)
+b = Account(99)
+print(a.balance, b.balance)
+```
+
+```text
+99 99
+```
+
+Change only `NonNegative` so that the script prints `10 99`.
+
+<Solution>
+
+```python title="balance_fixed.py"
+class NonNegative:
+    def __set_name__(self, owner, name):
+        self.name = name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return obj.__dict__[self.name]
+
+    def __set__(self, obj, value):
+        if value < 0:
+            raise ValueError(f"{self.name} must be >= 0")
+        obj.__dict__[self.name] = value
+
+
+class Account:
+    balance = NonNegative()
+
+    def __init__(self, balance):
+        self.balance = balance
+
+
+a = Account(10)
+b = Account(99)
+print(a.balance, b.balance)
+```
+
+```text
+10 99
+```
+
+There is one `NonNegative` object for the whole `Account` class, so `self.value` was one value shared by every account: the last assignment won. Storing the value on `obj` gives each instance its own.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `obj.attr` checks for a data descriptor on the class, then the instance `__dict__`, then a non-data descriptor or class attribute.
+- A descriptor is a class attribute with `__get__`, and optionally `__set__` or `__delete__`. `__get__` receives `obj=None` when read from the class.
+- `__set_name__` tells a descriptor its attribute name when the class is created. Keep per-instance data on the instance, never on the descriptor.
+- Properties, methods, `classmethod`, `staticmethod` and `cached_property` are all descriptors.
+- Next: [customising classes](../class-customisation/), with hooks that run when a class is created.

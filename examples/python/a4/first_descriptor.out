@@ -1,0 +1,4 @@
+__get__(obj=Thing(), objtype=Thing)
+42
+__get__(obj=None, objtype=Thing)
+42

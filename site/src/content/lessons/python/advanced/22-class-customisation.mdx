@@ -1,0 +1,446 @@
+---
+language: python
+level: advanced
+module: Metaprogramming
+order: 22
+title: Customising classes
+description: Hook into class creation with class decorators, __init_subclass__ and __set_name__, make a class subscriptable with __class_getitem__, and fix an instance's attributes with __slots__.
+minVersion: "3.8"
+objectives:
+  - Write a class decorator that adds behaviour to a class
+  - Build a plugin registry with __init_subclass__ and class keyword arguments
+  - Reject a badly defined subclass at definition time
+  - Describe the order in which class creation hooks run
+  - Use __class_getitem__ and __slots__, and explain how __slots__ uses descriptors
+estimatedMinutes: 45
+fundamentals: []
+---
+
+A `class` statement is code that runs. Python executes the body, builds a class object, and then gives several hooks a chance to look at it or change it. This lesson covers the hooks you should reach for first. They handle almost everything people once wrote metaclasses for, and the [next lesson](../metaclasses/) shows the rest.
+
+## Class decorators
+
+A class decorator works like the function decorators from [decorators](../../intermediate/decorators/): `@deco` above `class C` means `C = deco(C)`. The decorator receives the finished class and returns it, usually after adding something:
+
+```python title="class_decorator.py"
+def auto_repr(cls):
+    def __repr__(self):
+        fields = ", ".join(f"{k}={v!r}" for k, v in vars(self).items())
+        return f"{type(self).__name__}({fields})"
+
+    cls.__repr__ = __repr__
+    return cls
+
+
+@auto_repr
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+
+print(Point(1, 2))
+print([Point(0, 0), Point(3, 4)])
+```
+
+```text
+Point(x=1, y=2)
+[Point(x=0, y=0), Point(x=3, y=4)]
+```
+
+`@dataclass` is the most famous class decorator: it reads the annotations and writes `__init__`, `__repr__` and `__eq__` onto the class. Class decorators are explicit and local, which is their strength. They are also their limit: a decorator applies to one class only, and subclasses do not inherit it.
+
+## __init_subclass__: a hook for every subclass
+
+When a class is created, Python calls `__init_subclass__` on its parent. The parent can then register, check or modify each new subclass. Keyword arguments in the class line, other than `metaclass`, are passed to it:
+
+```python title="plugin_registry.py"
+class Reader:
+    registry = {}
+
+    def __init_subclass__(cls, /, ext, **kwargs):
+        super().__init_subclass__(**kwargs)
+        Reader.registry[ext] = cls
+
+    @classmethod
+    def for_file(cls, filename):
+        ext = filename.rsplit(".", 1)[-1]
+        return cls.registry[ext]()
+```
+
+```python title="plugin_registry.py (continued)"
+class CsvReader(Reader, ext="csv"):
+    pass
+
+
+class JsonReader(Reader, ext="json"):
+    pass
+
+
+print(Reader.registry)
+print(type(Reader.for_file("data.json")).__name__)
+```
+
+```text
+{'csv': <class '__main__.CsvReader'>, 'json': <class '__main__.JsonReader'>}
+JsonReader
+```
+
+Nobody had to call a `register` function: defining the subclass was enough. Two details matter. `__init_subclass__` is implicitly a class method, so `cls` is the new subclass, not `Reader`. And it should accept `**kwargs` and pass them to `super().__init_subclass__`, so that several base classes with hooks can be combined.
+
+The same hook can refuse a subclass. The error then appears when the module is imported, not much later when someone uses the class:
+
+```python title="require_attr.py"
+class Command:
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if not isinstance(cls.__dict__.get("help"), str):
+            raise TypeError(f"{cls.__name__} must define a help string")
+
+
+class Deploy(Command):
+    help = "Deploy the site"
+
+
+try:
+    class Broken(Command):
+        pass
+except TypeError as error:
+    print("TypeError:", error)
+print(Deploy.help)
+```
+
+```text
+TypeError: Broken must define a help string
+Deploy the site
+```
+
+The check uses `cls.__dict__`, not `getattr`, so a subclass of `Deploy` would also need its own help text. Use `getattr(cls, "help", None)` if an inherited value is good enough.
+
+## The order of the hooks
+
+Descriptors from [the previous lesson](../descriptors/) get their `__set_name__` call during the same process. Here is the full sequence for one class:
+
+```python title="creation_order.py"
+class Field:
+    def __set_name__(self, owner, name):
+        print(f"2. __set_name__: {owner.__name__}.{name}")
+
+
+class Base:
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        print(f"3. __init_subclass__: {cls.__name__}")
+
+
+def decorate(cls):
+    print(f"4. decorator: {cls.__name__}")
+    return cls
+
+
+@decorate
+class Model(Base):
+    print("1. the class body runs")
+    title = Field()
+```
+
+```text
+1. the class body runs
+2. __set_name__: Model.title
+3. __init_subclass__: Model
+4. decorator: Model
+```
+
+The body runs first, as ordinary code, and fills a namespace. Then `type` builds the class, calls `__set_name__` on each attribute that has one, calls the parent's `__init_subclass__`, and finally the decorators run, bottom-up. A decorator therefore sees a class whose fields and parent hooks are already set up.
+
+## __class_getitem__: subscripting a class
+
+`list[int]` works because `list` defines `__class_getitem__`. Like `__init_subclass__`, it is implicitly a class method. The usual return value is a `types.GenericAlias`, which remembers the class and the arguments and can still be called to create instances:
+
+```python title="class_getitem.py"
+from types import GenericAlias
+
+
+class Box:
+    def __init__(self, item):
+        self.item = item
+
+    def __class_getitem__(cls, item):
+        return GenericAlias(cls, item)
+
+
+alias = Box[int]
+print(alias, alias.__origin__.__name__, alias.__args__)
+box = alias(5)
+print(type(box).__name__, box.item)
+```
+
+```text
+__main__.Box[int] Box (<class 'int'>,)
+Box 5
+```
+
+This hook exists for type hints. The documentation discourages using it for anything else, such as a lookup table keyed by class. For your own generic classes, write `class Box[T]:` as in [generics with type parameter syntax](../generics-pep695/), which gives you subscripting and type checker support without writing the hook yourself.
+
+## __slots__: a fixed set of attributes
+
+A class with `__slots__` lists its instance attributes up front. Python then gives instances no `__dict__`, which saves memory and turns typos into errors:
+
+```python title="slots_basic.py"
+class Point:
+    __slots__ = ("x", "y")
+
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+
+p = Point(1, 2)
+print(type(Point.__dict__["x"]).__name__)
+print(hasattr(p, "__dict__"))
+try:
+    p.z = 3
+except AttributeError as error:
+    print("AttributeError:", error)
+```
+
+```text
+member_descriptor
+False
+AttributeError: 'Point' object has no attribute 'z' and no __dict__ for setting new attributes
+```
+
+`member_descriptor` is the clue to how it works: each slot is a data descriptor on the class, which reads and writes a fixed position in the instance. You met the convenient form, `@dataclass(slots=True)`, in [dataclasses](../../intermediate/dataclasses/). Because there is no instance dictionary, `functools.cached_property` and the `lazy` descriptor from the last lesson cannot store anything on slotted instances.
+
+<Since v="3.15" /> A subclass of `tuple`, including one created by `collections.namedtuple`, can now add non-empty `__slots__`. Earlier versions raise `TypeError: nonempty __slots__ not supported for subtype of 'tuple'`:
+
+```python title="slots_tuple.py"
+class Pair(tuple):
+    __slots__ = ("label",)
+
+    def __new__(cls, a, b, label):
+        self = super().__new__(cls, (a, b))
+        self.label = label
+        return self
+
+
+pair = Pair(1, 2, "origin")
+print(pair, pair.label, len(pair))
+```
+
+```text
+(1, 2) origin 2
+```
+
+Python 3.15 also allows `"__dict__"` and `"__weakref__"` in `__slots__` for any class, including subclasses of `int` and other built-ins.
+
+## When not to use these hooks
+
+Every hook in this lesson runs at import time and acts at a distance: a reader of `class CsvReader(Reader, ext="csv")` has to find `Reader` to learn what happens. Prefer the most visible tool that does the job. A plain function call such as `registry.add(CsvReader)` is easy to follow and to test. A class decorator is visible at the definition. Reach for `__init_subclass__` when every subclass must be handled the same way and forgetting would be a bug.
+
+## Common pitfalls
+
+- **Not calling `super().__init_subclass__(**kwargs)`.** The next class in the method resolution order never gets its hook, and unknown keywords are silently lost.
+- **Registering the base class.** `__init_subclass__` runs for subclasses only, which is usually what you want. Do not expect it to fire for the class that defines it.
+- **Using `__class_getitem__` as a general lookup.** It is meant for type hints. Use a dictionary or a class method for anything else.
+- **Defaults as class attributes next to `__slots__`.** `x = 0` in the class body clashes with a slot named `x` and raises `ValueError`. Set defaults in `__init__`.
+
+<Exercise title="A command registry">
+Write a base class `Command` with a dictionary `commands`. Each subclass registers itself under the `name` given in its class line, or under its class name in lower case when there is none. With your class, this code:
+
+```python title="commands_check.py"
+class Hello(Command):
+    def run(self):
+        return "hello!"
+
+
+class Bye(Command, name="exit"):
+    def run(self):
+        return "goodbye"
+
+
+print(sorted(Command.commands))
+print(Command.commands["hello"]().run())
+print(Command.commands["exit"]().run())
+```
+
+prints:
+
+```text
+['exit', 'hello']
+hello!
+goodbye
+```
+
+<Solution>
+
+```python title="command_registry.py"
+class Command:
+    commands = {}
+
+    def __init_subclass__(cls, /, name=None, **kwargs):
+        super().__init_subclass__(**kwargs)
+        Command.commands[name or cls.__name__.lower()] = cls
+```
+
+```python title="command_registry.py (continued)"
+class Hello(Command):
+    def run(self):
+        return "hello!"
+
+
+class Bye(Command, name="exit"):
+    def run(self):
+        return "goodbye"
+
+
+print(sorted(Command.commands))
+print(Command.commands["hello"]().run())
+print(Command.commands["exit"]().run())
+```
+
+```text
+['exit', 'hello']
+hello!
+goodbye
+```
+
+`name=None` makes the keyword optional, and `or` falls back to the class name. Writing `Command.commands` rather than `cls.commands` makes it explicit that every subclass shares one dictionary, even if a subclass later defines its own `commands` attribute.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Debug: the missing audit">
+`Job` should be both registered and audited, but the audit line never appears:
+
+```python title="mixin_hooks_bug.py"
+class Registered:
+    names = []
+
+    def __init_subclass__(cls):
+        Registered.names.append(cls.__name__)
+
+
+class Audited:
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        print("audited:", cls.__name__)
+
+
+class Job(Registered, Audited):
+    pass
+
+
+print(Registered.names)
+```
+
+```text
+['Job']
+```
+
+Fix it so that the output is:
+
+```text
+audited: Job
+['Job']
+```
+
+<Solution>
+
+```python title="mixin_hooks_fixed.py"
+class Registered:
+    names = []
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        Registered.names.append(cls.__name__)
+
+
+class Audited:
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        print("audited:", cls.__name__)
+
+
+class Job(Registered, Audited):
+    pass
+
+
+print(Registered.names)
+```
+
+```text
+audited: Job
+['Job']
+```
+
+Python calls `__init_subclass__` once, on the next class in `Job`'s method resolution order, which is `Registered`. Its hook did not call `super()`, so `Audited.__init_subclass__` was never reached. With `super().__init_subclass__(**kwargs)` the call travels along the chain. The audit line comes first because `Registered` appends after its `super()` call returns.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Counting instances">
+Write a class decorator `counted` that adds a class attribute `created`, starting at 0, and increases it each time an instance is initialised. This code:
+
+```python title="counted_check.py"
+@counted
+class Job:
+    def __init__(self, name):
+        self.name = name
+
+
+Job("a")
+Job("b")
+print(Job.created, Job("c").name, Job.created)
+```
+
+prints `2 c 3`.
+
+<Solution>
+
+```python title="counted.py"
+from functools import wraps
+
+
+def counted(cls):
+    original = cls.__init__
+
+    @wraps(original)
+    def __init__(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        cls.created += 1
+
+    cls.created = 0
+    cls.__init__ = __init__
+    return cls
+```
+
+```python title="counted.py (continued)"
+@counted
+class Job:
+    def __init__(self, name):
+        self.name = name
+
+
+Job("a")
+Job("b")
+print(Job.created, Job("c").name, Job.created)
+```
+
+```text
+2 c 3
+```
+
+The decorator keeps the original `__init__`, installs a wrapper that calls it and then counts, and returns the same class. `wraps` keeps the name and docstring of the original method. Arguments are evaluated left to right, so the first `Job.created` is read before `Job("c")` runs.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Class decorators receive the finished class and return it, often with new methods. They apply to one class, not its subclasses.
+- `__init_subclass__` runs on the parent for every new subclass and receives the class keyword arguments. Always pass `**kwargs` to `super()`.
+- Class creation order: body, `type` builds the class, `__set_name__`, `__init_subclass__`, then decorators.
+- `__class_getitem__` makes `Class[...]` work and is meant for type hints. `class Box[T]` is the easier route.
+- `__slots__` replaces the instance dictionary with slot descriptors. <Since v="3.15" /> Tuple subclasses can add slots.
+- Next: [metaclasses](../metaclasses/), the machinery behind all of this.

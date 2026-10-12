@@ -1,0 +1,2 @@
+3 9.5 {'_quantity': 3, '_price': 9.5}
+ValueError: price must be > 0, got -1

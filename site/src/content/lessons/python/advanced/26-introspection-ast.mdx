@@ -1,0 +1,420 @@
+---
+language: python
+level: advanced
+module: Metaprogramming
+order: 26
+title: Introspection and the AST
+description: Inspect functions at run time with the inspect module, parse source code into an abstract syntax tree, analyse and transform it with visitors, take a first look at bytecode, and avoid the dangers of eval and exec.
+minVersion: "3.11"
+objectives:
+  - Read and use a function's signature with inspect.signature and Signature.bind
+  - Parse source code with ast.parse and read the tree with ast.dump
+  - Analyse code with ast.NodeVisitor and ast.walk
+  - Transform code with ast.NodeTransformer and turn it back into source with ast.unparse
+  - Explain why eval and exec on untrusted input are unsafe, and use ast.literal_eval instead
+estimatedMinutes: 50
+fundamentals: []
+---
+
+The previous lessons changed how classes and strings behave. This one treats code itself as data. `inspect` looks at live objects: what a function's parameters are, where its source is. `ast` looks at source text before it runs: the same structure the compiler sees, which linters, formatters and refactoring tools are built on. The [fundamentals lesson on reading code](../../../fundamentals/beginner/reading-docs-and-code/) covers the human side of this; here the reader is a program.
+
+## Signatures with inspect
+
+`inspect.signature` returns a `Signature` describing a callable's parameters, including their kind and default:
+
+```python title="inspect_signature.py"
+import inspect
+
+
+def send(to, subject, *, cc=None, retries=3):
+    return f"to {to}: {subject}"
+
+
+sig = inspect.signature(send)
+print(sig)
+for name, param in sig.parameters.items():
+    print(f"{name:8} {param.kind.name:22} {param.default!r}")
+```
+
+```text
+(to, subject, *, cc=None, retries=3)
+to       POSITIONAL_OR_KEYWORD  <class 'inspect._empty'>
+subject  POSITIONAL_OR_KEYWORD  <class 'inspect._empty'>
+cc       KEYWORD_ONLY           None
+retries  KEYWORD_ONLY           3
+```
+
+`inspect.Parameter.empty` marks "no default". Frameworks use this to map command-line options or web request fields onto function parameters. `Signature.bind` applies Python's own argument rules without calling the function, which makes it a validator:
+
+```python title="inspect_signature.py (continued)"
+bound = sig.bind("ada@example.com", "Hi", retries=5)
+bound.apply_defaults()
+print(bound.arguments)
+try:
+    sig.bind("ada@example.com")
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+{'to': 'ada@example.com', 'subject': 'Hi', 'cc': None, 'retries': 5}
+TypeError: missing a required argument: 'subject'
+```
+
+`apply_defaults()` fills in the parameters the caller left out. The error is the same one a real call would raise. A [decorator](../../intermediate/decorators/) can use `bind` to find an argument by name, however the caller passed it.
+
+## Source, docstrings and kinds of object
+
+`inspect` can also fetch the source of a function defined in a file, its cleaned-up docstring, and answer "what is this?":
+
+```python title="inspect_source.py"
+import inspect
+
+
+def greet(name):
+    """Return a greeting."""
+    return f"Hello, {name}!"
+
+
+print(inspect.getsource(greet), end="")
+print(inspect.getdoc(greet))
+print(inspect.isfunction(greet), inspect.ismethod(greet))
+```
+
+```text
+def greet(name):
+    """Return a greeting."""
+    return f"Hello, {name}!"
+Return a greeting.
+True False
+```
+
+`getsource` reads the file, so it fails for code typed into the REPL or created with `exec`. The `is...` functions, such as `isfunction`, `isclass` and `iscoroutinefunction`, are clearer than comparing types yourself.
+
+## Parsing source into a tree
+
+`ast.parse` turns source text into an **abstract syntax tree**: nested node objects, one per construct. `ast.dump` prints it:
+
+```python title="ast_dump.py"
+import ast
+
+tree = ast.parse("total = price * 2")
+print(ast.dump(tree, indent=2))
+```
+
+```text
+Module(
+  body=[
+    Assign(
+      targets=[
+        Name(id='total', ctx=Store())],
+      value=BinOp(
+        left=Name(id='price'),
+        op=Mult(),
+        right=Constant(value=2)))])
+```
+
+Read it from the outside in: a module whose body holds one assignment, whose target is the name `total` (being stored to) and whose value is a multiplication. <Since v="3.15" /> `ast.dump` leaves out `ctx=Load()` by default. Earlier versions print it on every name that is read, like `Name(id='price', ctx=Load())`.
+
+Each node also records its position: `lineno`, `col_offset` and their `end_` versions. The [ast documentation](https://docs.python.org/3/library/ast.html) lists every node class, and `python -m ast file.py` dumps a whole file.
+
+## Analysing code with a visitor
+
+`ast.NodeVisitor` walks the tree and calls `visit_<ClassName>` for each node of that class. Call `self.generic_visit(node)` to continue into the node's children:
+
+```python title="ast_visitor.py"
+import ast
+
+source = """
+def area(w, h):
+    return w * h
+
+def greet(name, greeting="Hi"):
+    return greeting + ", " + name
+"""
+
+
+class FunctionLister(ast.NodeVisitor):
+    def visit_FunctionDef(self, node):
+        args = ", ".join(a.arg for a in node.args.args)
+        print(f"line {node.lineno}: {node.name}({args})")
+        self.generic_visit(node)
+
+
+FunctionLister().visit(ast.parse(source))
+```
+
+```text
+line 2: area(w, h)
+line 5: greet(name, greeting)
+```
+
+When you only need to find nodes and order does not matter, `ast.walk(tree)` yields every node in the tree, and a loop with `isinstance` checks is enough.
+
+## Transforming code
+
+`ast.NodeTransformer` is a visitor whose methods return a node to replace the one visited. This one folds additions of two constants, as an optimiser would:
+
+```python title="ast_transform.py"
+import ast
+
+
+class FoldAdd(ast.NodeTransformer):
+    def visit_BinOp(self, node):
+        self.generic_visit(node)
+        if (isinstance(node.op, ast.Add)
+                and isinstance(node.left, ast.Constant)
+                and isinstance(node.right, ast.Constant)):
+            total = node.left.value + node.right.value
+            return ast.copy_location(ast.Constant(total), node)
+        return node
+
+
+tree = ast.parse("timeout = 60 + 30 + extra\nlabel = 'v' + '2'")
+tree = FoldAdd().visit(tree)
+print(ast.unparse(tree))
+```
+
+```text
+timeout = 90 + extra
+label = 'v2'
+```
+
+`generic_visit` runs first, so the inner `60 + 30` is folded before the outer addition is checked. `ast.copy_location` gives the new node the old one's position, which `compile` needs. `ast.unparse` turns the tree back into source. The tree can also be compiled and run:
+
+```python title="ast_transform.py (continued)"
+code = compile(tree, "<folded>", "exec")
+namespace = {"extra": 5}
+exec(code, namespace)
+print(namespace["timeout"], namespace["label"])
+```
+
+```text
+95 v2
+```
+
+This is how tools like pytest rewrite `assert` statements to produce detailed failure messages.
+
+## A first look at bytecode
+
+The compiler turns the tree into **bytecode**, the instructions the interpreter runs. `dis.dis` shows them:
+
+```python title="dis_preview.py"
+import dis
+
+
+def double(x):
+    return x * 2
+
+
+dis.dis(double)
+```
+
+```text
+  4           RESUME                   0
+
+  5           LOAD_FAST_BORROW         0 (x)
+              LOAD_SMALL_INT           2
+              BINARY_OP                5 (*)
+              RETURN_VALUE
+```
+
+The left column is the source line. Bytecode is an implementation detail and changes between versions: this is the output of 3.15, while 3.11 shows `LOAD_FAST` and `LOAD_CONST` where 3.15 has `LOAD_FAST_BORROW` and `LOAD_SMALL_INT`. Treat `dis` as a microscope for curiosity and performance work, never as something your code depends on. The expert track covers it properly.
+
+## eval and exec are dangerous
+
+`eval` evaluates an expression and `exec` runs statements, from any string. On untrusted input, that means running the attacker's code with your program's permissions:
+
+```python title="eval_danger.py"
+user_input = "__import__('math').factorial(5)"
+print(eval(user_input))
+```
+
+```text
+120
+```
+
+That input imported a module. It could as easily have been `os` or `subprocess`. Removing builtins with `eval(text, {"__builtins__": {}})` does not make it safe: there are well-known escapes through object attributes. If you need to read Python-style data, use `ast.literal_eval`, which accepts only literals (strings, numbers, tuples, lists, dicts, sets, booleans and `None`):
+
+```python title="literal_eval.py"
+import ast
+
+text = "{'host': 'db', 'ports': [80, 443], 'debug': False}"
+config = ast.literal_eval(text)
+print(config["ports"], config["debug"])
+try:
+    ast.literal_eval("__import__('os').getcwd()")
+except ValueError:
+    print("ValueError: a call is not a literal")
+```
+
+```text
+[80, 443] False
+ValueError: a call is not a literal
+```
+
+For data that crosses a trust boundary, JSON or TOML parsers are better still.
+
+## When not to use metaprogramming
+
+Everything in this module makes code harder to follow, debug and type-check. Checkers cannot see attributes a metaclass adds or code an AST transform writes. Before reaching for these tools, ask whether a plain function, a dataclass or an explicit registration call would do. Use introspection and AST tools for what they are best at: frameworks, linters, test tools and code generators, where one carefully written piece of magic saves many users from writing boilerplate.
+
+## Common pitfalls
+
+- **`getsource` on dynamic code.** Functions from the REPL, `exec` or a lambda in a long expression may have no usable source. Expect `OSError`.
+- **Forgetting `generic_visit`.** Without it, a visitor does not descend into the children of a node it handles, so nested matches are missed.
+- **Returning `None` from a transformer method.** That deletes the node. Return `node` to keep it.
+- **New nodes without locations.** Call `ast.copy_location` or `ast.fix_missing_locations` before `compile`.
+- **`eval` for parsing.** Use `ast.literal_eval`, `json` or `int()`/`float()`.
+
+<Exercise title="A linter rule for print">
+Write `find_prints(source)` that returns the sorted line numbers of every call to `print` in `source`. This code:
+
+```python title="lint_check.py"
+source = """
+import logging
+print("start")
+def run(items):
+    for item in items:
+        print(item)
+    logging.info("done")
+    return len(items)
+"""
+for line in find_prints(source):
+    print(f"line {line}: avoid print(), use logging")
+```
+
+prints:
+
+```text
+line 3: avoid print(), use logging
+line 6: avoid print(), use logging
+```
+
+<Solution>
+
+```python title="print_linter.py"
+import ast
+
+
+def find_prints(source):
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "print"):
+            lines.append(node.lineno)
+    return sorted(lines)
+```
+
+```python title="print_linter.py (continued)"
+source = """
+import logging
+print("start")
+def run(items):
+    for item in items:
+        print(item)
+    logging.info("done")
+    return len(items)
+"""
+for line in find_prints(source):
+    print(f"line {line}: avoid print(), use logging")
+```
+
+```text
+line 3: avoid print(), use logging
+line 6: avoid print(), use logging
+```
+
+`ast.walk` reaches every node, nested or not. A call to `print` is a `Call` whose `func` is a `Name` with id `"print"`. `logging.info(...)` is a call too, but its `func` is an `Attribute`, so it is skipped. Line 1 is the empty line after the opening quotes, which is why the first `print` is on line 3.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict: what is a literal?">
+Which of these does `ast.literal_eval` accept?
+
+```python title="predict_literal_eval.py"
+import ast
+
+for text in ["[1, 2]", "{'a': (1, 2)}", "1 + 2j", "len('abc')", "x"]:
+    try:
+        print(repr(ast.literal_eval(text)))
+    except ValueError:
+        print("ValueError")
+```
+
+<Solution>
+
+```text
+[1, 2]
+{'a': (1, 2)}
+(1+2j)
+ValueError
+ValueError
+```
+
+Lists, dicts and tuples of literals are fine. `1 + 2j` is allowed as a special case, so that complex numbers can be written. A function call and a bare name are not literals, so both raise `ValueError`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Debug: the nested print">
+This transformer should rename every `print` call to `log`, but it misses one:
+
+```python title="rename_bug.py"
+import ast
+
+
+class PrintToLog(ast.NodeTransformer):
+    def visit_Call(self, node):
+        if isinstance(node.func, ast.Name) and node.func.id == "print":
+            node.func = ast.Name("log", ast.Load())
+        return node
+
+
+tree = PrintToLog().visit(ast.parse("print(f(print('x')))"))
+print(ast.unparse(tree))
+```
+
+```text
+log(f(print('x')))
+```
+
+Fix it so that the output is `log(f(log('x')))`.
+
+<Solution>
+
+```python title="rename_fixed.py"
+import ast
+
+
+class PrintToLog(ast.NodeTransformer):
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if isinstance(node.func, ast.Name) and node.func.id == "print":
+            node.func = ast.Name("log", ast.Load())
+        return node
+
+
+tree = PrintToLog().visit(ast.parse("print(f(print('x')))"))
+print(ast.unparse(tree))
+```
+
+```text
+log(f(log('x')))
+```
+
+`NodeTransformer` calls `visit_Call` for the outer call and then stops, because a method that handles a node is responsible for visiting its children. Calling `self.generic_visit(node)` first transforms the arguments, including the inner `print`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `inspect.signature` describes a callable's parameters, and `Signature.bind` checks arguments against them without a call.
+- `ast.parse` turns source into a tree. `ast.dump` shows it, and <Since v="3.15" /> omits `ctx=Load()` by default.
+- `NodeVisitor` analyses, `NodeTransformer` rewrites, `ast.walk` finds. Always call `generic_visit` to reach nested nodes.
+- `ast.unparse` turns a tree back into source, and `compile` turns it into runnable code.
+- Never `eval` or `exec` untrusted text. Use `ast.literal_eval` or a real data format.
+- That completes the metaprogramming module.

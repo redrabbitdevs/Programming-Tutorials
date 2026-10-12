@@ -1,0 +1,4 @@
+1. the class body runs
+2. __set_name__: Model.title
+3. __init_subclass__: Model
+4. decorator: Model

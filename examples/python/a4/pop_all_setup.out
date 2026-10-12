@@ -1,0 +1,8 @@
+open db
+open cache
+using ['db', 'cache']
+close cache
+close db
+open db
+close db
+OSError: cannot open broken

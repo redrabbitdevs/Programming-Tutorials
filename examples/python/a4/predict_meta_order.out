@@ -1,0 +1,9 @@
+prepare Base
+new Base
+init Base
+prepare Child
+body
+new Child
+init_subclass Child
+init Child
+call Child
