@@ -5,6 +5,7 @@ import Crumbs from '../../../components/Crumbs.astro';
 import LevelBadge from '../../../components/LevelBadge.astro';
 import { mdxComponents } from '../../../components/mdx';
 import { url } from '../../../lib/url';
+import { showVersionBadge } from '../../../lib/versions';
 import { lessonHref, lessonSlug, sortLessons, groupLessons, resolveFundamentals } from '../../../lib/lessons';
 
 export async function getStaticPaths() {
@@ -33,7 +34,7 @@ const builds = await resolveFundamentals(d.fundamentals);
 const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
 ---
 
-<BaseLayout title={`${d.title} (${langName})`} section={isShared ? 'fundamentals' : 'languages'} description={d.description}>
+<BaseLayout title={`${d.title} (${langName})`} section={isShared ? 'fundamentals' : 'languages'} sectionDepth="child" description={d.description}>
   <div class="wrap">
     <div class="lesson-shell">
       <div class="sidebar-wrap">
@@ -42,19 +43,19 @@ const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
           <nav class="sidebar" aria-label={`${langName} lessons`}>
             <a class="sb-lang" href={homeHref}>{langName}</a>
             {groups.map((g) => (
-              <>
-                <h2>{g.level.label}</h2>
+              <details class="sb-level" open={g.level.id === d.level}>
+                <summary>{g.level.label}</summary>
                 {g.modules.map((m) => (
-                  <>
-                    <p class="sb-sub">{m.name}</p>
+                  <details class="sb-module" open={m.lessons.some((l) => l.id === entry.id)}>
+                    <summary>{m.name}</summary>
                     <ol>
                       {m.lessons.map((l) => (
                         <li><a href={lessonHref(l)} aria-current={l.id === entry.id ? 'page' : undefined}>{l.data.title}</a></li>
                       ))}
                     </ol>
-                  </>
+                  </details>
                 ))}
-              </>
+              </details>
             ))}
           </nav>
         </details>
@@ -70,7 +71,7 @@ const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
           <p class="lesson-meta">
             <LevelBadge level={d.level} compact />
             <span>{d.estimatedMinutes} min</span>
-            {d.minVersion && <span>{langName} {d.minVersion}+</span>}
+            {showVersionBadge(d.language, d.minVersion) && <span>{langName} {d.minVersion}+</span>}
           </p>
           <p class="lede">{d.description}</p>
           {builds.length > 0 && (
@@ -134,6 +135,16 @@ const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
   // Open the outline by default on wide screens, keep it collapsed on phones.
   const sb = document.getElementById('sb-toggle') as HTMLDetailsElement | null;
   if (sb && matchMedia('(min-width: 60rem)').matches) sb.open = true;
+
+  // Bring the current lesson into view inside the sticky sidebar. Scroll the
+  // sidebar box itself: scrollIntoView() would move the page as well.
+  const cur = document.querySelector<HTMLElement>('.sidebar a[aria-current="page"]');
+  const box = document.querySelector<HTMLElement>('.sidebar-wrap');
+  if (cur && box && box.scrollHeight > box.clientHeight) {
+    const c = cur.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    box.scrollTop += c.top - b.top - (box.clientHeight - c.height) / 2;
+  }
 
   // Heading permalinks.
   document.querySelectorAll<HTMLElement>('#lesson-body h2[id], #lesson-body h3[id]').forEach((h) => {
