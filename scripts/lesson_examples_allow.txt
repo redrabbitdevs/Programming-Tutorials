@@ -1,0 +1,46 @@
+# Known, justified differences between lesson blocks and examples/.
+# Format: <lesson under site/src/content/lessons> | <title> | code or out | <reason>
+# Do not add real drift here. Fix the lesson to match the verified example.
+
+fundamentals/beginner/23-paradigms.mdx | pure_impure.py | code | title shared with fundamentals 09-functions; this variant has no verified copy, its output was checked by hand
+python/beginner/03-hello-print-input.mdx | greeting.py | out | console session: lesson shows the typed input after each prompt; the .out holds only what the program printed
+python/beginner/03-hello-print-input.mdx | greeting_sep.py | out | console session: lesson shows the typed input after each prompt; the .out holds only what the program printed
+python/beginner/03-hello-print-input.mdx | next_year_fixed.py | out | console session: lesson shows the typed input after each prompt; the .out holds only what the program printed
+python/beginner/15-while-loops.mdx | sum_until_blank.py | out | console session: lesson shows the typed input after each prompt; the .out holds only what the program printed
+python/beginner/15-while-loops.mdx | guessing_game.py | out | console session: lesson shows the typed input after each prompt; the .out holds only what the program printed
+python/beginner/15-while-loops.mdx | sum_until_zero.py | out | console session: lesson shows the typed input after each prompt; the .out holds only what the program printed
+python/beginner/15-while-loops.mdx | guessing_limit.py | out | console session: lesson shows the typed input after each prompt; the .out holds only what the program printed
+python/beginner/33-try-except.mdx | ask_age.py | out | console session: lesson shows the typed input after each prompt; the .out holds only what the program printed
+python/beginner/36-debugging-habits.mdx | pdb_demo.py | code | console session: lesson calls breakpoint() and shows a live pdb transcript; the example keeps it commented out
+python/beginner/36-debugging-habits.mdx | pdb_demo.py | out | console session: lesson calls breakpoint() and shows a live pdb transcript; the example keeps it commented out
+python/beginner/36-debugging-habits.mdx | average_bug.py | code | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/beginner/36-debugging-habits.mdx | average_bug.py | out | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/beginner/36-debugging-habits.mdx | yes_bug.py | code | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/beginner/37-mini-project-word-counter.mdx | word_counter.py | out | console session: lesson shows the typed input after each prompt; the .out holds only what the program printed
+python/intermediate/04-pathlib.mdx | log_counter.py | code | exercise starter with the solution removed; the example holds the solution
+python/intermediate/05-text-and-binary.mdx | is_png.py | code | exercise starter with the solution removed; the example holds the solution
+python/intermediate/06-context-managers.mdx | copy_upper.py | code | exercise starter with the solution removed; the example holds the solution
+python/intermediate/06-context-managers.mdx | remove_temps.py | code | exercise starter with the solution removed; the example holds the solution
+python/intermediate/07-csv-json-toml.mdx | books_to_json.py | code | exercise starter with the solution removed; the example holds the solution
+python/intermediate/09-modules-imports.mdx | circle.py | code | exercise starter with the solution removed; the example holds the solution
+python/intermediate/14-ruff-and-type-checking.mdx | average_typed.py | out | the text block after the solution shows ruff output, not program output
+python/intermediate/26-iterators.mdx | iter_manual.py | code | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/27-generators.mdx | yield_from.py | code | continued parts are shown in teaching order; the example defines them in a different order
+python/intermediate/27-generators.mdx | yield_from.py | out | continued parts are shown in teaching order; the example defines them in a different order
+python/intermediate/29-itertools-functools.mdx | it_groupby.py | code | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/29-itertools-functools.mdx | it_groupby.py | out | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/29-itertools-functools.mdx | it_pairwise.py | code | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/29-itertools-functools.mdx | it_pairwise.py | out | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/29-itertools-functools.mdx | it_batched.py | code | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/29-itertools-functools.mdx | it_batched.py | out | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/29-itertools-functools.mdx | batched_fallback.py | code | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/29-itertools-functools.mdx | ft_reduce.py | code | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/29-itertools-functools.mdx | ft_reduce.py | out | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/29-itertools-functools.mdx | ft_cache.py | code | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/29-itertools-functools.mdx | ft_cache.py | out | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/30-closures.mdx | closure_nonlocal.py | code | continued parts are shown in teaching order; the example defines them in a different order
+python/intermediate/30-closures.mdx | late_binding.py | code | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/30-closures.mdx | late_binding.py | out | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/32-sorting-key-functions.mdx | sort_stable.py | code | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/32-sorting-key-functions.mdx | sort_stable.py | out | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines
+python/intermediate/32-sorting-key-functions.mdx | sort_mixed.py | code | deliberately shortened excerpt: lesson shows fewer lines (and the matching output); the example carries extra lines

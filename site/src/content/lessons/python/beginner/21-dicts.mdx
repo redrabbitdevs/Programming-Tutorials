@@ -135,9 +135,9 @@ paper ink pens
 
 Do not add or delete keys while looping over the dict, because Python raises a `RuntimeError`.
 
-## Merging dicts <Since v="3.9" />
+## Merging dicts
 
-`a | b` builds a **new** dict containing the entries of both. When a key appears in both, the right-hand value wins, so layering user settings over defaults is one expression.
+<Since v="3.9" /> `a | b` builds a **new** dict containing the entries of both. When a key appears in both, the right-hand value wins, so layering user settings over defaults is one expression.
 
 ```python title="dict_merge.py"
 defaults = {"theme": "light", "font": 12, "lang": "en"}
@@ -179,9 +179,9 @@ print({**defaults, **user})
 {'theme': 'dark', 'font': 12}
 ```
 
-## frozendict, an immutable dict <Since v="3.15" />
+## frozendict, an immutable dict
 
-Python 3.15 added a built-in `frozendict` (PEP 814). It looks like a dict but cannot be changed after it is created, which makes it hashable whenever its keys and values are. This section needs Python 3.15; on 3.14 or earlier the name does not exist and you get a `NameError`.
+<Since v="3.15" /> Python 3.15 added a built-in `frozendict` (PEP 814). It looks like a dict but cannot be changed after it is created, which makes it hashable whenever its keys and values are. This section needs Python 3.15; on 3.14 or earlier the name does not exist and you get a `NameError`.
 
 ```python title="frozendict_demo.py"
 config = frozendict(host="localhost", port=8080)
