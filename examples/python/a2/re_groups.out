@@ -1,0 +1,8 @@
+2026-10-12 2026
+('2026', '10', '12')
+ERROR disk full
+{'date': '2026-10-12', 'time': '14:03', 'level': 'ERROR', 'msg': 'disk full'}
+[('tea', '2.50'), ('cake', '3.75'), ('water', '1')]
+tea (0, 8)
+cake (10, 19)
+water (21, 28)

@@ -1,0 +1,4 @@
+09:15:02 INFO auth: user ada logged in
+09:15:07 ERROR db: connection lost (retry 1)
+skipped: 'garbage line'
+09:16:00 WARNING db: slow query: 2.5s

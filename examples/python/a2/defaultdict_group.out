@@ -1,0 +1,5 @@
+defaultdict(<class 'list'>, {'a': ['ant', 'ape'], 'b': ['bee'], 'c': ['cow']})
+{'a': ['ant', 'ape'], 'b': ['bee'], 'c': ['cow']}
+None 3
+[]
+True 4

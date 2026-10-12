@@ -1,0 +1,3 @@
+running users ('id', 'name') ['active', 'admin']
+2 2 True
+cache hits: 1

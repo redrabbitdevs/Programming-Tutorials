@@ -1,0 +1,8 @@
+flag True
+number 3
+number 2.5
+digits 42
+text 'hi'
+int pair [1, 2]
+sequence of 3
+other dict

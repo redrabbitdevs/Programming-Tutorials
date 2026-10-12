@@ -1,0 +1,389 @@
+---
+language: python
+level: advanced
+module: Advanced data handling
+order: 10
+title: Immutability and frozendict
+description: Design data that cannot change under you, with tuples, frozensets, frozen dataclasses, read-only views and the frozendict built-in.
+minVersion: "3.10"
+objectives:
+  - Explain when an object is hashable, and why a tuple of lists is not
+  - Recognise shallow immutability, and freeze nested fields in a frozen dataclass
+  - Hand out a read-only view of internal state with MappingProxyType
+  - Use frozendict as a cache key, and freeze nested data recursively
+  - Choose the right immutable type for a job
+estimatedMinutes: 40
+fundamentals: []
+---
+
+An object that cannot change is easy to reason about. You can share it between functions, store it in a set, use it as a dictionary key or a cache key, and never wonder who modified it. You have already met the pieces: `frozenset` in [sets](../../beginner/sets/), `frozendict` in [dictionaries](../../beginner/dicts/), `frozen=True` in [dataclasses](../../intermediate/dataclasses/), and the rule that equal objects need equal hashes in [the data model](../../intermediate/data-model/). This lesson puts them together into a way of designing data.
+
+## Hashable means "safe to look up"
+
+Sets and dictionaries find things by hash. An object's hash must not change while it is stored, so Python gives a hash only to objects whose value cannot change. A container is hashable only when everything inside it is:
+
+```python title="hashable_check.py"
+values = [42, "text", (1, 2), frozenset({3}), (1, [2]), [1, 2], {"a": 1}]
+for value in values:
+    try:
+        hash(value)
+        print(f"{value!r}: hashable")
+    except TypeError as error:
+        print(f"{value!r}: {error}")
+```
+
+```text
+42: hashable
+'text': hashable
+(1, 2): hashable
+frozenset({3}): hashable
+(1, [2]): unhashable type: 'list'
+[1, 2]: unhashable type: 'list'
+{'a': 1}: unhashable type: 'dict'
+```
+
+The tuple `(1, [2])` is itself immutable: it will always hold the same two objects. But one of those objects is a list, and a list can change, so the tuple's value can too. Immutability that stops at the outer layer is called **shallow**.
+
+## Frozen dataclasses are shallow too
+
+`frozen=True` stops you from assigning to fields. It does nothing about a mutable object stored in a field:
+
+```python title="frozen_shallow.py"
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Team:
+    name: str
+    members: list[str]
+
+
+team = Team("core", ["ada"])
+team.members.append("ben")
+print(team)
+try:
+    hash(team)
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+Team(name='core', members=['ada', 'ben'])
+TypeError: unhashable type: 'list'
+```
+
+The team changed, despite being "frozen", and it cannot be hashed. The fix is to store immutable types in the fields. To keep the class convenient, accept a list from callers and convert it in `__post_init__`. A frozen dataclass blocks ordinary assignment there too, so the conversion goes through `object.__setattr__`, which bypasses the check. The generated `__init__` of a frozen dataclass sets its fields the same way:
+
+```python title="frozen_deep.py"
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Team:
+    name: str
+    members: tuple[str, ...]
+
+    def __post_init__(self):
+        object.__setattr__(self, "members", tuple(self.members))
+
+
+team = Team("core", ["ada", "ben"])
+print(team)
+print(hash(team) == hash(Team("core", ("ada", "ben"))))
+```
+
+```text
+Team(name='core', members=('ada', 'ben'))
+True
+```
+
+Now every field is immutable all the way down, the instance is hashable, and equal teams hash alike however they were built. Use `tuple` for ordered collections and `frozenset` for unordered ones.
+
+## Read-only views with MappingProxyType
+
+Sometimes the data must change, but only through your code. `types.MappingProxyType` wraps a mapping in a read-only view. Callers can read through it, but not write:
+
+```python title="mapping_proxy.py"
+from types import MappingProxyType
+
+
+class Registry:
+    def __init__(self):
+        self._plugins = {}
+        self.plugins = MappingProxyType(self._plugins)
+
+    def register(self, name, plugin):
+        self._plugins[name] = plugin
+
+
+registry = Registry()
+view = registry.plugins
+registry.register("csv", "CsvReader")
+print(view, len(view))
+try:
+    view["json"] = "JsonReader"
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+{'csv': 'CsvReader'} 1
+TypeError: 'mappingproxy' object does not support item assignment
+```
+
+The view was taken before `register` ran, and it still shows the new plugin: a proxy is a live window onto the dictionary, not a copy. That makes it the right tool for exposing internal state, and the wrong tool when you need a value that stays fixed. Python uses it itself: a class's `__dict__` is a `mappingproxy`.
+
+## frozendict as a key
+
+<Since v="3.15" /> The rest of this section needs Python 3.15, which added `frozendict` as a built-in ([PEP 814](https://peps.python.org/pep-0814/)). The beginner lesson showed the basics. Its real use is as a key: a dictionary of options can now be an argument to a cached function, which a plain `dict` never could:
+
+```python title="frozendict_cache.py"
+from functools import cache
+
+
+@cache
+def connect(options):
+    print("connecting with", dict(options))
+    return f"conn-{len(options)}"
+
+
+a = frozendict(host="db", port=5432)
+b = frozendict(port=5432, host="db")
+print(connect(a), connect(b))
+print("cache hits:", connect.cache_info().hits)
+```
+
+```text
+connecting with {'host': 'db', 'port': 5432}
+conn-2 conn-2
+cache hits: 1
+```
+
+`a` and `b` were written in a different order but are equal and hash alike, so the second call was a cache hit. Like a tuple, a `frozendict` is only hashable when its contents are, and the error appears as soon as something tries to hash it:
+
+```python title="frozendict_cache.py (continued)"
+bad = frozendict(host="db", replicas=["r1", "r2"])
+try:
+    connect(bad)
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+TypeError: unhashable type: 'list'
+```
+
+Data from JSON or a config file arrives as nested dicts and lists. A short recursive function, built on the class patterns from [pattern matching in depth](../match-advanced/), freezes all of it:
+
+```python title="frozendict_freeze.py"
+def freeze(value):
+    match value:
+        case dict() | frozendict():
+            return frozendict({k: freeze(v) for k, v in value.items()})
+        case list() | tuple():
+            return tuple(freeze(v) for v in value)
+        case set() | frozenset():
+            return frozenset(freeze(v) for v in value)
+        case _:
+            return value
+
+
+config = {"host": "db", "ports": [80, 443], "tags": {"web"}}
+frozen = freeze(config)
+print(frozen)
+print(hash(frozen) == hash(freeze(config)))
+print(frozen | {"host": "db2"})
+```
+
+```text
+frozendict({'host': 'db', 'ports': (80, 443), 'tags': frozenset({'web'})})
+True
+frozendict({'host': 'db2', 'ports': (80, 443), 'tags': frozenset({'web'})})
+```
+
+The last line shows that `|` on a `frozendict` builds a new one, as do `|=` and every other "change". A `frozendict` is not a `dict` subclass, so code that checks `isinstance(x, dict)` rejects it. Check for `collections.abc.Mapping` when a function should accept any mapping.
+
+## Choosing an immutable type
+
+| You need | Use |
+|---|---|
+| A fixed sequence, or a record without names | `tuple` |
+| A set as a key or a set element | `frozenset` |
+| A record with named fields and validation | frozen dataclass |
+| A record that is also a tuple | `typing.NamedTuple` |
+| A mapping as a key or a cache argument | `frozendict` (3.15+), or a sorted tuple of pairs before that |
+| Read-only access to data you keep changing | `MappingProxyType` |
+
+## Common pitfalls
+
+- **Trusting the outer layer.** A tuple, frozen dataclass or `frozendict` that holds a list is not immutable and not hashable.
+- **Assigning in `__post_init__` of a frozen dataclass.** `self.x = ...` raises `FrozenInstanceError`. Use `object.__setattr__(self, "x", ...)`.
+- **Treating `MappingProxyType` as a snapshot.** It reflects later changes. Copy first if you need a fixed value.
+- **`isinstance(x, dict)` checks.** They reject `frozendict` and `MappingProxyType`. Check against `collections.abc.Mapping`.
+
+<Exercise title="Queries as cache keys">
+This script raises `TypeError: unhashable type: 'Query'`. Change only the class so that the two equal queries share one cache entry. Callers must still be able to pass lists and sets. Expected output:
+
+```text
+running users ('id', 'name') ['active', 'admin']
+2 2 True
+cache hits: 1
+```
+
+```python title="query_broken.py"
+from dataclasses import dataclass
+from functools import cache
+
+
+@dataclass
+class Query:
+    table: str
+    columns: list
+    flags: set
+
+
+@cache
+def run(query):
+    print("running", query.table, query.columns, sorted(query.flags))
+    return len(query.columns)
+
+
+q1 = Query("users", ["id", "name"], ["active", "admin"])
+q2 = Query("users", ("id", "name"), {"admin", "active"})
+print(run(q1), run(q2), q1 == q2)
+print("cache hits:", run.cache_info().hits)
+```
+
+<Solution>
+
+```python title="query_cache.py"
+from dataclasses import dataclass
+from functools import cache
+
+
+@dataclass(frozen=True)
+class Query:
+    table: str
+    columns: tuple
+    flags: frozenset
+
+    def __post_init__(self):
+        object.__setattr__(self, "columns", tuple(self.columns))
+        object.__setattr__(self, "flags", frozenset(self.flags))
+```
+
+```python title="query_cache.py (continued)"
+@cache
+def run(query):
+    print("running", query.table, query.columns, sorted(query.flags))
+    return len(query.columns)
+
+
+q1 = Query("users", ["id", "name"], ["active", "admin"])
+q2 = Query("users", ("id", "name"), {"admin", "active"})
+print(run(q1), run(q2), q1 == q2)
+print("cache hits:", run.cache_info().hits)
+```
+
+```text
+running users ('id', 'name') ['active', 'admin']
+2 2 True
+cache hits: 1
+```
+
+`frozen=True` gives the class a `__hash__`, and converting the fields makes them hashable. Converting `flags` to a `frozenset` also makes `["active", "admin"]` and `{"admin", "active"}` equal, so `q1 == q2` and the second call hits the cache.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict: a list inside a tuple">
+What does this print? Pay attention to the last line.
+
+```python title="predict_tuple_list.py"
+pair = ([1], [2])
+pair[0].append(9)
+print(pair)
+try:
+    pair[0] += [3]
+except TypeError as error:
+    print("TypeError:", error)
+print(pair)
+```
+
+<Solution>
+
+```text
+([1, 9], [2])
+TypeError: 'tuple' object does not support item assignment
+([1, 9, 3], [2])
+```
+
+`append` changes the list, which the tuple cannot prevent. `pair[0] += [3]` does two things: it extends the list in place, which succeeds, and then assigns the result back to `pair[0]`, which fails. The exception arrives after the list has already changed.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A read-only stock view">
+Write a class `Inventory` with a method `add(item, count)` and an attribute `stock` that callers can read but not change, and that always shows the current counts. With the class in place, this code prints the output below.
+
+```python title="inventory_check.py"
+inventory = Inventory()
+stock = inventory.stock
+inventory.add("pen", 3)
+inventory.add("pen", 2)
+print(stock["pen"], dict(stock))
+try:
+    stock["pen"] = 0
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+5 {'pen': 5}
+TypeError: 'mappingproxy' object does not support item assignment
+```
+
+<Solution>
+
+```python title="inventory_view.py"
+from types import MappingProxyType
+
+
+class Inventory:
+    def __init__(self):
+        self._stock = {}
+        self.stock = MappingProxyType(self._stock)
+
+    def add(self, item, count):
+        self._stock[item] = self._stock.get(item, 0) + count
+```
+
+```python title="inventory_view.py (continued)"
+inventory = Inventory()
+stock = inventory.stock
+inventory.add("pen", 3)
+inventory.add("pen", 2)
+print(stock["pen"], dict(stock))
+try:
+    stock["pen"] = 0
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+5 {'pen': 5}
+TypeError: 'mappingproxy' object does not support item assignment
+```
+
+The proxy is created once, in `__init__`, around the dictionary that `add` changes. `stock` was fetched before the two calls to `add` and still shows the total of 5.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- An object is hashable when its value cannot change. Containers are hashable only when their contents are.
+- Frozen dataclasses and tuples are shallow. Convert fields to `tuple` and `frozenset` in `__post_init__`, with `object.__setattr__`.
+- `MappingProxyType` is a live, read-only view, for exposing state you keep changing.
+- <Since v="3.15" /> `frozendict` makes mappings usable as keys and cache arguments, and a recursive `freeze` handles nested data.
+- Next: [copying and references](../copying-references/), for the times you do need a changeable copy.

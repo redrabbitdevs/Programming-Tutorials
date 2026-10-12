@@ -1,0 +1,3 @@
+frozendict({'host': 'db', 'ports': (80, 443), 'tags': frozenset({'web'})})
+True
+frozendict({'host': 'db2', 'ports': (80, 443), 'tags': frozenset({'web'})})
