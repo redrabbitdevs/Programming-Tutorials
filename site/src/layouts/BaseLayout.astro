@@ -11,8 +11,10 @@ interface Props {
   description?: string;
   /** Marks the matching nav link as the current section. */
   section?: 'learn' | 'languages' | 'fundamentals';
+  /** On a page below the section (a lesson) the nav link is aria-current="true", not "page". */
+  sectionDepth?: 'page' | 'child';
 }
-const { title, description = 'Free, versioned programming tutorials, from first line to expert.', section } = Astro.props;
+const { title, description = 'Free, versioned programming tutorials, from first line to expert.', section, sectionDepth = 'page' } = Astro.props;
 const fullTitle = title === 'Programming Tutorials' ? title : `${title} | Programming Tutorials`;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 
@@ -57,7 +59,7 @@ const nav = [
         </a>
         <nav class="nav" aria-label="Primary">
           {nav.map((n) => (
-            <a href={n.href} aria-current={section === n.id ? 'page' : undefined}>{n.label}</a>
+            <a href={n.href} aria-current={section === n.id ? (sectionDepth === 'child' ? 'true' : 'page') : undefined}>{n.label}</a>
           ))}
           <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Switch to dark theme">
             <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></svg>

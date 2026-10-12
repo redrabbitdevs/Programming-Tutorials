@@ -1,7 +1,35 @@
 // Expressive Code (Shiki) options. Kept in its own file so the <Code> component
 // can read them too. Frames give filename tabs and terminal chrome; the copy
 // button is built in.
+import { definePlugin } from 'astro-expressive-code';
+import { h } from 'astro-expressive-code/hast';
+
+// Program output: src/lib/remark-output.mjs adds the bare word `output` to the
+// meta of an untitled text block that follows a code block. Here that becomes a
+// frameless, wrapping block with an "Output" label (styled in global.css), so
+// it reads as a result and not as a second file. Titled text blocks keep the
+// file-tab frame.
+const outputBlocks = () =>
+  definePlugin({
+    name: 'output-blocks',
+    hooks: {
+      preprocessMetadata: ({ codeBlock }) => {
+        if (!codeBlock.metaOptions.getBoolean('output')) return;
+        codeBlock.props.frame = 'none';
+        codeBlock.props.wrap = true;
+        codeBlock.props.preserveIndent = true;
+      },
+      postprocessRenderedBlock: ({ codeBlock, renderData }) => {
+        if (!codeBlock.metaOptions.getBoolean('output')) return;
+        const root = renderData.blockAst;
+        root.properties = { ...root.properties, className: [...(root.properties?.className ?? []), 'ec-output'] };
+        root.children.unshift(h('span.ec-output-label', 'Output'));
+      },
+    },
+  });
+
 export default {
+  plugins: [outputBlocks()],
   themes: ['github-dark', 'github-light'],
   themeCssSelector: (theme) => `[data-theme='${theme.type}']`,
   useDarkModeMediaQuery: true,

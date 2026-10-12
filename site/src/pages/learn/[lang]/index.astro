@@ -3,6 +3,7 @@ import { getCollection } from 'astro:content';
 import BaseLayout from '../../../layouts/BaseLayout.astro';
 import Crumbs from '../../../components/Crumbs.astro';
 import { url } from '../../../lib/url';
+import { showVersionBadge } from '../../../lib/versions';
 import { STATUS_LABEL, getLessonsFor, groupLessons, lessonHref, languageHref } from '../../../lib/lessons';
 import { paradigmGroups, groupLabel } from '../../../lib/paradigms';
 
@@ -94,7 +95,7 @@ const wikipedia = (d as { wikipedia?: string }).wikipedia;
                   <li>
                     <a href={lessonHref(l)}>
                       <span class="t">{l.data.title}</span>
-                      <span class="m">{l.data.estimatedMinutes} min{l.data.minVersion ? ` · ${d.name} ${l.data.minVersion}+` : ''}</span>
+                      <span class="m">{l.data.estimatedMinutes} min{showVersionBadge(l.data.language, l.data.minVersion) ? ` · ${d.name} ${l.data.minVersion}+` : ''}</span>
                       <span class="d">{l.data.description}</span>
                     </a>
                   </li>
