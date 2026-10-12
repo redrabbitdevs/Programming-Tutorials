@@ -1,0 +1,486 @@
+---
+language: python
+level: intermediate
+module: Object-oriented Python
+order: 18
+title: Properties, class methods and static methods
+description: Hide internals by convention, expose computed and validated attributes with @property, and choose between instance, class and static methods.
+minVersion: "3.8"
+objectives:
+  - Mark internal attributes with a leading underscore and explain what that does and does not enforce
+  - Turn a method into a read-only attribute with @property
+  - Validate assignments with a property setter
+  - Write a @classmethod alternative constructor and a @staticmethod helper, and say when to pick each
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/15-records-and-objects"]
+---
+
+The [previous lesson](../classes-objects/) gave `Account` attributes you could read and write freely. That is convenient, and it is also how a balance ends up negative. This lesson shows how to keep that convenience while the class keeps control of its own data.
+
+<Callout type="note">
+
+Several lines in this lesson start with `@`, such as `@property`. These are **decorators**: a line placed directly above a `def` that changes how Python treats that function. Writing your own decorators comes in a later module. For now, read each one as a label that says what kind of method follows.
+
+</Callout>
+
+## Encapsulation by convention
+
+Python has no `private` keyword. Instead, a name that starts with one underscore tells readers: "this is an internal detail, please use the public methods instead."
+
+```python title="c17_underscore.py"
+class Account:
+    def __init__(self, owner, balance):
+        self.owner = owner
+        self._balance = balance  # the underscore says: internal
+
+    def deposit(self, amount):
+        self._balance = self._balance + amount
+
+    def balance(self):
+        return self._balance
+
+
+acct = Account("Asha", 100)
+acct.deposit(50)
+print(acct.balance())
+print(acct._balance)  # allowed, but you are on your own
+```
+
+```text
+150
+150
+```
+
+The last line works. Python does not enforce the underscore, and nothing stops outside code from reading or changing `_balance`. The convention still matters: it separates the part of the class you promise to keep stable from the part you may rewrite tomorrow. Tools such as linters and editors respect it, and so do careful colleagues.
+
+## Computed attributes with @property
+
+Sometimes a value should look like an attribute but be worked out on demand. A method decorated with `@property` is read without parentheses:
+
+```python title="c17_property_read.py"
+import math
+
+
+class Circle:
+    def __init__(self, radius):
+        self.radius = radius
+
+    @property
+    def area(self):
+        return math.pi * self.radius**2
+
+
+c = Circle(2)
+print(round(c.area, 2))
+c.radius = 3
+print(round(c.area, 2))
+```
+
+```text
+12.57
+28.27
+```
+
+`c.area` runs the method every time. After `radius` changed to 3, the next read gave the new area, because nothing was stored. The caller wrote `c.area`, not `c.area()`, so you can later change `area` from a stored attribute to a computed one, or the other way round, without touching any calling code.
+
+A property with only a getter is read-only:
+
+```python title="c17_property_readonly.py"
+import math
+
+
+class Circle:
+    def __init__(self, radius):
+        self.radius = radius
+
+    @property
+    def area(self):
+        return math.pi * self.radius**2
+
+
+c = Circle(2)
+try:
+    c.area = 10
+except AttributeError as error:
+    print("AttributeError:", error)
+```
+
+```text
+AttributeError: property 'area' of 'Circle' object has no setter
+```
+
+The wording of that message belongs to recent Python versions. Older ones say only `can't set attribute`, so match on the exception type, not the text.
+
+## Validating assignments with a setter
+
+To accept assignments but check them, add a second method with the same name, decorated with `@name.setter`. Store the real value under an underscore name, so the property and the stored value do not collide.
+
+```python title="c17_property_setter.py"
+class Temperature:
+    def __init__(self, celsius):
+        self.celsius = celsius  # goes through the setter
+
+    @property
+    def celsius(self):
+        return self._celsius
+
+    @celsius.setter
+    def celsius(self, value):
+        if value < -273.15:
+            raise ValueError(f"below absolute zero: {value}")
+        self._celsius = value
+
+    @property
+    def fahrenheit(self):
+        return self._celsius * 9 / 5 + 32
+
+
+t = Temperature(100)
+print(t.celsius, t.fahrenheit)
+t.celsius = 0
+print(t.celsius, t.fahrenheit)
+try:
+    t.celsius = -300
+except ValueError as error:
+    print("ValueError:", error)
+try:
+    Temperature(-500)
+except ValueError as error:
+    print("ValueError:", error)
+```
+
+```text
+100 212.0
+0 32.0
+ValueError: below absolute zero: -300
+ValueError: below absolute zero: -500
+```
+
+Look at `__init__`. It assigns `self.celsius = celsius`, not `self._celsius`, so even the first value goes through the setter and the check. That is why `Temperature(-500)` fails at construction. The `fahrenheit` property has no stored value of its own. It is always derived from `_celsius`, so the two can never disagree.
+
+<Callout type="note">
+
+Do not reach for properties by default. A plain attribute is simpler, and it can become a property later without breaking any caller. Use a property when there is a rule to enforce or a value to compute.
+
+</Callout>
+
+## Three kinds of method
+
+So far every method has taken `self`. Two other kinds exist, and each answers a different question.
+
+| Kind | First parameter | Use it when |
+|---|---|---|
+| Instance method | `self`, the instance | the method works with one object's data |
+| `@classmethod` | `cls`, the class | the method works with the class itself, for example to build instances |
+| `@staticmethod` | nothing extra | the function is related to the class but needs neither the class nor an instance |
+
+### Class methods as alternative constructors
+
+A class has one `__init__`, but there are often several natural ways to start from other data. A class method that returns a new instance gives each way a name:
+
+```python title="c17_classmethod.py"
+class Account:
+    def __init__(self, owner, balance):
+        self.owner = owner
+        self.balance = balance
+
+    @classmethod
+    def from_text(cls, text):
+        owner, balance = text.split(":")
+        return cls(owner, int(balance))
+
+
+acct = Account.from_text("Asha:100")
+print(acct.owner, acct.balance)
+```
+
+```text
+Asha 100
+```
+
+Python passes the class as `cls`, and `cls(owner, int(balance))` is the same as `Account(owner, int(balance))`. Writing `cls` rather than the class name is not decoration. It makes the method work for subclasses:
+
+```python title="c17_classmethod_subclass.py"
+class Shape:
+    def __init__(self, name):
+        self.name = name
+
+    @classmethod
+    def named(cls, name):
+        return cls(name)
+
+
+class Square(Shape):
+    pass
+
+
+s = Square.named("tile")
+print(type(s).__name__, s.name)
+```
+
+```text
+Square tile
+```
+
+`Square.named("tile")` built a `Square`, not a `Shape`, because `cls` was `Square`. You will see the same `from_...` naming in the standard library, for example `dict.fromkeys` and `datetime.fromisoformat`.
+
+### Static methods as namespaced helpers
+
+A static method is an ordinary function that lives in the class's namespace, because it belongs there conceptually:
+
+```python title="c17_staticmethod.py"
+class Account:
+    def __init__(self, owner, balance):
+        self.owner = owner
+        self.balance = balance
+
+    @staticmethod
+    def is_valid_owner(name):
+        return name.strip() != ""
+
+
+print(Account.is_valid_owner("Asha"))
+print(Account.is_valid_owner("   "))
+```
+
+```text
+True
+False
+```
+
+It receives neither `self` nor `cls`. If you find a static method that never mentions the class, ask whether it would be clearer as a plain function in the module. Both choices are fine, and keeping the helper next to the class is the whole point.
+
+Here are the three side by side, called through an instance and through the class:
+
+```python title="c17_kinds.py"
+class Demo:
+    count = 0
+
+    def instance_method(self):
+        return f"instance method on {self!r}"
+
+    @classmethod
+    def class_method(cls):
+        return f"class method on {cls.__name__}"
+
+    @staticmethod
+    def static_method():
+        return "static method, no self or cls"
+
+
+d = Demo()
+print(d.class_method())
+print(Demo.class_method())
+print(Demo.static_method())
+print(d.instance_method().startswith("instance method on <"))
+```
+
+```text
+class method on Demo
+class method on Demo
+static method, no self or cls
+True
+```
+
+## Common pitfalls
+
+**A setter that assigns to its own name.** Inside the setter for `celsius`, `self.celsius = value` calls the setter again, which assigns again, and so on:
+
+```python title="c17_property_recursion.py"
+class Temperature:
+    def __init__(self, celsius):
+        self.celsius = celsius
+
+    @property
+    def celsius(self):
+        return self._celsius
+
+    @celsius.setter
+    def celsius(self, value):
+        self.celsius = value  # bug: calls this setter again
+
+
+try:
+    Temperature(20)
+except RecursionError:
+    print("RecursionError: the setter called itself forever")
+```
+
+```text
+RecursionError: the setter called itself forever
+```
+
+Store the value under a different name, `self._celsius`, as the working example did.
+
+**Expecting the underscore to protect anything.** `_balance` is a request, not a lock. If a rule must hold, put the check in a property or method, and treat direct access to the underscore name as the caller's own risk.
+
+**Calling a property with parentheses.** `c.area()` fails, because `c.area` is already a number and a number cannot be called. The error reads `'float' object is not callable`.
+
+**Heavy work in a property.** Callers expect `obj.name` to be cheap. If the computation is slow, or can fail in surprising ways, a method such as `obj.compute_name()` tells the reader to expect work.
+
+<Exercise title="Temperature with two views">
+Start from the `Temperature` class above, with a validated `celsius` property and a read-only `fahrenheit` property. Make `fahrenheit` settable too: assigning to it should convert the value to Celsius and store that, going through the same check.
+
+Run this script:
+
+```python title="temperature_check.py"
+t = Temperature(25)
+print(t.fahrenheit)
+t.fahrenheit = 212
+print(t.celsius)
+try:
+    t.fahrenheit = -500
+except ValueError as error:
+    print("ValueError:", error)
+print(t.celsius)
+```
+
+Expected output:
+
+```text
+77.0
+100.0
+ValueError: below absolute zero: -295.55555555555554
+100.0
+```
+
+<Solution>
+
+```python title="c17_ex_temperature.py"
+class Temperature:
+    def __init__(self, celsius):
+        self.celsius = celsius
+
+    @property
+    def celsius(self):
+        return self._celsius
+
+    @celsius.setter
+    def celsius(self, value):
+        if value < -273.15:
+            raise ValueError(f"below absolute zero: {value}")
+        self._celsius = value
+
+    @property
+    def fahrenheit(self):
+        return self._celsius * 9 / 5 + 32
+
+    @fahrenheit.setter
+    def fahrenheit(self, value):
+        self.celsius = (value - 32) * 5 / 9
+
+
+t = Temperature(25)
+print(t.fahrenheit)
+t.fahrenheit = 212
+print(t.celsius)
+try:
+    t.fahrenheit = -500
+except ValueError as error:
+    print("ValueError:", error)
+print(t.celsius)
+```
+
+```text
+77.0
+100.0
+ValueError: below absolute zero: -295.55555555555554
+100.0
+```
+
+The Fahrenheit setter does the arithmetic and then assigns to `self.celsius`, so the Celsius setter's check runs for free. Because the check fires before `_celsius` is replaced, the failed assignment leaves the old value, 100.0, in place.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Account.from_text">
+Add a class method `from_text(cls, text)` to `Account`. It takes text in the form `owner:balance`, trims spaces around the owner, and returns a new account whose balance is an integer. Text without a colon raises `ValueError` with the message `expected 'owner:balance', got 'Chi'` (using the offending text).
+
+Run it on the three lines `"Asha:100"`, `"Ben : 20"` and `"Chi"`, printing the owner and balance or the error. Expected output:
+
+```text
+Asha 100
+Ben 20
+error: expected 'owner:balance', got 'Chi'
+```
+
+<Solution>
+
+```python title="c17_ex_from_text.py"
+class Account:
+    def __init__(self, owner, balance):
+        self.owner = owner
+        self.balance = balance
+
+    @classmethod
+    def from_text(cls, text):
+        if ":" not in text:
+            raise ValueError(f"expected 'owner:balance', got {text!r}")
+        owner, balance = text.split(":")
+        return cls(owner.strip(), int(balance))
+
+
+for line in ["Asha:100", "Ben : 20", "Chi"]:
+    try:
+        acct = Account.from_text(line)
+        print(acct.owner, acct.balance)
+    except ValueError as error:
+        print("error:", error)
+```
+
+```text
+Asha 100
+Ben 20
+error: expected 'owner:balance', got 'Chi'
+```
+
+`int(" 20")` accepts surrounding spaces, so only the owner needed `strip()`. The check for the colon comes first, so `"Chi"` never reaches the unpacking line that would have failed with a less helpful error.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the box">
+Write down what this prints, then run it. Which line shows that a property without a setter is read-only?
+
+```python title="c17_ex_predict.py"
+class Box:
+    def __init__(self, side):
+        self.side = side
+
+    @property
+    def volume(self):
+        return self.side**3
+
+
+b = Box(2)
+print(b.volume)
+b.side = 3
+print(b.volume)
+try:
+    b.volume = 100
+except AttributeError:
+    print("read-only")
+print(b.volume)
+```
+
+<Solution>
+
+```text
+8
+27
+read-only
+27
+```
+
+The volume is computed on each read, so after `side` becomes 3 it is 27. The assignment `b.volume = 100` raises `AttributeError`, which the script reports as `read-only`, and the final read shows the volume is still 27.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A leading underscore marks an internal name. Python does not enforce it, so it documents your intent for readers and tools.
+- `@property` turns a method into an attribute that is computed on each read. Without a setter, assignment raises `AttributeError`.
+- `@name.setter` adds validation to assignment. Keep the real value under an underscore name, and assign through the property in `__init__` so the first value is checked too.
+- A `@classmethod` receives the class as `cls` and is the usual way to add alternative constructors that also work for subclasses.
+- A `@staticmethod` receives nothing extra. It is a plain function stored in the class for organisation.

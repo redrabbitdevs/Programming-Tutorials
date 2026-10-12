@@ -1,0 +1,369 @@
+---
+language: python
+level: intermediate
+module: Object-oriented Python
+order: 20
+title: Defining your own exceptions
+description: Write exception classes that form a family, carry useful data, and chain from the low-level errors they replace.
+minVersion: "3.8"
+objectives:
+  - Define an exception class by subclassing Exception, and raise and catch it
+  - Build a small hierarchy under one base class so callers can catch a whole family
+  - Attach data to an exception by calling super().__init__ with a message
+  - Chain a custom exception from the error that caused it
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/12-errors-and-exceptions"]
+---
+
+In the [raising and chaining lesson](../raise-and-chain/), you used built-in types such as `ValueError`, and you were promised that custom exceptions would come once you knew about classes. You do now, and there is very little new to learn: **an exception type is a class**, and the rules from the last three lessons apply to it unchanged.
+
+## The smallest custom exception
+
+Subclass `Exception`, and you are done:
+
+```python title="c19_basic.py"
+class AppError(Exception):
+    """Base class for every error this application raises."""
+
+
+try:
+    raise AppError("something went wrong")
+except AppError as error:
+    print(type(error).__name__, "-", error)
+```
+
+```text
+AppError - something went wrong
+```
+
+The body is only a docstring, which is enough to make the class valid. Everything else comes from `Exception`: you can raise it, give it a message, and catch it by name. Name your exceptions after what went wrong and end the name in `Error`, as the built-in ones do (`ValueError`, `KeyError`).
+
+Why bother, when `ValueError` already exists? Because a specific type lets callers react to a specific situation. A caller can write `except ConfigError:` and be certain it will not accidentally swallow an unrelated `ValueError` raised deep inside some library.
+
+## A family under one base class
+
+The previous lesson showed that a subclass is caught by its parent's `except` clause. You can use that deliberately. Define one base exception for your package or application, and derive the specific errors from it:
+
+```python title="c19_hierarchy.py"
+class AppError(Exception):
+    """Base class for every error this application raises."""
+
+
+class ConfigError(AppError):
+    """The configuration is missing or invalid."""
+
+
+class NetworkError(AppError):
+    """A remote service could not be reached."""
+
+
+def load(name):
+    if name == "config":
+        raise ConfigError("missing key: port")
+    if name == "net":
+        raise NetworkError("timeout after 5s")
+    return "ok"
+
+
+for name in ["config", "net", "fine"]:
+    try:
+        print(load(name))
+    except ConfigError as error:
+        print("config problem:", error)
+    except AppError as error:
+        print("other app problem:", error)
+```
+
+```text
+config problem: missing key: port
+other app problem: timeout after 5s
+ok
+```
+
+Python checks the `except` clauses in order. `ConfigError` matched the first one. `NetworkError` is not a `ConfigError`, so it fell through to `except AppError`. A caller that does not care about the details can write `except AppError` and handle every error your code defines, without catching `KeyError` or `ZeroDivisionError` from elsewhere. The [exception hierarchy lesson](../exception-hierarchy/) explains why the specific clause has to come first.
+
+You can confirm the family tree with the tools from the inheritance lesson:
+
+```python title="c19_family.py"
+class AppError(Exception):
+    pass
+
+
+class ConfigError(AppError):
+    pass
+
+
+print(ConfigError.__mro__ == (ConfigError, AppError, Exception, BaseException, object))
+print(issubclass(ConfigError, Exception))
+print(isinstance(ConfigError("x"), AppError))
+```
+
+```text
+True
+True
+True
+```
+
+## Carrying data
+
+Often the message is not enough. The code that catches the error may want the numbers involved. Give the class an `__init__`, call `super().__init__` with the human-readable message, and store the extras as attributes:
+
+```python title="c19_attrs.py"
+class InsufficientFundsError(Exception):
+    def __init__(self, balance, requested):
+        super().__init__(f"cannot withdraw {requested}, balance is {balance}")
+        self.balance = balance
+        self.requested = requested
+
+    @property
+    def shortfall(self):
+        return self.requested - self.balance
+
+
+try:
+    raise InsufficientFundsError(150, 500)
+except InsufficientFundsError as error:
+    print(error)
+    print(error.balance, error.requested, error.shortfall)
+```
+
+```text
+cannot withdraw 500, balance is 150
+150 500 350
+```
+
+Three things happen here. `super().__init__(...)` hands the message to `Exception`, so `print(error)` shows it. The attributes `balance` and `requested` let handlers use the values without parsing text. And `shortfall` is a property, computed from the stored values, using what the properties lesson taught.
+
+## Chaining from the original cause
+
+Custom exceptions are the natural target for `raise ... from`. A low-level failure is converted into an error in your application's own vocabulary, and the original stays attached as `__cause__`:
+
+```python title="c19_chain.py"
+class ConfigError(Exception):
+    pass
+
+
+def read_port(text):
+    try:
+        return int(text)
+    except ValueError as error:
+        raise ConfigError(f"port must be a whole number, got {text!r}") from error
+
+
+try:
+    read_port("80a")
+except ConfigError as error:
+    print("ConfigError:", error)
+    print("cause:", repr(error.__cause__))
+```
+
+```text
+ConfigError: port must be a whole number, got '80a'
+cause: ValueError("invalid literal for int() with base 10: '80a'")
+```
+
+The caller catches `ConfigError` and never needs to know that `int()` was involved, yet the cause is still there for anyone debugging.
+
+## Common pitfalls
+
+**Skipping `super().__init__`.** If your `__init__` takes extra parameters and never passes a message upward, the exception still works, but the message is the raw argument tuple:
+
+```python title="c19_no_super.py"
+class InsufficientFundsError(Exception):
+    def __init__(self, balance, requested):
+        self.balance = balance
+        self.requested = requested
+
+
+try:
+    raise InsufficientFundsError(150, 500)
+except InsufficientFundsError as error:
+    print(error)
+    print(error.args)
+```
+
+```text
+(150, 500)
+(150, 500)
+```
+
+Python's `BaseException` stores whatever arguments the class was called with in `args`, and `print(error)` shows them. A tuple of numbers is not a message anyone wants to find in a log. Pass a real sentence to `super().__init__`.
+
+**Inheriting from `BaseException`.** `BaseException` is the parent of `KeyboardInterrupt` and `SystemExit`. A handler for it would swallow the user pressing Control-C. Subclass `Exception`, or one of its descendants, for ordinary errors.
+
+**Too many types.** Create a new exception when a caller might reasonably handle that case differently. If every handler would do the same thing for two errors, they can be one type with different messages.
+
+**Overly general messages.** `raise AppError("error")` wastes the opportunity a custom type gives you. Name the value and the expectation, as you did for built-in errors.
+
+<Exercise title="Bank withdrawal errors">
+Build this error design for an `Account`:
+
+- `BankError(Exception)` is the base class.
+- `InsufficientFundsError(BankError)` takes `balance` and `requested`, passes the message `cannot withdraw 500, balance is 70` (with the real numbers) to `super().__init__`, and stores both numbers as attributes.
+- `AccountClosedError(BankError)` has no extra data.
+- `Account(balance)` has a `closed` flag and a `withdraw(amount)` method that raises the right error, or else subtracts the amount.
+
+Test script: create `Account(100)`, then for each amount in `[30, 500, 70]` call `withdraw` and print `ok, balance <n>`, or the error followed by ` | short by <n>`. After the loop, set `closed = True` and withdraw `1`, catching `BankError` and printing `<ClassName>: <message>`. Expected output:
+
+```text
+ok, balance 70
+cannot withdraw 500, balance is 70 | short by 430
+ok, balance 0
+AccountClosedError: account is closed
+```
+
+<Solution>
+
+```python title="c19_ex_withdraw.py"
+class BankError(Exception):
+    """Base class for account errors."""
+
+
+class InsufficientFundsError(BankError):
+    def __init__(self, balance, requested):
+        super().__init__(f"cannot withdraw {requested}, balance is {balance}")
+        self.balance = balance
+        self.requested = requested
+
+
+class AccountClosedError(BankError):
+    pass
+
+
+class Account:
+    def __init__(self, balance):
+        self.balance = balance
+        self.closed = False
+
+    def withdraw(self, amount):
+        if self.closed:
+            raise AccountClosedError("account is closed")
+        if amount > self.balance:
+            raise InsufficientFundsError(self.balance, amount)
+        self.balance -= amount
+
+
+acct = Account(100)
+for amount in [30, 500, 70]:
+    try:
+        acct.withdraw(amount)
+        print("ok, balance", acct.balance)
+    except InsufficientFundsError as error:
+        print(error, "| short by", error.requested - error.balance)
+acct.closed = True
+try:
+    acct.withdraw(1)
+except BankError as error:
+    print(type(error).__name__ + ":", error)
+```
+
+```text
+ok, balance 70
+cannot withdraw 500, balance is 70 | short by 430
+ok, balance 0
+AccountClosedError: account is closed
+```
+
+The final `except BankError` caught `AccountClosedError`, which is what the base class is for. Because `InsufficientFundsError` stores its numbers, the handler computes the shortfall without parsing the message.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the handler">
+Given these classes and function, say what the loop prints for each of the three values before you run it.
+
+```python title="c19_ex_order.py"
+class AppError(Exception):
+    pass
+
+
+class ConfigError(AppError):
+    pass
+
+
+def check(value):
+    if value == 1:
+        raise ConfigError("c")
+    if value == 2:
+        raise AppError("a")
+    raise KeyError("k")
+
+
+for value in [1, 2, 3]:
+    try:
+        check(value)
+    except AppError as error:
+        print("app:", type(error).__name__)
+    except Exception as error:
+        print("other:", type(error).__name__)
+```
+
+<Solution>
+
+```text
+app: ConfigError
+app: AppError
+other: KeyError
+```
+
+`ConfigError` is a subclass of `AppError`, so the first clause catches both values `1` and `2`, and `type(error).__name__` shows which one it was. `KeyError` is neither, so it falls through to `except Exception`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A validation error with a field">
+Write `ValidationError(Exception)` that takes `field` and `message`, builds the combined text `<field>: <message>` for `super().__init__`, and stores both as attributes. Then write `validate(record)`, which raises it with field `name` and message `is required` for an empty or missing name, and with field `age` and message `must not be negative` for a negative age.
+
+Run it on `{"name": "Asha", "age": 30}`, `{"name": "", "age": 5}` and `{"name": "Ben", "age": -1}`. Print `valid`, or `invalid field <field> - <message>`. Expected output:
+
+```text
+valid
+invalid field name - is required
+invalid field age - must not be negative
+```
+
+<Solution>
+
+```python title="c19_ex_validation.py"
+class ValidationError(Exception):
+    def __init__(self, field, message):
+        super().__init__(f"{field}: {message}")
+        self.field = field
+        self.message = message
+
+
+def validate(record):
+    if not record.get("name"):
+        raise ValidationError("name", "is required")
+    if record.get("age", 0) < 0:
+        raise ValidationError("age", "must not be negative")
+    return record
+
+
+records = [{"name": "Asha", "age": 30}, {"name": "", "age": 5}, {"name": "Ben", "age": -1}]
+for record in records:
+    try:
+        validate(record)
+        print("valid")
+    except ValidationError as error:
+        print("invalid field", error.field, "-", error.message)
+```
+
+```text
+valid
+invalid field name - is required
+invalid field age - must not be negative
+```
+
+The handler reads `error.field` and `error.message` directly. This is the advantage of storing data on the exception: a web form, for instance, could use `error.field` to highlight the right input.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- An exception type is a class that inherits from `Exception`. Subclassing with a body of `pass` or a docstring is enough.
+- Put your errors under one base class, so callers can catch the whole family or a specific member.
+- To carry data, define `__init__`, pass a clear message to `super().__init__`, and store the extras as attributes.
+- Use `raise MyError(...) from error` to translate a low-level failure into your own type while keeping the cause.
+- Subclass `Exception`, not `BaseException`.

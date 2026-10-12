@@ -1,0 +1,323 @@
+---
+language: python
+level: intermediate
+module: Iteration and functional tools
+order: 26
+title: The iterator protocol
+description: Explain how a for loop really works, and write your own iterable and iterator classes with __iter__ and __next__.
+minVersion: "3.8"
+objectives:
+  - Describe what iter() and next() do, and how a for loop uses them
+  - Tell an iterable from an iterator, and explain why an iterator can be used only once
+  - Write an iterator class with __iter__ and __next__
+  - Write an iterable class that can be looped over many times
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/08-loops"]
+---
+
+Every `for` loop you have written relies on a small agreement between the loop and the thing it loops over. Once you can see that agreement, a lot of Python's behaviour stops being surprising: why a file can be looped over, why `zip` results vanish after one pass, and why you can make your own classes work in a `for` loop. The general idea of looping is in the [loops lesson](../../../fundamentals/beginner/loops/) of the fundamentals track. This lesson is about the Python mechanism underneath.
+
+## What a for loop asks for
+
+A `for` loop makes two kinds of request. First it calls the built-in `iter()` on the object after `in`, and gets back an **iterator**. Then it calls `next()` on that iterator again and again, each call giving the next value, until the iterator signals that it has no more by raising `StopIteration`. The loop catches that exception quietly and ends.
+
+You can make the same requests by hand:
+
+```python title="iter_manual.py"
+colours = ["red", "green", "blue"]
+
+it = iter(colours)
+print(type(it).__name__)
+print(next(it))
+print(next(it))
+print(next(it))
+```
+
+```text
+list_iterator
+red
+green
+blue
+```
+
+The list is not the iterator. `iter(colours)` created a separate object, a `list_iterator`, that remembers how far along it is. A fourth `next(it)` raises `StopIteration`:
+
+```python title="iter_manual.py (continued)"
+try:
+    next(it)
+except StopIteration:
+    print("stop")
+```
+
+```text
+stop
+```
+
+Here is the whole `for` loop, written out with `while`:
+
+```python title="iter_manual.py (continued)"
+it = iter(colours)
+while True:
+    try:
+        colour = next(it)
+    except StopIteration:
+        break
+    print("got", colour)
+```
+
+```text
+got red
+got green
+got blue
+```
+
+That is all `for colour in colours:` does. It works for lists, strings, dictionaries, files and ranges for the same reason: each of them can answer `iter()`.
+
+## Iterable and iterator are different things
+
+Two words are easy to mix up, so pin them down:
+
+- An **iterable** is anything that `iter()` accepts. It has an `__iter__` method that returns an iterator. Lists, tuples, strings, dicts, sets and files are iterables.
+- An **iterator** is the object that does the walking. It has a `__next__` method that returns the next value or raises `StopIteration`, and it also has an `__iter__` method that returns itself, so that an iterator can be used anywhere an iterable is expected.
+
+An iterator is used up as it goes. Once it is exhausted, it stays exhausted:
+
+```python title="iter_exhausted.py"
+numbers = [1, 2, 3]
+it = iter(numbers)
+
+print(list(it))
+print(list(it))
+```
+
+```text
+[1, 2, 3]
+[]
+```
+
+The second `list(it)` is empty, because the first one already walked to the end. Asking the list itself is different, since each `iter(numbers)` call gives a fresh iterator:
+
+```python title="iter_exhausted.py (continued)"
+print(iter(numbers) is numbers)
+print(iter(it) is it)
+print(list(numbers), list(numbers))
+```
+
+```text
+False
+True
+[1, 2, 3] [1, 2, 3]
+```
+
+The middle line shows the rule that an iterator returns itself from `iter()`. A list does not: it is an iterable but not an iterator, and you can loop over it as often as you like.
+
+<Callout type="note">
+
+The built-in `zip`, `map`, `filter`, `enumerate` and `reversed` all return iterators, and so do file objects. If you need to walk their results twice, convert them with `list()` first.
+
+</Callout>
+
+## Writing an iterator class
+
+To make your own type an iterator, give it two methods. `__iter__` returns `self`, and `__next__` returns the next value or raises `StopIteration`. This class produces the even numbers below a limit. The special-method idea is the same one you met in [the data model lesson](../data-model/): Python calls these names for you.
+
+```python title="evens_iterator.py"
+class Evens:
+    """Yield the even numbers from 0 up to, but not including, limit."""
+
+    def __init__(self, limit):
+        self.limit = limit
+        self.current = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.current >= self.limit:
+            raise StopIteration
+        value = self.current
+        self.current += 2
+        return value
+```
+
+The state, `self.current`, lives on the object and moves forward on each call. Now it works in a `for` loop, and in anything else that consumes iterables:
+
+```python title="evens_iterator.py (continued)"
+for n in Evens(7):
+    print(n, end=" ")
+print()
+
+evens = Evens(5)
+print(list(evens))
+print(list(evens))
+```
+
+```text
+0 2 4 6 
+[0, 2, 4]
+[]
+```
+
+Because this object is its own iterator, it can be used only once. The second `list(evens)` is empty, exactly as in the list-iterator example.
+
+## Writing an iterable that can be reused
+
+Often you want the opposite: a collection that can be looped over many times. The fix is to separate the two roles. The collection is the iterable, and each call to its `__iter__` hands out a new iterator. The easiest way to do that is to reuse the iterator of something that already exists:
+
+```python title="playlist_iterable.py"
+class Playlist:
+    """An iterable: every loop gets a fresh iterator."""
+
+    def __init__(self, songs):
+        self.songs = list(songs)
+
+    def __iter__(self):
+        return iter(self.songs)
+
+
+playlist = Playlist(["intro", "verse", "chorus"])
+print(list(playlist))
+print(list(playlist))
+```
+
+```text
+['intro', 'verse', 'chorus']
+['intro', 'verse', 'chorus']
+```
+
+`Playlist` has no `__next__`, so it is an iterable and not an iterator. That is enough for `for`, `list()`, `enumerate()` and the rest:
+
+```python title="playlist_iterable.py (continued)"
+for index, song in enumerate(playlist, start=1):
+    print(index, song)
+```
+
+```text
+1 intro
+2 verse
+3 chorus
+```
+
+A rule of thumb: a container should be an iterable, and a one-pass stream of values should be an iterator. The next lesson shows a much shorter way to write one-pass streams.
+
+## Common pitfalls
+
+- **Looping twice over an iterator.** The second loop does nothing, and no error tells you why. If a function receives something it must walk twice, either convert it to a list at the start or document that it needs a re-usable iterable.
+- **Forgetting `__iter__` on an iterator class.** Without `__iter__`, `next(obj)` still works, but `for x in obj` raises `TypeError: 'Evens' object is not iterable`. An iterator must be iterable too.
+- **Forgetting to raise `StopIteration`.** A `__next__` that returns `None` when it is done never ends the loop: it produces `None` forever.
+
+<Exercise title="A countdown iterator">
+Write a class `Countdown` that counts down from a start number to 1, as an iterator with `__iter__` and `__next__`. `list(Countdown(3))` must give `[3, 2, 1]`, `list(Countdown(0))` must give `[]`, and a `for` loop over `Countdown(3)` should print 3, 2, 1 on separate lines. After the loop, print `liftoff`.
+
+<Solution>
+
+```python title="countdown_solution.py"
+class Countdown:
+    def __init__(self, start):
+        self.current = start
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.current < 1:
+            raise StopIteration
+        value = self.current
+        self.current -= 1
+        return value
+
+
+print(list(Countdown(3)))
+print(list(Countdown(0)))
+for n in Countdown(3):
+    print(n)
+print("liftoff")
+```
+
+```text
+[3, 2, 1]
+[]
+3
+2
+1
+liftoff
+```
+
+`__next__` checks the stopping condition before it changes anything, so an already-finished countdown, such as `Countdown(0)`, raises `StopIteration` on the very first call. The value is saved in `value` before the counter moves, otherwise the first number returned would be 2.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the output">
+What does this print?
+
+```python title="predict_exhausted.py"
+letters = iter("abc")
+first = next(letters)
+rest = list(letters)
+again = list(letters)
+print(first, rest, again)
+```
+
+<Solution>
+
+```text
+a ['b', 'c'] []
+```
+
+`next(letters)` takes `'a'`. `list(letters)` then consumes whatever is left, `'b'` and `'c'`. Nothing is left for the second `list`, so `again` is empty. The iterator keeps one shared position, no matter who asks.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Make Countdown reusable">
+Change your countdown so that the same object can be looped over more than once. Keep two classes: `Countdown`, the iterable, which stores the start number, and `CountdownIterator`, which does the counting. Check that `list(countdown)` gives `[3, 2, 1]` twice in a row, and that `sum(countdown)` is 6.
+
+<Solution>
+
+```python title="fix_reusable.py"
+class CountdownIterator:
+    def __init__(self, start):
+        self.current = start
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.current < 1:
+            raise StopIteration
+        value = self.current
+        self.current -= 1
+        return value
+
+
+class Countdown:
+    def __init__(self, start):
+        self.start = start
+
+    def __iter__(self):
+        return CountdownIterator(self.start)
+
+
+countdown = Countdown(3)
+print(list(countdown))
+print(list(countdown))
+print(sum(countdown))
+```
+
+```text
+[3, 2, 1]
+[3, 2, 1]
+6
+```
+
+The counter moved from the object you loop over to a new object made for each loop. Every call to `iter(countdown)` builds a fresh `CountdownIterator` that starts at 3, so loops cannot interfere with each other.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A `for` loop calls `iter()` once, then `next()` repeatedly until `StopIteration`.
+- An iterable has `__iter__` and can be looped over many times. An iterator has `__next__` and `__iter__` (returning itself) and is used up as it goes.
+- Next: generators, which build iterators from ordinary functions.

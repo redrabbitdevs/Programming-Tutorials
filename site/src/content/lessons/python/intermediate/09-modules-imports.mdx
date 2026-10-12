@@ -1,0 +1,354 @@
+---
+language: python
+level: intermediate
+module: Modules, packages and tooling
+order: 9
+title: Writing your own modules
+description: Split a program across files, keep import-time side effects out of your modules with the __name__ guard, and read sys.path to see where Python looks.
+minVersion: "3.11"
+objectives:
+  - Explain what Python does the first time a module is imported, and what it does the second time
+  - Use the __name__ == "__main__" guard so a file works as both a script and a module
+  - Read sys.path to predict which file an import will find
+  - Split a single script into several modules
+estimatedMinutes: 40
+fundamentals:
+  - fundamentals/beginner/02-tools-of-the-trade
+---
+
+The [beginner module lesson](../../beginner/modules-and-imports/) used modules that someone else wrote. A script that has grown past a couple of hundred lines needs the same treatment: a few files, each with one job, that import each other. This lesson shows what an import does, so that the files you split off behave the way you expect.
+
+## A module is a file, and import runs it once
+
+Any `.py` file can be imported. The module's name is the file name without `.py`. Here is a tiny module that announces itself:
+
+```python title="noisy.py"
+print("noisy.py is running")
+
+VALUE = 42
+```
+
+Importing it runs the file from top to bottom, once. Every later `import noisy`, in this file or any other, reuses the result.
+
+```python title="import_once.py"
+import sys
+
+import noisy
+import noisy as again
+
+print(noisy is again)
+print("noisy" in sys.modules)
+print(noisy.VALUE)
+```
+
+```text
+noisy.py is running
+True
+True
+42
+```
+
+"noisy.py is running" appears once, although there are two import lines. The first import did four things in order: found the file, ran it, stored the resulting module object in the dictionary `sys.modules`, and bound the name `noisy`. The second import found `"noisy"` already in `sys.modules` and simply bound another name to the same object, which is why `noisy is again` is `True`.
+
+Two consequences follow. A module's top-level code is a poor place for anything slow or noisy, because it runs as a side effect of someone else's import. And editing a module while a program is running does nothing, because the cached copy is used.
+
+## One file, two jobs: the `__name__` guard
+
+Before running a module's code, Python sets a variable called `__name__` inside it. When the file is imported, `__name__` is the module's name. When the file is run directly, as `python temperature.py`, `__name__` is the string `"__main__"`.
+
+That lets a file carry its own demonstration or command-line behaviour without running it on import:
+
+```python title="temperature.py"
+def to_fahrenheit(celsius):
+    return celsius * 9 / 5 + 32
+
+
+def to_celsius(fahrenheit):
+    return (fahrenheit - 32) * 5 / 9
+
+
+if __name__ == "__main__":
+    print("__name__ is", __name__)
+    print(to_fahrenheit(100))
+    print(to_celsius(212))
+```
+
+Run directly, the guarded block executes:
+
+```console
+$ python temperature.py
+__name__ is __main__
+212.0
+100.0
+```
+
+Imported from another file, it does not:
+
+```python title="use_temperature.py"
+import temperature
+
+print("__name__ in temperature is", temperature.__name__)
+print(temperature.to_fahrenheit(37))
+```
+
+```text
+__name__ in temperature is temperature
+98.6
+```
+
+The functions are defined in both cases. Only the indented block under the `if` is skipped on import.
+
+Most scripts put their real work in a function called `main()` and end the file with the guard, as the split program below does. The guard line is then the only code that runs at the top level, and `main()` can be imported and called from a test.
+
+## Where Python looks: sys.path
+
+When you write `import temperature`, Python checks `sys.modules` first. If the name is missing, it walks through the list `sys.path` and looks in each entry for `temperature.py` or a package folder called `temperature`. The first match wins.
+
+For a normal program the list starts with the folder of the script you ran, followed by the standard library folders and the `site-packages` folder where installed packages go. You can check the first entry and ask `importlib` where a name would be found without importing it:
+
+```python title="search_path.py"
+import os
+import sys
+from importlib.util import find_spec
+
+here = os.path.dirname(os.path.abspath(__file__))
+print(sys.path[0] == here)
+
+spec = find_spec("temperature")
+print(spec.origin == os.path.join(here, "temperature.py"))
+
+print(find_spec("no_such_module_anywhere"))
+```
+
+```text
+True
+True
+None
+```
+
+`find_spec` returns `None` when nothing matches, which is the case where a real `import` raises `ModuleNotFoundError`. When an import finds the wrong file, `print(module.__file__)` or `find_spec(name).origin` is the quickest way to see which one it picked.
+
+Because the script's own folder comes first, a file of yours that shares a name with a standard library module hides the real one. The beginner lesson showed this with `random.py`.
+
+The first entry is the part that changes with how you launch Python:
+
+- `python script.py` puts the folder containing `script.py` first.
+- `python -m package.module` puts the current working directory first.
+- `python -c "..."` and the REPL put an empty string first, which means the current directory.
+
+<Callout type="tip">
+
+<Since v="3.11" /> The `-P` option, or the environment variable `PYTHONSAFEPATH`, stops Python from adding that first entry at all. It protects a program from importing a stray file that happens to sit in the folder it was launched from. With `-P`, the `use_temperature.py` example above fails with `ModuleNotFoundError`, because nothing puts its own folder on the path.
+
+</Callout>
+
+## Circular imports
+
+Suppose `a.py` starts with `from b import hello_b`, and `b.py` starts with `from a import hello_a`. Importing `a` begins running `a`, which imports `b`, which asks `a` for a name that has not been defined yet, because `a` has not got past its first line.
+
+```text
+Traceback (most recent call last):
+  File "main.py", line 1, in <module>
+    import a
+  File "a.py", line 1, in <module>
+    from b import hello_b
+  File "b.py", line 1, in <module>
+    from a import hello_a
+ImportError: cannot import name 'hello_a' from 'a'
+```
+
+The exact wording of the last line varies between Python versions. The usual cures are to move the shared code into a third module that both files import, or to import the other module inside the one function that needs it. Needing a cycle at all usually means two modules are really one.
+
+## Splitting a script
+
+Here is a short script that parses some scores and reports on them. It works, but the parsing, the arithmetic and the printing are tangled in one file.
+
+```python title="report_single.py"
+RAW = """\
+ana,82
+ben,67
+cleo,91
+dev,58
+"""
+
+
+def parse(text):
+    scores = {}
+    for line in text.splitlines():
+        name, score = line.split(",")
+        scores[name] = int(score)
+    return scores
+
+
+def average(scores):
+    return sum(scores.values()) / len(scores)
+
+
+def best(scores):
+    return max(scores, key=scores.get)
+
+
+scores = parse(RAW)
+print(f"Students: {len(scores)}")
+print(f"Average: {average(scores):.1f}")
+print(f"Top: {best(scores)}")
+```
+
+```text
+Students: 4
+Average: 74.5
+Top: cleo
+```
+
+Moving each job to its own file leaves three small modules. The two library modules contain only definitions:
+
+```python title="parsing.py"
+def parse(text):
+    scores = {}
+    for line in text.splitlines():
+        name, score = line.split(",")
+        scores[name] = int(score)
+    return scores
+```
+
+```python title="summary.py"
+def average(scores):
+    return sum(scores.values()) / len(scores)
+
+
+def best(scores):
+    return max(scores, key=scores.get)
+```
+
+The entry point imports them and guards its own work:
+
+```python title="main.py"
+from parsing import parse
+from summary import average, best
+
+RAW = """\
+ana,82
+ben,67
+cleo,91
+dev,58
+"""
+
+
+def main():
+    scores = parse(RAW)
+    print(f"Students: {len(scores)}")
+    print(f"Average: {average(scores):.1f}")
+    print(f"Top: {best(scores)}")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```text
+Students: 4
+Average: 74.5
+Top: cleo
+```
+
+The output is identical. What changed is that `summary.py` can now be reused, tested or imported elsewhere without reading scores or printing anything. Three files in one folder work because the script's folder is on `sys.path`; once the number of files grows, you will want folders, which is the next lesson.
+
+If the terminal and working directories in this lesson are unfamiliar, the [fundamentals lesson on tools](../../../fundamentals/beginner/tools-of-the-trade/) covers them.
+
+<Exercise title="Predict the output">
+
+This module and script sit in the same folder.
+
+```python title="loud.py"
+print("loud loaded")
+
+
+def shout(text):
+    return text.upper() + "!"
+
+
+if __name__ == "__main__":
+    print(shout("direct"))
+```
+
+```python title="predict_run.py"
+import loud
+import loud
+
+print(loud.shout("imported"))
+```
+
+Write down exactly what `python predict_run.py` prints, and then what `python loud.py` prints. Run both to check.
+
+<Solution>
+
+```console
+$ python predict_run.py
+loud loaded
+IMPORTED!
+$ python loud.py
+loud loaded
+DIRECT!
+```
+
+When `predict_run.py` imports `loud`, the top-level `print` runs once, and the second `import loud` does nothing. The `__name__` is `"loud"`, so the guarded line is skipped. Run directly, `__name__` is `"__main__"`, so both the top-level `print` and the guarded call run.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Add a guard to a noisy script">
+
+A file `circle.py` contains the code below. Another file, `report.py`, does `from circle import area` and prints `area(2)` to two decimals. Today, importing `circle` also prints a line of test output. Change `circle.py` so that `import circle` prints nothing, while `python circle.py` still prints `12.57`.
+
+```python title="circle.py"
+import math
+
+
+def area(radius):
+    return math.pi * radius**2
+
+
+print(round(area(2), 2))
+```
+
+<Solution>
+
+```python title="circle.py"
+import math
+
+
+def area(radius):
+    return math.pi * radius**2
+
+
+if __name__ == "__main__":
+    print(round(area(2), 2))
+```
+
+Only the demonstration line moves under the guard. The function stays outside it, so importers still get `area`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Split a script into three modules">
+
+Take your own solution to the word counter from the beginner mini-project, or any script of about 30 lines that reads input, computes something and prints it. Split it into three files: one for reading or parsing, one for the calculation, and an entry point called `main.py` that imports the other two and uses a `main()` function with the `__name__` guard. Check that `python main.py` prints the same output as before, and that `python -c "import summary"` (or whatever you named the calculation module) prints nothing.
+
+<Solution>
+
+The worked split in this lesson, `parsing.py`, `summary.py` and `main.py`, is one answer. Your own should have the same shape:
+
+- the two library modules contain only `import` lines and `def` statements,
+- all printing and reading live in `main()`,
+- the last two lines of `main.py` are the guard and the call.
+
+If `python -c "import summary"` prints something, a stray top-level `print` is left in the module.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- The first import of a module finds the file, runs it once, caches it in `sys.modules` and binds a name. Later imports reuse the cached module.
+- `if __name__ == "__main__":` separates what a file does when run from what it offers when imported.
+- `sys.path` decides which file an import finds, and its first entry depends on how you launched Python. <Since v="3.11" /> `-P` removes that first entry.

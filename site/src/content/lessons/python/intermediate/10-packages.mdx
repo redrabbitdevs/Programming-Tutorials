@@ -1,0 +1,282 @@
+---
+language: python
+level: intermediate
+module: Modules, packages and tooling
+order: 10
+title: Packages
+description: Group modules into a package folder, wire it together with __init__.py and relative imports, and run package code the way Python expects.
+minVersion: "3.8"
+objectives:
+  - Turn a folder of modules into a package with __init__.py
+  - Choose between absolute and relative imports, and write both correctly
+  - Run code inside a package with python -m instead of as a loose script
+  - Describe the src layout and what a namespace package is
+estimatedMinutes: 40
+fundamentals: []
+---
+
+Three modules in one folder is manageable. Thirty is not, and two of them will eventually want the same name. A **package** is a folder of modules that Python treats as a single importable unit, with its own namespace, so `textkit.counting` and `reports.counting` can both exist.
+
+## A folder with an `__init__.py`
+
+This is the layout of a small package called `textkit`, with a demo script next to it:
+
+```text
+textkit/                  project folder
+├── demo.py               script that uses the package
+└── textkit/              the package
+    ├── __init__.py
+    ├── __main__.py
+    ├── cleaning.py
+    ├── counting.py
+    └── formats/          a subpackage
+        ├── __init__.py
+        └── table.py
+```
+
+The folder becomes a package because it contains `__init__.py`. That file runs the first time anything in the package is imported, and whatever names it defines become attributes of the package. It can be empty, as `formats/__init__.py` is. A common and useful job for it is to choose what the package offers to the outside, so users do not need to know which file each function lives in:
+
+```python title="textkit/__init__.py"
+"""Small text utilities used to demonstrate packages."""
+
+from .cleaning import normalise
+from .counting import top_words
+
+__all__ = ["normalise", "top_words"]
+```
+
+`__all__` lists the public names. It controls what `from textkit import *` brings in, and it tells readers and tools which names are meant to be used. (The beginner lesson advised against `import *`, and that still stands. `__all__` matters more as documentation.)
+
+A user can now write `textkit.top_words(...)`, and can still reach deeper into the package when they need to.
+
+```python title="demo.py"
+import textkit
+from textkit.formats import table
+
+TEXT = "The cat and the hat. The bat, and the cat!"
+
+print(textkit.normalise("Hello, World! Hello."))
+print(textkit.top_words(TEXT, 2))
+print(table.render(TEXT, 3))
+print(textkit.__name__, table.__name__, table.__package__)
+```
+
+```text
+['hello', 'world', 'hello']
+[('the', 4), ('cat', 2)]
+the  4
+cat  2
+and  2
+textkit textkit.formats.table textkit.formats
+```
+
+The last line shows how Python names things. A module inside a package gets a dotted name, here `textkit.formats.table`, and `__package__` records which package it belongs to. The dotted name is what makes relative imports possible.
+
+## Absolute and relative imports
+
+Inside the package, `counting.py` needs `normalise` from its neighbour. There are two ways to write that.
+
+```python title="textkit/counting.py"
+from collections import Counter
+
+from .cleaning import normalise
+
+
+def top_words(text, n):
+    """Return the n most common words as (word, count) pairs."""
+    return Counter(normalise(text)).most_common(n)
+```
+
+`from .cleaning import normalise` is a **relative import**. The leading dot means "the package I am in". The absolute equivalent is `from textkit.cleaning import normalise`, spelled out from the top of the package. A second dot goes up one level:
+
+```python title="textkit/formats/table.py"
+from ..counting import top_words
+
+
+def render(text, n):
+    """Return the top n words as aligned text lines."""
+    rows = top_words(text, n)
+    width = max(len(word) for word, _ in rows)
+    return "\n".join(f"{word:<{width}}  {count}" for word, count in rows)
+```
+
+Here `table.py` lives in `textkit.formats`, so `.` means `textkit.formats` and `..` means `textkit`. Hence `..counting` is `textkit.counting`.
+
+| Form | Meaning inside `textkit/formats/table.py` |
+|---|---|
+| `from . import x` | `x` from `textkit.formats` |
+| `from .y import x` | `x` from `textkit.formats.y` |
+| `from .. import x` | `x` from `textkit` |
+| `from ..counting import x` | `x` from `textkit.counting` |
+
+Both styles work. Many projects use relative imports for neighbours inside a package, because renaming the package then needs no edits. Others use absolute imports everywhere because they read the same in every file. Pick one and keep to it. Relative imports are only valid inside a package, and only in the `from ... import` form.
+
+## Running package code: use `-m`
+
+Relative imports depend on the module's dotted name. If you run a file inside the package directly as a script, Python names it `__main__` and it has no parent package:
+
+```console
+$ python textkit/formats/table.py
+Traceback (most recent call last):
+  File "textkit/formats/table.py", line 1, in <module>
+    from ..counting import top_words
+ImportError: attempted relative import with no known parent package
+```
+
+The file is fine. It was launched in the wrong way. From the project folder, run package code by module name with `-m`:
+
+```console
+$ python -m textkit.formats.table
+```
+
+That command prints nothing, because `table.py` only defines a function, but it imports without error. The more useful case is a package with a `__main__.py`, which `python -m textkit` runs:
+
+```python title="textkit/__main__.py"
+import sys
+
+from .formats.table import render
+
+text = " ".join(sys.argv[1:]) or "the cat and the hat and the bat"
+print(render(text, 3))
+```
+
+```console
+$ python -m textkit
+the  3
+and  2
+cat  1
+$ python -m textkit to be or not to be
+to  2
+be  2
+or  1
+```
+
+`-m` also puts the current directory on `sys.path`, which is why `textkit` is found when you run it from the project folder.
+
+## The src layout and namespace packages
+
+The layout above has the package next to the demo script, so it is importable only when you run from that folder. Real projects usually use the **src layout**, which keeps the importable code in a separate `src/` folder:
+
+```text
+myproject/
+├── pyproject.toml
+├── src/
+│   └── textkit/
+│       ├── __init__.py
+│       └── cleaning.py
+└── tests/
+    └── test_cleaning.py
+```
+
+Nothing in `src/` is on the path by accident. To import the package, you install it into your environment (the next three lessons show how), and that makes tests exercise the installed code, the same code users get.
+
+A folder without an `__init__.py` can still be imported. Python treats it as a **namespace package**, a package whose contents can be spread over several folders on `sys.path`:
+
+```text
+>>> import loose
+>>> loose
+<module 'loose' (namespace) from ['/work/loose']>
+>>> loose.__file__ is None
+True
+```
+
+Namespace packages exist for large projects that distribute one package name in several pieces. For everything else the risk is the opposite: if you forget `__init__.py`, the import still works, and you only notice later that `__init__.py` code is not running and tools treat the folder differently. Put the file in.
+
+<Exercise title="Write the import">
+
+In `textkit/formats/table.py`, you want to use `normalise` from `textkit/cleaning.py`. Write the line twice: once as a relative import and once as an absolute import. Then say how you would run `textkit/counting.py` to check that it imports cleanly, given that `python textkit/counting.py` fails.
+
+<Solution>
+
+```python
+from ..cleaning import normalise      # relative
+from textkit.cleaning import normalise  # absolute
+```
+
+`table.py` is in `textkit.formats`, so `..` is `textkit`, and `..cleaning` is `textkit.cleaning`.
+
+To check `counting.py`, run it as a module from the folder that contains `textkit/`:
+
+```console
+$ python -m textkit.counting
+```
+
+No output and no error means the imports resolved.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the dotted names">
+
+For the `textkit` layout shown earlier, what is `__name__` inside each of these when it is imported: `textkit/__init__.py`, `textkit/cleaning.py`, `textkit/formats/__init__.py`? And what is `__name__` inside `textkit/__main__.py` when you run `python -m textkit`?
+
+<Solution>
+
+- `textkit/__init__.py`: `textkit`
+- `textkit/cleaning.py`: `textkit.cleaning`
+- `textkit/formats/__init__.py`: `textkit.formats`
+- `textkit/__main__.py` under `python -m textkit`: `__main__`
+
+An `__init__.py` takes the name of its folder. A module gets its package's name, a dot, and its own file name. A module that Python is running as the program is always called `__main__`, whatever its file name.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Package a small utility library">
+
+Create a package called `unitconv` with two modules, `length.py` (functions `miles_to_km` and `km_to_miles`) and `mass.py` (`pounds_to_kg` and `kg_to_pounds`). Make `__init__.py` re-export all four functions and define `__all__`. In a script next to the package, print `miles_to_km(26.2)` rounded to one decimal, `km_to_miles(10)` rounded to two, and `pounds_to_kg(150)` rounded to one, using the package-level names for the first two and the `mass` module for the third. A mile is 1.609344 km and a pound is 0.45359237 kg.
+
+Expected output of the script's four lines, the last being the sorted `__all__`:
+
+```text
+42.2
+6.21
+68.0
+['kg_to_pounds', 'km_to_miles', 'miles_to_km', 'pounds_to_kg']
+```
+
+<Solution>
+
+```python title="unitconv/__init__.py"
+"""Convert between everyday units."""
+
+from .length import km_to_miles, miles_to_km
+from .mass import kg_to_pounds, pounds_to_kg
+
+__all__ = ["km_to_miles", "miles_to_km", "kg_to_pounds", "pounds_to_kg"]
+```
+
+```python title="unitconv/length.py"
+KM_PER_MILE = 1.609344
+
+
+def miles_to_km(miles):
+    return miles * KM_PER_MILE
+
+
+def km_to_miles(km):
+    return km / KM_PER_MILE
+```
+
+`mass.py` has the same shape with `KG_PER_POUND = 0.45359237`. The script:
+
+```python title="demo.py"
+import unitconv
+from unitconv import mass
+
+print(round(unitconv.miles_to_km(26.2), 1))
+print(round(unitconv.km_to_miles(10), 2))
+print(round(mass.pounds_to_kg(150), 1))
+print(sorted(unitconv.__all__))
+```
+
+The `__init__.py` imports use the relative form because the files are neighbours. The demo reaches `miles_to_km` through the package, and `pounds_to_kg` through the submodule, to show that both routes work.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A folder with `__init__.py` is a package. The file runs on first import, and is the place to re-export the names you want users to see.
+- `from .x import y` is relative to the current package, `..` goes up one level. Relative imports need a package, so run package code with `python -m package.module`, not as a loose script.
+- The src layout keeps code in `src/` so it is only importable once installed. A folder with no `__init__.py` works as a namespace package, which is usually an accident.

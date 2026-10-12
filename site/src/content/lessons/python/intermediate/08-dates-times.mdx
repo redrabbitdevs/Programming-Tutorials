@@ -1,0 +1,481 @@
+---
+language: python
+level: intermediate
+module: Errors and files
+order: 8
+title: Dates and times
+description: Work with date, datetime and timedelta, format and parse timestamps, and keep time zones straight with aware datetimes and zoneinfo.
+minVersion: "3.11"
+objectives:
+  - Build date and datetime values and do arithmetic with timedelta
+  - Format values with strftime and read them back with strptime or fromisoformat
+  - Explain the difference between naive and aware datetimes, and why mixing them fails
+  - Get the current time with datetime.now(tz=UTC) and convert between zones with zoneinfo
+  - Describe what happens to a wall-clock time in a daylight saving gap
+estimatedMinutes: 50
+fundamentals: []
+---
+
+Log lines, CSV exports and API responses are full of timestamps, and almost every realistic data task eventually has to compare two of them. Dates look simple until a clock moves forward an hour, or two people in different cities say "9 o'clock". This lesson gives you the standard library's tools, and one habit that avoids most of the trouble: **know whether every datetime you hold has a time zone attached.**
+
+Everything here lives in the `datetime` module, plus `zoneinfo` for named time zones. Both are in the standard library.
+
+## Dates and datetimes
+
+A `date` is a calendar day, and a `datetime` is a day plus a time of day. You build them from numbers, year first:
+
+```python title="dt_date_basics.py"
+from datetime import date, datetime
+
+launch = date(2026, 3, 8)
+print(launch)
+print(launch.year, launch.month, launch.day)
+print(launch.weekday(), launch.isoweekday())
+
+meeting = datetime(2026, 3, 8, 14, 30)
+print(meeting)
+print(meeting.hour, meeting.minute)
+print(meeting.date())
+```
+
+```text
+2026-03-08
+2026 3 8
+6 7
+2026-03-08 14:30:00
+14 30
+2026-03-08
+```
+
+The pieces are plain attributes. `weekday()` counts Monday as 0, so Sunday is 6, while `isoweekday()` counts Monday as 1 and Sunday as 7. March 8, 2026 is a Sunday, hence `6` and `7`. A `datetime` has `hour`, `minute`, `second` and `microsecond` as well, and `.date()` drops the time. Both types are immutable, like strings: every operation gives you a new value.
+
+Invalid numbers raise `ValueError` straight away (`date(2026, 2, 30)` says "day is out of range for month"), so you never hold an impossible date.
+
+## Durations with timedelta
+
+Subtracting two dates or datetimes gives a `timedelta`, a length of time. You can also build one yourself and add it to a date:
+
+```python title="dt_timedelta.py"
+from datetime import date, datetime, timedelta
+
+start = datetime(2026, 3, 8, 14, 30)
+print(start + timedelta(days=1, hours=2))
+print(start - timedelta(minutes=45))
+
+gap = date(2026, 12, 25) - date(2026, 10, 12)
+print(gap)
+print(gap.days)
+
+length = datetime(2026, 3, 9, 17, 15) - start
+print(length)
+print(length.total_seconds())
+print(length.seconds)
+```
+
+```text
+2026-03-09 16:30:00
+2026-03-08 13:45:00
+74 days, 0:00:00
+74
+1 day, 2:45:00
+96300.0
+9900
+```
+
+`timedelta` takes `days`, `hours`, `minutes`, `seconds` and `weeks` as keyword arguments, and they combine. A difference of two `date` values is a whole number of days, shown as `74 days, 0:00:00`.
+
+The last two lines are a classic trap. The meeting ran 1 day, 2 hours and 45 minutes, which is 96300 seconds in total. `total_seconds()` gives that. The attribute `.seconds` is only the *leftover* part after the days are taken out: 2 hours 45 minutes is 9900 seconds. When you want "how long in total", use `total_seconds()`.
+
+## Formatting and parsing
+
+`strftime` ("string from time") turns a value into text using format codes that start with `%`. `strptime` ("string parsed to time") does the reverse and needs the same codes to describe the text:
+
+```python title="dt_format_parse.py"
+from datetime import datetime
+
+moment = datetime(2026, 3, 8, 14, 5)
+print(moment.strftime("%Y-%m-%d"))
+print(moment.strftime("%d/%m/%y %H:%M"))
+print(moment.strftime("%A %d %B %Y, %I:%M %p"))
+
+parsed = datetime.strptime("08/03/2026 14:05", "%d/%m/%Y %H:%M")
+print(parsed)
+print(parsed == moment)
+
+try:
+    datetime.strptime("2026-03-08", "%d/%m/%Y")
+except ValueError as error:
+    print(error)
+```
+
+```text
+2026-03-08
+08/03/26 14:05
+Sunday 08 March 2026, 02:05 PM
+2026-03-08 14:05:00
+True
+time data '2026-03-08' does not match format '%d/%m/%Y'
+```
+
+The codes you will use most:
+
+| Code | Meaning | Example |
+|---|---|---|
+| `%Y`, `%y` | year, four or two digits | `2026`, `26` |
+| `%m`, `%d` | month, day, zero-padded | `03`, `08` |
+| `%B`, `%b` | month name, full or short | `March`, `Mar` |
+| `%A`, `%a` | weekday name, full or short | `Sunday`, `Sun` |
+| `%H`, `%M`, `%S` | hour (24-hour), minute, second | `14`, `05`, `00` |
+| `%I`, `%p` | hour (12-hour) and AM/PM | `02`, `PM` |
+
+Month and weekday names follow the program's locale, so on a non-English system `%B` may not print `March`. When `strptime` cannot match, it raises `ValueError`, which is how you detect bad input. An f-string accepts the same codes after a colon, as in `f"{moment:%d %b %Y}"`.
+
+## ISO 8601: the format to exchange
+
+Writing `08/03/2026` is ambiguous: it is the 8th of March in much of the world and the 3rd of August in the United States. **ISO 8601** removes the doubt by putting the biggest unit first: `2026-03-08T14:05:09`. Use it whenever dates are stored in files or sent between programs. Every date and datetime has `isoformat()`, and a matching `fromisoformat()` reads it back:
+
+```python title="dt_iso.py"
+from datetime import date, datetime
+
+moment = datetime(2026, 3, 8, 14, 5, 9)
+text = moment.isoformat()
+print(text)
+print(moment.isoformat(sep=" ", timespec="minutes"))
+print(date(2026, 3, 8).isoformat())
+
+print(datetime.fromisoformat(text) == moment)
+print(date.fromisoformat("2026-03-08"))
+```
+
+```text
+2026-03-08T14:05:09
+2026-03-08 14:05
+2026-03-08
+True
+2026-03-08
+```
+
+`sep` changes the letter between date and time, and `timespec` chooses how much of the time to print. The round trip returns an equal value, with no format string to get wrong.
+
+### Wider ISO input <Since v="3.11" />
+
+Before 3.11, `fromisoformat` only read what `isoformat` writes. From Python 3.11 it accepts most ISO 8601 forms, including the compact style, a trailing `Z` for UTC, and week dates:
+
+```python title="dt_iso_311.py"
+from datetime import datetime
+
+print(datetime.fromisoformat("20260308T140509"))
+print(datetime.fromisoformat("2026-03-08T14:05:09Z"))
+print(datetime.fromisoformat("2026-03-08T14:05:09+05:30"))
+print(datetime.fromisoformat("2026-W10-7"))
+```
+
+```text
+2026-03-08 14:05:09
+2026-03-08 14:05:09+00:00
+2026-03-08 14:05:09+05:30
+2026-03-08 00:00:00
+```
+
+"Most" is the careful word. It is not a full ISO 8601 parser, so unusual forms still raise `ValueError`. Reach for it first, and fall back to `strptime` when the text is in a custom shape.
+
+Notice the two outputs with `+00:00` and `+05:30` at the end. Those values carry a time zone, which brings us to the main idea of the lesson.
+
+## Naive and aware
+
+A datetime is **naive** if it has no time zone information, and **aware** if it does. You can see which by looking at `.tzinfo`:
+
+```python title="dt_naive_aware.py"
+from datetime import UTC, datetime, timedelta, timezone
+
+naive = datetime(2026, 3, 8, 14, 30)
+aware = datetime(2026, 3, 8, 14, 30, tzinfo=UTC)
+print(naive.tzinfo)
+print(aware.tzinfo)
+print(aware)
+print(aware.isoformat())
+
+plus_two = timezone(timedelta(hours=2))
+local = datetime(2026, 3, 8, 16, 30, tzinfo=plus_two)
+print(local)
+print(local == aware)
+print(local.astimezone(UTC))
+```
+
+```text
+None
+UTC
+2026-03-08 14:30:00+00:00
+2026-03-08T14:30:00+00:00
+2026-03-08 16:30:00+02:00
+True
+2026-03-08 14:30:00+00:00
+```
+
+A naive value is just a clock reading: "14:30", with no hint of where. An aware value pins that reading to a real moment. `UTC` is Coordinated Universal Time, the reference every other zone is measured from. `timezone(timedelta(hours=2))` makes a fixed offset of two hours, and `local` is the same instant as `aware`, seen from two hours east, so `==` says `True`. The method `astimezone(UTC)` converts a value to another zone without changing the moment it describes.
+
+`from datetime import UTC` works from Python <Since v="3.11" />. On older versions, write `timezone.utc`, which is the same object.
+
+### Never compare naive with aware
+
+If one value knows where it is and the other does not, Python cannot say which is earlier, so ordering comparisons raise an error instead of guessing:
+
+```python title="dt_predict_compare.py"
+from datetime import UTC, datetime
+
+naive = datetime(2026, 3, 8, 12, 0)
+aware = datetime(2026, 3, 8, 12, 0, tzinfo=UTC)
+
+print(naive == aware)
+try:
+    print(naive < aware)
+except TypeError as error:
+    print("TypeError:", error)
+print(aware.replace(tzinfo=None) == naive)
+```
+
+```text
+False
+TypeError: can't compare offset-naive and offset-aware datetimes
+True
+```
+
+The same applies to subtracting them. Note the quiet difference: `==` between a naive and an aware value does not raise, it just answers `False`, because they can never be equal. `<`, `>` and `-` raise `TypeError`. The fix is to make both sides the same kind, and the safest kind is aware. `replace(tzinfo=None)` strips the zone, which discards information, so use it only when you are sure the clock reading was already in the zone you want.
+
+## The current time
+
+Ask for the time in a way that returns an aware value:
+
+```python title="dt_now_utc.py"
+from datetime import UTC, datetime
+
+now = datetime.now(tz=UTC)
+print(now.tzinfo)
+print(now.utcoffset())
+print(type(now).__name__)
+```
+
+```text
+UTC
+0:00:00
+datetime
+```
+
+The output of `now()` changes every second, so the example prints only what stays fixed. The rule of thumb for programs: **work in UTC inside, convert to a local zone only at the edges** where a person reads the time. Store and compare UTC, and format local times at the last moment.
+
+`datetime.now()` with no argument returns a naive value in the computer's local zone. That is fine for a quick script, but such a value is a trap as soon as the program moves to a server in another zone.
+
+### The old UTC functions <Since v="3.12" />
+
+Older code uses `datetime.utcnow()` and `datetime.utcfromtimestamp()` to get UTC. Both are **deprecated since Python 3.12**: they still work, and they warn. The problem is that they return *naive* values, so the clock reading says UTC but nothing in the object does, and a later `.timestamp()` or comparison treats it as local time:
+
+```python title="dt_utcnow_deprecated.py"
+import warnings
+from datetime import UTC, datetime
+
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    old = datetime.utcfromtimestamp(0)
+
+print(caught[0].category.__name__)
+print(old, old.tzinfo)
+
+new = datetime.fromtimestamp(0, tz=UTC)
+print(new, new.tzinfo)
+```
+
+```text
+DeprecationWarning
+1970-01-01 00:00:00 None
+1970-01-01 00:00:00+00:00 UTC
+```
+
+Replace `datetime.utcnow()` with `datetime.now(tz=UTC)` and `datetime.utcfromtimestamp(t)` with `datetime.fromtimestamp(t, tz=UTC)`. The result is the same instant, now with its zone attached. There is no announced removal date, but new code should not use them.
+
+## Named time zones with zoneinfo
+
+A fixed offset like `+02:00` is not enough for real cities, because the offset changes with daylight saving time. The `zoneinfo` module <Since v="3.9" /> knows the rules of the IANA time zone database, using names such as `"Europe/London"`:
+
+```python title="dt_zoneinfo.py"
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
+
+departure = datetime(2026, 7, 1, 9, 0, tzinfo=ZoneInfo("Europe/London"))
+print(departure)
+print(departure.utcoffset())
+print(departure.tzname())
+print(departure.astimezone(UTC))
+print(departure.astimezone(ZoneInfo("Asia/Tokyo")))
+
+winter = datetime(2026, 1, 1, 9, 0, tzinfo=ZoneInfo("Europe/London"))
+print(winter, winter.tzname())
+```
+
+```text
+2026-07-01 09:00:00+01:00
+1:00:00
+BST
+2026-07-01 08:00:00+00:00
+2026-07-01 17:00:00+09:00
+2026-01-01 09:00:00+00:00 GMT
+```
+
+The same zone object gave `+01:00` (British Summer Time) in July and `+00:00` (GMT) in January: it picks the offset that applies on the date. `astimezone(ZoneInfo(...))` converts a moment to another city's clock, which is how you answer "what time is that for them?".
+
+<Callout type="warning" title="Windows needs tzdata">
+`zoneinfo` reads the time zone database from the operating system. Linux and macOS have one, but Windows does not, so `ZoneInfo("Europe/London")` there raises `ZoneInfoNotFoundError` unless the first-party `tzdata` package is installed. If your program runs on Windows, list `tzdata` in its dependencies, using the tools from the [virtual environments lesson](../venv-pip/).
+</Callout>
+
+### The daylight saving gap
+
+When clocks spring forward, an hour of the local day is skipped. In New York on March 8, 2026, the clock jumps from 02:00 straight to 03:00, so 02:30 never happens. Watch what the arithmetic does around it:
+
+```python title="dt_dst_gap.py"
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+new_york = ZoneInfo("America/New_York")
+
+before = datetime(2026, 3, 8, 1, 30, tzinfo=new_york)
+print(before, before.tzname())
+
+wall = before + timedelta(hours=1)
+print(wall, wall.tzname())
+
+exact = (before.astimezone(UTC) + timedelta(hours=1)).astimezone(new_york)
+print(exact, exact.tzname())
+```
+
+```text
+2026-03-08 01:30:00-05:00 EST
+2026-03-08 02:30:00-05:00 EST
+2026-03-08 03:30:00-04:00 EDT
+```
+
+Adding one hour to an aware value in a named zone moves the *clock reading* forward by an hour and keeps the zone. That produced `02:30 EST`, a time that does not exist on the New York calendar, and Python accepts it without a warning. Going through UTC does the arithmetic on the real timeline: one hour after 01:30 EST is 03:30 EDT.
+
+So for durations measured in elapsed time ("the job runs for 3 hours"), convert to UTC, add the `timedelta`, and convert back. For calendar-style steps ("same time tomorrow"), wall-clock arithmetic is what you want, but check the result near a clock change. The opposite problem happens in autumn, when an hour repeats; datetime has a `fold` attribute to say which of the two you mean, and the [zoneinfo documentation](https://docs.python.org/3/library/zoneinfo.html) explains it.
+
+## Common pitfalls
+
+- **Comparing or subtracting naive and aware values.** `<` and `-` raise `TypeError`, and `==` quietly returns `False`. Make both sides aware.
+- **Using `datetime.now()` or `utcnow()` for timestamps.** The first is naive and local, the second is naive and deprecated <Since v="3.12" />. Use `datetime.now(tz=UTC)`.
+- **Reading `.seconds` as the total length.** It is only the leftover seconds within the day. Use `total_seconds()`.
+- **Adding a `timedelta` in a named zone and trusting the result near a clock change.** Add in UTC when you mean elapsed time.
+- **Parsing ambiguous text like `03/04/2026`.** Store ISO 8601, and give `strptime` an explicit format for anything else.
+- **Attaching a zone with `replace(tzinfo=...)` to a value that was in another zone.** It relabels the clock reading without converting it. Use `astimezone` to move between zones.
+
+<Exercise title="Days to go">
+Given `today = date(2026, 10, 12)` and `deadline = date(2026, 12, 25)`, print how many days are left, then the same distance as weeks and days, then the weekday name of the deadline. Expected output:
+
+```text
+74 days left
+10 weeks and 4 days
+Friday
+```
+
+<Solution>
+
+```python title="dt_countdown.py"
+from datetime import date
+
+today = date(2026, 10, 12)
+deadline = date(2026, 12, 25)
+
+left = deadline - today
+print(f"{left.days} days left")
+print(f"{left.days // 7} weeks and {left.days % 7} days")
+print(deadline.strftime("%A"))
+```
+
+```text
+74 days left
+10 weeks and 4 days
+Friday
+```
+
+Subtracting two dates gives a `timedelta`, and `.days` is its whole-day count. Floor division and the remainder split 74 into 10 weeks and 4 days. `%A` prints the full weekday name.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Meeting planner across 3 time zones">
+A meeting starts at 09:00 in New York (`"America/New_York"`) on Monday 9 March 2026. Print the start in UTC first, then in New York, London (`"Europe/London"`) and Tokyo (`"Asia/Tokyo"`), each line showing the weekday, day, month, 24-hour time and the zone abbreviation. Expected output:
+
+```text
+UTC: 2026-03-09 13:00
+New York: Mon 09 Mar 09:00 EDT
+London: Mon 09 Mar 13:00 GMT
+Tokyo: Mon 09 Mar 22:00 JST
+```
+
+Hint: build the start as an aware datetime, then call `astimezone` once per city. The abbreviation is `tzname()`.
+
+<Solution>
+
+```python title="dt_meeting_planner.py"
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
+
+start = datetime(2026, 3, 9, 9, 0, tzinfo=ZoneInfo("America/New_York"))
+
+print("UTC:", start.astimezone(UTC).strftime("%Y-%m-%d %H:%M"))
+for city, zone in [
+    ("New York", "America/New_York"),
+    ("London", "Europe/London"),
+    ("Tokyo", "Asia/Tokyo"),
+]:
+    local = start.astimezone(ZoneInfo(zone))
+    print(f"{city}: {local:%a %d %b %H:%M} {local.tzname()}")
+```
+
+```text
+UTC: 2026-03-09 13:00
+New York: Mon 09 Mar 09:00 EDT
+London: Mon 09 Mar 13:00 GMT
+Tokyo: Mon 09 Mar 22:00 JST
+```
+
+New York has already moved to daylight time (EDT, UTC-4) on 8 March, while London stays on GMT until the end of the month, so for these three weeks the gap between them is four hours rather than the usual five. The zone database handles that, and your code never mentions an offset. Try the same program with the date changed to 2 March to see London and New York five hours apart.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the comparison">
+What does this print? Write down all three lines before running it.
+
+```python title="dt_predict_compare.py"
+from datetime import UTC, datetime
+
+naive = datetime(2026, 3, 8, 12, 0)
+aware = datetime(2026, 3, 8, 12, 0, tzinfo=UTC)
+
+print(naive == aware)
+try:
+    print(naive < aware)
+except TypeError as error:
+    print("TypeError:", error)
+print(aware.replace(tzinfo=None) == naive)
+```
+
+<Solution>
+
+```text
+False
+TypeError: can't compare offset-naive and offset-aware datetimes
+True
+```
+
+The two values show the same clock reading, but one has a zone and the other does not, so they are never equal and `==` says `False` without complaining. Ordering with `<` has no sensible answer, so it raises `TypeError`. Stripping the zone with `replace(tzinfo=None)` makes both naive, and then the readings match. That fix works here only because we know the naive value was meant to be UTC.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `date` and `datetime` hold calendar values, and subtracting them gives a `timedelta`. Use `total_seconds()` for the whole length, not `.seconds`.
+- `strftime` and `strptime` use `%` codes to format and parse. `isoformat` and `fromisoformat` use ISO 8601, which is the format to store and exchange. <Since v="3.11" /> `fromisoformat` accepts most ISO 8601 text, including `Z`.
+- A datetime is naive without a time zone and aware with one. Ordering comparisons and subtraction between the two raise `TypeError`.
+- <Since v="3.11" /> Get the current time with `datetime.now(tz=UTC)` after `from datetime import UTC`. <Since v="3.12" /> `utcnow()` and `utcfromtimestamp()` are deprecated because they return naive values.
+- <Since v="3.9" /> `zoneinfo.ZoneInfo("Region/City")` gives named zones that follow daylight saving rules. Windows needs the `tzdata` package. Do elapsed-time arithmetic in UTC, because wall-clock arithmetic can land inside a skipped hour.
+- Tests that depend on the current time are hard to write. The [mocking lesson](../mocking/) shows how to replace the clock.

@@ -1,0 +1,501 @@
+---
+language: python
+level: intermediate
+module: Object-oriented Python
+order: 21
+title: The Python data model
+description: Make your own classes work with print, ==, sorting, len, for loops and operators by implementing the special methods Python calls behind the scenes.
+minVersion: "3.8"
+objectives:
+  - Explain why Python calls special (dunder) methods and that you rarely call them yourself
+  - Write __repr__ and __str__ for readable output
+  - Implement __eq__ and __hash__ together, and say why defining one affects the other
+  - Make instances sortable with __lt__, and countable and iterable with __len__ and __iter__
+  - Overload an operator such as + and return NotImplemented for unsupported operands
+estimatedMinutes: 60
+fundamentals: []
+---
+
+Why does `len(songs)` work on a list, `a + b` on two strings, and `for x in data` on almost anything? Because these built-in operations ask the object to do the work, by calling a method with a special name. Those names start and end with two underscores, which is why they are called **dunder methods**. The set of them, and the rules for using them, is the **data model**. Implement the right ones and your class feels like a built-in type.
+
+You write the dunder methods but almost never call them directly. You write `len(mix)`, and Python calls `mix.__len__()` for you.
+
+## Showing an object: __repr__ and __str__
+
+When you print an instance of a plain class, you get something unhelpful, like `<__main__.Point object at 0x7f...>`. Define `__repr__` to say what the object is. By convention it looks like the code that would build it:
+
+```python title="c20_repr.py"
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def __repr__(self):
+        return f"Point({self.x}, {self.y})"
+
+
+p = Point(1, 2)
+print(p)
+print([p, Point(3, 4)])
+print(repr(p))
+```
+
+```text
+Point(1, 2)
+[Point(1, 2), Point(3, 4)]
+Point(1, 2)
+```
+
+`print` uses `__repr__` when the class defines nothing else, and so do lists when they display their contents. `__repr__` is aimed at developers, and it shows up in tracebacks and debugger sessions.
+
+When a friendlier text for end users is wanted, add `__str__`. `print()` and f-strings use `__str__` first, and containers still use `__repr__`:
+
+```python title="c20_str.py"
+class Money:
+    def __init__(self, cents):
+        self.cents = cents
+
+    def __repr__(self):
+        return f"Money({self.cents})"
+
+    def __str__(self):
+        return f"${self.cents // 100}.{self.cents % 100:02d}"
+
+
+price = Money(1999)
+print(price)
+print(repr(price))
+print([price])
+print(f"total: {price}")
+```
+
+```text
+$19.99
+Money(1999)
+[Money(1999)]
+total: $19.99
+```
+
+If you write only one, write `__repr__`. `str()` falls back to it when `__str__` is missing.
+
+## Equality: __eq__
+
+By default `==` on instances means "are these the very same object?":
+
+```python title="c20_eq_default.py"
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+
+a = Point(1, 2)
+b = Point(1, 2)
+print(a == a)
+print(a == b)
+```
+
+```text
+True
+False
+```
+
+Two points with the same coordinates are different objects, so they are unequal. Define `__eq__` to compare by value instead:
+
+```python title="c20_eq.py"
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def __eq__(self, other):
+        if not isinstance(other, Point):
+            return NotImplemented
+        return self.x == other.x and self.y == other.y
+
+
+a = Point(1, 2)
+b = Point(1, 2)
+print(a == b)
+print(a != Point(5, 5))
+print(a == (1, 2))
+```
+
+```text
+True
+True
+False
+```
+
+The `isinstance` check handles the case where the other side is a different type. Returning `NotImplemented`, a special built-in value and not an exception, tells Python "I don't know how to compare with that." Python then tries the other operand's `__eq__`, and if neither knows, falls back to identity, so `a == (1, 2)` is `False`. Python also derives `!=` from `__eq__`, so you do not write it yourself.
+
+## Hashing: __hash__
+
+Sets and dictionary keys need a hash, a whole number that is the same for equal objects. Here is a rule that surprises most learners: **a class that defines `__eq__` and not `__hash__` becomes unhashable.**
+
+```python title="c20_hash_none.py"
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def __eq__(self, other):
+        if not isinstance(other, Point):
+            return NotImplemented
+        return self.x == other.x and self.y == other.y
+
+
+print(Point.__hash__ is None)
+try:
+    {Point(1, 2)}
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+True
+TypeError: cannot use 'Point' as a set element (unhashable type: 'Point')
+```
+
+Python removed the hash because the old one, based on identity, would now disagree with your new idea of equality. The longer wording of this message, which names the set, is new in Python 3.14 <Since v="3.14" />. Earlier versions say only `unhashable type: 'Point'`, and the behaviour is the same.
+
+The rule to follow is that objects which compare equal must have equal hashes. The usual recipe hashes a tuple of the fields that `__eq__` compares:
+
+```python title="c20_hash.py"
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def __eq__(self, other):
+        if not isinstance(other, Point):
+            return NotImplemented
+        return self.x == other.x and self.y == other.y
+
+    def __hash__(self):
+        return hash((self.x, self.y))
+
+
+points = {Point(1, 2), Point(1, 2), Point(3, 4)}
+print(len(points))
+labels = {Point(0, 0): "origin"}
+print(labels[Point(0, 0)])
+```
+
+```text
+2
+origin
+```
+
+The duplicate point vanished from the set, and a freshly built `Point(0, 0)` found the dictionary entry. This relies on the fields not changing after the object goes into a set or dictionary, because a changed field changes the hash and the entry becomes unreachable. Only define `__hash__` on objects you treat as immutable. The dataclasses lesson shows an easy way to get that.
+
+## Ordering: __lt__
+
+`sorted`, `min` and `max` only ever ask "is this one less than that one?", which is `__lt__`:
+
+```python title="c20_lt.py"
+class Version:
+    def __init__(self, major, minor):
+        self.major = major
+        self.minor = minor
+
+    def __repr__(self):
+        return f"Version({self.major}, {self.minor})"
+
+    def __lt__(self, other):
+        if not isinstance(other, Version):
+            return NotImplemented
+        return (self.major, self.minor) < (other.major, other.minor)
+
+
+versions = [Version(3, 12), Version(2, 7), Version(3, 9)]
+print(sorted(versions))
+print(min(versions), max(versions))
+print(Version(3, 9) > Version(3, 8))
+```
+
+```text
+[Version(2, 7), Version(3, 9), Version(3, 12)]
+Version(2, 7) Version(3, 12)
+True
+```
+
+Comparing tuples does the field-by-field work. Notice that `>` worked without a `__gt__` method: when `a > b` has no method, Python tries `b < a` instead. That reflection is why `__lt__` alone is enough for sorting. If you need all six comparison operators, the standard library offers `functools.total_ordering`, and dataclasses can generate them with `order=True`.
+
+## Size and iteration: __len__ and __iter__
+
+Define `__len__` and your class works with `len()`. Define `__iter__` and it works in `for` loops, in `list()`, and in other places that need to go through its items one by one:
+
+```python title="c20_len_iter.py"
+class Playlist:
+    def __init__(self, songs):
+        self._songs = list(songs)
+
+    def __len__(self):
+        return len(self._songs)
+
+    def __iter__(self):
+        return iter(self._songs)
+
+
+mix = Playlist(["Intro", "Waltz", "Finale"])
+print(len(mix))
+for song in mix:
+    print(song)
+print("Waltz" in mix)
+print(list(mix))
+print(bool(mix), bool(Playlist([])))
+```
+
+```text
+3
+Intro
+Waltz
+Finale
+True
+['Intro', 'Waltz', 'Finale']
+True False
+```
+
+`__iter__` here hands back an iterator over the inner list, using the built-in `iter`. The next module explains iterators in full, and for now this one-line form is all you need. Three things came free. The `in` check worked, because Python falls back to looping through `__iter__`. `list(mix)` worked. And `bool(Playlist([]))` is `False`, because an object with `__len__` is falsy when its length is zero, the same rule you learned for empty lists.
+
+## Operators: __add__ and friends
+
+Every operator maps to a dunder method: `+` to `__add__`, `*` to `__mul__`, `-` to `__sub__`, `abs()` to `__abs__`, and so on. Implement one and the operator works:
+
+```python title="c20_ops.py"
+class Money:
+    def __init__(self, cents):
+        self.cents = cents
+
+    def __repr__(self):
+        return f"Money({self.cents})"
+
+    def __add__(self, other):
+        if not isinstance(other, Money):
+            return NotImplemented
+        return Money(self.cents + other.cents)
+
+    def __mul__(self, factor):
+        if not isinstance(factor, int):
+            return NotImplemented
+        return Money(self.cents * factor)
+
+
+print(Money(250) + Money(199))
+print(Money(250) * 3)
+```
+
+```text
+Money(449)
+Money(750)
+```
+
+Both methods check the other operand and return `NotImplemented` for anything unsupported. Python then raises a `TypeError` with a clear message, which is better than returning nonsense:
+
+```python title="c20_ops_error.py"
+class Money:
+    def __init__(self, cents):
+        self.cents = cents
+
+    def __add__(self, other):
+        if not isinstance(other, Money):
+            return NotImplemented
+        return Money(self.cents + other.cents)
+
+
+try:
+    Money(250) + 5
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+TypeError: unsupported operand type(s) for +: 'Money' and 'int'
+```
+
+Keep operators for cases where the meaning is obvious. Adding two `Money` values is natural. Giving `+` a creative meaning on a class of your own will confuse the next reader.
+
+## Common pitfalls
+
+**Defining `__eq__` without `__hash__`.** The instances can no longer go into sets or be dictionary keys, as shown above. Define both, or neither.
+
+**Hashing a mutable object.** If a field that feeds the hash can change, a set containing the object can lose track of it. Make such objects immutable, or leave them unhashable.
+
+**A `__repr__` that returns something other than a string.** It must return `str`. Returning a number or `None` raises `TypeError`.
+
+**Raising instead of returning `NotImplemented`.** In `__eq__`, `__lt__` and the arithmetic methods, returning `NotImplemented` lets the other operand try. Raising `TypeError` yourself skips that chance.
+
+**Calling dunder methods directly.** Write `len(x)`, `repr(x)` and `a + b`. The direct form `x.__len__()` bypasses checks that the built-in functions make, and it reads strangely.
+
+<Exercise title="A Vector class">
+Write a class `Vector(x, y)` with these special methods: `__repr__` giving `Vector(3, 4)`; `__eq__` comparing coordinates; `__hash__` consistent with it; `__add__` returning a new vector; and `__abs__` returning the length, which `math.hypot(x, y)` computes.
+
+Test script and expected output:
+
+```python title="vector_check.py"
+a = Vector(3, 4)
+b = Vector(1, 2)
+print(a + b)
+print(abs(a))
+print(a == Vector(3, 4))
+print(a + b == Vector(4, 6))
+print({a, Vector(3, 4)})
+```
+
+```text
+Vector(4, 6)
+5.0
+True
+True
+{Vector(3, 4)}
+```
+
+<Solution>
+
+```python title="c20_ex_vector.py"
+import math
+
+
+class Vector:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+    def __repr__(self):
+        return f"Vector({self.x}, {self.y})"
+
+    def __eq__(self, other):
+        if not isinstance(other, Vector):
+            return NotImplemented
+        return self.x == other.x and self.y == other.y
+
+    def __hash__(self):
+        return hash((self.x, self.y))
+
+    def __add__(self, other):
+        if not isinstance(other, Vector):
+            return NotImplemented
+        return Vector(self.x + other.x, self.y + other.y)
+
+    def __abs__(self):
+        return math.hypot(self.x, self.y)
+
+
+a = Vector(3, 4)
+b = Vector(1, 2)
+print(a + b)
+print(abs(a))
+print(a == Vector(3, 4))
+print(a + b == Vector(4, 6))
+print({a, Vector(3, 4)})
+```
+
+```text
+Vector(4, 6)
+5.0
+True
+True
+{Vector(3, 4)}
+```
+
+Because `__eq__` and `__hash__` agree, the set holds one vector, not two. Because `__add__` builds a new `Vector` and leaves its operands alone, `a` still has its original coordinates for the later lines.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A team you can loop over">
+Write a class `Team(name, members)` that stores the members in a private list. Make `len(team)` return the number of members, make `for member in team` loop over them, and give it a `__repr__` that shows `Team('Docs', ['Asha', 'Ben'])`. You do not need to write anything for the `in` operator.
+
+Create `Team("Docs", ["Asha", "Ben"])`, then print `len(team)`, the two results of `"Ben" in team` and `"Chi" in team` on one line, the upper-case form of every member, and the team itself. Expected output:
+
+```text
+2
+True False
+ASHA
+BEN
+Team('Docs', ['Asha', 'Ben'])
+```
+
+<Solution>
+
+```python title="c20_ex_team.py"
+class Team:
+    def __init__(self, name, members):
+        self.name = name
+        self._members = list(members)
+
+    def __len__(self):
+        return len(self._members)
+
+    def __iter__(self):
+        return iter(self._members)
+
+    def __repr__(self):
+        return f"Team({self.name!r}, {self._members!r})"
+
+
+team = Team("Docs", ["Asha", "Ben"])
+print(len(team))
+print("Ben" in team, "Chi" in team)
+for member in team:
+    print(member.upper())
+print(team)
+```
+
+```text
+2
+True False
+ASHA
+BEN
+Team('Docs', ['Asha', 'Ben'])
+```
+
+The `!r` in the f-string applies `repr` to the name and the list, which is why the output has quotes. `"Ben" in team` works through `__iter__`, as the lesson explained.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict equal and identical">
+Here `Tag` defines `__eq__` and `__hash__` from its label. Before running the script, write what each of the three lines prints, and explain how the last one differs from the first two.
+
+```python title="c20_ex_predict.py"
+class Tag:
+    def __init__(self, label):
+        self.label = label
+
+    def __eq__(self, other):
+        return self.label == other.label
+
+    def __hash__(self):
+        return hash(self.label)
+
+
+a = Tag("py")
+b = Tag("py")
+print(a is b)
+print(a == b)
+print(len({a, b}))
+```
+
+<Solution>
+
+```text
+False
+True
+1
+```
+
+`a is b` asks about identity, and these are two separate objects, so it is `False`. `a == b` calls `__eq__`, which compares labels, so it is `True`. The set discards the second tag because the two have equal hashes and compare equal, so `len` is 1.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Python implements `len()`, `print`, `==`, `<`, `+`, `for` and more by calling dunder methods on your object. You write them and let Python call them.
+- `__repr__` is the developer view and the fallback for `__str__`. `__str__` is the friendly text used by `print` and f-strings.
+- `__eq__` compares by value. If you define it, define `__hash__` as well, over the same fields, and only for objects that do not change.
+- `__lt__` is enough for `sorted`, `min`, `max` and for `>`.
+- `__len__` and `__iter__` make a class sized, loop-able and usable with `in`.
+- Return `NotImplemented`, not an exception, for operands you do not support.
