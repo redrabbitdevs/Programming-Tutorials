@@ -1,0 +1,3 @@
+module body runs as __main__
+module body runs as <fake __main__>
+result: 15

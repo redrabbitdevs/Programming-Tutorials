@@ -1,0 +1,329 @@
+---
+language: python
+level: advanced
+module: Concurrency and parallelism
+order: 19
+title: Free-threaded Python
+description: Install and detect the free-threaded build, run CPU-bound threads in parallel, and learn what changes for thread safety and extension modules when the GIL is gone.
+minVersion: "3.14"
+objectives:
+  - State the support status of the free-threaded build accurately
+  - Install a free-threaded interpreter and detect which build and GIL state are active
+  - Speed up CPU-bound threads on the free-threaded build, and measure it fairly
+  - Explain which operations on built-in types stay safe and which still need a lock
+  - Check whether an extension module has turned the GIL back on
+estimatedMinutes: 40
+fundamentals: []
+---
+
+The free-threaded build of CPython is compiled without the global interpreter lock. Threads then run Python code truly in parallel, sharing memory as they always have. This lesson shows how to get it, what it changes, and what it does not.
+
+## Status
+
+From the documentation, for Python 3.14 and 3.15:
+
+- The free-threaded build is **officially supported** since 3.14. What's New in 3.14 calls this "the start of phase II where free-threaded Python is officially supported but still optional" ([PEP 779](https://peps.python.org/pep-0779/)).
+- It is **optional and not the default**. The standard download still has a GIL.
+- Making it the default (phase III) "is still undecided".
+- Single-threaded code runs a little slower on it. The 3.15 documentation gives an average overhead of about 1% on macOS aarch64 to 8% on x86-64 Linux, on the pyperformance suite.
+
+## Getting it
+
+The free-threaded interpreter is a separate executable whose name ends in `t`, such as `python3.15t`. It installs alongside the regular one.
+
+- **uv:** `uv python install 3.15t`, then `uv run --python 3.15t script.py`.
+- **Windows:** the Python install manager installs it with a `t` tag: `py install 3.15t`.
+- **macOS:** <Since v="3.15" /> the python.org installer now installs the free-threaded build by default, as a separate `PythonT.framework`. In 3.14 it was an optional checkbox.
+- **From source:** configure with `--disable-gil`.
+
+Virtual environments work as usual: create one with `python3.15t -m venv .venv-ft`.
+
+## Which build am I on?
+
+Two different questions: was this interpreter *built* without a GIL, and is the GIL *off right now*?
+
+```python title="build_check.py"
+import sys
+import sysconfig
+
+free_threaded_build = sysconfig.get_config_var("Py_GIL_DISABLED") == 1
+print("free-threaded build:", free_threaded_build)
+print("GIL enabled now:", sys._is_gil_enabled())
+```
+
+```console
+$ python3.15 build_check.py
+free-threaded build: False
+GIL enabled now: True
+$ python3.15t build_check.py
+free-threaded build: True
+GIL enabled now: False
+$ python3.15t -X gil=1 build_check.py
+free-threaded build: True
+GIL enabled now: True
+```
+
+`-X gil=1` or the environment variable `PYTHON_GIL=1` turns the GIL back on in a free-threaded build, which is handy for comparisons. The reverse is impossible: the default build stops with `Fatal Python error: ... Disabling the GIL is not supported by this build`. `python -VV` also reports `free-threading build`. `sys._is_gil_enabled()` was added in 3.13. The leading underscore marks it as CPython-specific.
+
+## CPU-bound threads, in parallel
+
+Here is the program from [Threads](../threading/) that you were told not to write: CPU-bound work in a thread pool. It takes the number of workers from the command line:
+
+```python title="cpu_threads.py"
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+
+def count_primes(start, stop):
+    found = 0
+    for n in range(max(start, 2), stop):
+        if all(n % d for d in range(2, int(n**0.5) + 1)):
+            found += 1
+    return found
+
+
+workers = int(sys.argv[1]) if len(sys.argv) > 1 else 4
+starts = [0, 50_000, 100_000, 150_000]
+stops = [s + 50_000 for s in starts]
+
+with ThreadPoolExecutor(max_workers=workers) as pool:
+    total = sum(pool.map(count_primes, starts, stops))
+print("primes below 200000:", total)
+```
+
+```text
+primes below 200000: 17984
+```
+
+The answer is the same on every build. The time is not. One run on a 4-core Linux machine:
+
+```console
+$ time python3.15 cpu_threads.py 1     # real 0.36s
+$ time python3.15 cpu_threads.py 4     # real 0.33s
+$ time python3.15t cpu_threads.py 1    # real 0.37s
+$ time python3.15t cpu_threads.py 4    # real 0.17s
+```
+
+With the GIL, four threads are no faster than one. Without it, four threads take about half the time, and one thread is slightly slower than on the default build. Your numbers will differ, so measure on your own machine with your own workload. Run each case several times, and compare like with like: same Python version, same input, a quiet machine.
+
+## Thread safety without the GIL
+
+The free-threaded build aims to keep Python-level behaviour the same. Built-in types such as `list`, `dict` and `set` use internal per-object locks, so concurrent use **will not corrupt them or crash the interpreter**. The [thread safety guarantees](https://docs.python.org/3/builtins/threadsafety.html) page lists the details. For example, `list.append` is atomic:
+
+```python title="append_threads.py"
+import threading
+
+items = []
+
+
+def add_many(tag):
+    for i in range(10_000):
+        items.append((tag, i))  # one append is atomic on both builds
+
+
+threads = [threading.Thread(target=add_many, args=(t,)) for t in "abcd"]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+
+print(len(items), len(set(items)))
+```
+
+```text
+40000 40000
+```
+
+What was never safe is still not safe. A read-modify-write such as `count += 1` on a shared variable is several steps on any build. The GIL just made the bad interleaving rare. Without it, threads really run at the same time, and the bug shows up quickly:
+
+```python title="unsafe_counter.py"
+import threading
+
+count = 0
+
+
+def bump():
+    global count
+    for _ in range(200_000):
+        count += 1
+
+
+ts = [threading.Thread(target=bump) for _ in range(4)]
+for t in ts:
+    t.start()
+for t in ts:
+    t.join()
+print(count)
+```
+
+```console
+$ python3.15 unsafe_counter.py
+800000
+$ python3.15t unsafe_counter.py
+281940
+```
+
+The second number changes on every run. On the default build `800000` is likely but not guaranteed. The fix is the one from [Threads](../threading/): a `Lock` around the update. The docs themselves recommend `threading.Lock` "instead of relying on the internal locks of built-in types, when possible."
+
+Two more rules from the free-threading documentation:
+
+- **Sharing an iterator between threads is not safe**: threads "may see duplicate or missing elements". <Since v="3.15" /> Wrap it with `threading.serialize_iterator`, or decorate the generator function with `@threading.synchronized_iterator`.
+- **Threads inherit context.** On the free-threaded build, a new `Thread` starts with a copy of its creator's context variables, so settings made with `warnings.catch_warnings()` or a `decimal` local context carry over. On the default build it starts with an empty context.
+
+## Extension modules
+
+A C extension that has not declared free-threading support **re-enables the GIL** when it is imported, and Python prints a warning saying so. Your program still runs, but serially. After importing your dependencies, check `sys._is_gil_enabled()`. The community-maintained trackers at [py-free-threading.github.io](https://py-free-threading.github.io/tracking/) list which packages are ready. `PYTHON_GIL=0` (or `-X gil=0`) forces the GIL off regardless. With an extension that is not ready, that is at your own risk.
+
+<Since v="3.15" /> For extension authors, Python 3.15 adds a stable ABI for free-threaded builds, `abi3t` ([PEP 803](https://peps.python.org/pep-0803/)). Like the existing stable ABI, it lets one build serve later versions too, instead of one build per version such as `cp315t`.
+
+## Testing your code
+
+Run your test suite on both builds. Concurrency bugs are timing-dependent, so also add tests that hammer shared objects from many threads at once, and repeat them. A green run on the default build tells you little about the free-threaded one.
+
+## Common pitfalls
+
+**Saying the GIL is gone.** It is optional, in a separate build. The default build has it.
+
+**Assuming built-ins make your logic atomic.** One `append` is atomic. `if key not in d: d[key] = ...` is two operations.
+
+**Benchmarking one run.** Timings vary. Repeat, and compare against the default build at the same version.
+
+**Not noticing the GIL came back.** One unprepared extension turns it on for the whole process.
+
+<Exercise title="Benchmark both builds">
+Install `3.15t` (for example with uv), then run `cpu_threads.py` with 1 and 4 workers on both builds, using `time`. Record the four times.
+
+Expected: every run prints `primes below 200000: 17984`. On a machine with 4 or more cores, 4 workers should be clearly faster than 1 on `python3.15t`, and about the same as 1 on `python3.15`. Explain both results in one sentence each.
+
+<Solution>
+
+On the default build the four threads must take turns holding the GIL to run bytecode, so the work is still done one thread at a time. On the free-threaded build each thread runs on its own core, so the elapsed time falls by up to the number of cores, minus the overhead of the build and of the thread pool. If 4 workers are not faster on `python3.15t`, check `sys._is_gil_enabled()`, and check how many cores the machine really has.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix the double computation">
+`get_rate` should call the expensive rate service once per currency, but this program calls it twice. Explain why, and fix it so it prints `rate computations: 1` even when the expensive call is slow.
+
+```python title="cache_race.py"
+import threading
+
+cache = {}
+computed = []
+both_missed = threading.Barrier(2)
+
+
+def get_rate(currency):
+    if currency not in cache:          # check ...
+        both_missed.wait()             # (force the unlucky timing)
+        computed.append(currency)      # an expensive call
+        cache[currency] = 1.08         # ... then act
+    return cache[currency]
+
+
+threads = [threading.Thread(target=get_rate, args=("EUR",)) for _ in "ab"]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+
+print("rate computations:", len(computed))
+```
+
+```text
+rate computations: 2
+```
+
+<Solution>
+
+Each dictionary operation is atomic, but `not in` followed by the assignment is check-then-act: both threads see the key missing before either stores it. On the free-threaded build this happens without any barrier, because both threads really run at once. Hold one lock across the check and the store:
+
+```python title="cache_lock.py"
+import threading
+import time
+
+cache = {}
+computed = []
+cache_lock = threading.Lock()
+
+
+def get_rate(currency):
+    with cache_lock:
+        if currency not in cache:
+            time.sleep(0.05)               # the slow call, now safe
+            computed.append(currency)
+            cache[currency] = 1.08
+        return cache[currency]
+
+
+threads = [threading.Thread(target=get_rate, args=("EUR",)) for _ in "ab"]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+
+print("rate computations:", len(computed))
+```
+
+```text
+rate computations: 1
+```
+
+One lock for the whole cache serialises every lookup. With many currencies, a lock per key or `functools.cache` around a function that is safe to call twice may suit you better.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Share a generator safely">
+Four threads should consume one generator of the numbers 0 to 999, each adding the values it receives to its own slot in `totals`. Use `@threading.synchronized_iterator` so the threads never advance the generator at the same time, then print the sum of `totals` next to `sum(range(1000))`.
+
+```text
+499500 499500
+```
+
+<Solution>
+
+```python title="sync_generator.py"
+import threading
+
+
+@threading.synchronized_iterator
+def readings(count):
+    for n in range(count):
+        yield n
+
+
+source = readings(1000)
+totals = [0] * 4
+
+
+def consume(slot):
+    for value in source:
+        totals[slot] += value
+
+
+threads = [threading.Thread(target=consume, args=(i,)) for i in range(4)]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+
+print(sum(totals), sum(range(1000)))
+```
+
+```text
+499500 499500
+```
+
+Each slot of `totals` is written by one thread only, so `totals[slot] += value` needs no lock. Only the shared generator needs protection.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- The free-threaded build is officially supported since 3.14, optional, and not the default. Phase III is undecided.
+- Its executable has a `t` suffix. `sysconfig.get_config_var("Py_GIL_DISABLED")` tells you the build, and `sys._is_gil_enabled()` tells you the GIL's current state.
+- CPU-bound threads run in parallel on it. Measure, repeatedly, against the default build.
+- Built-in types will not be corrupted, but multi-step logic still needs a `Lock`. Races that were rare become common.
+- An extension without free-threading support turns the GIL back on, with a warning. <Since v="3.15" /> `abi3t` gives extension authors a stable ABI for free-threaded builds.

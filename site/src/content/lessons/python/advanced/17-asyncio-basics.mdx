@@ -1,0 +1,380 @@
+---
+language: python
+level: advanced
+module: Concurrency and parallelism
+order: 17
+title: asyncio fundamentals
+description: Write coroutines with async def and await, run them with asyncio.run and asyncio.Runner, overlap waits with tasks and gather, and push blocking calls to a thread with asyncio.to_thread.
+minVersion: "3.11"
+objectives:
+  - Explain the difference between a coroutine function, a coroutine object and a task
+  - Run async code with asyncio.run and asyncio.Runner
+  - Overlap waits with asyncio.gather and asyncio.create_task
+  - Explain cooperative scheduling and why a blocking call stalls every task
+  - Call blocking code from async code with asyncio.to_thread
+estimatedMinutes: 45
+fundamentals: []
+---
+
+Threads let the operating system decide when to switch. `asyncio` takes the opposite approach: a single thread runs many **coroutines**, and each one says explicitly where it is willing to pause. This is **cooperative** multitasking. It handles thousands of concurrent network connections cheaply, because a waiting coroutine costs a small object, not an operating-system thread. It does not make CPU-bound code faster.
+
+## Coroutine functions and coroutine objects
+
+`async def` defines a **coroutine function**. Calling it does not run its body. It returns a **coroutine object**, a paused computation that has not started yet. Something has to drive it, and `asyncio.run()` is the usual entry point:
+
+```python title="coro_object.py"
+import asyncio
+
+
+async def greet(name):
+    print("running greet")
+    return f"hello, {name}"
+
+
+coro = greet("Ada")
+print(type(coro).__name__)
+coro.close()  # we never ran it, so close it explicitly
+
+print(asyncio.run(greet("Ada")))
+```
+
+```text
+coroutine
+running greet
+hello, Ada
+```
+
+The first call printed nothing from inside `greet`: the body did not run. `asyncio.run` creates an **event loop**, runs the coroutine to completion, returns its result and closes the loop. Call it once, at the top of your program. If you forget to run a coroutine object, Python warns `coroutine 'greet' was never awaited` when it is garbage-collected. Here `close()` says we dropped it on purpose.
+
+## await
+
+Inside a coroutine, `await` runs another coroutine and gives back its result. While the awaited thing is waiting, for a timer or a socket, the event loop is free to run other coroutines. `await` is the only place where a coroutine can pause:
+
+```python title="await_chain.py"
+import asyncio
+
+
+async def fetch_user(user_id):
+    await asyncio.sleep(0.1)  # waiting, not working
+    return {"id": user_id, "name": "Ada"}
+
+
+async def fetch_orders(user):
+    await asyncio.sleep(0.1)
+    return [f"order-{user['id']}-{n}" for n in (1, 2)]
+
+
+async def main():
+    user = await fetch_user(42)
+    orders = await fetch_orders(user)
+    print(user["name"], orders)
+
+
+asyncio.run(main())
+```
+
+```text
+Ada ['order-42-1', 'order-42-2']
+```
+
+`asyncio.sleep` stands in for real I/O here. Note what `await` does *not* do: it does not start anything in the background. This program runs the two steps one after another and takes 0.2 seconds, which is right, since the orders need the user. `await` can only appear inside `async def`.
+
+## Running coroutines concurrently
+
+To overlap waits, give the event loop several coroutines at once. `asyncio.gather` takes coroutines, runs them concurrently and returns their results in argument order. To show the switching, these coroutines pause with `await asyncio.sleep(0)`, which means "let the others run, then continue":
+
+```python title="gather_steps.py"
+import asyncio
+
+
+async def count_down(name, start):
+    for n in range(start, 0, -1):
+        print(name, n)
+        await asyncio.sleep(0)  # let the other coroutines run
+    return f"{name} done"
+
+
+async def main():
+    results = await asyncio.gather(
+        count_down("A", 3),
+        count_down("B", 2),
+    )
+    print(results)
+
+
+asyncio.run(main())
+```
+
+```text
+A 3
+B 2
+A 2
+B 1
+A 1
+['A done', 'B done']
+```
+
+The loop runs a coroutine until it reaches an `await` that pauses, then moves on to the next ready one. The switches happen **only** at those `await` points, which makes the order predictable. It also explains asyncio's main risk: code that never awaits never lets anything else run.
+
+## Tasks
+
+`asyncio.create_task` wraps a coroutine in a **task** and schedules it to start as soon as the current coroutine pauses. You get the task back immediately and can await it later:
+
+```python title="create_task_demo.py"
+import asyncio
+
+
+async def brew(drink, steps):
+    for step in range(1, steps + 1):
+        await asyncio.sleep(0)
+    print(drink, "ready")
+    return drink
+
+
+async def main():
+    tea = asyncio.create_task(brew("tea", 3))
+    coffee = asyncio.create_task(brew("coffee", 1))
+    print("both tasks scheduled")
+    print("got", await tea)
+    print("got", await coffee)
+
+
+asyncio.run(main())
+```
+
+```text
+both tasks scheduled
+coffee ready
+tea ready
+got tea
+got coffee
+```
+
+Both tasks started as soon as `main` paused at `await tea`, so coffee finished first even though we awaited tea first. By the time we awaited `coffee`, its result was waiting. `gather` creates tasks like these for you. [Structured concurrency](../asyncio-structured/) shows `TaskGroup`, a safer way to manage many tasks.
+
+## Blocking calls and to_thread
+
+Because switching only happens at `await`, a call that blocks, such as `time.sleep()`, `requests.get()` or a heavy computation, freezes **every** task until it returns. Use the async version of a library when one exists. When it does not, `asyncio.to_thread` runs the blocking function in a worker thread and gives you something to await. The barrier proves the two calls really overlap, as in [the first lesson](../concurrency-models/):
+
+```python title="to_thread_demo.py"
+import asyncio
+import threading
+
+both_running = threading.Barrier(2)
+
+
+def read_sensor(sensor):
+    """A blocking function, such as a call into a sync library."""
+    both_running.wait(timeout=1)  # fails unless both calls overlap
+    return f"{sensor}: 21.5"
+
+
+async def main():
+    readings = await asyncio.gather(
+        asyncio.to_thread(read_sensor, "kitchen"),
+        asyncio.to_thread(read_sensor, "garage"),
+    )
+    print(readings)
+
+
+asyncio.run(main())
+```
+
+```text
+['kitchen: 21.5', 'garage: 21.5']
+```
+
+`to_thread` uses threads, so on the default build it helps with waiting, not with CPU-bound work.
+
+## asyncio.Runner
+
+`asyncio.run` creates a new event loop each time. When a program needs several top-level calls to share one loop, for example a connection made in one call and used in the next, use `asyncio.Runner` as a context manager:
+
+```python title="runner_demo.py"
+import asyncio
+
+
+async def connect():
+    await asyncio.sleep(0)
+    return asyncio.get_running_loop()
+
+
+async def query(sql):
+    await asyncio.sleep(0)
+    return asyncio.get_running_loop(), f"rows for {sql!r}"
+
+
+with asyncio.Runner() as runner:
+    first_loop = runner.run(connect())
+    second_loop, rows = runner.run(query("SELECT 1"))
+
+print(rows)
+print("same loop:", first_loop is second_loop)
+```
+
+```text
+rows for 'SELECT 1'
+same loop: True
+```
+
+`Runner` arrived in Python 3.11, which is why this lesson needs 3.11. Both `asyncio.run` and `Runner` take a `loop_factory` argument to choose an event loop implementation. Older tutorials use `asyncio.set_event_loop_policy()` for that. <Since v="3.14" /> The whole policy system is deprecated and is due for removal in Python 3.16, so use `loop_factory` instead. Older code also calls `asyncio.get_event_loop()` at the top level to create a loop. Since 3.14 that raises `RuntimeError` when no loop is running, so use `asyncio.run` or `Runner`.
+
+## Common pitfalls
+
+**Forgetting `await`.** Calling a coroutine function without `await` gives you a coroutine object, not a result, and the body never runs.
+
+**Calling blocking functions in a coroutine.** `time.sleep(1)` stops every task for a second. Use `await asyncio.sleep(1)`, an async library, or `asyncio.to_thread`.
+
+**Expecting `await` to run things in the background.** Sequential `await`s run one after another. Use `gather` or tasks to overlap them.
+
+**Calling `asyncio.run` inside a coroutine.** It raises `RuntimeError`, because a loop is already running. Inside async code, just `await`.
+
+<Exercise title="Kitchen timers">
+Write a coroutine `timer(name, seconds)` that waits `seconds`, prints `<name> done` and returns `seconds`. Run timers for tea (0.3 s), toast (0.1 s) and egg (0.2 s) concurrently with `gather`, then print the results and the longest timer. The program should take about 0.3 seconds, not 0.6.
+
+```text
+toast done
+egg done
+tea done
+results: [0.3, 0.1, 0.2]
+longest timer: 0.3 s
+```
+
+<Solution>
+
+```python title="kitchen_timers.py"
+import asyncio
+
+
+async def timer(name, seconds):
+    await asyncio.sleep(seconds)
+    print(name, "done")
+    return seconds
+
+
+async def main():
+    results = await asyncio.gather(
+        timer("tea", 0.3),
+        timer("toast", 0.1),
+        timer("egg", 0.2),
+    )
+    print("results:", results)
+    print("longest timer:", max(results), "s")
+
+
+asyncio.run(main())
+```
+
+```text
+toast done
+egg done
+tea done
+results: [0.3, 0.1, 0.2]
+longest timer: 0.3 s
+```
+
+The timers finish in order of duration, but `gather` returns the results in argument order.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Debug the missing total">
+This program should print `total is 3`. Explain what it prints instead, and fix it.
+
+```python title="forgot_await.py"
+import asyncio
+
+
+async def add(a, b):
+    await asyncio.sleep(0)
+    return a + b
+
+
+async def main():
+    total = add(1, 2)
+    print("total is a", type(total).__name__)
+
+
+asyncio.run(main())
+```
+
+```text
+total is a coroutine
+```
+
+Python also writes `RuntimeWarning: coroutine 'add' was never awaited` to standard error.
+
+<Solution>
+
+`add(1, 2)` only creates a coroutine object. Its body never ran, and the warning appears when the unused object is collected. Add `await`:
+
+```python title="forgot_await_fixed.py"
+import asyncio
+
+
+async def add(a, b):
+    await asyncio.sleep(0)
+    return a + b
+
+
+async def main():
+    total = await add(1, 2)
+    print("total is", total)
+
+
+asyncio.run(main())
+```
+
+```text
+total is 3
+```
+
+</Solution>
+</Exercise>
+
+<Exercise title="Wrap a blocking function">
+`slow_square(n)` blocks for 0.2 seconds, and you cannot change it. From async code, compute the squares of 1 to 4 concurrently, so the program takes about 0.2 seconds rather than 0.8.
+
+```text
+[1, 4, 9, 16]
+```
+
+<Solution>
+
+```python title="blocking_squares.py"
+import asyncio
+import time
+
+
+def slow_square(n):
+    time.sleep(0.2)  # a blocking call we cannot change
+    return n * n
+
+
+async def main():
+    squares = await asyncio.gather(
+        *(asyncio.to_thread(slow_square, n) for n in range(1, 5))
+    )
+    print(squares)
+
+
+asyncio.run(main())
+```
+
+```text
+[1, 4, 9, 16]
+```
+
+Calling `slow_square` directly inside `main` would also print the right answer, but would take 0.8 seconds and block the event loop the whole time.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `async def` defines a coroutine function. Calling it creates a coroutine object, and nothing runs until it is awaited or scheduled.
+- `asyncio.run(main())` starts an event loop, runs `main` and closes the loop. `asyncio.Runner` keeps one loop for several calls.
+- `await` runs a coroutine and is the only place a coroutine can pause and let others run.
+- `asyncio.gather` and `asyncio.create_task` run coroutines concurrently. `gather` returns results in argument order.
+- A blocking call freezes the whole loop. Use async libraries, or `asyncio.to_thread` for blocking code.
+- <Since v="3.14" /> The event loop policy API is deprecated, with removal planned for 3.16. Use `loop_factory`.

@@ -1,0 +1,4 @@
+/blog  timed out
+/home  status 200
+/news  status 200
+/shop  error: connection refused

@@ -1,0 +1,2 @@
+[2, 4, 6]
+PicklingError: a lambda cannot be sent to a worker

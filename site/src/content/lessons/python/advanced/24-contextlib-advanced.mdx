@@ -194,7 +194,7 @@ Before 3.15, the decorator wrapped only the call that creates the generator obje
 
 ## Async context managers
 
-An `async with` block awaits its entry and exit steps, which suits connections and other resources that need I/O to open or close. `@asynccontextmanager` works like `@contextmanager`, on an `async def` generator:
+An `async with` block awaits its entry and exit steps (see [asyncio fundamentals](../asyncio-basics/)), which suits connections and other resources that need I/O to open or close. `@asynccontextmanager` works like `@contextmanager`, on an `async def` generator:
 
 ```python title="async_cm.py"
 import asyncio

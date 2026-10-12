@@ -1,0 +1,3 @@
+Ada 30
+NotShareableError: ['admin', 'dev'] does not support cross-interpreter data
+ExecutionFailed: NameError: name 'missing_name' is not defined

@@ -1,0 +1,2 @@
+workers=3: ['reply', 'reply', 'reply']
+workers=1: the three waits never overlapped

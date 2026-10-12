@@ -1,0 +1,388 @@
+---
+language: python
+level: advanced
+module: Concurrency and parallelism
+order: 20
+title: Multiple interpreters
+description: Create isolated interpreters in one process with concurrent.interpreters, move data between them, and run CPU-bound work in parallel with InterpreterPoolExecutor.
+minVersion: "3.14"
+objectives:
+  - Explain what an interpreter is and what isolation between interpreters means
+  - Run code in another interpreter with exec, call and call_in_thread
+  - Predict which objects are shared, copied or refused when they cross between interpreters
+  - Pass messages between interpreters with a cross-interpreter queue
+  - Parallelise CPU-bound work with InterpreterPoolExecutor and handle its errors
+estimatedMinutes: 40
+fundamentals: []
+---
+
+A Python process normally contains one **interpreter**: the complete runtime state, with its own modules, builtins, `sys` and `__main__`. CPython has been able to host several of them in one process for a long time, but only through the C API. Python 3.14 added a standard library module for it, `concurrent.interpreters` ([PEP 734](https://peps.python.org/pep-0734/)), and `InterpreterPoolExecutor` on top.
+
+Two facts make interpreters interesting for concurrency. They are **isolated**, almost like processes, so there is no shared state to race on. And since Python 3.12 each one can have **its own GIL**, so threads running in different interpreters run in parallel, even on the default build. The cost: data has to be copied between them, and some extension modules do not support them yet.
+
+## Creating an interpreter
+
+`interpreters.create()` returns an `Interpreter`. Its `exec()` method runs source code in that interpreter, in the current thread:
+
+```python title="interp_basic.py"
+from concurrent import interpreters
+
+interp = interpreters.create()
+print("interpreters:", len(interpreters.list_all()))
+
+interp.exec("""
+import sys
+answer = 6 * 7
+print("inside:", answer, sys.version_info >= (3, 14))
+""")
+interp.exec("print('still there:', answer)")
+
+interp.close()
+print("interpreters:", len(interpreters.list_all()))
+```
+
+```text
+interpreters: 2
+inside: 42 True
+still there: 42
+interpreters: 1
+```
+
+The code ran in the new interpreter's own `__main__` module, which keeps its variables between calls. It imported its own copy of `sys`. `close()` destroys the interpreter. Close every interpreter you create, or Python warns about the leftovers at exit.
+
+## Calling functions
+
+`interp.call(func, *args)` runs a function in the other interpreter and returns its result. Arguments and the result are **copied**, and module-level variables are separate:
+
+```python title="interp_isolated.py"
+from concurrent import interpreters
+
+visits = 0
+
+
+def visit():
+    global visits
+    visits += 1
+    return visits
+
+
+def enable_debug(config):
+    config["debug"] = True
+    return config
+
+
+if __name__ == "__main__":
+    interp = interpreters.create()
+    print("sub:", interp.call(visit), interp.call(visit))
+    print("main:", visit())
+
+    settings = {"debug": False}
+    print(interp.call(enable_debug, settings), settings)
+    interp.close()
+```
+
+```text
+sub: 1 2
+main: 1
+{'debug': True} {'debug': False}
+```
+
+The sub-interpreter counted its own `visits`. The main interpreter's counter started from zero. The dictionary was copied in, changed there, and copied back as the result, while `settings` stayed as it was. This copy-in, copy-out behaviour is the same as with [processes](../multiprocessing/).
+
+## The main guard, again
+
+Why the `if __name__ == "__main__":` guard? When a function uses module globals, like `visit`, the other interpreter needs the module the function came from. For a function in your script, that means importing the script there:
+
+```python title="fake_main.py"
+from concurrent import interpreters
+
+print("module body runs as", __name__)
+RATE = 3
+
+
+def scale(x):
+    return x * RATE  # reads a global, so the module is imported there
+
+
+if __name__ == "__main__":
+    interp = interpreters.create()
+    print("result:", interp.call(scale, 5))
+    interp.close()
+```
+
+```text
+module body runs as __main__
+module body runs as <fake __main__>
+result: 15
+```
+
+The script's top level ran a second time, inside the other interpreter, under the name `<fake __main__>`. Without the guard, the interpreter-creating code would run again too. Follow the same rule as for process pools: definitions at module level, work under the guard.
+
+## What can cross
+
+The documentation calls this "sharing" in quotes, because mostly it is copying:
+
+- `None`, `bool`, `int`, `float`, `str`, `bytes`, and tuples of these are shared directly or copied efficiently.
+- `memoryview` and interpreter queues **really share** their data.
+- With `call()`, other arguments and results are copied with pickle.
+- `prepare_main()`, which binds names in the other interpreter's `__main__`, is stricter. In 3.15 it refuses objects outside the efficient list, such as a list.
+
+```python title="interp_share.py"
+from concurrent import interpreters
+
+interp = interpreters.create()
+interp.prepare_main(user="ada", limits=(10, 20))
+interp.exec("print(user.title(), sum(limits))")
+
+try:
+    interp.prepare_main(tags=["admin", "dev"])
+except interpreters.NotShareableError as error:
+    print("NotShareableError:", error)
+
+try:
+    interp.exec("print(missing_name)")
+except interpreters.ExecutionFailed as error:
+    print("ExecutionFailed:", error.excinfo.formatted)
+
+interp.close()
+```
+
+```text
+Ada 30
+NotShareableError: ['admin', 'dev'] does not support cross-interpreter data
+ExecutionFailed: NameError: name 'missing_name' is not defined
+```
+
+An exception inside `exec()` cannot cross as an object either. It arrives as `ExecutionFailed`, and its `excinfo` holds a summary: the type, the message and the formatted text.
+
+## Queues and threads
+
+On their own, interpreters give isolation, not concurrency: `exec` and `call` run in the current thread. `call_in_thread()` starts a new thread, switches it to the interpreter, runs the function and returns the `threading.Thread`. For results, `interpreters.create_queue()` makes a queue that every interpreter can use, with the familiar `put` and `get`:
+
+```python title="interp_queue.py"
+from concurrent import interpreters
+
+
+def count_words(text, queue):
+    queue.put((text.split()[0], len(text.split())))
+
+
+if __name__ == "__main__":
+    results = interpreters.create_queue()
+    texts = ["red green blue", "one two", "solo"]
+    workers = [interpreters.create() for _ in texts]
+    threads = [
+        interp.call_in_thread(count_words, text, results)
+        for interp, text in zip(workers, texts)
+    ]
+    for thread in threads:
+        thread.join()
+
+    print(sorted(results.get() for _ in texts))
+    for interp in workers:
+        interp.close()
+```
+
+```text
+[('one', 2), ('red', 3), ('solo', 1)]
+```
+
+Three threads, three interpreters, three GILs. The items put on the queue were copied, the same way as `call()` arguments. The order they arrive in varies, so the program sorts them.
+
+## InterpreterPoolExecutor
+
+Most of the time you want none of this plumbing. `concurrent.futures.InterpreterPoolExecutor` is a `ThreadPoolExecutor` in which each worker thread has its own interpreter. Its docs put the benefit plainly: "code run with this executor has true multi-core parallelism".
+
+```python title="interp_pool.py"
+from concurrent.futures import InterpreterPoolExecutor
+
+
+def collatz_steps(n):
+    steps = 0
+    while n != 1:
+        n = n // 2 if n % 2 == 0 else 3 * n + 1
+        steps += 1
+    return steps
+
+
+def check(n):
+    if n <= 0:
+        raise ValueError(f"not a positive number: {n}")
+    return collatz_steps(n)
+```
+
+```python title="interp_pool.py (continued)"
+if __name__ == "__main__":
+    with InterpreterPoolExecutor(max_workers=4) as pool:
+        print(list(pool.map(check, [6, 7, 27, 97])))
+        try:
+            pool.submit(check, -5).result()
+        except ValueError as error:
+            print("ValueError:", error)
+            print("cause:", type(error.__cause__).__name__)
+```
+
+```text
+[8, 16, 111, 118]
+ValueError: not a positive number: -5
+cause: ExecutionFailed
+```
+
+The worker re-raised the original `ValueError` and attached an `ExecutionFailed` summary as its `__cause__`, so your existing `except` clauses work unchanged.
+
+## Interpreters, processes or threads?
+
+| | Threads | Interpreters | Processes |
+|---|---|---|---|
+| Parallel Python on the default build | No | Yes | Yes |
+| Shared mutable objects | Yes | No | No |
+| Start-up and memory cost | Lowest | Low | Highest |
+| A crash in C code kills | Everything | Everything | One worker |
+| Extension module support | All | Not all yet | All |
+
+Interpreters sit between the other two. They are cheaper than processes, and free of data races because nothing mutable is shared. Two warnings from the docs: isolation is best-effort inside one process, so "do not use multiple interpreters in security-sensitive situations". And not all PyPI packages support them yet. Modules that are not ready fail with an `ImportError` when imported in a sub-interpreter.
+
+## Common pitfalls
+
+**Expecting module state to carry over.** Each interpreter imports its own copy of every module. Configuration set in the main interpreter is invisible elsewhere. Pass it as an argument.
+
+**Forgetting `close()`.** Every interpreter you create keeps its modules in memory until you close it.
+
+**Treating isolation as a security boundary.** For untrusted code, use separate processes or stronger sandboxing.
+
+**Missing the main guard.** Functions that use globals make the other interpreter import your script.
+
+<Exercise title="Isolated word statistics">
+Use `InterpreterPoolExecutor` to compute, for each of four texts, the number of words and the longest word. Print one line per text, in input order.
+
+```text
+4 words, longest 'quick'         <- the quick brown fox
+5 words, longest 'jumps'         <- jumps over the lazy dog
+4 words, longest 'concurrency'   <- concurrency is not parallelism
+4 words, longest 'isolation'     <- isolation makes sharing explicit
+```
+
+<Solution>
+
+```python title="word_stats.py"
+from concurrent.futures import InterpreterPoolExecutor
+
+TEXTS = [
+    "the quick brown fox",
+    "jumps over the lazy dog",
+    "concurrency is not parallelism",
+    "isolation makes sharing explicit",
+]
+
+
+def stats(text):
+    words = text.split()
+    return len(words), max(words, key=len)
+
+
+if __name__ == "__main__":
+    with InterpreterPoolExecutor(max_workers=4) as pool:
+        for text, (count, longest) in zip(TEXTS, pool.map(stats, TEXTS)):
+            print(f"{count} words, longest {longest!r:15} <- {text}")
+```
+
+```text
+4 words, longest 'quick'         <- the quick brown fox
+5 words, longest 'jumps'         <- jumps over the lazy dog
+4 words, longest 'concurrency'   <- concurrency is not parallelism
+4 words, longest 'isolation'     <- isolation makes sharing explicit
+```
+
+`max` with `key=len` returns the first of several equally long words, which is why `quick` beats `brown`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Debug the lost setting">
+The program sets `UNIT = "km"` before starting the pool, but the workers still label everything in metres. Explain why, and fix it so it prints `['5 km', '12 km']`.
+
+```python title="pool_config_bug.py"
+from concurrent.futures import InterpreterPoolExecutor
+
+UNIT = "m"
+
+
+def label(value):
+    return f"{value} {UNIT}"
+
+
+if __name__ == "__main__":
+    UNIT = "km"  # meant to apply to every worker
+    with InterpreterPoolExecutor(max_workers=2) as pool:
+        print(list(pool.map(label, [5, 12])))
+```
+
+```text
+['5 m', '12 m']
+```
+
+<Solution>
+
+`label` reads a global, so each worker imports the script as `<fake __main__>`. That import runs the top level, which sets `UNIT = "m"`, but not the guarded block, so the workers never see `"km"`. The assignment only changed the main interpreter's copy. Pass the setting with the call instead:
+
+```python title="pool_config_fixed.py"
+import functools
+from concurrent.futures import InterpreterPoolExecutor
+
+
+def label(value, unit):
+    return f"{value} {unit}"
+
+
+if __name__ == "__main__":
+    in_km = functools.partial(label, unit="km")  # the setting travels along
+    with InterpreterPoolExecutor(max_workers=2) as pool:
+        print(list(pool.map(in_km, [5, 12])))
+```
+
+```text
+['5 km', '12 km']
+```
+
+The same bug and the same fix apply to `ProcessPoolExecutor` with the `spawn` and `forkserver` start methods.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the copies">
+Predict the line this prints.
+
+```python title="predict_copies.py"
+from concurrent import interpreters
+
+
+def grow(items):
+    items.append("new")
+    return len(items)
+
+
+if __name__ == "__main__":
+    interp = interpreters.create()
+    stock = ["a", "b"]
+    print(interp.call(grow, stock), interp.call(grow, stock), stock)
+    interp.close()
+```
+
+<Solution>
+
+```text
+3 3 ['a', 'b']
+```
+
+Each call receives a fresh copy of `stock` with two items and appends to that copy, so both return `3`. The original list never changes. With a thread pool you would get `3 4 ['a', 'b', 'new', 'new']`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `concurrent.interpreters` (3.14) creates isolated interpreters in one process. Each has its own modules and, since 3.12, its own GIL.
+- `exec()` runs source code and `call()` runs a function, both in the current thread. `call_in_thread()` uses a new thread.
+- Immutable built-ins cross efficiently, queues and `memoryview` really share, and `call()` pickles everything else. A failure arrives as `ExecutionFailed`.
+- Functions that use globals make the other interpreter import your script, so keep the main guard.
+- `InterpreterPoolExecutor` gives parallel CPU-bound Python behind the familiar executor interface, and re-raises workers' exceptions.
