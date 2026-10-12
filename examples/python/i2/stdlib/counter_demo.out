@@ -1,0 +1,3 @@
+Counter({'tea': 3, 'coffee': 2, 'juice': 1})
+3 0
+[('tea', 3), ('coffee', 2)]

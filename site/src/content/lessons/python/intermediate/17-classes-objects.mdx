@@ -407,7 +407,7 @@ The checks come before the change to `self.balance`, so a refused request leaves
 Read this program and write down both printed lines before you run it. Say why the last line prints what it does.
 
 ```python title="c16_ex_predict.py"
-class Counter:
+class TallyCounter:
     total = 0
 
     def __init__(self):
@@ -415,15 +415,15 @@ class Counter:
 
     def hit(self):
         self.count = self.count + 1
-        Counter.total = Counter.total + 1
+        TallyCounter.total = TallyCounter.total + 1
 
 
-a = Counter()
-b = Counter()
+a = TallyCounter()
+b = TallyCounter()
 a.hit()
 a.hit()
 b.hit()
-print(a.count, b.count, Counter.total)
+print(a.count, b.count, TallyCounter.total)
 print(a.total)
 ```
 
@@ -434,7 +434,7 @@ print(a.total)
 3
 ```
 
-`count` is an instance attribute: `a` hit twice and `b` once. `total` is a class attribute updated through `Counter.total`, so all three hits land in the same counter. The last line, `a.total`, finds no `total` on the instance and falls back to the class attribute, which is 3.
+`count` is an instance attribute: `a` hit twice and `b` once. `total` is a class attribute updated through `TallyCounter.total`, so all three hits land in the same counter. The last line, `a.total`, finds no `total` on the instance and falls back to the class attribute, which is 3.
 
 </Solution>
 </Exercise>

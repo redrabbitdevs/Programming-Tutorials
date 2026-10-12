@@ -218,11 +218,11 @@ print(repr(raw.decode("utf-8-sig")))
 ```
 
 ```text
-'﻿name,age\n'
+'\ufeffname,age\n'
 'name,age\n'
 ```
 
-If the first column name of a CSV file mysteriously fails to match, a hidden `﻿` is the first thing to check.
+If the first column name of a CSV file mysteriously fails to match, a hidden `\ufeff` (the byte order mark) is the first thing to check.
 
 ## Newlines
 

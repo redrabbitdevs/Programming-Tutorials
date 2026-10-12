@@ -259,6 +259,8 @@ Neither module has loaded at the first `print`. `json.dumps({})` uses `json`, wh
 
 For each statement, say whether it is allowed in Python 3.15, assuming it is at the top of a file unless stated otherwise: `lazy import os`, `lazy from os import path`, `lazy from os import *`, `lazy import json` inside a function, `import lazy`.
 
+Expected: five lines in the form `statement: allowed` or `statement: SyntaxError`.
+
 <Solution>
 
 - `lazy import os`: allowed.
@@ -272,19 +274,36 @@ For each statement, say whether it is allowed in Python 3.15, assuming it is at 
 
 <Exercise title="Measure a CLI before and after">
 
-Take a command-line script of your own (the word counter will do) that imports at least three standard library modules at the top. Measure it with `python -X importtime script.py 2>&1`, note the slowest cumulative import, then mark the imports that are not needed on every run as `lazy` and measure again. Report which modules disappear from the output on a run that does not need them, and by how much the sum of the top-level import lines changed.
+Save this script as `startup.py`. It imports two modules and uses neither:
+
+```python title="startup.py"
+import json
+import statistics
+
+print("ok")
+```
+
+Count how many lines of `python -X importtime startup.py 2>&1` end in `json` or `statistics`, with `grep -cE '\| +(json|statistics)$'`. Then change both imports to `lazy import`, and count again.
+
+Expected: the script prints `ok` both times. The count is `2` before the change and `0` after it.
 
 <Solution>
 
-There is no single right answer, but the method is:
-
 ```console
-$ python -X importtime script.py 2>&1 | sort -t'|' -k2 -n | tail -5
+$ python -X importtime startup.py 2>&1 | grep -cE '\| +(json|statistics)$'
+2
 ```
 
-That lists the five largest cumulative times. Pick the large modules that only some code paths use, such as `argparse` subcommands, `zipfile`, `asyncio`, `statistics` or `decimal`, and change `import x` to `lazy import x` for those. Run again on a path that does not need them: those modules should no longer appear in the output, and the total of the cumulative column for top-level imports should drop by roughly their former cost. Repeat each measurement several times, since a single run varies.
+After changing the first two lines to `lazy import json` and `lazy import statistics`:
 
-If a module you made lazy still appears at start-up, something else imports it eagerly. A different module in your program or one of your dependencies is the usual cause. Lazy imports only defer your own import statements.
+```console
+$ python -X importtime startup.py 2>&1 | grep -cE '\| +(json|statistics)$'
+0
+```
+
+The modules are never used, so a lazy import never loads them, and their lines vanish from the report. The cumulative times in the report differ from run to run, which is why the exercise counts lines instead.
+
+If a module you made lazy still appears at start-up, something else imports it eagerly, such as another module in your program or one of your dependencies. Lazy imports only defer your own import statements.
 
 </Solution>
 </Exercise>

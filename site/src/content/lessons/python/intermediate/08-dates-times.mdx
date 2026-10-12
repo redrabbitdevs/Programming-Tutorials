@@ -157,9 +157,9 @@ True
 
 `sep` changes the letter between date and time, and `timespec` chooses how much of the time to print. The round trip returns an equal value, with no format string to get wrong.
 
-### Wider ISO input <Since v="3.11" />
+### Wider ISO input
 
-Before 3.11, `fromisoformat` only read what `isoformat` writes. From Python 3.11 it accepts most ISO 8601 forms, including the compact style, a trailing `Z` for UTC, and week dates:
+<Since v="3.11" /> Before 3.11, `fromisoformat` only read what `isoformat` writes. From Python 3.11 it accepts most ISO 8601 forms, including the compact style, a trailing `Z` for UTC, and week dates:
 
 ```python title="dt_iso_311.py"
 from datetime import datetime
@@ -265,9 +265,9 @@ The output of `now()` changes every second, so the example prints only what stay
 
 `datetime.now()` with no argument returns a naive value in the computer's local zone. That is fine for a quick script, but such a value is a trap as soon as the program moves to a server in another zone.
 
-### The old UTC functions <Since v="3.12" />
+### The old UTC functions
 
-Older code uses `datetime.utcnow()` and `datetime.utcfromtimestamp()` to get UTC. Both are **deprecated since Python 3.12**: they still work, and they warn. The problem is that they return *naive* values, so the clock reading says UTC but nothing in the object does, and a later `.timestamp()` or comparison treats it as local time:
+<Since v="3.12" /> Older code uses `datetime.utcnow()` and `datetime.utcfromtimestamp()` to get UTC. Both are **deprecated since Python 3.12**: they still work, and they warn. The problem is that they return *naive* values, so the clock reading says UTC but nothing in the object does, and a later `.timestamp()` or comparison treats it as local time:
 
 ```python title="dt_utcnow_deprecated.py"
 import warnings

@@ -5,7 +5,7 @@ module: Modules, packages and tooling
 order: 11
 title: Virtual environments and pip
 description: Create an isolated environment for each project, install third-party packages into it with pip, and record what you installed so someone else can repeat it.
-minVersion: "3.11"
+minVersion: "3.8"
 objectives:
   - Create and use a virtual environment with python -m venv
   - Install, list, upgrade and remove packages with pip
@@ -154,6 +154,8 @@ On many Linux distributions and on some macOS setups, running `pip install` agai
 
 Run `where_am_i.py` twice, once with the environment activated and once after `deactivate`. Then run it a third time without activating, but by calling the environment's interpreter directly by path. Which of the three print "virtual environment"?
 
+Expected: three lines, one per run in the order described, each reading `virtual environment: ...` or `base installation: ...`.
+
 <Solution>
 
 The first and the third:
@@ -177,6 +179,13 @@ The interpreter at `.venv/bin/python` knows it lives in an environment from its 
 <Exercise title="Create, install, freeze, rebuild">
 
 In a new empty folder, create a virtual environment, install `requests`, and run `check_requests.py`. Write `requirements.txt` with `pip freeze`. Then delete `.venv` entirely, recreate it, install from the requirements file, and run the script again. It should print `200` both times.
+
+Expected: `requirements.txt` contains a line starting `requests==`, and the two runs of the script print:
+
+```text
+200
+200
+```
 
 <Solution>
 
@@ -204,6 +213,8 @@ On Windows, delete the folder with `rmdir /s /q .venv` in cmd.exe, and use the W
 <Exercise title="Installed it, still can't import it">
 
 A learner runs `pip install requests` and sees "Successfully installed". They then run `python check_requests.py` and get `ModuleNotFoundError: No module named 'requests'`. Give two likely causes and the single command that settles it.
+
+Expected: two causes in one sentence each, and one command line of the form `python -m pip install requests`, after which `python check_requests.py` prints `200`.
 
 <Solution>
 

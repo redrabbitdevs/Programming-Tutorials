@@ -163,7 +163,7 @@ print(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False))
 ```
 
 ```text
-{"city": "Zürich", "b": 1, "a": [2, 3]}
+{"city": "Z\u00fcrich", "b": 1, "a": [2, 3]}
 {
   "a": [
     2,
@@ -174,7 +174,7 @@ print(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False))
 }
 ```
 
-`indent=2` spreads the text over lines, `sort_keys=True` orders the keys so that two runs give identical text, and `ensure_ascii=False` keeps `ü` as itself instead of the escape `ü`. Both forms are valid JSON.
+`indent=2` spreads the text over lines, `sort_keys=True` orders the keys so that two runs give identical text, and `ensure_ascii=False` keeps `ü` as itself instead of the escape `\u00fc`. Both forms are valid JSON.
 
 ### JSON files
 

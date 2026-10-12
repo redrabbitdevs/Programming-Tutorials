@@ -5,7 +5,7 @@ module: Object-oriented Python
 order: 23
 title: Dataclasses
 description: Generate __init__, __repr__ and __eq__ from a list of annotated fields, then add frozen, slots and keyword-only options as needed.
-minVersion: "3.8"
+minVersion: "3.10"
 objectives:
   - Declare a class's fields with @dataclass and use the generated __init__, __repr__ and __eq__
   - Give fields defaults, including mutable ones with default_factory
@@ -283,9 +283,9 @@ Item(name='pen', quantity=10) Item(name='pen', quantity=7)
 
 On older versions, `dataclasses.replace` is the one to use. It is also the clearer name when you know you have a dataclass.
 
-## Smaller instances: slots=True <Since v="3.10" />
+## Smaller instances: slots=True
 
-Normally each instance stores its attributes in a dictionary, which is what lets you attach new attributes at any time. With `slots=True` <Since v="3.10" />, Python generates a `__slots__` declaration instead. Instances become smaller and a little faster to use, and they no longer accept attributes the class did not declare:
+Normally each instance stores its attributes in a dictionary, which is what lets you attach new attributes at any time. With `slots=True`, Python generates a `__slots__` declaration instead. Instances become smaller and a little faster to use, and they no longer accept attributes the class did not declare:
 
 ```python title="c22_slots.py"
 from dataclasses import dataclass
@@ -312,9 +312,9 @@ AttributeError: no room for a new attribute
 
 This also closes the typo trap from the first lesson: `p.z = 3` is an error, not a new attribute.
 
-## Keyword-only fields: kw_only=True <Since v="3.10" />
+## Keyword-only fields: kw_only=True
 
-Dataclasses with many fields are hard to read at the call site: `Connection("db", 5432, False)` says nothing about which value is which. `kw_only=True` <Since v="3.10" /> makes every field keyword-only in the generated `__init__`:
+Dataclasses with many fields are hard to read at the call site: `Connection("db", 5432, False)` says nothing about which value is which. `kw_only=True` makes every field keyword-only in the generated `__init__`:
 
 ```python title="c22_kw_only.py"
 from dataclasses import dataclass
@@ -522,4 +522,4 @@ False
 - Use `field(default_factory=list)` for mutable defaults. A plain mutable default is an error.
 - `__post_init__` runs after the generated `__init__`, which makes it the place to validate.
 - `order=True` adds comparisons. `frozen=True` makes the instance immutable and hashable. `dataclasses.replace` makes a changed copy, and `copy.replace()` <Since v="3.13" /> does the same.
-- `slots=True` <Since v="3.10" /> and `kw_only=True` <Since v="3.10" /> reduce memory and clarify calls.
+- `slots=True` and `kw_only=True` reduce memory and clarify calls.

@@ -11,3 +11,4 @@ def pairs_from(rows):
 
 print(list(pairs([(1, 2), (3, 4)])))
 print(list(pairs_from([(1, 2), (3, 4)])))
+print(list(pairs_from([(1, 2, 3), (), (4,)])))

@@ -192,7 +192,7 @@ True
 
 An `IntEnum` member equals its integer, sorts as an integer, and takes part in arithmetic. That convenience has a cost. The member can now be compared with any unrelated integer, which loses the protection of the plain `Enum`. Reach for `IntEnum` only when you need the integer behaviour.
 
-## StrEnum <Since v="3.11" />
+## StrEnum
 
 `StrEnum` is the same idea for strings. <Since v="3.11" /> Its members are strings, so they compare with text, work in f-strings, and have all the string methods. With `auto()`, the value is the lower-case member name:
 
@@ -256,7 +256,7 @@ Inside the methods, `self` is a member, which is why `self in (Weekday.SAT, Week
 
 ## Branching with match
 
-Enum members work well with `match`. Write them as dotted names, `Light.RED`, so Python compares against the member:
+<Since v="3.10" /> Enum members work well with `match`. Write them as dotted names, `Light.RED`, so Python compares against the member:
 
 ```python title="c23_match.py"
 from enum import Enum

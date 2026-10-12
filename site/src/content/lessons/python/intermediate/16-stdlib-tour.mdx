@@ -9,6 +9,8 @@ minVersion: "3.9"
 objectives:
   - Use os, sys, shutil and subprocess for everyday system tasks
   - Reach for statistics and math instead of writing your own
+  - Count items with collections.Counter
+  - Search and replace text with re.search, re.findall, groups and re.sub
   - Preview argparse for command-line options
   - Find a module and check its version notes in the Python documentation
 estimatedMinutes: 40
@@ -176,6 +178,128 @@ True
 
 The `try`/`except ImportError` fallback makes the file run on older versions as well: `math.integer` does not exist there, so Python raises `ModuleNotFoundError` (a kind of `ImportError`), and the names come from `math` instead. The two give the same answers, so this is only about where the names live.
 
+## Counting: collections.Counter
+
+A `Counter` is a dictionary that counts. Hand it any iterable and it tallies how often each item appears:
+
+```python title="counter_demo.py"
+from collections import Counter
+
+votes = ["tea", "coffee", "tea", "juice", "tea", "coffee"]
+
+counts = Counter(votes)
+print(counts)
+print(counts["tea"], counts["water"])
+print(counts.most_common(2))
+```
+
+```text
+Counter({'tea': 3, 'coffee': 2, 'juice': 1})
+3 0
+[('tea', 3), ('coffee', 2)]
+```
+
+An item that was never counted gives `0` instead of a `KeyError`. `most_common(n)` returns the `n` largest counts as `(item, count)` pairs, highest first. Items with equal counts keep the order in which they first appeared.
+
+## Regular expressions
+
+The `re` module finds text by pattern instead of by exact value. A **regular expression** is a small pattern language: `\d` matches one digit, `+` means "one or more of the thing before", and `\s` matches a space, tab or newline. This is a first look, enough to read the patterns in later lessons; the module has far more.
+
+Patterns are written as **raw strings**, with an `r` before the opening quote. In a normal string, `"\t"` is already a tab before `re` sees it. In a raw string, the backslash stays a backslash, and `re` gets to interpret it:
+
+```python title="regex_raw.py"
+import re
+
+print(len("a\tb"), len(r"a\tb"))
+print(re.search(r"\d", "room 7").group())
+```
+
+```text
+3 4
+7
+```
+
+The normal string has three characters because `\t` is one. The raw string has four. Write every pattern as `r"..."` and backslashes always mean what the pattern language says.
+
+`re.search` looks through a string for the first place the pattern matches. It returns a match object, or `None` when there is no match:
+
+```python title="regex_search.py"
+import re
+
+line = "order 4521 shipped on 2026-10-12"
+
+match = re.search(r"\d+", line)
+print(match)
+print(match.group())
+print(re.search(r"refund", line))
+```
+
+```text
+<re.Match object; span=(6, 10), match='4521'>
+4521
+None
+```
+
+`span` gives the start and end positions, and `.group()` gives the matched text. Because the result can be `None`, check it with `if match:` before calling `.group()` on text you did not write yourself.
+
+`re.findall` returns every non-overlapping match as a list of strings:
+
+```python title="regex_findall.py"
+import re
+
+line = "order 4521 shipped on 2026-10-12"
+
+print(re.findall(r"\d+", line))
+print(re.findall(r"(\d+)-(\d+)-(\d+)", line))
+```
+
+```text
+['4521', '2026', '10', '12']
+[('2026', '10', '12')]
+```
+
+The second pattern contains **groups**: parts in parentheses. When a pattern has groups, `findall` returns one tuple per match, holding what each group captured. The pattern matched once, so there is one tuple of three strings.
+
+Groups are numbered from 1 in the order their opening parenthesis appears. On a match object, `.group(0)` is the whole match and `.group(1)`, `.group(2)` are the groups:
+
+```python title="regex_groups.py"
+import re
+
+duration = "wait 90s then 15m"
+
+match = re.search(r"(\d+)([hms])", duration)
+print(match.group(0), match.group(1), match.group(2))
+
+for amount, unit in re.findall(r"(\d+)([hms])", duration):
+    print(amount, unit)
+```
+
+```text
+90s 90 s
+90 s
+15 m
+```
+
+`[hms]` matches any one of the letters `h`, `m` or `s`. So the pattern reads a number followed by a time unit, and the loop unpacks each tuple into `amount` and `unit`.
+
+`re.sub` replaces matches. In the replacement text, `\1` stands for what group 1 captured:
+
+```python title="regex_sub.py"
+import re
+
+text = "call 555-0134 or 555-0188"
+
+print(re.sub(r"\d{3}-(\d{4})", r"xxx-\1", text))
+print(re.sub(r"\s+", " ", "too    many\n spaces"))
+```
+
+```text
+call xxx-0134 or xxx-0188
+too many spaces
+```
+
+`\d{3}` means exactly three digits. The first call hides the exchange code and keeps the last four digits through `\1`. The second collapses any run of whitespace into one space. See the [re documentation](https://docs.python.org/3/library/re.html) for the full pattern syntax.
+
 ## Command-line options: an argparse preview
 
 `argparse` turns the strings in `sys.argv` into named, converted values and writes the `--help` text for you. This preview passes a list directly instead of reading the real command line, so that the output is fixed:
@@ -315,6 +439,6 @@ Task 4 is the only module in the list you probably had not met: `textwrap`. If y
 
 ## Summary
 
-- Check the standard library before installing a package. `os`, `sys`, `shutil` and `subprocess` cover the system, `statistics`, `random` and `math` cover numbers, and `argparse` handles command-line options.
+- Check the standard library before installing a package. `os`, `sys`, `shutil` and `subprocess` cover the system, `statistics`, `random` and `math` cover numbers, `Counter` tallies items, `re` finds and replaces text by pattern, and `argparse` handles command-line options.
 - The Library Reference notes the version each function was added in. <Since v="3.15" /> `math.integer` is new in 3.15, and `math.comb` and friends remain available.
 - `subprocess.run` does not raise on failure unless you pass `check=True`.
