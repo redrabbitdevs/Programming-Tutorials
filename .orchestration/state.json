@@ -1,6 +1,6 @@
 {
- "updated": "2026-10-11",
- "pr_counter": 37,
+ "updated": "2026-10-12",
+ "pr_counter": 47,
  "phase": "content",
  "decisions": {
   "stack": "Astro + MDX, custom design (no stock docs theme), deployed to GitHub Pages",
@@ -99,7 +99,7 @@
   {
    "id": "M6",
    "name": "Python: Intermediate",
-   "status": "in_progress"
+   "status": "complete"
   },
   {
    "id": "M7",
@@ -115,6 +115,11 @@
    "id": "M9",
    "name": "Tier 1 languages, in order",
    "status": "pending"
+  },
+  {
+   "id": "M7",
+   "name": "Python advanced level",
+   "status": "in_progress"
   }
  ],
  "in_progress": null,
@@ -259,12 +264,49 @@
   {
    "n": 36,
    "title": "Add Python intermediate module I4: Iteration and functional tools"
+  },
+  {
+   "n": 38,
+   "title": "Add Python intermediate module I5: Testing, debugging and quality"
+  },
+  {
+   "n": 39,
+   "title": "Add W4 gap audit for the Python intermediate level"
+  },
+  {
+   "n": 40,
+   "title": "Add Python intermediate lesson: Dates and times"
+  },
+  {
+   "n": 41,
+   "title": "Add W4 Improver review for the Python intermediate level"
+  },
+  {
+   "n": 42,
+   "title": "Design: collapsible sidebar, output frames, phone code, hide old-version badges"
+  },
+  {
+   "n": 43,
+   "title": "Apply W4 audit fixes to Python intermediate lessons 01\u201332"
+  },
+  {
+   "n": 44,
+   "title": "Rework Python intermediate module I5 (lessons 33\u201341) after review"
+  },
+  {
+   "n": 45,
+   "title": "Add lesson/example and version consistency checks to validate.sh"
+  },
+  {
+   "n": 46,
+   "title": "Add Python intermediate end-of-level project (lesson 42) and sync the outline"
   }
  ],
  "next_actions": [
-  "Running: Python I5 'Testing, debugging and quality' (Writer)",
-  "Then: W4 intermediate audit (Gap Finder + Improver in parallel)",
-  "Then: Python advanced (Writer on Opus)",
+  "Running: Python A1 'Typing in depth' (Writer on Opus)",
+  "Then: A2 data handling, A3 concurrency, A4 metaprogramming",
+  "Then: W4 advanced audit",
+  "Sync beginner section of research/python/outline.md (37 built, 31 listed)",
   "Retry W5 batch 3 when Wikipedia allows"
  ],
  "escalations": [],
@@ -446,13 +488,53 @@
   {
    "wf": "W2",
    "item": "Python I5",
+   "status": "complete"
+  },
+  {
+   "wf": "W4",
+   "item": "Intermediate audit: Gap Finder + Improver",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Dates and times lesson",
+   "status": "complete"
+  },
+  {
+   "wf": "W3",
+   "item": "Sidebar, output frames, badges",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Intermediate fixes A (01\u201332)",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "I5 rework",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Validation checks",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Intermediate project",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python A1",
    "status": "running"
   }
  ],
  "agents": {
   "advisor": {
    "status": "waiting",
-   "task": "Waiting on I5 Writer; I4 merged (#36)"
+   "task": "Intermediate level complete (#46); waiting on A1 Writer"
   },
   "researcher": {
    "status": "done",
@@ -464,18 +546,18 @@
   },
   "writer": {
    "status": "working",
-   "task": "W2: Python I5 'Testing, debugging and quality'"
+   "task": "W2 (Opus): Python A1 'Typing in depth'"
   },
   "validator": {
    "status": "idle"
   },
   "gapfinder": {
    "status": "done",
-   "task": "Beginner audit: 15 items, P0s fixed"
+   "task": "W4 intermediate audit (#39, #41)"
   },
   "improver": {
    "status": "done",
-   "task": "Beginner review: 10 items, P0/P1 fixed"
+   "task": "W4 intermediate audit (#39, #41)"
   },
   "summarizer": {
    "status": "waiting",
@@ -483,8 +565,8 @@
   }
  },
  "lessons": {
-  "written": 96,
-  "planned": 141
+  "written": 107,
+  "planned": 153
  },
  "language_status": {
   "python": "in_progress"
@@ -777,6 +859,12 @@
    "from": "advisor",
    "to": "github",
    "msg": "PRs 30\u201336 merged: fundamentals complete and language-neutral (28 lessons); Python intermediate I1\u2013I4 (31 lessons). I5 in progress."
+  },
+  {
+   "t": "12:13",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PRs 38\u201346 merged: I5, dates lesson, W4 intermediate audit and fixes, UI sidebar/output frames, lesson/version checks, intermediate project. Intermediate level complete (42 lessons). A1 typing in progress."
   }
  ],
  "model_review": [
@@ -839,7 +927,9 @@
    "I1",
    "I2",
    "I3",
-   "I4"
+   "I4",
+   "I5",
+   "I-project"
   ],
   "fundamentals": [
    "F1",
@@ -851,6 +941,7 @@
  },
  "catalog_fixes_needed": [],
  "audit_backlog": [
-  "Retry W5 summaries batch 3+ when Wikipedia rate limit clears (545 templated summaries remain)"
+  "Retry W5 summaries batch 3+ when Wikipedia rate limit clears (545 templated summaries remain)",
+  "Python 3.11 reaches end of life in October 2027: bump OLDEST_SUPPORTED in site/src/lib/versions.ts"
  ]
 }
