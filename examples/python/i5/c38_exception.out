@@ -1,0 +1,4 @@
+parsed 12
+ERROR bad row 'x7'
+traceback included: True
+ValueError: invalid literal for int() with base 10: 'x7'

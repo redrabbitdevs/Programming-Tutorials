@@ -1,0 +1,4 @@
+list slower than set: True
+at least 20 times slower: True
+runs taken: 5
+best is the smallest: True

@@ -1,0 +1,16 @@
+E.
+======================================================================
+ERROR: test_spaces_between_parts (__main__.SpacesTests.test_spaces_between_parts)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c35_ex_spaces_red.py", line 9, in test_spaces_between_parts
+    self.assertEqual(parse_duration("1h 30m"), 5400)
+                     ~~~~~~~~~~~~~~^^^^^^^^^^
+  File "c35_duration.py", line 14, in parse_duration
+    raise ValueError(f"not a duration: {text!r}")
+ValueError: not a duration: '1h 30m'
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+FAILED (errors=1)

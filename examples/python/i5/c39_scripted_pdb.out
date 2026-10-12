@@ -1,0 +1,11 @@
+> c39_scripted_pdb.py(13)total_with_tax()
+-> total = 0
+(Pdb) Breakpoint 1 at c39_scripted_pdb.py:16
+(Pdb) > c39_scripted_pdb.py(16)total_with_tax()
+-> return total * 1 + rate
+(Pdb) 30
+(Pdb) 0.1
+(Pdb) 30.1
+(Pdb) 33.0
+(Pdb) 
+returned 30.1

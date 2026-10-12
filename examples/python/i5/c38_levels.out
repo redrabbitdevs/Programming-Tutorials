@@ -1,0 +1,13 @@
+-- default level (WARNING)
+WARNING  something unexpected, but handled
+ERROR    an operation failed
+-- after log.setLevel(logging.INFO)
+INFO     a normal event
+WARNING  something unexpected, but handled
+ERROR    an operation failed
+-- after log.setLevel(logging.DEBUG)
+DEBUG    a detail for developers
+INFO     a normal event
+WARNING  something unexpected, but handled
+ERROR    an operation failed
+WARNING 30 ERROR

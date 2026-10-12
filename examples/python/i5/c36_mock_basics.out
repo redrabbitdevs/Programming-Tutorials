@@ -1,0 +1,3 @@
+2
+call('ben@example.com', 'Hi')
+True

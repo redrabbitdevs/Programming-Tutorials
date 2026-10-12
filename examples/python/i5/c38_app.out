@@ -1,0 +1,4 @@
+before configuring: 130
+c38_orders DEBUG adding 2 prices
+c38_orders WARNING large order: 130
+after configuring: 130

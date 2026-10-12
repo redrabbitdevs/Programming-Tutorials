@@ -1,0 +1,472 @@
+---
+language: python
+level: intermediate
+module: Testing, debugging and quality
+order: 32
+title: Automated tests with unittest
+description: Write test cases with the standard library's unittest, run them from the command line, and read what a failing test tells you.
+minVersion: "3.8"
+objectives:
+  - Write a TestCase class with test methods and the right assert methods
+  - Run tests with python -m unittest and tell failures from errors
+  - Test that code raises an exception, and compare floats safely
+  - Use setUp for shared preparation and subTest for table-style checks
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/25-testing-mindset"]
+---
+
+Checking your code by running it and looking at the output works until the program has twenty functions. A test turns that look into something the computer repeats for you: a call, the answer you expect, and a verdict. If the testing mindset is new, the [fundamentals lesson on it](../../../fundamentals/beginner/testing-mindset/) explains what to test and why. This lesson is about Python's built-in tool for writing those checks, `unittest`.
+
+Here is the code we will test. It lives in `c32_textutil.py`, and nothing in it knows that tests exist.
+
+```python title="c32_textutil.py"
+"""Small text helpers used as the code under test."""
+
+
+def slugify(text):
+    """Turn a title into a lowercase, hyphen-separated slug."""
+    words = "".join(ch.lower() if ch.isalnum() else " " for ch in text).split()
+    return "-".join(words)
+
+
+def average(numbers):
+    """Return the mean of a non-empty sequence of numbers."""
+    if not numbers:
+        raise ValueError("average() needs at least one number")
+    return sum(numbers) / len(numbers)
+```
+
+## A test case is a class with test methods
+
+A `unittest` test lives in a subclass of `unittest.TestCase`. Every method whose name starts with `test` is one test. Inside it, you call the code and check the result with an **assert method**.
+
+```python title="c32_test_textutil.py"
+import unittest
+
+from c32_textutil import average, slugify
+
+
+class SlugifyTests(unittest.TestCase):
+    def test_lowercases_and_joins_with_hyphens(self):
+        self.assertEqual(slugify("Hello World"), "hello-world")
+
+    def test_drops_punctuation(self):
+        self.assertEqual(slugify("Hello, World!"), "hello-world")
+
+    def test_empty_text_gives_empty_slug(self):
+        self.assertEqual(slugify(""), "")
+
+
+class AverageTests(unittest.TestCase):
+    def test_mean_of_integers(self):
+        self.assertEqual(average([2, 4, 6]), 4)
+
+    def test_float_result_needs_tolerance(self):
+        self.assertAlmostEqual(average([0.1, 0.2]), 0.15)
+
+    def test_empty_list_is_an_error(self):
+        with self.assertRaises(ValueError) as caught:
+            average([])
+        self.assertIn("at least one", str(caught.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+Three habits are visible here. Each test checks one behaviour and its name says which. The expected value is written literally, not computed with the same logic as the code. And `assertAlmostEqual` compares floats within a tolerance, because `0.1 + 0.2` is not exactly `0.3` in binary floating point, as the [numbers lesson](../../beginner/numbers/) showed.
+
+`assertRaises` used as a `with` block passes only if the block raises that exception. Binding it with `as caught` lets you inspect the exception afterwards through `caught.exception`.
+
+## Running the tests
+
+The last two lines let you run the file as a script. The more common way is to let `unittest` find and run the tests from the command line:
+
+```console
+$ python -m unittest c32_test_textutil
+......
+----------------------------------------------------------------------
+Ran 6 tests in 0.000s
+
+OK
+```
+
+Each dot is a passing test. Add `-v` for one line per test with its name, or give a dotted name such as `c32_test_textutil.AverageTests.test_empty_list_is_an_error` to run a single test. With no arguments, `python -m unittest` discovers files named `test*.py` in the current folder and below, so a project can run everything with one command.
+
+<Callout type="note">
+
+Run order is alphabetical by method name, not the order in the file. Tests must not depend on each other. If one only passes after another has run, it is a bug in the tests.
+
+</Callout>
+
+## Reading a failure
+
+A test can end in three ways. It passes (`.`), it fails because an assertion was false (`F`), or it errors because something else went wrong, such as an exception nobody expected (`E`). The difference tells you where to look. Here are three tests that have been written to disagree with the code:
+
+```python title="c32_failing.py"
+import unittest
+
+from c32_textutil import slugify
+from showtests import run_tests
+
+
+class SlugifyTests(unittest.TestCase):
+    def test_plus_signs_kept(self):
+        self.assertEqual(slugify("C++ tips"), "c++-tips")
+
+    def test_numbers_kept(self):
+        self.assertEqual(slugify("Top 10 tips"), "top-10-tips")
+
+    def test_none_is_rejected_politely(self):
+        self.assertEqual(slugify(None), "")
+
+
+print(run_tests(SlugifyTests))
+```
+
+`run_tests` is a small helper in `showtests.py` next to the lesson files. It runs the cases and returns the report as text with the timing and folder names removed, so the output below is exactly what your terminal would print, apart from those two details.
+
+```text
+E.F
+======================================================================
+ERROR: test_none_is_rejected_politely (__main__.SlugifyTests.test_none_is_rejected_politely)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c32_failing.py", line 15, in test_none_is_rejected_politely
+    self.assertEqual(slugify(None), "")
+                     ~~~~~~~^^^^^^^^^^^
+  File "c32_textutil.py", line 6, in slugify
+    words = "".join(ch.lower() if ch.isalnum() else " " for ch in text).split()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: 'NoneType' object is not iterable
+
+======================================================================
+FAIL: test_plus_signs_kept (__main__.SlugifyTests.test_plus_signs_kept)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c32_failing.py", line 9, in test_plus_signs_kept
+    self.assertEqual(slugify("C++ tips"), "c++-tips")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'c-tips' != 'c++-tips'
+- c-tips
++ c++-tips
+?  ++
+
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+FAILED (failures=1, errors=1)
+```
+
+The first line, `E.F`, is the verdict per test in run order: an error, a pass, a failure. Then each problem gets a block.
+
+- The `FAIL` block is a disagreement. The function ran and returned `'c-tips'`, and the test said `'c++-tips'`. `assertEqual` prints a diff of the two strings, with `?` marking the characters that differ. Either the code or the expectation is wrong, and you decide which.
+- The `ERROR` block is a crash. `slugify(None)` raised `TypeError` before any comparison happened, and the traceback points into the function. This is the same traceback you learned to read in [reading tracebacks](../../beginner/reading-tracebacks/). The `~~~^^^` marker lines appear in Python 3.11 and later.
+
+## The assert methods you will use most
+
+`assertEqual(a, b)` covers most cases. The others make intent clearer, and give better failure messages than a bare `assertTrue(a == b)` would.
+
+| Method | Passes when |
+|---|---|
+| `assertEqual(a, b)` | `a == b` |
+| `assertNotEqual(a, b)` | `a != b` |
+| `assertTrue(x)` / `assertFalse(x)` | `bool(x)` is true / false |
+| `assertIs(a, b)` / `assertIsNone(x)` | `a is b` / `x is None` |
+| `assertIn(a, b)` | `a in b` |
+| `assertIsInstance(a, T)` | `isinstance(a, T)` |
+| `assertAlmostEqual(a, b)` | the two numbers agree to 7 decimal places |
+| `assertRaises(E)` | the block or call raises `E` |
+| `assertRaisesRegex(E, pattern)` | it raises `E` and the message matches the pattern |
+| `assertCountEqual(a, b)` | same items in any order |
+
+## Shared preparation with setUp
+
+When several tests need the same starting state, put the preparation in `setUp`. `unittest` calls it before every test method, so each test gets its own fresh objects.
+
+```python title="c32_setup.py"
+import unittest
+
+from showtests import run_tests
+
+
+class Basket:
+    def __init__(self):
+        self.items = []
+
+    def add(self, name, price):
+        self.items.append((name, price))
+
+    def total(self):
+        return sum(price for _, price in self.items)
+
+
+class BasketTests(unittest.TestCase):
+    def setUp(self):
+        # runs before every test method, so each test gets a fresh basket
+        self.basket = Basket()
+        self.basket.add("tea", 3)
+
+    def test_total_with_one_item(self):
+        self.assertEqual(self.basket.total(), 3)
+
+    def test_total_after_adding(self):
+        self.basket.add("cake", 4)
+        self.assertEqual(self.basket.total(), 7)
+
+    def test_tests_do_not_share_state(self):
+        self.assertEqual(len(self.basket.items), 1)
+
+
+print(run_tests(BasketTests, verbosity=2))
+```
+
+```text
+test_tests_do_not_share_state (__main__.BasketTests.test_tests_do_not_share_state) ... ok
+test_total_after_adding (__main__.BasketTests.test_total_after_adding) ... ok
+test_total_with_one_item (__main__.BasketTests.test_total_with_one_item) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+OK
+```
+
+`test_total_after_adding` appends a second item, and `test_tests_do_not_share_state` still sees only one. That is what `setUp` buys you. Its partner `tearDown` runs after each test, even a failing one, for cleanup such as closing a file. A more flexible tool for the same job is the context manager, which you met in [context managers](../context-managers/): `self.enterContext(...)` <Since v="3.11" /> enters one and registers its exit as cleanup for the test.
+
+## Many cases in one test: subTest
+
+A table of inputs and expected outputs is a good shape for a test, but a plain loop stops at the first failure. `subTest` runs every row and reports each failing one separately, labelled with the values you pass.
+
+```python title="c32_subtest.py"
+import unittest
+
+from c32_textutil import slugify
+from showtests import run_tests
+
+
+class SlugifyTable(unittest.TestCase):
+    def test_table(self):
+        cases = [
+            ("Hello World", "hello-world"),
+            ("  padded  ", "padded"),
+            ("Rock & Roll", "rock-roll"),
+            ("C++ tips", "c-tips"),
+            ("v1.2 notes", "v1.2-notes"),
+            ("a.b.c", "a.b.c"),
+            ("snake_case name", "snake-case-name"),
+        ]
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(slugify(text), expected)
+
+
+print(run_tests(SlugifyTable))
+```
+
+```text
+FF
+======================================================================
+FAIL: test_table (__main__.SlugifyTable.test_table) (text='v1.2 notes')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c32_subtest.py", line 20, in test_table
+    self.assertEqual(slugify(text), expected)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'v1-2-notes' != 'v1.2-notes'
+- v1-2-notes
+?   ^
++ v1.2-notes
+?   ^
+
+
+======================================================================
+FAIL: test_table (__main__.SlugifyTable.test_table) (text='a.b.c')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c32_subtest.py", line 20, in test_table
+    self.assertEqual(slugify(text), expected)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'a-b-c' != 'a.b.c'
+- a-b-c
++ a.b.c
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (failures=2)
+```
+
+The five other rows pass and the two failing ones are named by their `text=` value. Without `subTest`, the loop would have stopped at the first.
+
+## Common pitfalls
+
+- **A test method name that does not start with `test`.** `unittest` silently skips `check_empty`. Look at the count in `Ran N tests`.
+- **Tests that share state.** A module-level list that one test appends to makes the next test depend on run order. Build fresh objects in `setUp`.
+- **`assertTrue(a == b)`.** It works, but a failure says only `False is not true`. `assertEqual(a, b)` prints both values.
+- **Comparing floats with `assertEqual`.** Use `assertAlmostEqual`, or compare with `round`.
+- **Testing the implementation, not the behaviour.** A test that reaches into private attributes breaks when you refactor correct code. Test through the public functions.
+- **A test file named like a module you import.** A file called `test.py` or `unittest.py` shadows standard library modules. Name test files `test_<module>.py`.
+
+<Exercise title="Predict the report">
+
+Before running anything, work out the report for this file. Which tests pass, which fail, and which error? What does the summary line say?
+
+```python title="c32_ex_predict.py"
+import unittest
+
+from showtests import run_tests
+
+
+def discount(price, percent):
+    return price - price * percent / 100
+
+
+class DiscountTests(unittest.TestCase):
+    def test_ten_percent(self):
+        self.assertEqual(discount(200, 10), 180)
+
+    def test_zero_percent(self):
+        self.assertEqual(discount(50, 0), 50)
+
+    def test_full_discount(self):
+        self.assertEqual(discount(80, 100), 80)
+
+    def test_text_price(self):
+        self.assertEqual(discount("100", 10), 90)
+
+
+print(run_tests(DiscountTests, verbosity=2))
+```
+
+<Solution>
+
+`test_ten_percent` and `test_zero_percent` pass. `test_full_discount` fails: a 100 per cent discount gives `0.0`, and the test expected `80`, so the test itself is wrong, not the function. `test_text_price` errors: `"100" * 10 / 100` tries to divide a string by an integer and raises `TypeError` before any comparison.
+
+```text
+test_full_discount (__main__.DiscountTests.test_full_discount) ... FAIL
+test_ten_percent (__main__.DiscountTests.test_ten_percent) ... ok
+test_text_price (__main__.DiscountTests.test_text_price) ... ERROR
+test_zero_percent (__main__.DiscountTests.test_zero_percent) ... ok
+```
+
+The summary line reads `FAILED (failures=1, errors=1)`. Notice that the order is alphabetical by method name, and that the one "failure" is a bad expectation. A red test only says that code and test disagree.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Write the test that catches a leap-year bug">
+
+This function claims to say whether a year is a leap year, but it ignores the century rule: 1900 and 2100 are not leap years, while 2000 is. Write a `LeapYearTests` case with `subTest` over the years 2024, 2023, 1900, 2000 and 2100 that fails for this implementation, then fix the function until the test passes.
+
+```python
+def is_leap_year(year):
+    return year % 4 == 0
+```
+
+<Solution>
+
+The test is written against the buggy function first, and it reports two failures: 1900 and 2100.
+
+```python title="c32_ex_leap.py"
+import unittest
+
+from showtests import run_tests
+
+
+def is_leap_year(year):
+    return year % 4 == 0
+
+
+class LeapYearTests(unittest.TestCase):
+    def test_known_years(self):
+        cases = [
+            (2024, True),
+            (2023, False),
+            (1900, False),
+            (2000, True),
+            (2100, False),
+        ]
+        for year, expected in cases:
+            with self.subTest(year=year):
+                self.assertEqual(is_leap_year(year), expected)
+
+
+print(run_tests(LeapYearTests))
+```
+
+```text
+FF
+======================================================================
+FAIL: test_known_years (__main__.LeapYearTests.test_known_years) (year=1900)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c32_ex_leap.py", line 21, in test_known_years
+    self.assertEqual(is_leap_year(year), expected)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True != False
+
+======================================================================
+FAIL: test_known_years (__main__.LeapYearTests.test_known_years) (year=2100)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c32_ex_leap.py", line 21, in test_known_years
+    self.assertEqual(is_leap_year(year), expected)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True != False
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (failures=2)
+```
+
+The fix adds the century rule, and the same test now passes:
+
+```python title="c32_ex_leap_fixed.py"
+import unittest
+
+from showtests import run_tests
+
+
+def is_leap_year(year):
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+
+class LeapYearTests(unittest.TestCase):
+    def test_known_years(self):
+        cases = [
+            (2024, True),
+            (2023, False),
+            (1900, False),
+            (2000, True),
+            (2100, False),
+        ]
+        for year, expected in cases:
+            with self.subTest(year=year):
+                self.assertEqual(is_leap_year(year), expected)
+
+
+print(run_tests(LeapYearTests))
+```
+
+```text
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+OK
+```
+
+The years 1900, 2000 and 2100 are the useful ones. They sit on the boundary of the rule, which is where simple implementations go wrong.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A `unittest` test is a method starting with `test` in a `TestCase` subclass. Run it with `python -m unittest`, and read `F` as a disagreement and `E` as a crash.
+- Use `assertEqual` for most checks, `assertAlmostEqual` for floats, and `assertRaises` as a context manager for exceptions.
+- `setUp` gives each test fresh objects, and `subTest` runs every row of a table and names the failing ones.
+- The [next lesson](../pytest-basics/) shows pytest, which runs the same kind of tests with much less ceremony.

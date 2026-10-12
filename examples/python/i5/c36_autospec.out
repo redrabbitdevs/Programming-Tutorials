@@ -1,0 +1,4 @@
+typo accepted: True
+send called: True
+AttributeError: Mock object has no attribute 'sned'
+TypeError: missing a required argument: 'subject'

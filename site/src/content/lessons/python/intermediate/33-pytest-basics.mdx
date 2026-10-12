@@ -1,0 +1,338 @@
+---
+language: python
+level: intermediate
+module: Testing, debugging and quality
+order: 33
+title: Testing with pytest
+description: Write tests as plain functions with assert, run them with pytest, read its failure reports, and check exceptions with pytest.raises.
+minVersion: "3.8"
+objectives:
+  - Install pytest and write tests as plain functions with assert
+  - Explain how pytest finds tests, and how to run a subset
+  - Read an assertion failure report from pytest
+  - Check exceptions and floating-point results with pytest.raises and pytest.approx
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/25-testing-mindset"]
+---
+
+The [previous lesson](../unittest-basics/) needed a class, a base class and a method per assertion. [pytest](https://docs.pytest.org/) is a third-party test runner that asks for much less: a test is a function whose name starts with `test_`, and the check is the `assert` statement you already know. Most Python projects use it, and it also runs `unittest` tests unchanged, so you can adopt it gradually.
+
+pytest is not part of the standard library, so install it into a project environment, as described in [virtual environments and pip](../venv-pip/):
+
+```console
+$ python -m pip install pytest
+$ uv add --dev pytest
+```
+
+Use whichever matches your project. The first works in a venv, the second in a uv project.
+
+## The code under test
+
+The tests in this lesson check a small bank account. The `Account` class refuses nonsense amounts and raises `InsufficientFunds` when a withdrawal is too big.
+
+```python title="pt_bank/bank.py"
+"""A small bank account, used as the code under test."""
+
+
+class InsufficientFunds(Exception):
+    """Raised when a withdrawal is larger than the balance."""
+
+
+class Account:
+    def __init__(self, owner, balance=0):
+        if balance < 0:
+            raise ValueError("opening balance cannot be negative")
+        self.owner = owner
+        self.balance = balance
+
+    def deposit(self, amount):
+        if amount <= 0:
+            raise ValueError("deposit must be positive")
+        self.balance += amount
+
+    def withdraw(self, amount):
+        if amount <= 0:
+            raise ValueError("withdrawal must be positive")
+        if amount > self.balance:
+            raise InsufficientFunds(f"balance {self.balance}, asked for {amount}")
+        self.balance -= amount
+```
+
+## Tests are functions with assert
+
+Put the tests in a file whose name starts with `test_`, in a `tests` folder next to the module. Each test builds an account, does one thing, and asserts what should be true.
+
+```python title="pt_bank/tests/test_bank.py"
+import pytest
+
+from bank import Account, InsufficientFunds
+
+
+def test_new_account_has_the_opening_balance():
+    account = Account("Ana", 50)
+    assert account.balance == 50
+
+
+def test_deposit_adds_to_the_balance():
+    account = Account("Ana", 50)
+    account.deposit(25)
+    assert account.balance == 75
+
+
+def test_withdraw_subtracts_from_the_balance():
+    account = Account("Ana", 50)
+    account.withdraw(20)
+    assert account.balance == 30
+
+
+def test_withdraw_more_than_the_balance_is_refused():
+    account = Account("Ana", 50)
+    with pytest.raises(InsufficientFunds):
+        account.withdraw(80)
+    assert account.balance == 50
+
+
+def test_error_message_names_the_numbers():
+    account = Account("Ana", 50)
+    with pytest.raises(InsufficientFunds, match=r"balance 50, asked for 80"):
+        account.withdraw(80)
+
+
+def test_negative_deposit_is_a_value_error():
+    with pytest.raises(ValueError) as info:
+        Account("Ana").deposit(-5)
+    assert "positive" in str(info.value)
+```
+
+There is no `self`, no `assertEqual`, and no `unittest.main()` at the bottom. The `from bank import ...` works because the `tests` folder contains an empty `__init__.py`: pytest then puts the folder *above* it (`pt_bank`, where `bank.py` lives) on the import path.
+
+Run pytest from the project folder:
+
+```console
+$ python -m pytest -v
+============================= test session starts ==============================
+collected 6 items
+
+tests/test_bank.py::test_new_account_has_the_opening_balance PASSED      [ 16%]
+tests/test_bank.py::test_deposit_adds_to_the_balance PASSED              [ 33%]
+tests/test_bank.py::test_withdraw_subtracts_from_the_balance PASSED      [ 50%]
+tests/test_bank.py::test_withdraw_more_than_the_balance_is_refused PASSED [ 66%]
+tests/test_bank.py::test_error_message_names_the_numbers PASSED          [ 83%]
+tests/test_bank.py::test_negative_deposit_is_a_value_error PASSED        [100%]
+
+============================== 6 passed in 0.01s ===============================
+```
+
+(The header with platform and version lines is left out here.) The file `pt_bank/run_pytest.py` runs exactly these tests from a script and checks that six pass. That is how this site's checks verify the example.
+
+## How pytest finds tests
+
+pytest starts in the current folder, or at the paths you give, and collects:
+
+- files named `test_*.py` or `*_test.py`,
+- inside them, functions named `test_*`, and methods named `test_*` in classes named `Test*` (those classes need no base class).
+
+Anything else is ignored, so helper functions are free to have any name. You can narrow a run on the command line:
+
+```console
+$ python -m pytest tests/test_bank.py              # one file
+$ python -m pytest tests/test_bank.py::test_deposit_adds_to_the_balance   # one test
+$ python -m pytest -k withdraw                     # tests whose name contains "withdraw"
+$ python -m pytest -x                              # stop at the first failure
+$ python -m pytest --lf                            # re-run only what failed last time
+```
+
+`python -m pytest` and plain `pytest` mostly behave alike. The `python -m` form also adds the current folder to the import path, which helps when the module under test sits next to the tests.
+
+## Failure reports show the values
+
+The biggest everyday gain over `unittest` is what happens when an `assert` fails. pytest rewrites your assert statements when it imports the test file, so a failing comparison reports the values on both sides, without you passing any message. Here are three tests that are wrong on purpose:
+
+```python title="pt_fail/tests/test_fail.py"
+def add_tax(price, rate):
+    return round(price * (1 + rate), 2)
+
+
+def test_plain_comparison():
+    result = add_tax(10, 0.2)
+    assert result == 12.5
+
+
+def test_dictionaries():
+    expected = {"name": "Ana", "age": 31, "city": "Lima"}
+    actual = {"name": "Ana", "age": 13, "city": "Lima"}
+    assert actual == expected
+
+
+def test_lists():
+    assert [1, 2, 3, 4] == [1, 2, 4, 4]
+```
+
+```console
+$ python -m pytest -q
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+____________________________ test_plain_comparison _____________________________
+
+    def test_plain_comparison():
+        result = add_tax(10, 0.2)
+>       assert result == 12.5
+E       assert 12.0 == 12.5
+
+tests/test_fail.py:7: AssertionError
+______________________________ test_dictionaries _______________________________
+
+    def test_dictionaries():
+        expected = {"name": "Ana", "age": 31, "city": "Lima"}
+        actual = {"name": "Ana", "age": 13, "city": "Lima"}
+>       assert actual == expected
+E       AssertionError: assert {'name': 'Ana...city': 'Lima'} == {'name': 'Ana...city': 'Lima'}
+E         
+E         Omitting 2 identical items, use -vv to show
+E         Differing items:
+E         {'age': 13} != {'age': 31}
+E         Use -v to get more diff
+
+tests/test_fail.py:13: AssertionError
+__________________________________ test_lists __________________________________
+
+    def test_lists():
+>       assert [1, 2, 3, 4] == [1, 2, 4, 4]
+E       assert [1, 2, 3, 4] == [1, 2, 4, 4]
+E         
+E         At index 2 diff: 3 != 4
+E         Use -v to get more diff
+
+tests/test_fail.py:17: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_fail.py::test_plain_comparison - assert 12.0 == 12.5
+FAILED tests/test_fail.py::test_dictionaries - AssertionError: assert {'name'...
+FAILED tests/test_fail.py::test_lists - assert [1, 2, 3, 4] == [1, 2, 4, 4]
+3 failed in 0.02s
+```
+
+Read each block from the `>` line. It marks the assert that failed, and the `E` lines below it explain why. For the dictionaries, pytest names the one key that differs and hides the two that match. For lists it reports the first index that differs. Add `-v` to see more of a long comparison, or `-vv` for all of it. The `pt_fail` example runs these three tests and checks that exactly three fail.
+
+## Checking exceptions and floats
+
+Two helpers cover the cases where a bare `assert` is awkward. `pytest.raises` is the equivalent of `assertRaises`. It is a context manager that passes only if its block raises the exception. `match` takes a regular expression that is searched in the message, and `as info` gives access to the exception through `info.value`.
+
+```python title="pt_ex/tests/test_slugify.py"
+import pytest
+
+from textutil import average, slugify
+
+
+def test_lowercases_and_joins_with_hyphens():
+    assert slugify("Hello World") == "hello-world"
+
+
+def test_drops_punctuation():
+    assert slugify("Hello, World!") == "hello-world"
+
+
+def test_empty_text_gives_empty_slug():
+    assert slugify("") == ""
+
+
+def test_average_of_integers():
+    assert average([2, 4, 6]) == 4
+
+
+def test_average_of_floats_needs_a_tolerance():
+    assert average([0.1, 0.2]) == pytest.approx(0.15)
+
+
+def test_average_of_nothing_is_an_error():
+    with pytest.raises(ValueError, match="at least one"):
+        average([])
+```
+
+This file is the pytest version of last lesson's `unittest` tests for `slugify` and `average`. Compare it with `c32_test_textutil.py`: the same six checks, about half the lines. `pytest.approx(0.15)` makes `==` compare within a small tolerance, which is how pytest handles the floating-point issue.
+
+## Common pitfalls
+
+- **Putting the test file in the same folder as a module with the same name.** A test named `bank.py` shadows the module. Name tests `test_bank.py`.
+- **Putting a message in an assert as a tuple.** `assert (x == 1, "x should be 1")` is a non-empty tuple and always passes. Write `assert x == 1, "x should be 1"`, and see whether you need the message at all.
+- **A test with no assert.** It passes when the code runs without error. Make sure that is what you meant.
+- **Testing exceptions with try/except.** If the code does not raise, the test passes silently. `pytest.raises` fails in that case.
+- **Putting too much in one test.** The first failing assert stops the function, so the rest never run. Split tests by behaviour.
+
+<Exercise title="Port the slug tests, and add edge cases">
+
+Without looking at the lesson, write pytest tests for `slugify("Rock & Roll")` (expected `"rock-roll"`), `slugify("  padded  ")` (expected `"padded"`) and `slugify("a.b.c")` (expected `"a-b-c"`), as three separate functions. Then write a test that checks `average([1, 2])` equals `1.5` using `pytest.approx`. Run them: all four should pass.
+
+<Solution>
+
+```python title="pt_ex/tests/test_more_slugs.py"
+import pytest
+
+from textutil import average, slugify
+
+
+def test_ampersand_becomes_a_separator():
+    assert slugify("Rock & Roll") == "rock-roll"
+
+
+def test_outer_spaces_are_dropped():
+    assert slugify("  padded  ") == "padded"
+
+
+def test_dots_become_hyphens():
+    assert slugify("a.b.c") == "a-b-c"
+
+
+def test_average_with_a_fraction():
+    assert average([1, 2]) == pytest.approx(1.5)
+```
+
+All four pass. `approx` is not strictly needed for 1.5, which is exactly representable in binary, but it does no harm, and it is the habit to build for any float result.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Test the bank account's input checks">
+
+The tests in `test_bank.py` never check what happens with an opening balance of `-1`, a deposit of `0`, or a withdrawal of `0`. Write four tests that fix this. Each should use `pytest.raises(ValueError, match=...)` with the message the code raises, and a fourth should check that a refused withdrawal of `-5` leaves the balance at 10.
+
+<Solution>
+
+```python title="pt_ex/tests/test_edges.py"
+import pytest
+
+from bank import Account
+
+
+def test_negative_opening_balance_is_refused():
+    with pytest.raises(ValueError, match="cannot be negative"):
+        Account("Ana", -1)
+
+
+def test_deposit_of_zero_is_refused():
+    with pytest.raises(ValueError, match="must be positive"):
+        Account("Ana").deposit(0)
+
+
+def test_withdrawal_of_zero_is_refused():
+    with pytest.raises(ValueError, match="must be positive"):
+        Account("Ana", 10).withdraw(0)
+
+
+def test_balance_is_unchanged_after_a_refused_withdrawal():
+    account = Account("Ana", 10)
+    with pytest.raises(ValueError):
+        account.withdraw(-5)
+    assert account.balance == 10
+```
+
+The last test matters most: it checks that a refused operation has no side effects. The next lessons build on this account.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A pytest test is a function named `test_*` in a file named `test_*.py`, and the check is a plain `assert`. pytest rewrites asserts so failures show both values.
+- Run `python -m pytest`, narrow with a path, `::name`, `-k`, `-x` or `--lf`, and read each failure from its `>` line.
+- `pytest.raises(..., match=...)` checks exceptions and `pytest.approx` compares floats.
+- The [next lesson](../fixtures-and-parametrize/) shows how to share set-up with fixtures and run one test over many inputs.

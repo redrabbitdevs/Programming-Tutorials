@@ -1,0 +1,5 @@
+DEBUG:root:reading settings
+INFO:root:server started on port 8080
+WARNING:root:disk is 91% full
+ERROR:root:could not open report.csv
+CRITICAL:root:out of memory
