@@ -1,0 +1,348 @@
+---
+language: python
+level: advanced
+module: Typing in depth
+order: 5
+title: Annotations at runtime
+description: Understand how Python 3.14 stores annotations lazily, read them safely with annotationlib in three formats, resolve them with typing.get_type_hints, and use Annotated metadata to drive a small validator.
+minVersion: "3.14"
+objectives:
+  - Explain deferred evaluation of annotations and why forward references no longer need quotes
+  - Read annotations with annotationlib.get_annotations in the VALUE, FORWARDREF and STRING formats
+  - Choose between get_annotations and typing.get_type_hints
+  - Recognise from __future__ import annotations and know it is no longer needed
+  - Attach metadata with Annotated and read it at run time
+estimatedMinutes: 45
+fundamentals: []
+---
+
+So far annotations have been for checkers. But they are also ordinary data that a running program can read, and libraries such as dataclasses, validators and web frameworks are built on that. [Dataclasses](../../intermediate/dataclasses/) reads your class annotations to decide which fields exist. This lesson shows where annotations live and how to read them correctly in Python 3.14 and later, where the rules changed.
+
+## Annotations are evaluated lazily
+
+Before 3.14, Python evaluated every annotation when the `def` or `class` statement ran. Referring to a class defined further down raised `NameError`, so people wrote the name in quotes. Since 3.14 ([PEP 649](https://peps.python.org/pep-0649/) and [PEP 749](https://peps.python.org/pep-0749/)) the annotations are compiled into a small function and evaluated only when someone asks for them:
+
+```python title="forward_ref.py"
+def make_tree() -> Tree:
+    return Tree([])
+
+
+class Tree:
+    def __init__(self, children: list[Tree]) -> None:
+        self.children = children
+
+
+print(make_tree.__annotations__)
+print(Tree.__init__.__annotations__)
+```
+
+```text
+{'return': <class '__main__.Tree'>}
+{'children': list[__main__.Tree], 'return': None}
+```
+
+`make_tree` refers to `Tree` before it exists, and `Tree` refers to itself, with no quotes. By the time the program reads `__annotations__`, both names are defined.
+
+The compiled function is stored as `__annotate__`. You can see what laziness means by asking too early:
+
+```python title="lazy_annotations.py"
+def scale(value: Number, factor: Number) -> Number:
+    return value * factor
+
+
+print(scale(2, 3))
+print(callable(scale.__annotate__))
+try:
+    scale.__annotations__
+except NameError as error:
+    print("NameError:", error)
+
+type Number = int | float
+print(scale.__annotations__)
+```
+
+```text
+6
+True
+NameError: name 'Number' is not defined
+{'value': Number, 'factor': Number, 'return': Number}
+```
+
+Defining and calling `scale` worked although `Number` did not exist yet. Only reading `__annotations__` failed, and the same read succeeded once the alias was defined. Annotations cost nothing until they are used, which also speeds up importing heavily annotated modules.
+
+## Three ways to read: annotationlib
+
+Reading `__annotations__` directly is all or nothing: one undefined name and you get an exception. The `annotationlib` module, new in 3.14, offers formats that degrade gracefully. `get_annotations(obj, format=...)` takes a member of `annotationlib.Format`:
+
+- `Format.VALUE` evaluates everything, and raises `NameError` for an unknown name. It is the default, and equals `__annotations__`.
+- `Format.FORWARDREF` evaluates what it can and puts a `ForwardRef` object where a name is missing.
+- `Format.STRING` returns the source text of each annotation, without evaluating anything.
+
+```python title="formats.py"
+from annotationlib import Format, get_annotations
+
+
+def scale(value: Number, factor: float = 2.0) -> Number:
+    return value * factor
+
+
+print(get_annotations(scale, format=Format.STRING))
+refs = get_annotations(scale, format=Format.FORWARDREF)
+print(refs["factor"], type(refs["return"]).__name__)
+ref = refs["value"]
+print(ref.__forward_arg__, ref.evaluate(globals={"Number": int}))
+try:
+    get_annotations(scale, format=Format.VALUE)
+except NameError as error:
+    print("VALUE raised NameError:", error)
+```
+
+```text
+{'value': 'Number', 'factor': 'float', 'return': 'Number'}
+<class 'float'> ForwardRef
+Number <class 'int'>
+VALUE raised NameError: name 'Number' is not defined
+```
+
+`factor` evaluated to the real `float` class, while `value` and `return` became `ForwardRef` objects. A `ForwardRef` remembers the name, and its `evaluate()` method resolves it later, here with a namespace in which `Number` is `int`. Tools that document or inspect code that may not be fully importable, such as documentation generators, use `STRING` or `FORWARDREF`. Ordinary code should use `VALUE` and define its names.
+
+## get_type_hints: annotations as a checker sees them
+
+`typing.get_type_hints` predates `annotationlib`, and does more processing. Compare the two on a small class hierarchy:
+
+```python title="hints_vs_annotations.py"
+import typing
+from annotationlib import get_annotations
+from typing import Annotated
+
+
+class Base:
+    id: int
+
+
+class User(Base):
+    name: Annotated[str, "max 20"]
+    manager: User | None
+
+
+print(get_annotations(User))
+print(typing.get_type_hints(User))
+hints = typing.get_type_hints(User, include_extras=True)
+print(hints["name"], hints["name"].__metadata__)
+```
+
+```text
+{'name': typing.Annotated[str, 'max 20'], 'manager': __main__.User | None}
+{'id': <class 'int'>, 'name': <class 'str'>, 'manager': __main__.User | None}
+typing.Annotated[str, 'max 20'] ('max 20',)
+```
+
+Three differences show:
+
+- `get_annotations(User)` returns only what `User` itself declares. `get_type_hints` also walks the base classes, so it includes `id` from `Base`.
+- `get_type_hints` removes `Annotated` wrappers unless you pass `include_extras=True`.
+- `get_type_hints` evaluates annotations written as strings. `get_annotations` does that only when you pass `eval_str=True`.
+
+Use `get_type_hints` when you want "the types of this class's fields, as a checker would see them", as a validator or serializer does. Use `get_annotations` when you want exactly what an object declared. Both accept `format=` since 3.14.
+
+## Annotated: metadata for your own tools
+
+`Annotated[T, x, y]` means "type `T`, plus some extra objects `x` and `y`". Checkers see plain `T` and ignore the rest. At run time the extras are in `__metadata__`, as the last line above showed. That is how libraries attach constraints, units or documentation to a type without inventing new syntax. You will build a small validator on it in the second exercise.
+
+## from __future__ import annotations
+
+You will meet this line at the top of many existing modules. It turns every annotation in the module into a string, which was the old fix for forward references:
+
+```python title="future_strings.py"
+from __future__ import annotations
+
+import typing
+
+
+class Point:
+    x: int
+    y: int
+    nearest: Point | None
+
+
+print(Point.__annotations__)
+print(typing.get_type_hints(Point))
+```
+
+```text
+{'x': 'int', 'y': 'int', 'nearest': 'Point | None'}
+{'x': <class 'int'>, 'y': <class 'int'>, 'nearest': __main__.Point | None}
+```
+
+`__annotations__` now holds strings, and `get_type_hints` turns them back into types. In 3.14 and later the import is unnecessary, because deferred evaluation already allows forward references. It still works, and the `annotationlib` documentation says the stringified behaviour will eventually be removed. Drop the import from code that only needs to run on 3.14 or later, and keep it in code that must also support older versions.
+
+## Common pitfalls
+
+**Reading `__annotations__` on a class with inheritance.** It has only the class's own entries, which is right for some tools and wrong for a validator. Decide which you need, and choose `get_annotations` or `get_type_hints` deliberately.
+
+**Assuming annotations are checked when read.** Reading `list[Line]` produces a `list[Line]` object. Nothing compares it with real values unless your code does.
+
+**Evaluating untrusted strings.** `eval_str=True` and `get_type_hints` run `eval()` on string annotations. Only use them on code you trust.
+
+**Expecting `isinstance` to accept every hint.** Hints like `list[int]` or `Annotated[...]` are not classes. Use `typing.get_origin` or `__origin__` to find the class underneath.
+
+<Exercise title="Read annotations in three formats">
+`Order` refers to `Customer` and `Line`, which are defined later in the module. Print its annotations in the `STRING` and `FORWARDREF` formats while those classes are missing, then define them and print the `VALUE` format.
+
+Expected output (long lines wrap):
+
+
+```text
+STRING {'id': 'int', 'customer': 'Customer', 'lines': 'list[Line]'}
+FORWARDREF {'id': <class 'int'>, 'customer': ForwardRef('Customer', is_class=True, owner=<class '__main__.Order'>), 'lines': list[ForwardRef('Line', is_class=True, owner=<class '__main__.Order'>)]}
+VALUE {'id': <class 'int'>, 'customer': <class '__main__.Customer'>, 'lines': list[__main__.Line]}
+```
+
+<Solution>
+
+```python title="ex_three_formats.py"
+from annotationlib import Format, get_annotations
+
+
+class Order:
+    id: int
+    customer: Customer
+    lines: list[Line]
+
+
+for fmt in (Format.STRING, Format.FORWARDREF):
+    print(fmt.name, get_annotations(Order, format=fmt))
+
+
+class Customer:
+    pass
+
+
+class Line:
+    pass
+
+
+print("VALUE", get_annotations(Order, format=Format.VALUE))
+```
+
+```text
+STRING {'id': 'int', 'customer': 'Customer', 'lines': 'list[Line]'}
+FORWARDREF {'id': <class 'int'>, 'customer': ForwardRef('Customer', is_class=True, owner=<class '__main__.Order'>), 'lines': list[ForwardRef('Line', is_class=True, owner=<class '__main__.Order'>)]}
+VALUE {'id': <class 'int'>, 'customer': <class '__main__.Customer'>, 'lines': list[__main__.Line]}
+```
+
+`FORWARDREF` keeps `int` as a real class and records each missing name, even inside `list[...]`. Once both classes exist, the default `VALUE` format succeeds. Before Python 3.14 the `class Order` statement itself would have raised `NameError`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A mini validator">
+Write `validate(cls, data)` in `validator.py`, returning a list of error strings. For each field in `get_type_hints(cls, include_extras=True)`:
+
+- If the value is not an instance of the field's class, add `"<name>: expected <class name>"`. For an `Annotated` hint, the class is in `__origin__`.
+- For each `Range(low, high)` object in the hint's `__metadata__`, add `"<name>: <value> out of range"` when the value falls outside.
+
+Test it with this class:
+
+```python title="validator_use.py"
+from typing import Annotated
+
+from validator import Range, validate
+
+
+class Reading:
+    sensor: str
+    celsius: Annotated[float, Range(-40, 60)]
+
+
+print(validate(Reading, {"sensor": "t1", "celsius": 21.5}))
+print(validate(Reading, {"sensor": "t1", "celsius": 99.0}))
+print(validate(Reading, {"sensor": 7, "celsius": "hot"}))
+```
+
+Expected output:
+
+
+```text
+[]
+['celsius: 99.0 out of range']
+['sensor: expected str', 'celsius: expected float']
+```
+
+<Solution>
+
+```python title="validator.py"
+from typing import Annotated, get_type_hints
+
+
+class Range:
+    def __init__(self, low: float, high: float) -> None:
+        self.low, self.high = low, high
+
+
+def validate(cls: type, data: dict[str, object]) -> list[str]:
+    errors = []
+    for name, hint in get_type_hints(cls, include_extras=True).items():
+        value = data.get(name)
+        base = getattr(hint, "__origin__", hint)
+        if not isinstance(value, base):
+            errors.append(f"{name}: expected {base.__name__}")
+            continue
+        for meta in getattr(hint, "__metadata__", ()):
+            if isinstance(meta, Range) and not meta.low <= value <= meta.high:
+                errors.append(f"{name}: {value} out of range")
+    return errors
+```
+
+The `Annotated` hint carries the real type in `__origin__` and the extras in `__metadata__`. A plain hint such as `str` has neither, so `getattr` with a default handles both. Libraries such as Pydantic follow the same pattern, with far more care for unions and generics.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict when the NameError happens">
+`Shape` is defined after `area`. Predict each line of output, including where a `NameError` occurs, if anywhere. Then run it on Python 3.14 or later.
+
+```python title="predict_names.py"
+def area(shape: Shape) -> float:
+    return 0.0
+
+
+print("defined")
+print(area(None))
+try:
+    print(area.__annotations__)
+except NameError as error:
+    print("NameError:", error)
+
+
+class Shape:
+    pass
+
+
+print(area.__annotations__)
+```
+
+Expected: four lines of output.
+
+<Solution>
+
+
+```text
+defined
+0.0
+NameError: name 'Shape' is not defined
+{'shape': <class '__main__.Shape'>, 'return': <class 'float'>}
+```
+
+Defining and calling `area` never touches its annotations, so both work. The first read of `__annotations__` evaluates `Shape`, which does not exist yet. Annotation evaluation is not cached when it fails, so the second read, after `Shape` exists, succeeds. On Python 3.13 or earlier, the `def` line itself would have raised the `NameError`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Since 3.14, annotations are stored in an `__annotate__` function and evaluated on first access, so forward references need no quotes.
+- `annotationlib.get_annotations(obj, format=...)` reads them as values, as values with `ForwardRef` placeholders, or as source strings.
+- `typing.get_type_hints` merges base classes, strips `Annotated` unless asked, and evaluates strings.
+- `Annotated[T, ...]` attaches run-time metadata that checkers ignore.
+- `from __future__ import annotations` is unnecessary in 3.14+ code, and its string behaviour is slated for eventual removal.

@@ -1,0 +1,2 @@
+['Hybrid', 'Vector', 'Matrix', 'object']
+TypeError: multiple bases have instance lay-out conflict

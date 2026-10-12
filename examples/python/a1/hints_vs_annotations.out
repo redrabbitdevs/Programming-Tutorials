@@ -1,0 +1,3 @@
+{'name': typing.Annotated[str, 'max 20'], 'manager': __main__.User | None}
+{'id': <class 'int'>, 'name': <class 'str'>, 'manager': __main__.User | None}
+typing.Annotated[str, 'max 20'] ('max 20',)

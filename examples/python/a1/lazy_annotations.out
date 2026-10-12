@@ -1,0 +1,4 @@
+6
+True
+NameError: name 'Number' is not defined
+{'value': Number, 'factor': Number, 'return': Number}

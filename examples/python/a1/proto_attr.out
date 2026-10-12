@@ -1,0 +1,2 @@
+Hello, Ada
+AttributeError: 'dict' object has no attribute 'name'

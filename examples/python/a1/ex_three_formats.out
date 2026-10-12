@@ -1,0 +1,3 @@
+STRING {'id': 'int', 'customer': 'Customer', 'lines': 'list[Line]'}
+FORWARDREF {'id': <class 'int'>, 'customer': ForwardRef('Customer', is_class=True, owner=<class '__main__.Order'>), 'lines': list[ForwardRef('Line', is_class=True, owner=<class '__main__.Order'>)]}
+VALUE {'id': <class 'int'>, 'customer': <class '__main__.Customer'>, 'lines': list[__main__.Line]}

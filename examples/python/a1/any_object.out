@@ -1,0 +1,2 @@
+8 8
+AttributeError: 'str' object has no attribute 'bit_length'

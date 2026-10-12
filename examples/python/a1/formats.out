@@ -1,0 +1,4 @@
+{'value': 'Number', 'factor': 'float', 'return': 'Number'}
+<class 'float'> ForwardRef
+Number <class 'int'>
+VALUE raised NameError: name 'Number' is not defined

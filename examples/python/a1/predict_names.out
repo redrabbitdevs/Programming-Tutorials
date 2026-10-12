@@ -1,0 +1,4 @@
+defined
+0.0
+NameError: name 'Shape' is not defined
+{'shape': <class '__main__.Shape'>, 'return': <class 'float'>}

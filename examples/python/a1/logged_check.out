@@ -1,0 +1,2 @@
+(value: float, factor: float = 2.0) -> float
+TypeError: scale() got an unexpected keyword argument 'fator'. Did you mean 'factor'?

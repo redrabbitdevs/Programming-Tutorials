@@ -1,0 +1,1 @@
+AuthRequest /me {'Accept': 'json', 'Authorization': 'Bearer abc'}

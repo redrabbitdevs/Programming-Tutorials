@@ -1,0 +1,393 @@
+---
+language: python
+level: advanced
+module: Typing in depth
+order: 6
+title: TypedDict in depth
+description: Model JSON-like data precisely with optional and required keys, read-only keys, typed keyword arguments, and the closed and extra_items options added in Python 3.15.
+minVersion: "3.11"
+objectives:
+  - Mark individual keys as optional or required with NotRequired, Required and total=False
+  - Protect keys from mutation with ReadOnly
+  - Type **kwargs precisely with Unpack and a TypedDict
+  - Forbid or type extra keys with closed=True and extra_items
+  - Inspect a TypedDict's keys at run time
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/14-maps-and-sets"]
+---
+
+[Static typing fundamentals](../typing-fundamentals/) introduced `TypedDict` for dicts with a fixed set of keys, all of them required. Real data is less tidy. API responses leave out fields, configuration should not be changed after loading, and some dicts carry arbitrary extra keys. This lesson covers the tools for each, from Python 3.11 to 3.15. Remember throughout that a `TypedDict` value is a plain `dict` at run time: everything here is checked statically, but the class records its key sets, which you can read.
+
+## Optional keys: NotRequired
+
+`NotRequired[T]` marks a key that may be absent. Read it with `.get()`, or check `"key" in d` first:
+
+```python title="td_optional.py"
+from typing import NotRequired, TypedDict
+
+
+class User(TypedDict):
+    id: int
+    name: str
+    nickname: NotRequired[str]
+
+
+ada: User = {"id": 1, "name": "Ada"}
+bob: User = {"id": 2, "name": "Robert", "nickname": "Bob"}
+for user in (ada, bob):
+    print(user["name"], "/", user.get("nickname", "-"))
+print(sorted(User.__required_keys__), sorted(User.__optional_keys__))
+```
+
+```text
+Ada / -
+Robert / Bob
+['id', 'name'] ['nickname']
+```
+
+```console title="mypy 2.3.1"
+$ mypy td_optional.py
+Success: no issues found in 1 source file
+```
+
+The class records which keys are which, in `__required_keys__` and `__optional_keys__`. These are frozensets, so the example sorts them for stable output.
+
+Reading an optional key with `d["key"]` is a `KeyError` waiting to happen. Checkers differ here: pyright reports it by default, and mypy 2.3.1 does not.
+
+```python title="td_optional_access.py"
+from typing import NotRequired, TypedDict
+
+
+class User(TypedDict):
+    id: int
+    nickname: NotRequired[str]
+
+
+def shout(user: User) -> str:
+    return user["nickname"].upper()
+
+
+try:
+    print(shout({"id": 1}))
+except KeyError as error:
+    print("KeyError:", error)
+```
+
+```text
+KeyError: 'nickname'
+```
+
+```console title="mypy 2.3.1"
+$ mypy td_optional_access.py
+Success: no issues found in 1 source file
+```
+
+```console title="pyright 1.1.414"
+$ pyright td_optional_access.py
+td_optional_access.py:10:12 - error: Could not access item in TypedDict
+  "nickname" is not a required key in "User", so access may result in runtime exception (reportTypedDictNotRequiredAccess)
+1 error, 0 warnings, 0 informations
+```
+
+## Mostly optional: total=False and Required
+
+When most keys are optional, flip the default. `total=False` makes every key optional, and `Required[T]` marks the exceptions:
+
+```python title="td_total.py"
+from typing import Required, TypedDict
+
+
+class Filters(TypedDict, total=False):
+    query: Required[str]
+    limit: int
+    sort: str
+
+
+search: Filters = {"query": "python"}
+print(search, Filters.__total__)
+print(sorted(Filters.__required_keys__), sorted(Filters.__optional_keys__))
+```
+
+```text
+{'query': 'python'} False
+['query'] ['limit', 'sort']
+```
+
+Use whichever needs fewer markers. Both spellings produce the same key sets.
+
+## Read-only keys
+
+<Since v="3.13" /> `ReadOnly[T]` ([PEP 705](https://peps.python.org/pep-0705/)) marks a key that may be read but not assigned or deleted:
+
+```python title="td_readonly.py"
+from typing import ReadOnly, TypedDict
+
+
+class Account(TypedDict):
+    id: ReadOnly[int]
+    balance: float
+
+
+acct: Account = {"id": 7, "balance": 10.0}
+acct["balance"] += 5
+acct["id"] = 8
+print(acct)
+print(sorted(Account.__readonly_keys__), sorted(Account.__mutable_keys__))
+```
+
+```text
+{'id': 8, 'balance': 15.0}
+['id'] ['balance']
+```
+
+```console title="mypy 2.3.1"
+$ mypy td_readonly.py
+td_readonly.py:11: error: ReadOnly TypedDict key "id" TypedDict is mutated  [typeddict-readonly-mutated]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+Python changed `id` anyway, since the value is an ordinary dict. The class lists the protected keys in `__readonly_keys__`. Read-only keys also make a `TypedDict` more flexible to pass around: a function that takes a `TypedDict` with a `ReadOnly[float]` key may be given one whose key is `int`, because it promises not to write a `float` into it.
+
+## Typed keyword arguments: Unpack
+
+<Since v="3.12" /> `**kwargs: int` says every keyword argument is an `int`. To give each keyword its own type, annotate `**kwargs` with `Unpack` of a `TypedDict` ([PEP 692](https://peps.python.org/pep-0692/)):
+
+```python title="td_unpack.py"
+from typing import NotRequired, TypedDict, Unpack
+
+
+class Options(TypedDict):
+    host: str
+    port: NotRequired[int]
+
+
+def connect(**options: Unpack[Options]) -> str:
+    return f"{options['host']}:{options.get('port', 5432)}"
+
+
+print(connect(host="db.local"))
+print(connect(host="db.local", port=6543))
+print(connect(host="db.local", prot=6543))
+```
+
+```text
+db.local:5432
+db.local:6543
+db.local:5432
+```
+
+```console title="mypy 2.3.1"
+$ mypy td_unpack.py
+td_unpack.py:15: error: Unexpected keyword argument "prot" for "connect"  [call-arg]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+The misspelt `prot` silently fell back to the default port at run time. The checker caught it. Inside the function, `options` has the `TypedDict` type, so `options['host']` is a `str`. `typing.Unpack` itself exists from 3.11, but this use of it was specified in 3.12.
+
+## Closed dicts and typed extra keys
+
+<Since v="3.15" /> By default a `TypedDict` is **open**: a value of the type may have more keys than the ones listed, because a subclass could add them. [PEP 728](https://peps.python.org/pep-0728/) adds two class arguments. `closed=True` says there are no other keys. `extra_items=T` says other keys may exist, and their values are all `T`.
+
+```python title="td_closed.py"
+from typing import TypedDict
+
+
+class Point(TypedDict, closed=True):
+    x: int
+    y: int
+
+
+class Labels(TypedDict, extra_items=str):
+    name: str
+
+
+p: Point = {"x": 1, "y": 2, "z": 3}
+tags: Labels = {"name": "web", "env": "prod", "port": 80}
+print(p, tags)
+print(Point.__closed__, Labels.__closed__, Labels.__extra_items__)
+```
+
+```text
+{'x': 1, 'y': 2, 'z': 3} {'name': 'web', 'env': 'prod', 'port': 80}
+True None <class 'str'>
+```
+
+```console title="pyright 1.1.414"
+$ pyright td_closed.py
+td_closed.py:13:29 - error: Type "dict[str, int]" is not assignable to declared type "Point"
+  Type "Literal[3]" is not assignable to item "extra_items"
+    Type "Literal[3]" is not assignable to type "Never" (reportAssignmentType)
+td_closed.py:14:55 - error: Type "dict[str, str | int]" is not assignable to declared type "Labels"
+  "Literal[80]" is not assignable to "str" (reportAssignmentType)
+2 errors, 0 warnings, 0 informations
+```
+
+At run time the options are recorded in `__closed__` and `__extra_items__`, and `__closed__` is `None` when the class did not say. `extra_items` suits dicts such as labels, headers or environment variables: a few known keys, plus any number of string-valued others. The output above is from pyright, because mypy 2.3.1 does not yet accept the `extra_items` argument. Checker support for new typing features lags the release, so check your checker's changelog before relying on them.
+
+## Common pitfalls
+
+**Treating `NotRequired` as "may be None".** `NotRequired[str]` means the key may be missing. `str | None` means the key is there, holding `None`. An API field can need either, or both: `NotRequired[str | None]`.
+
+**Using `isinstance` with a TypedDict.** `isinstance(d, Movie)` raises `TypeError`. At run time there is only `dict`. Validate with code, as in [Annotations at runtime](../annotations-runtime/).
+
+**Trusting `json.loads` output.** `cast(Post, json.loads(text))` is a claim, not a check. At a real trust boundary, validate the data before you cast.
+
+**Expecting `ReadOnly` to freeze the dict.** It is a checker rule only. For a dict that cannot change at run time, use `types.MappingProxyType`, or `frozendict` in 3.15.
+
+<Exercise title="Type a JSON API payload">
+A blog API returns posts like those below. Each post has an `id`, a `title`, an `author` with a `login` and an optional `site`, and a list of `tags`. Write `Author` and `Post` TypedDicts and `summary(post)` in `api_payload.py`, so that this script prints the expected output and mypy reports no errors:
+
+```python title="api_payload_use.py"
+import json
+from typing import cast
+
+from api_payload import Post, summary
+
+raw = """[
+  {"id": 1, "title": "Hello", "author": {"login": "ada"}, "tags": []},
+  {"id": 2, "title": "Types", "tags": ["python", "typing"],
+   "author": {"login": "bob", "site": "bob.dev"}}
+]"""
+for post in cast(list[Post], json.loads(raw)):
+    print(summary(post))
+```
+
+Expected output:
+
+
+```text
+#1 Hello by ada (no site) [untagged]
+#2 Types by bob (bob.dev) [python, typing]
+```
+
+<Solution>
+
+```python title="api_payload.py"
+from typing import NotRequired, TypedDict
+
+
+class Author(TypedDict):
+    login: str
+    site: NotRequired[str]
+
+
+class Post(TypedDict):
+    id: int
+    title: str
+    author: Author
+    tags: list[str]
+
+
+def summary(post: Post) -> str:
+    author = post["author"]
+    site = author.get("site", "no site")
+    tags = ", ".join(post["tags"]) or "untagged"
+    head = f"#{post['id']} {post['title']}"
+    return f"{head} by {author['login']} ({site}) [{tags}]"
+```
+
+```console title="mypy 2.3.1"
+$ mypy api_payload_use.py
+Success: no issues found in 1 source file
+```
+
+`author.get("site", "no site")` handles the optional key. Nested TypedDicts compose like any other type, so `post["author"]["login"]` is known to be a `str`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A key report">
+<Since v="3.13" /> Write `key_report(td)`, which prints a TypedDict's name and then its required, optional and read-only keys, sorted and comma-separated, or `-` when there are none. Test it on a `Product` with a read-only `sku: str`, a `price: float` and an optional `note: str`.
+
+Expected output:
+
+
+```text
+Product
+  required: price, sku
+  optional: note
+  readonly: sku
+```
+
+<Solution>
+
+```python title="key_report.py"
+from typing import NotRequired, ReadOnly, TypedDict
+
+
+def key_report(td: type) -> None:
+    print(td.__name__)
+    for label in ("required", "optional", "readonly"):
+        keys = getattr(td, f"__{label}_keys__")
+        print(f"  {label}: {', '.join(sorted(keys)) or '-'}")
+
+
+class Product(TypedDict):
+    sku: ReadOnly[str]
+    price: float
+    note: NotRequired[str]
+
+
+key_report(Product)
+```
+
+```text
+Product
+  required: price, sku
+  optional: note
+  readonly: sku
+```
+
+The three attributes share a naming pattern, so one `getattr` with an f-string reads them all. `sku` is both required and read-only: the two properties are independent.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Find the checker errors">
+<Since v="3.15" /> This program runs, but two of its three assignments break the rules of `Settings`. Predict which two, and why. Then run pyright to check.
+
+```python title="settings_bug.py"
+from typing import ReadOnly, TypedDict
+
+
+class Settings(TypedDict, closed=True):
+    name: ReadOnly[str]
+    debug: bool
+
+
+config: Settings = {"name": "app", "debug": False}
+config["debug"] = True
+config["name"] = "other"
+config["verbose"] = True
+print(config)
+```
+
+```text
+{'name': 'other', 'debug': True, 'verbose': True}
+```
+
+Expected: two pyright errors, naming the line and the key.
+
+<Solution>
+
+```console title="pyright 1.1.414"
+$ pyright settings_bug.py
+settings_bug.py:11:1 - error: Could not assign item in TypedDict
+  "name" is a read-only key in "Settings" (reportTypedDictNotRequiredAccess)
+settings_bug.py:12:1 - error: Could not assign item in TypedDict
+  "verbose" is not a defined key in "Settings" (reportGeneralTypeIssues)
+2 errors, 0 warnings, 0 informations
+```
+
+`config["debug"] = True` is fine: `debug` is an ordinary key. `name` is read-only, so assigning it is an error, and `closed=True` means `verbose` is not allowed at all.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `NotRequired[T]` marks a key that may be missing. `total=False` with `Required[T]` is the inverse spelling.
+- `ReadOnly[T]` forbids assigning or deleting a key, for checkers only.
+- `**kwargs: Unpack[Options]` gives each keyword argument its own type.
+- `closed=True` and `extra_items=T` control keys beyond the listed ones. Checker support is still arriving.
+- At run time a TypedDict is a dict. The class records `__required_keys__`, `__optional_keys__`, `__readonly_keys__`, `__closed__` and `__extra_items__`.

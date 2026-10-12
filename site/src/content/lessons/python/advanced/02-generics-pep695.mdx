@@ -1,0 +1,573 @@
+---
+language: python
+level: advanced
+module: Typing in depth
+order: 2
+title: Generics with type parameter syntax
+description: Write generic functions, classes and type aliases with the square-bracket syntax from Python 3.12, add bounds, constraints and defaults, and see what the type parameters look like at run time.
+minVersion: "3.12"
+objectives:
+  - Write generic functions with def f[T](...) and explain what a type variable buys over Any
+  - Write a generic class such as Stack[T] and parametrise it at the call site
+  - Restrict a type parameter with a bound or a set of constraints
+  - Declare type aliases with the type statement, including recursive ones
+  - Give a type parameter a default, and read type parameters at run time
+estimatedMinutes: 50
+fundamentals: []
+---
+
+A function that returns the first item of a sequence works for numbers, strings and anything else. [Static typing fundamentals](../typing-fundamentals/) gave you no good way to say so: annotate it with `Any` and the checker forgets everything.
+
+```python title="first_any.py"
+from collections.abc import Sequence
+from typing import Any, reveal_type
+
+
+def first(items: Sequence[Any]) -> Any:
+    return items[0]
+
+
+reveal_type(first([3, 1, 2]))
+print(first([3, 1, 2]))
+```
+
+```text
+3
+```
+
+```console title="mypy 2.3.1"
+$ mypy first_any.py
+first_any.py:9: note: Revealed type is "Any"
+Success: no issues found in 1 source file
+```
+
+The result is `Any`, so a typo on it would go unnoticed. What we want to say is "whatever type goes in comes out". That is a **type parameter**.
+
+## Generic functions
+
+Since Python 3.12 ([PEP 695](https://peps.python.org/pep-0695/)), you declare type parameters in square brackets after the function name. Inside the signature, `T` stands for "one particular type, chosen at each call".
+
+```python title="first_generic.py"
+from collections.abc import Sequence
+from typing import reveal_type
+
+
+def first[T](items: Sequence[T]) -> T:
+    return items[0]
+
+
+reveal_type(first([3, 1, 2]))
+reveal_type(first("abc"))
+reveal_type(first((2.5, 1.0)))
+print(first([3, 1, 2]), first("abc"))
+```
+
+```text
+3 a
+```
+
+```console title="mypy 2.3.1"
+$ mypy first_generic.py
+first_generic.py:9: note: Revealed type is "int"
+first_generic.py:10: note: Revealed type is "str"
+first_generic.py:11: note: Revealed type is "float"
+Success: no issues found in 1 source file
+```
+
+Each call solves `T` separately: `int` for the list, `str` for the string, `float` for the tuple. `Sequence` from `collections.abc` accepts lists, tuples and strings alike.
+
+The brackets create a real object. Python makes a `TypeVar` named `T` that exists only for this function, and stores it on the function:
+
+```python title="first_runtime.py"
+def first[T](items: list[T]) -> T:
+    return items[0]
+
+
+print(first.__type_params__)
+(T,) = first.__type_params__
+print(type(T).__name__, T.__name__)
+print("T" in globals())
+```
+
+```text
+(T,)
+TypeVar T
+True
+```
+
+`T` is not a global name, so two functions can each have their own `T` without clashing.
+
+## Generic classes
+
+The same brackets after a class name make a generic class. Every method can use `T`, and so can attribute annotations.
+
+```python title="stack.py"
+class Stack[T]:
+    def __init__(self) -> None:
+        self._items: list[T] = []
+
+    def push(self, item: T) -> None:
+        self._items.append(item)
+
+    def pop(self) -> T:
+        return self._items.pop()
+
+    def __len__(self) -> int:
+        return len(self._items)
+```
+
+To use it, put the type argument in brackets, either on the call or on the variable:
+
+```python title="stack_use.py"
+from stack import Stack
+
+numbers = Stack[int]()
+numbers.push(1)
+numbers.push(2)
+print(numbers.pop(), len(numbers))
+
+names: Stack[str] = Stack()
+names.push("ada")
+print(names.pop())
+
+print(Stack.__type_params__)
+print(Stack[int], type(numbers).__name__)
+```
+
+```text
+2 1
+ada
+(T,)
+stack.Stack[int] Stack
+```
+
+At run time `Stack[int]` is a thin alias that creates a plain `Stack`: the object does not remember `int`. The checker does, and enforces it:
+
+```python title="stack_wrong.py"
+from stack import Stack
+
+numbers = Stack[int]()
+numbers.push(1)
+numbers.push("two")
+print(len(numbers))
+```
+
+```text
+2
+```
+
+```console title="mypy 2.3.1"
+$ mypy stack_wrong.py
+stack_wrong.py:5: error: Argument 1 to "push" of "Stack" has incompatible type "str"; expected "int"  [arg-type]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+## Bounds: "any type, as long as it can do this"
+
+A plain `T` can be anything, so the function body may only use what every object supports. A **bound**, written `[S: Sized]`, says `S` must be `Sized` or a subtype, which allows `len()`. Compare it with simply annotating the parameters as `Sized`:
+
+```python title="bound_longest.py"
+from collections.abc import Sized
+from typing import reveal_type
+
+
+def longest_plain(a: Sized, b: Sized) -> Sized:
+    return a if len(a) >= len(b) else b
+
+
+def longest[S: Sized](a: S, b: S) -> S:
+    return a if len(a) >= len(b) else b
+
+
+reveal_type(longest_plain("pear", "fig"))
+reveal_type(longest("pear", "fig"))
+reveal_type(longest([1, 2], [3, 4, 5]))
+print(longest("pear", "fig"), longest([1, 2], [3, 4, 5]))
+(S,) = longest.__type_params__
+print(S.__bound__)
+```
+
+```text
+pear [3, 4, 5]
+<class 'collections.abc.Sized'>
+```
+
+```console title="mypy 2.3.1"
+$ mypy bound_longest.py
+bound_longest.py:13: note: Revealed type is "typing.Sized"
+bound_longest.py:14: note: Revealed type is "str"
+bound_longest.py:15: note: Revealed type is "list[int]"
+Success: no issues found in 1 source file
+```
+
+`longest_plain` returns `Sized`, so the caller has lost the information that it was a `str`. The bounded version keeps it. Notice that the bound is stored on the type variable, as `__bound__`. The checker rejects types outside the bound:
+
+```python title="bound_wrong.py"
+from collections.abc import Sized
+
+
+def longest[S: Sized](a: S, b: S) -> S:
+    return a if len(a) >= len(b) else b
+
+
+try:
+    print(longest(10, 200))
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+TypeError: object of type 'int' has no len()
+```
+
+```console title="mypy 2.3.1"
+$ mypy bound_wrong.py
+bound_wrong.py:9: error: Value of type variable "S" of "longest" cannot be "int"  [type-var]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+## Constraints: "exactly one of these types"
+
+A tuple after the colon gives **constraints**: `S` must be exactly one of the listed types, and all uses of `S` in a call must agree. This is how you write "str in, str out; bytes in, bytes out" without allowing a mix.
+
+```python title="constrained.py"
+from typing import reveal_type
+
+
+def double[S: (str, bytes)](a: S) -> S:
+    return a + a
+
+
+reveal_type(double("ab"))
+reveal_type(double(b"ab"))
+print(double("ab"), double(b"ab"))
+```
+
+```text
+abab b'abab'
+```
+
+```console title="mypy 2.3.1"
+$ mypy constrained.py
+constrained.py:8: note: Revealed type is "str"
+constrained.py:9: note: Revealed type is "bytes"
+Success: no issues found in 1 source file
+```
+
+Prefer a bound in most code. Constraints suit the few functions that genuinely work on a small closed set of unrelated types, like `str` and `bytes`.
+
+## Type aliases with the type statement
+
+The `type` statement, also new in 3.12, names a type. It can take type parameters, and its value is evaluated lazily, so an alias can refer to itself. That makes recursive types such as JSON easy to write.
+
+```python title="type_alias.py"
+type Pair[T] = tuple[T, T]
+type Json = dict[str, Json] | list[Json] | str | int | float | bool | None
+
+
+def swap[T](pair: Pair[T]) -> Pair[T]:
+    return (pair[1], pair[0])
+
+
+print(swap((1, 2)))
+print(type(Pair).__name__, Pair.__type_params__)
+print(Pair.__value__)
+print(Json.__value__)
+try:
+    isinstance((1, 2), Pair)
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+(2, 1)
+TypeAliasType (T,)
+tuple[T, T]
+dict[str, __main__.Json] | list[__main__.Json] | str | int | float | bool | None
+TypeError: isinstance() arg 2 must be a type, a tuple of types, or a union
+```
+
+`type` creates a `TypeAliasType` object, not a class. Its right-hand side is stored in `__value__` and only evaluated when someone asks for it, which is why `Json` can mention `Json`. The last line shows the trade-off: an alias cannot be used with `isinstance`. Check against a real class instead.
+
+## Variance in one paragraph
+
+Is a `list[int]` a `list[float]`? No. If it were, a function could append `2.5` to your list of integers. Lists are **invariant**. Read-only containers such as `Sequence` are **covariant**, so a `Sequence[int]` is accepted where a `Sequence[float]` is expected:
+
+```python title="variance.py"
+from collections.abc import Sequence
+
+
+def total(values: list[float]) -> float:
+    return sum(values)
+
+
+def total_ro(values: Sequence[float]) -> float:
+    return sum(values)
+
+
+counts: list[int] = [1, 2, 3]
+print(total(counts))
+print(total_ro(counts))
+```
+
+```text
+6
+6
+```
+
+```console title="mypy 2.3.1"
+$ mypy variance.py
+variance.py:13: error: Argument 1 to "total" has incompatible type "list[int]"; expected "list[float]"  [arg-type]
+variance.py:13: note: "list" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
+variance.py:13: note: Consider using "Sequence" instead, which is covariant
+Found 1 error in 1 file (checked 1 source file)
+```
+
+For classes written with the bracket syntax, checkers infer the variance of each parameter from how the class uses it, so you rarely need to think about it until an error like this one appears. The fix is almost always the advice in the note: accept the read-only abstract type.
+
+## Default type arguments
+
+<Since v="3.13" /> A type parameter can have a default ([PEP 696](https://peps.python.org/pep-0696/)), used when the caller does not specify it.
+
+```python title="default_param.py"
+from typing import reveal_type
+
+
+class Page[T = str]:
+    def __init__(self, items: list[T]) -> None:
+        self.items = items
+
+
+def blank() -> Page:
+    return Page([])
+
+
+reveal_type(blank())
+reveal_type(Page([1, 2]))
+(T,) = Page.__type_params__
+print(T.__default__, T.has_default())
+```
+
+```text
+<class 'str'> True
+```
+
+```console title="mypy 2.3.1"
+$ mypy default_param.py
+default_param.py:13: note: Revealed type is "default_param.Page[str]"
+default_param.py:14: note: Revealed type is "default_param.Page[int]"
+Success: no issues found in 1 source file
+```
+
+A bare `Page` in an annotation now means `Page[str]`, while `Page([1, 2])` still infers `Page[int]`. Defaults let a library add a type parameter to an existing class without breaking every annotation that used it bare.
+
+## Older code: TypeVar and Generic
+
+Code written before 3.12, and code that must still run on 3.11, declares type variables as module-level objects and inherits from `Generic`. You will read a lot of it:
+
+```python title="typevar_compat.py"
+from typing import Generic, TypeVar
+
+T = TypeVar("T")
+
+
+class Box(Generic[T]):
+    def __init__(self, item: T) -> None:
+        self.item = item
+
+
+def unwrap(box: Box[T]) -> T:
+    return box.item
+
+
+print(unwrap(Box(5)))
+```
+
+```text
+5
+```
+
+```console title="mypy 2.3.1"
+$ mypy typevar_compat.py
+Success: no issues found in 1 source file
+```
+
+It means the same as `class Box[T]` and `def unwrap[T]`. With the new syntax you never declare `T` separately, and its scope is clear. Use the bracket syntax in new code.
+
+## Common pitfalls
+
+**A type parameter used once.** In `def show[T](x: T) -> None`, `T` links nothing to anything. Write `x: object`. A type parameter earns its place when it connects two positions, such as an argument and the return value.
+
+**Expecting run-time checks.** `Stack[int]()` accepts strings at run time. The parameter exists for the checker.
+
+**Using a bare generic class.** Without a default, an annotation of plain `Stack` means `Stack[Any]`, and checking quietly stops.
+
+**Reaching for constraints when you mean a bound.** `[T: (int, float)]` rejects `Decimal`, `Fraction` and your own numeric classes. If you mean "something with these operations", use a bound or, after the next lesson, a protocol.
+
+<Exercise title="A stack you can peek at">
+Extend `Stack[T]` with `peek()`, which returns the top item without removing it, or `None` when the stack is empty. Then write a generic function `drain(stack)` that pops every item into a list and returns it, typed so that draining a `Stack[str]` gives `list[str]`.
+
+Push `"a"`, `"b"` and `"c"` onto a `Stack[str]`, then print `peek()`, `drain(...)` and `peek()` on one line. Expected output, and `Success` from mypy:
+
+```text
+c ['c', 'b', 'a'] None
+```
+
+<Solution>
+
+```python title="stack_peek.py"
+class Stack[T]:
+    def __init__(self) -> None:
+        self._items: list[T] = []
+
+    def push(self, item: T) -> None:
+        self._items.append(item)
+
+    def pop(self) -> T:
+        return self._items.pop()
+
+    def peek(self) -> T | None:
+        return self._items[-1] if self._items else None
+
+
+def drain[T](stack: Stack[T]) -> list[T]:
+    out: list[T] = []
+    while stack.peek() is not None:
+        out.append(stack.pop())
+    return out
+
+
+words = Stack[str]()
+for word in ["a", "b", "c"]:
+    words.push(word)
+print(words.peek(), drain(words), words.peek())
+```
+
+```text
+c ['c', 'b', 'a'] None
+```
+
+```console title="mypy 2.3.1"
+$ mypy stack_peek.py
+Success: no issues found in 1 source file
+```
+
+`peek` returns `T | None` because an empty stack has nothing to give. `drain` declares its own `[T]`, and the checker connects it to the stack's parameter at each call.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A Result type">
+Model success and failure as values. Write two generic dataclasses, `Ok[T]` with a field `value` and `Err[E]` with a field `error`, and an alias `type Result[T, E = str] = Ok[T] | Err[E]`. <Since v="3.13" /> The default for `E` needs 3.13.
+
+Write `parse_int(text) -> Result[int]`, which returns `Ok` with the number for text such as `"42"` or `"-7"`, and otherwise `Err` with a message. For each of `"42"`, `"-7"` and `"4x"`, print double the value or the error. Expected output:
+
+```text
+84
+-14
+not a number: '4x'
+```
+
+<Solution>
+
+```python title="result.py"
+from dataclasses import dataclass
+
+
+@dataclass
+class Ok[T]:
+    value: T
+
+
+@dataclass
+class Err[E]:
+    error: E
+
+
+type Result[T, E = str] = Ok[T] | Err[E]
+
+
+def parse_int(text: str) -> Result[int]:
+    if text.strip().lstrip("-").isdigit():
+        return Ok(int(text))
+    return Err(f"not a number: {text!r}")
+
+
+for text in ["42", "-7", "4x"]:
+    result = parse_int(text)
+    print(result.value * 2 if isinstance(result, Ok) else result.error)
+```
+
+```text
+84
+-14
+not a number: '4x'
+```
+
+```console title="mypy 2.3.1"
+$ mypy result.py
+Success: no issues found in 1 source file
+```
+
+`Result[int]` uses the default, so it means `Ok[int] | Err[str]`. After `isinstance(result, Ok)`, the checker knows `result.value` is an `int`. The next lessons build on this: [Type narrowing](../narrowing/) shows how `match` handles such unions exhaustively.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix the comparison">
+This function runs correctly, but mypy rejects it. Predict the error, then fix the type parameter so that `int`, `float` and `str` arguments are accepted and the checker is satisfied.
+
+```python title="biggest_broken.py"
+def biggest[T](a: T, b: T) -> T:
+    return a if a > b else b
+
+
+print(biggest(3, 7), biggest("pear", "apple"))
+```
+
+```text
+7 pear
+```
+
+Expected: one mypy error before the fix, and `Success` after it, with the same output.
+
+<Solution>
+
+```console title="mypy 2.3.1"
+$ mypy biggest_broken.py
+biggest_broken.py:2: error: Unsupported left operand type for > ("T")  [operator]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+A plain `T` could be any type, and not every type supports `>`. Constraining `T` to types that do fixes it:
+
+```python title="biggest_fixed.py"
+def biggest[T: (int, float, str)](a: T, b: T) -> T:
+    return a if a > b else b
+
+
+print(biggest(3, 7), biggest("pear", "apple"))
+```
+
+```text
+7 pear
+```
+
+```console title="mypy 2.3.1"
+$ mypy biggest_fixed.py
+Success: no issues found in 1 source file
+```
+
+A protocol with `__gt__` would accept any comparable type instead of three. [Protocols and structural typing](../protocols-structural/) shows how to write one.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `def f[T](x: T) -> T` and `class C[T]` declare type parameters, available from Python 3.12. Each lives in `__type_params__` and is scoped to its function or class.
+- `[S: Bound]` restricts a parameter to a type and its subtypes. `[S: (A, B)]` restricts it to exactly one of a list.
+- `type Name[T] = ...` creates a lazily evaluated `TypeAliasType`, which can be recursive but cannot be used with `isinstance`.
+- `list` is invariant. Accept `Sequence` or `Iterable` when you only read.
+- `[T = int]` gives a default, available from 3.13.
+- `TypeVar` and `Generic` are the older spelling of the same ideas.

@@ -1,0 +1,3 @@
+[]
+['celsius: 99.0 out of range']
+['sensor: expected str', 'celsius: expected float']
