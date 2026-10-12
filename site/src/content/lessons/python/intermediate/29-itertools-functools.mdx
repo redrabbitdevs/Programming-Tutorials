@@ -327,7 +327,7 @@ The type can be given as an annotation on the first parameter (as for `int`) or 
 - **Reaching for `reduce` first.** If `sum`, `max` or `join` fits, use it.
 
 <Exercise title="Batch the API calls">
-You have the user ids 1 to 10 and a function that can look up at most 4 users per call. Use `batched` to make as few calls as possible. Collect all the results into one list, and print the number of calls and the list. Expected output:
+<Since v="3.12" /> You have the user ids 1 to 10 and a function that can look up at most 4 users per call. Use `batched` to make as few calls as possible. Collect all the results into one list, and print the number of calls and the list. Expected output:
 
 ```text
 3 calls

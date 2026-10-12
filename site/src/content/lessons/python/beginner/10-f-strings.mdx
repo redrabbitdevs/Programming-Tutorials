@@ -131,9 +131,9 @@ lines
 
 Printing a value together with its name, as `{price=}` does, is called **print debugging**, and the loops module uses it to find bugs.
 
-## Quotes and line breaks <Since v="3.12" />
+## Quotes and line breaks
 
-Before Python 3.12 you could not reuse the surrounding quote character inside the braces, nor put a comment or newline in the expression. From 3.12 onwards (PEP 701) f-strings are part of the normal grammar, so all of that works.
+<Since v="3.12" /> Before Python 3.12 you could not reuse the surrounding quote character inside the braces, nor put a comment or newline in the expression. From 3.12 onwards (PEP 701) f-strings are part of the normal grammar, so all of that works.
 
 ```python title="fstring_312.py"
 print(f"{len("Python")} letters")

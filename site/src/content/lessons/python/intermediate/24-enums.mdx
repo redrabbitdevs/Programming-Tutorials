@@ -396,7 +396,7 @@ The dictionary inside `next` maps each member to its successor, which keeps the 
 </Exercise>
 
 <Exercise title="Parsing log levels">
-Write a `StrEnum` called `Level` with members `DEBUG`, `INFO` and `ERROR`, whose values are the lower-case words. Then write `parse_level(text)`. It strips spaces, lowers the case, and returns the matching member. For unknown text it raises `ValueError` with the message `unknown level: 'loud'` (with the real text, using `!r`), and it must hide the original enum error with `from None`.
+<Since v="3.11" /> Write a `StrEnum` called `Level` with members `DEBUG`, `INFO` and `ERROR`, whose values are the lower-case words. Then write `parse_level(text)`. It strips spaces, lowers the case, and returns the matching member. For unknown text it raises `ValueError` with the message `unknown level: 'loud'` (with the real text, using `!r`), and it must hide the original enum error with `from None`.
 
 Run it on `"INFO"`, `" error "` and `"loud"`. For each good one print the member name and value, for the bad one print `error: ` and the message. Expected output:
 

@@ -100,6 +100,18 @@ else
   fail "internal links (no build output)"
 fi
 
+# 4. Lesson code and output match the verified examples ------------------------
+step "lesson examples: lesson blocks vs examples/ (allowlist: scripts/lesson_examples_allow.txt)"
+LE_OUT="$(python3 "$ROOT/scripts/check_lesson_examples.py" 2>&1)"; LE_CODE=$?
+printf '%s\n' "$LE_OUT"
+if [ $LE_CODE -eq 0 ]; then pass "$(printf '%s\n' "$LE_OUT" | tail -1)"; else fail "lesson examples differ from examples/"; fi
+
+# 5. Version claims ----------------------------------------------------------
+step "versions: minVersion and <Since> consistency"
+VER_OUT="$(python3 "$ROOT/scripts/check_versions.py" 2>&1)"; VER_CODE=$?
+printf '%s\n' "$VER_OUT"
+if [ $VER_CODE -eq 0 ]; then pass "$(printf '%s\n' "$VER_OUT" | tail -1)"; else fail "version claims (minVersion / <Since>)"; fi
+
 # Summary --------------------------------------------------------------------
 printf '\n== Summary\n'
 printf '%s\n' "${SUMMARY[@]}"
