@@ -1,0 +1,6 @@
+INFO: copied 12 files
+WARNING: skipped /data/private: permission denied
+--- contents of the file
+DEBUG backup run: scanning /data
+INFO backup run: copied 12 files
+WARNING backup run: skipped /data/private: permission denied

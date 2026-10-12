@@ -1,0 +1,4 @@
+total value: 16.5
+most valuable: fig
+low stock: ['apple', 'fig']
+names: apple, fig, pear, plum

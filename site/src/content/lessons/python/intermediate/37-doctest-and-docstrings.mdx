@@ -1,0 +1,399 @@
+---
+language: python
+level: intermediate
+module: Testing, debugging and quality
+order: 37
+title: Docstrings and doctest
+description: Document functions with docstrings that help() and editors can show, and put runnable examples in them so the documentation is tested.
+minVersion: "3.8"
+objectives:
+  - Write a docstring with a summary line, and describe arguments, return value and errors
+  - Read docstrings back with __doc__, help() and inspect
+  - Embed examples in a docstring and run them with doctest
+  - Use ELLIPSIS, NORMALIZE_WHITESPACE and SKIP, and run doctests from a text file
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/27-reading-docs-and-code"]
+---
+
+Documentation that lives in a separate file goes out of date quietly. A **docstring** sits right inside the function it describes, where the person changing the code will see it. And if the docstring contains examples that Python can run, the documentation can never silently disagree with the code. The [fundamentals lesson on reading docs](../../../fundamentals/beginner/reading-docs-and-code/) covers how readers use documentation. This lesson covers writing it.
+
+## What a docstring is
+
+A docstring is a string literal that is the first statement of a module, function, class or method. Python stores it in the `__doc__` attribute. The [comments and style lesson](../../beginner/comments-and-style/) introduced the idea. Here is a function with a full docstring:
+
+```python title="c37_docstring.py"
+import inspect
+
+
+def resize(width, height, factor=1.0):
+    """Scale a width and height by a factor.
+
+    Args:
+        width: Width in pixels.
+        height: Height in pixels.
+        factor: Multiplier, 1.0 leaves the size unchanged.
+
+    Returns:
+        A (width, height) tuple of ints.
+
+    Raises:
+        ValueError: If factor is not positive.
+    """
+    if factor <= 0:
+        raise ValueError("factor must be positive")
+    return round(width * factor), round(height * factor)
+
+
+print(resize.__doc__.splitlines()[0])
+print("---")
+print(inspect.getdoc(resize))
+print("---")
+print(inspect.signature(resize))
+```
+
+```text
+Scale a width and height by a factor.
+---
+Scale a width and height by a factor.
+
+Args:
+    width: Width in pixels.
+    height: Height in pixels.
+    factor: Multiplier, 1.0 leaves the size unchanged.
+
+Returns:
+    A (width, height) tuple of ints.
+
+Raises:
+    ValueError: If factor is not positive.
+---
+(width, height, factor=1.0)
+```
+
+`inspect.getdoc` returns the docstring with the indentation cleaned up, which is what `help(resize)` prints in the REPL, next to the signature that `inspect.signature` shows. Editors use the same text for hover tips, so a good docstring helps everyone who calls the function without reading its body.
+
+The conventions are short:
+
+- Triple double quotes, even for one line.
+- A **summary line** first: one sentence, in the imperative ("Scale...", not "Scales..."), ending with a full stop.
+- If more is needed, a blank line and then the details.
+- Describe what the function promises, not how it works inside. The code already says how.
+
+[PEP 257](https://peps.python.org/pep-0257/) is the standard reference. For the argument sections, projects pick one layout and stay with it. The `Args:` / `Returns:` / `Raises:` style above (called Google style) is common, and NumPy style, with underlined section titles, is another. Use whatever the project already uses. Type information belongs in the annotations from [type hints](../../beginner/type-hints-intro/), not repeated in the text.
+
+## Examples that run: doctest
+
+The docstring below ends with something that looks like an interactive session. Lines starting with `>>>` are code, and the lines under them are the expected output. The standard `doctest` module finds those and runs them.
+
+```python title="c37_stats.py"
+"""Small statistics helpers whose docstrings double as tests."""
+
+
+def mean(values):
+    """Return the arithmetic mean of a non-empty sequence of numbers.
+
+    >>> mean([2, 4, 6])
+    4.0
+    >>> mean([5])
+    5.0
+
+    An empty sequence is an error:
+
+    >>> mean([])
+    Traceback (most recent call last):
+        ...
+    ValueError: mean() needs at least one value
+    """
+    if not values:
+        raise ValueError("mean() needs at least one value")
+    return sum(values) / len(values)
+
+
+def clamp(value, low, high):
+    """Limit value to the range low..high.
+
+    >>> clamp(15, 0, 10)
+    10
+    >>> clamp(-3, 0, 10)
+    0
+    >>> clamp(7, 0, 10)
+    7
+    """
+    return max(low, min(value, high))
+
+
+def histogram(words):
+    """Count how often each word occurs, most common first.
+
+    The result is a list of (word, count) pairs:
+
+    >>> histogram(["b", "a", "b", "c", "b", "a"])
+    [('b', 3), ('a', 2), ('c', 1)]
+    """
+    counts = {}
+    for word in words:
+        counts[word] = counts.get(word, 0) + 1
+    return sorted(counts.items(), key=lambda pair: -pair[1])
+
+
+if __name__ == "__main__":
+    import doctest
+
+    print(doctest.testmod())
+```
+
+```text
+TestResults(failed=0, attempted=7)
+```
+
+`doctest.testmod()` runs the examples in every docstring of the module it is called from and returns a result with the number of examples attempted and failed. Silence means success, apart from that summary. You can also run it without editing the file, and add `-v` to see each example:
+
+```console
+$ python -m doctest c37_stats.py
+$ python -m doctest -v c37_stats.py
+```
+
+The first prints nothing when all examples pass. The second lists every example and ends with a count like `7 passed.` Exceptions work too. The expected output starts with `Traceback (most recent call last):`, then an ellipsis line (the middle of the traceback is ignored), and then the exception line, which must match.
+
+## When an example fails
+
+Here is a docstring with a wrong expectation. Ten with 20 per cent tax is 12.0, not 12.5:
+
+```python title="c37_doctest_fail.py"
+def add_tax(price, rate):
+    """Return price plus tax.
+
+    >>> add_tax(10, 0.2)
+    12.5
+    >>> add_tax(100, 0.2)
+    120.0
+    """
+    return round(price * (1 + rate), 2)
+```
+
+The script `c37_run_fail.py` runs `python -m doctest` on this file and prints the report with the folder name removed:
+
+```text
+**********************************************************************
+File "c37_doctest_fail.py", line 4, in c37_doctest_fail.add_tax
+Failed example:
+    add_tax(10, 0.2)
+Expected:
+    12.5
+Got:
+    12.0
+**********************************************************************
+1 item had failures:
+   1 of   2 in c37_doctest_fail.add_tax
+***Test Failed*** 1 failure.
+exit status: 1
+```
+
+The report names the file, the line of the example and the function, and then puts `Expected` above `Got`. The exit status is 1, so doctest is suitable for the [one-command check](../test-driven-workflow/) from the test-driven workflow lesson. The second example passed, and so only one failure is reported.
+
+## Making examples robust
+
+doctest compares output **character by character**, which is strict. Three option flags relax it. Write them in a comment on the example line.
+
+```python title="c37_flags.py"
+import doctest
+
+
+def describe(obj):
+    """Show an object the way a debugger would.
+
+    The address changes on every run, so the ELLIPSIS option matches it loosely:
+
+    >>> describe(object())  # doctest: +ELLIPSIS
+    '<object object at 0x...>'
+
+    Long output can be laid out freely when whitespace is normalised:
+
+    >>> list(range(12))  # doctest: +NORMALIZE_WHITESPACE
+    [0, 1, 2, 3,
+     4, 5, 6, 7,
+     8, 9, 10, 11]
+
+    A line that is slow or needs a network can be skipped:
+
+    >>> describe(open("/no/such/file"))  # doctest: +SKIP
+    """
+    return repr(obj)
+
+
+result = doctest.testmod()
+print(result.failed, "failed,", result.attempted, "attempted")
+```
+
+```text
+0 failed, 3 attempted
+```
+
+`+ELLIPSIS` lets `...` stand for any text, useful for memory addresses, timestamps and long tails. `+NORMALIZE_WHITESPACE` treats any run of whitespace as equal, so you can wrap long output. `+SKIP` leaves an example in the documentation without running it. If you find yourself using many flags, the example is probably too clever for documentation. Keep doctests for short, stable examples, and use real tests for the rest.
+
+Other things to watch: dictionaries print in insertion order, so `{'a': 1, 'b': 2}` is reliable as output, but sets print in an order you should not depend on. Wrap them in `sorted(...)`. Floats print their shortest representation, so `0.1 + 0.2` shows `0.30000000000000004`, and `round(...)` gives you stable text.
+
+## Doctests in a plain text file
+
+Examples can also live in a text guide, with prose around them. This helps for a README that shows how to use a package:
+
+```text title="c37_guide.txt"
+Using the stats helpers
+=======================
+
+This file is a plain text guide. Every line that starts with ">>> " is a test.
+
+    >>> from c37_stats import mean, clamp
+    >>> mean([1, 2, 3, 4])
+    2.5
+
+The same names stay available further down the file:
+
+    >>> clamp(mean([10, 20]), 0, 12)
+    12
+```
+
+```python title="c37_testfile.py"
+import doctest
+
+print(doctest.testfile("c37_guide.txt"))
+```
+
+```text
+TestResults(failed=0, attempted=3)
+```
+
+The whole file shares one namespace, which is why `clamp` and `mean` imported in the first example are available in the second. If you use pytest, `python -m pytest --doctest-modules` collects the docstring examples of your modules, and `--doctest-glob="*.txt"` does the same for text files, so they run alongside your other tests.
+
+## Docstring or comment?
+
+A docstring explains **what** and **how to use**, for a caller. A comment explains **why**, for the next person editing the code. A docstring is the right place for examples and for the contract: what the arguments mean and what is raised. A `#` comment is right for a surprising choice inside a function body. The README, then, is the first stop for a stranger, and the docstrings answer questions about a specific call.
+
+## Common pitfalls
+
+- **Output that includes a changing value.** Addresses, dates and random numbers make examples flaky. Use `+ELLIPSIS`, or restructure the example to print something stable.
+- **A missing blank line after the expected output.** Expected output ends at the next blank line or `>>>`. Text after the output without a blank line becomes part of it.
+- **Backslashes in a docstring.** `"\n"` in a normal docstring is an actual newline when the docstring is read. Use a raw docstring (`r"""..."""`) if the examples contain backslashes.
+- **`print` versus return value.** `>>> f()` shows the repr of the return value, `>>> print(f())` shows the printed text, so a string result appears with quotes in the first and without in the second.
+- **Docstrings that restate the code.** "Adds a and b" over `def add(a, b)` helps nobody. Say what is not obvious: units, ranges, what happens on bad input.
+- **Examples that rot.** A doctest only protects you if it runs. Add it to the one-command check.
+
+<Exercise title="Add doctests to a function">
+
+Write the function `percent(part, whole)` that returns `part` as a percentage of `whole`, rounded to one decimal place. Give it a docstring with four doctest examples: `percent(1, 4)` gives `25.0`, `percent(1, 3)` gives `33.3`, `percent(0, 5)` gives `0.0`, and `percent(1, 0)` raises `ValueError` with the message `whole must not be zero`. Run it so that the output is `TestResults(failed=0, attempted=4)`.
+
+<Solution>
+
+```python title="c37_ex_percent.py"
+def percent(part, whole):
+    """Return part as a percentage of whole, rounded to one decimal place.
+
+    >>> percent(1, 4)
+    25.0
+    >>> percent(1, 3)
+    33.3
+    >>> percent(0, 5)
+    0.0
+
+    A whole of zero has no percentage:
+
+    >>> percent(1, 0)
+    Traceback (most recent call last):
+        ...
+    ValueError: whole must not be zero
+    """
+    if whole == 0:
+        raise ValueError("whole must not be zero")
+    return round(part / whole * 100, 1)
+
+
+if __name__ == "__main__":
+    import doctest
+
+    print(doctest.testmod())
+```
+
+```text
+TestResults(failed=0, attempted=4)
+```
+
+The prose line before the last example is allowed: any text between examples is ignored. The error example needs only the exception type and message after the `...` line.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Document and test a text-wrapping function">
+
+Write `wrap_words(text, width)`, which splits text into a list of lines no longer than `width`, breaking only between words. A word longer than `width` gets its own line, an empty text gives `[]`, and a `width` below 1 raises `ValueError("width must be at least 1")`. Write a module docstring, a Google-style function docstring with `Args`, `Returns` and `Raises`, and doctest examples for `("the quick brown fox jumps", 10)`, the long-word case, the empty case, the error, and one example that prints the lines one per row with a `for` loop. Expected doctest summary: `TestResults(failed=0, attempted=5)`.
+
+<Solution>
+
+```python title="c37_ex_wrap.py"
+"""Break text into lines of a fixed width."""
+
+
+def wrap_words(text, width):
+    """Split text into lines no longer than width, breaking only between words.
+
+    Args:
+        text: The text to wrap. Runs of whitespace count as one space.
+        width: Maximum line length. A single word longer than this gets its own line.
+
+    Returns:
+        A list of lines.
+
+    Raises:
+        ValueError: If width is less than 1.
+
+    >>> wrap_words("the quick brown fox jumps", 10)
+    ['the quick', 'brown fox', 'jumps']
+    >>> wrap_words("extraordinarily short", 5)
+    ['extraordinarily', 'short']
+    >>> wrap_words("", 10)
+    []
+    >>> for line in wrap_words("one two three four", 9):
+    ...     print(line)
+    one two
+    three
+    four
+    >>> wrap_words("x", 0)
+    Traceback (most recent call last):
+        ...
+    ValueError: width must be at least 1
+    """
+    if width < 1:
+        raise ValueError("width must be at least 1")
+    lines = []
+    current = ""
+    for word in text.split():
+        if current and len(current) + 1 + len(word) > width:
+            lines.append(current)
+            current = word
+        else:
+            current = f"{current} {word}" if current else word
+    if current:
+        lines.append(current)
+    return lines
+
+
+if __name__ == "__main__":
+    import doctest
+
+    print(doctest.testmod())
+```
+
+```text
+TestResults(failed=0, attempted=5)
+```
+
+A multi-line statement in doctest uses `...` as the continuation prompt, and the output of the loop follows directly. The doctests do double duty as the specification and as the test suite.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A docstring is the first string in a module, function or class. Give it a summary line in the imperative, then arguments, return value and errors in one consistent style. `help()`, `inspect.getdoc` and editors read it.
+- Lines starting with `>>>` in a docstring are doctests. Run them with `doctest.testmod()` or `python -m doctest`, and use `+ELLIPSIS`, `+NORMALIZE_WHITESPACE` and `+SKIP` for output that varies.
+- `doctest.testfile` and pytest's `--doctest-modules` run examples from text files and modules alongside the rest of your tests.
+- The [next lesson](../logging/) covers what your program says about itself while it runs.

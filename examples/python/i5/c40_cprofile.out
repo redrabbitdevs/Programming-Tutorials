@@ -1,0 +1,5 @@
+result: 1500
+build_report  called 1 times
+count_known   called 1 times
+is_known      called 3000 times
+load_ids      called 1 times

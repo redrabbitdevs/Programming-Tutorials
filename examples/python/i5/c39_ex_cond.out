@@ -1,0 +1,14 @@
+> c39_ex_cond.py(7)running_total()
+-> total = 0
+(Pdb) Breakpoint 1 at c39_ex_cond.py:9
+(Pdb) > c39_ex_cond.py(9)running_total()
+-> total += n
+(Pdb) (3, 20, 30)
+(Pdb) display total: 30
+(Pdb) > c39_ex_cond.py(8)running_total()
+-> for i, n in enumerate(numbers):
+display total: 50  [old: 30]
+(Pdb) > c39_ex_cond.py(9)running_total()
+-> total += n
+(Pdb) 
+returned 75

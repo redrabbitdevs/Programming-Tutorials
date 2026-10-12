@@ -1,0 +1,14 @@
+== arguments: []
+WARNING leaving hidden file .env
+== arguments: ['-v']
+INFO removing a.tmp
+WARNING leaving hidden file .env
+INFO done
+== arguments: ['-vv']
+DEBUG checking a.tmp
+INFO removing a.tmp
+DEBUG checking .env
+WARNING leaving hidden file .env
+DEBUG checking notes.txt
+INFO done
+== arguments: ['-q']

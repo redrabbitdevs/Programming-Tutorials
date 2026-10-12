@@ -1,0 +1,4 @@
+duplicates found: 1000
+list.count calls: 6000
+same answer: True
+at least 20 times faster: True

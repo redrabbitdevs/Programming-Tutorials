@@ -1,0 +1,13 @@
+> c39_postmortem.py(12)average_by_group()
+-> sums[group] = sums[group] + value
+(Pdb)   c39_postmortem.py(18)<module>()
+-> average_by_group(rows)
+> c39_postmortem.py(12)average_by_group()
+-> sums[group] = sums[group] + value
+(Pdb) 'a'
+(Pdb) 1
+(Pdb) {}
+(Pdb) > c39_postmortem.py(18)<module>()
+-> average_by_group(rows)
+(Pdb) [('a', 1), ('b', 2)]
+(Pdb) 

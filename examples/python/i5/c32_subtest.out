@@ -1,0 +1,31 @@
+FF
+======================================================================
+FAIL: test_table (__main__.SlugifyTable.test_table) (text='v1.2 notes')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c32_subtest.py", line 20, in test_table
+    self.assertEqual(slugify(text), expected)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'v1-2-notes' != 'v1.2-notes'
+- v1-2-notes
+?   ^
++ v1.2-notes
+?   ^
+
+
+======================================================================
+FAIL: test_table (__main__.SlugifyTable.test_table) (text='a.b.c')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c32_subtest.py", line 20, in test_table
+    self.assertEqual(slugify(text), expected)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'a-b-c' != 'a.b.c'
+- a-b-c
++ a.b.c
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (failures=2)

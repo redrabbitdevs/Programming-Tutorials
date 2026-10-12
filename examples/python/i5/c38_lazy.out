@@ -1,0 +1,6 @@
+with an f-string:
+(building the message)
+with %s arguments:
+when the level is enabled:
+(building the message)
+state: expensive text

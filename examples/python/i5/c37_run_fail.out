@@ -1,0 +1,13 @@
+**********************************************************************
+File "c37_doctest_fail.py", line 4, in c37_doctest_fail.add_tax
+Failed example:
+    add_tax(10, 0.2)
+Expected:
+    12.5
+Got:
+    12.0
+**********************************************************************
+1 item had failures:
+   1 of   2 in c37_doctest_fail.add_tax
+***Test Failed*** 1 failure.
+exit status: 1

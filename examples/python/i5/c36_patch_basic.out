@@ -1,0 +1,10 @@
+test_cold_day (__main__.DescribeTests.test_cold_day) ... ok
+test_network_failure_reaches_the_caller (__main__.DescribeTests.test_network_failure_reaches_the_caller) ... ok
+test_warm_day (__main__.DescribeTests.test_warm_day) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+OK
+
+c36_weather fetch_temperature

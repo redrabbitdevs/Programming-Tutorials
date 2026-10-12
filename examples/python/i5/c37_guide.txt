@@ -1,0 +1,13 @@
+Using the stats helpers
+=======================
+
+This file is a plain text guide. Every line that starts with ">>> " is a test.
+
+    >>> from c37_stats import mean, clamp
+    >>> mean([1, 2, 3, 4])
+    2.5
+
+The same names stay available further down the file:
+
+    >>> clamp(mean([10, 20]), 0, 12)
+    12
