@@ -1,0 +1,5 @@
+100 True auto
+{'colour': 'auto', 'width': 100, 'verbose': True}
+{'verbose': True, 'colour': 'never'}
+auto never
+40 100

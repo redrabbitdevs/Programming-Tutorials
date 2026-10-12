@@ -1,0 +1,403 @@
+---
+language: python
+level: advanced
+module: Advanced data handling
+order: 11
+title: Copying and references
+description: Find and fix aliasing bugs, choose between shallow and deep copies, and control how your own classes are copied and replaced.
+minVersion: "3.10"
+objectives:
+  - Predict when a function or an assignment shares an object instead of copying it
+  - Choose between a shallow copy and copy.deepcopy for nested data
+  - Explain how deepcopy keeps shared objects shared and survives cycles
+  - Customise copying with __copy__ and __deepcopy__, and changed copies with __replace__
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/18-memory-and-references"]
+---
+
+A Python variable is a name attached to an object, not a box holding a value. [Memory and references](../../../fundamentals/beginner/memory-and-references/) in the fundamentals track explains the model, and the [lists lesson](../../beginner/lists/) showed its first consequence: `b = a` shares one list. This lesson deals with the bugs that sharing causes in larger programs, and the tools for copying exactly as much as you mean to.
+
+## Arguments are shared, not copied
+
+Calling a function attaches its parameter to the caller's object. No copy is made, so a function that mutates its argument changes the caller's data:
+
+```python title="alias_function.py"
+def add_bonus(scores):
+    scores.append(10)
+    return scores
+
+
+mine = [70, 80]
+theirs = add_bonus(mine)
+print(mine, theirs is mine)
+```
+
+```text
+[70, 80, 10] True
+```
+
+`theirs is mine` is `True`: there is still only one list. Returning a mutated argument hides this, because the caller sees a "result" and assumes it is new. Either mutate and return `None`, as `list.sort` does, or build a new object and leave the argument alone.
+
+Assigning to the parameter is different. It only moves the local name to a new object, and the caller's list is untouched:
+
+```python title="alias_function.py (continued)"
+def reset(scores):
+    scores = []
+    return scores
+
+
+fresh = reset(mine)
+print(mine, fresh)
+```
+
+```text
+[70, 80, 10] []
+```
+
+The difference is between **mutating** an object (`append`, `scores[0] = ...`, `+=` on a list) and **rebinding** a name (`scores = ...`). Only mutation is visible through other names. The same mechanism makes a mutable default argument shared between calls, the bug from [parameters](../../beginner/parameters/).
+
+## Shallow copies share the inside
+
+`copy.copy(x)` makes a **shallow copy**: a new outer object whose items are the same objects as before. `dict(x)`, `x.copy()`, `{**x}`, `list(x)` and `x[:]` all do the same:
+
+```python title="shallow_nested.py"
+import copy
+
+config = {"name": "app", "servers": ["a", "b"]}
+copies = [copy.copy(config), dict(config), config.copy(), {**config}]
+
+copies[0]["name"] = "changed"
+copies[1]["servers"].append("c")
+print(config)
+print(all(c["servers"] is config["servers"] for c in copies))
+```
+
+```text
+{'name': 'app', 'servers': ['a', 'b', 'c']}
+True
+```
+
+Setting `"name"` in one copy rebinds a key in that copy only. Appending to `"servers"` mutates the one list that the original and all four copies share. A shallow copy is right when the items are immutable, such as strings and numbers, or when sharing them is what you want.
+
+## Deep copies copy everything
+
+`copy.deepcopy(x)` copies the outer object and, recursively, everything mutable inside it:
+
+```python title="deepcopy_shared.py"
+import copy
+
+config = {"name": "app", "servers": ["a", "b"]}
+deep = copy.deepcopy(config)
+deep["servers"].append("c")
+print(config["servers"], deep["servers"])
+```
+
+```text
+['a', 'b'] ['a', 'b', 'c']
+```
+
+Deep copying is not a blind walk. It keeps a **memo**, a dictionary from each original object's `id` to its copy, so an object reached twice is copied once. That keeps shared parts shared inside the copy, and stops a structure that contains itself from recursing forever:
+
+```python title="deepcopy_shared.py (continued)"
+shared = [1, 2]
+pair = [shared, shared]
+clone = copy.deepcopy(pair)
+print(clone[0] is clone[1], clone[0] is shared)
+
+loop = [1]
+loop.append(loop)
+print(copy.deepcopy(loop))
+```
+
+```text
+True False
+[1, [...]]
+```
+
+The clone's two items are still one list, as in the original, but a new one. Deep copies cost time and memory in proportion to everything they reach, so use them for modest nested data such as configuration and test fixtures, not for large object graphs on every call.
+
+## Customising copies
+
+`copy.copy` and `copy.deepcopy` work on your own classes without any help: they copy the instance's attributes, shallowly or deeply. Define `__copy__` when a copy needs different treatment, such as a fresh identifier:
+
+```python title="custom_copy.py"
+import copy
+from itertools import count
+
+next_id = count(1)
+
+
+class Document:
+    def __init__(self, text):
+        self.id = next(next_id)
+        self.text = text
+
+    def __copy__(self):
+        return Document(self.text)
+
+
+first = Document("draft")
+second = copy.copy(first)
+print(first.id, second.id, second.text)
+```
+
+```text
+1 2 draft
+```
+
+`__deepcopy__(self, memo)` does the same for deep copies. Pass `memo` on to every `deepcopy` call inside it, so shared objects and cycles are still handled. A common reason to write one is an attribute that must be shared rather than copied, such as a log, a lock or a database connection:
+
+```python title="custom_deepcopy.py"
+import copy
+
+
+class Report:
+    def __init__(self, title, rows, log):
+        self.title = title
+        self.rows = rows
+        self.log = log  # shared on purpose, never copied
+
+    def __deepcopy__(self, memo):
+        rows = copy.deepcopy(self.rows, memo)
+        return Report(self.title, rows, self.log)
+
+
+log = []
+first = Report("Q1", [[1, 2]], log)
+second = copy.deepcopy(first)
+second.rows[0].append(3)
+print(first.rows, second.rows, second.log is log)
+```
+
+```text
+[[1, 2]] [[1, 2, 3]] True
+```
+
+## copy.replace
+
+<Since v="3.13" /> Python 3.13 added `copy.replace(obj, **changes)`, which makes a copy with some fields changed. The [dataclasses lesson](../../intermediate/dataclasses/) used it on a dataclass. It also works on named tuples:
+
+```python title="copy_replace_custom.py"
+import copy
+from collections import namedtuple
+
+Point = namedtuple("Point", "x y")
+print(copy.replace(Point(1, 2), y=5))
+```
+
+```text
+Point(x=1, y=5)
+```
+
+Any class can support it by defining `__replace__`, which receives the changes as keyword arguments and returns the new object:
+
+```python title="copy_replace_custom.py (continued)"
+class Money:
+    def __init__(self, amount, currency):
+        self.amount = amount
+        self.currency = currency
+
+    def __replace__(self, **changes):
+        fields = {"amount": self.amount, "currency": self.currency}
+        return Money(**(fields | changes))
+
+    def __repr__(self):
+        return f"Money({self.amount}, {self.currency!r})"
+
+
+price = Money(5, "EUR")
+print(copy.replace(price, amount=7), price)
+```
+
+```text
+Money(7, 'EUR') Money(5, 'EUR')
+```
+
+On older versions, call `dataclasses.replace` or a named tuple's `_replace` directly.
+
+## Common pitfalls
+
+- **Returning a mutated argument.** Callers assume the result is new. Mutate and return `None`, or copy first.
+- **A shallow copy of nested data.** `dict.copy()` shares the inner lists. Use `copy.deepcopy`, or rebuild the inner parts yourself.
+- **`[[]] * n` and `[row] * n`.** Both repeat a reference to one list. Use a comprehension.
+- **Forgetting `memo` in `__deepcopy__`.** Without it, shared objects are copied twice and cycles recurse until `RecursionError`.
+- **Deep copying objects that hold resources.** Files, sockets and locks cannot be copied meaningfully. Share them in `__deepcopy__`.
+
+<Exercise title="Fix five aliasing bugs">
+Each of the five printed lines below is wrong because two names share an object that should have been copied. Fix the script so that it prints:
+
+```text
+[[1, 0], [0, 0]]
+['a'] ['b']
+{'theme': 'dark', 'plugins': ['git']}
+[[1, 0], [0, 0]]
+[['x'], [], []]
+```
+
+```python title="aliasing_bugs.py"
+def make_grid(n):
+    row = [0] * n
+    return [row] * n
+
+
+def add_tag(tag, tags=[]):
+    tags.append(tag)
+    return tags
+
+
+grid = make_grid(2)
+grid[0][0] = 1
+print(grid)
+print(add_tag("a"), add_tag("b"))
+defaults = {"theme": "dark", "plugins": ["git"]}
+user = defaults.copy()
+user["plugins"].append("lint")
+print(defaults)
+backup = grid
+grid[1][1] = 5
+print(backup)
+history = [[]] * 3
+history[0].append("x")
+print(history)
+```
+
+<Solution>
+
+```python title="aliasing_fixed.py"
+import copy
+
+
+def make_grid(n):
+    return [[0] * n for _ in range(n)]
+
+
+def add_tag(tag, tags=None):
+    if tags is None:
+        tags = []
+    tags.append(tag)
+    return tags
+
+
+grid = make_grid(2)
+grid[0][0] = 1
+print(grid)
+print(add_tag("a"), add_tag("b"))
+```
+
+```text
+[[1, 0], [0, 0]]
+['a'] ['b']
+```
+
+```python title="aliasing_fixed.py (continued)"
+defaults = {"theme": "dark", "plugins": ["git"]}
+user = copy.deepcopy(defaults)
+user["plugins"].append("lint")
+print(defaults)
+
+backup = copy.deepcopy(grid)
+grid[1][1] = 5
+print(backup)
+
+history = [[] for _ in range(3)]
+history[0].append("x")
+print(history)
+```
+
+```text
+{'theme': 'dark', 'plugins': ['git']}
+[[1, 0], [0, 0]]
+[['x'], [], []]
+```
+
+`[row] * n` and `[[]] * 3` repeat one inner list, so each row is built by a comprehension. The default list was created once, when `def` ran, so the default is `None` and each call builds its own. `defaults.copy()` was shallow and `backup = grid` was no copy at all. Both hold nested lists, so both need `deepcopy`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict: shallow, deep and shared">
+What do the three `print` calls show?
+
+```python title="predict_copies.py"
+import copy
+
+inner = [0]
+outer = [inner, inner]
+a = copy.copy(outer)
+b = copy.deepcopy(outer)
+a[0].append(1)
+b[0].append(2)
+print(outer)
+print(a)
+print(b)
+```
+
+<Solution>
+
+```text
+[[0, 1], [0, 1]]
+[[0, 1], [0, 1]]
+[[0, 2], [0, 2]]
+```
+
+`a` is a new list holding the same `inner` twice, so appending through `a[0]` changes `inner`, which `outer` and `a` both show. `b` is a deep copy, and the memo copied `inner` once, so both of `b`'s items are one new list, and only `b` shows the `2`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A playlist that copies its songs">
+Give `Playlist` a `__copy__` method. A copy gets its own list of songs, so adding to it leaves the original alone, and its name gets ` (copy)` appended. Running this check prints the output below.
+
+```python title="playlist_check.py"
+p1 = Playlist("road trip", ["a", "b"])
+p2 = copy.copy(p1)
+p2.songs.append("c")
+print(p1.name, p1.songs)
+print(p2.name, p2.songs)
+```
+
+```text
+road trip ['a', 'b']
+road trip (copy) ['a', 'b', 'c']
+```
+
+<Solution>
+
+```python title="playlist_copy.py"
+import copy
+
+
+class Playlist:
+    def __init__(self, name, songs):
+        self.name = name
+        self.songs = songs
+
+    def __copy__(self):
+        return Playlist(f"{self.name} (copy)", list(self.songs))
+```
+
+```python title="playlist_copy.py (continued)"
+p1 = Playlist("road trip", ["a", "b"])
+p2 = copy.copy(p1)
+p2.songs.append("c")
+print(p1.name, p1.songs)
+print(p2.name, p2.songs)
+```
+
+```text
+road trip ['a', 'b']
+road trip (copy) ['a', 'b', 'c']
+```
+
+`list(self.songs)` is a shallow copy of the list: the copy can gain and lose songs independently, while the song objects themselves, strings here, are shared, which is safe because they are immutable.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Assignment and argument passing share objects. Mutation shows through every name, and rebinding does not.
+- Shallow copies (`copy.copy`, `.copy()`, `[:]`, `{**d}`) share the inner objects. `copy.deepcopy` copies them too, keeping shared parts shared and handling cycles through its memo.
+- `__copy__` and `__deepcopy__(memo)` control copying for your classes.
+- <Since v="3.13" /> `copy.replace` makes changed copies of dataclasses, named tuples and classes with `__replace__`.
+- Next: [regular expressions](../regex/), for finding and extracting patterns in text.

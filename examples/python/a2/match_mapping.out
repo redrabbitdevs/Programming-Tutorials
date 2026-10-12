@@ -1,0 +1,4 @@
+click at (10, 20)
+key 'q'
+unhandled scroll: {'dy': -3, 'source': 'wheel'}
+unhandled click: {}

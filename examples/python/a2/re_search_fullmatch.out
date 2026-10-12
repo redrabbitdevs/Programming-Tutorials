@@ -1,0 +1,4 @@
+<re.Match object; span=(6, 10), match='1042'>
+['1042', '77']
+<re.Match object; span=(0, 4), match='1042'>
+None

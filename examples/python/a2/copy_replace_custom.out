@@ -1,0 +1,2 @@
+Point(x=1, y=5)
+Money(7, 'EUR') Money(5, 'EUR')

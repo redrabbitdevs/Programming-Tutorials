@@ -1,0 +1,393 @@
+---
+language: python
+level: advanced
+module: Advanced data handling
+order: 9
+title: The collections module
+description: Count with Counter, group with defaultdict, queue with deque, name tuple fields with namedtuple, and layer settings with ChainMap.
+minVersion: "3.10"
+objectives:
+  - Do multiset arithmetic with Counter, and know which operations drop zero and negative counts
+  - Group values with defaultdict, and avoid the keys it creates on lookup
+  - Use deque as a queue, a stack, a ring and a bounded buffer
+  - Choose between namedtuple, typing.NamedTuple and a dataclass for small records
+  - Layer configuration sources with ChainMap
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/16-stacks-queues-linked"]
+---
+
+You have met `Counter` in the [standard library tour](../../intermediate/stdlib-tour/) and `deque` in [choosing the right collection](../../beginner/choosing-collections/). The `collections` module holds five containers that each solve one recurring problem better than a plain `dict` or `list`. This lesson goes through what each is for, and the behaviour that trips people up. The general ideas behind stacks and queues are in [stacks, queues and linked lists](../../../fundamentals/beginner/stacks-queues-linked/) in the fundamentals track.
+
+## Counter arithmetic
+
+A `Counter` is a dictionary from items to counts, and it supports arithmetic as a **multiset**, a set in which items can appear more than once. `-` subtracts, `+` adds, `&` keeps the smaller count of each item and `|` the larger. `total()` adds up all the counts:
+
+```python title="counter_ops.py"
+from collections import Counter
+
+stock = Counter(apples=5, pears=2)
+sold = Counter(apples=3, pears=2, plums=1)
+
+print(stock - sold)
+print(stock + sold)
+print(stock & sold)
+print(stock | sold)
+print(stock.total(), sold.total())
+```
+
+```text
+Counter({'apples': 2})
+Counter({'apples': 8, 'pears': 4, 'plums': 1})
+Counter({'apples': 3, 'pears': 2})
+Counter({'apples': 5, 'pears': 2, 'plums': 1})
+7 6
+```
+
+The subtraction left no `pears` and no `plums`. Every binary operator on counters keeps only positive counts, so a stock level can never print as negative. When you do want negative counts, use the method `subtract`, which changes the counter in place and keeps everything. A unary `+` then strips the zero and negative entries. Counters also compare as multisets: `<=` asks "is every count on the left at most the one on the right?", treating missing items as zero.
+
+```python title="counter_ops.py (continued)"
+left = stock.copy()
+left.subtract(sold)
+print(left)
+print(+left)
+print(Counter(apples=2) <= stock)
+```
+
+```text
+Counter({'apples': 2, 'pears': 0, 'plums': -1})
+Counter({'apples': 2})
+True
+```
+
+<Since v="3.15" /> Python 3.15 adds `^`, the symmetric difference: for each item, how far apart the two counts are, keeping only the items that differ.
+
+```python title="counter_xor.py"
+from collections import Counter
+
+monday = Counter(tea=3, coffee=5)
+tuesday = Counter(tea=1, coffee=5, juice=2)
+print(monday ^ tuesday)
+```
+
+```text
+Counter({'tea': 2, 'juice': 2})
+```
+
+## defaultdict for grouping
+
+A `defaultdict` calls a factory function to create the value for a missing key. With `list` as the factory, grouping becomes one line in the loop, with no "is the key there yet?" check:
+
+```python title="defaultdict_group.py"
+from collections import defaultdict
+
+words = ["ant", "ape", "bee", "cow"]
+
+by_letter = defaultdict(list)
+for word in words:
+    by_letter[word[0]].append(word)
+print(by_letter)
+print(dict(by_letter))
+```
+
+```text
+defaultdict(<class 'list'>, {'a': ['ant', 'ape'], 'b': ['bee'], 'c': ['cow']})
+{'a': ['ant', 'ape'], 'b': ['bee'], 'c': ['cow']}
+```
+
+`int` gives counts that start at 0, and `set` gives groups without duplicates. Wrapping the result in `dict()` gives an ordinary dictionary for printing or for passing on.
+
+The factory runs on any lookup with square brackets, including one that only reads:
+
+```python title="defaultdict_group.py (continued)"
+print(by_letter.get("q"), len(by_letter))
+print(by_letter["z"])
+print("z" in by_letter, len(by_letter))
+```
+
+```text
+None 3
+[]
+True 4
+```
+
+`get` does not trigger the factory, so the length stayed at 3. Reading `by_letter["z"]` created an empty list for `"z"`, and now the dictionary has 4 keys. In code that only checks for a key, use `in` or `get`, or convert to a plain `dict` once the grouping is done.
+
+## deque: both ends are cheap
+
+A `list` is fast at its end but slow at its front: `list.pop(0)` moves every remaining item one place to the left. A `deque` adds and removes at either end in constant time, which makes it the standard queue. Used only at its right end, it is also a stack:
+
+```python title="deque_queue.py"
+from collections import deque
+
+queue = deque(["ada", "ben"])
+queue.append("cy")
+print(queue.popleft(), queue)
+
+stack = deque()
+for page in ["home", "docs", "faq"]:
+    stack.append(page)
+print(stack.pop(), stack.pop(), stack)
+```
+
+```text
+ada deque(['ben', 'cy'])
+faq docs deque(['home'])
+```
+
+Two features have no `list` equivalent. `rotate(n)` moves the last `n` items to the front, or the first ones to the back when `n` is negative. And `maxlen` makes a bounded buffer that drops items from the opposite end as new ones arrive:
+
+```python title="deque_queue.py (continued)"
+ring = deque([1, 2, 3, 4, 5])
+ring.rotate(2)
+print(ring)
+ring.rotate(-1)
+print(ring)
+
+last_three = deque(range(10), maxlen=3)
+print(last_three, last_three[0])
+```
+
+```text
+deque([4, 5, 1, 2, 3])
+deque([5, 1, 2, 3, 4])
+deque([7, 8, 9], maxlen=3) 7
+```
+
+The trade-off is indexing. `d[0]` and `d[-1]` are fast, but reaching the middle of a long deque is slow, and a deque cannot be sliced. If you index into the middle, use a list.
+
+## namedtuple: a tuple with field names
+
+`namedtuple` builds a tuple subclass whose positions also have names. Instances are still tuples, so they unpack, index and compare like one, and use no more memory:
+
+```python title="namedtuple_basic.py"
+from collections import namedtuple
+
+Point = namedtuple("Point", ["x", "y"])
+p = Point(3, 4)
+print(p, p.x, p[1])
+
+x, y = p
+print(x + y, p == (3, 4))
+print(p._replace(y=10), p._asdict())
+```
+
+```text
+Point(x=3, y=4) 3 4
+7 True
+Point(x=3, y=10) {'x': 3, 'y': 4}
+```
+
+Since a named tuple is immutable, `_replace` returns a new one. The leading underscore keeps the method names out of the way of your field names, not to mark them private. The class form, `typing.NamedTuple`, reads better, takes defaults and methods, and gives type checkers the field types:
+
+```python title="namedtuple_class.py"
+from typing import NamedTuple
+
+
+class Version(NamedTuple):
+    major: int
+    minor: int
+    patch: int = 0
+
+    def __str__(self):
+        return f"{self.major}.{self.minor}.{self.patch}"
+
+
+versions = [Version(3, 15), Version(3, 9, 2), Version(3, 14, 8)]
+print(Version._fields)
+print(max(versions), min(versions))
+print(repr(versions[0]))
+```
+
+```text
+('major', 'minor', 'patch')
+3.15.0 3.9.2
+Version(major=3, minor=15, patch=0)
+```
+
+The versions compared as tuples, field by field, so `max` found 3.15. That ordering is a reason to choose a named tuple. Choose a [dataclass](../../intermediate/dataclasses/) when the record should not act as a tuple: a dataclass is never equal to a plain tuple, cannot be unpacked by accident, and can be mutable.
+
+## ChainMap: layered lookups
+
+A `ChainMap` searches several mappings in order and returns the first value it finds, without copying anything. This is exactly how settings work: command-line options beat the config file, which beats the defaults.
+
+```python title="chainmap_config.py"
+from collections import ChainMap
+
+defaults = {"colour": "auto", "width": 80, "verbose": False}
+from_file = {"width": 100}
+from_cli = {"verbose": True}
+
+settings = ChainMap(from_cli, from_file, defaults)
+print(settings["width"], settings["verbose"], settings["colour"])
+print(dict(settings))
+```
+
+```text
+100 True auto
+{'colour': 'auto', 'width': 100, 'verbose': True}
+```
+
+Writes and deletions only ever touch the first mapping. `new_child` puts a new mapping in front, empty or the one you pass, which is handy for a temporary override, such as one test:
+
+```python title="chainmap_config.py (continued)"
+settings["colour"] = "never"
+print(from_cli)
+print(defaults["colour"], settings["colour"])
+
+test = settings.new_child({"width": 40})
+print(test["width"], settings["width"])
+```
+
+```text
+{'verbose': True, 'colour': 'never'}
+auto never
+40 100
+```
+
+`defaults` kept `"auto"`: the assignment landed in `from_cli`. Since a `ChainMap` is a view, a later change to `defaults` shows through it immediately.
+
+## Common pitfalls
+
+- **Expecting negative counts from `-`.** Counter operators drop zero and negative counts. Use `subtract()` to keep them.
+- **Reading a `defaultdict` with square brackets.** A lookup adds the key. Use `in` or `get` to check.
+- **Using `list.pop(0)` as a queue.** It slows down as the list grows. Use `deque.popleft()`.
+- **Slicing a `deque`.** It raises `TypeError`. Convert with `list(d)` or use `itertools.islice`.
+- **Assuming `ChainMap` writes go to the mapping that has the key.** They always go to the first mapping.
+
+<Exercise title="A recent-files list">
+Write a class `RecentFiles(size)` with `open(name)` and `items()`. It keeps the last `size` distinct names, most recent first, and re-opening a name moves it to the front. Use a `deque` with `maxlen`. Open `a.py`, `b.py`, `c.py`, `a.py`, `d.py`, `e.py` with a size of 3, and print `items()` after each one. Expected output:
+
+```text
+['a.py']
+['b.py', 'a.py']
+['c.py', 'b.py', 'a.py']
+['a.py', 'c.py', 'b.py']
+['d.py', 'a.py', 'c.py']
+['e.py', 'd.py', 'a.py']
+```
+
+<Solution>
+
+```python title="recent_files.py"
+from collections import deque
+
+
+class RecentFiles:
+    def __init__(self, size):
+        self._items = deque(maxlen=size)
+
+    def open(self, name):
+        if name in self._items:
+            self._items.remove(name)
+        self._items.appendleft(name)
+
+    def items(self):
+        return list(self._items)
+
+
+recent = RecentFiles(3)
+for name in ["a.py", "b.py", "c.py", "a.py", "d.py", "e.py"]:
+    recent.open(name)
+    print(recent.items())
+```
+
+```text
+['a.py']
+['b.py', 'a.py']
+['c.py', 'b.py', 'a.py']
+['a.py', 'c.py', 'b.py']
+['d.py', 'a.py', 'c.py']
+['e.py', 'd.py', 'a.py']
+```
+
+`appendleft` on a full deque drops the item at the right end, the least recently used one. Removing a name before adding it again keeps every name in the deque once. `remove` scans the deque, which is fine for a short list of recent files.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the counts">
+What does this print?
+
+```python title="predict_collections.py"
+from collections import Counter, defaultdict
+
+seen = defaultdict(int)
+for word in ["a", "b", "a"]:
+    seen[word] += 1
+if seen["c"] == 0:
+    print("no c")
+print(len(seen))
+print(Counter(a=2) - Counter(a=5, b=1))
+```
+
+<Solution>
+
+```text
+no c
+3
+Counter()
+```
+
+`seen["c"]` returns 0, but it also inserts `"c"`, so there are now 3 keys. The subtraction gives `a` a count of -3 and `b` a count of -1, and `-` drops both, leaving an empty `Counter()`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Grade groups">
+Group the students by grade with a `defaultdict`, then find the most common grade with a `Counter`. Print the grades in order, then the most common grade with its count and the total. Expected output:
+
+```text
+A: ben, eli
+B: ana, cy, fay
+C: dee
+most common: B (3 of 6)
+```
+
+```python title="grades_input.py"
+results = [
+    ("ana", "B"), ("ben", "A"), ("cy", "B"),
+    ("dee", "C"), ("eli", "A"), ("fay", "B"),
+]
+```
+
+<Solution>
+
+```python title="grade_groups.py"
+from collections import Counter, defaultdict
+
+results = [
+    ("ana", "B"), ("ben", "A"), ("cy", "B"),
+    ("dee", "C"), ("eli", "A"), ("fay", "B"),
+]
+
+groups = defaultdict(list)
+for name, grade in results:
+    groups[grade].append(name)
+for grade in sorted(groups):
+    print(f"{grade}: {', '.join(groups[grade])}")
+
+counts = Counter(grade for _, grade in results)
+grade, n = counts.most_common(1)[0]
+print(f"most common: {grade} ({n} of {counts.total()})")
+```
+
+```text
+A: ben, eli
+B: ana, cy, fay
+C: dee
+most common: B (3 of 6)
+```
+
+`most_common(1)` returns a list with one `(item, count)` pair, which unpacks into two names. `total()` gives the number of students without a separate `len`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `Counter` does multiset arithmetic. Operators keep positive counts only, `subtract()` keeps all, and `total()` sums them. <Since v="3.15" /> `^` gives the symmetric difference.
+- `defaultdict` fills in missing keys from a factory, on every square-bracket lookup.
+- `deque` is the queue and stack of choice, with `rotate` and a `maxlen` buffer.
+- `namedtuple` and `typing.NamedTuple` give tuples field names. Use a dataclass when the record should not behave as a tuple.
+- `ChainMap` layers mappings for lookups and writes only to the first.
+- Next: [immutability](../immutability/), and how to design data that cannot change under you.

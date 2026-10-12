@@ -1,0 +1,3 @@
+'42 apples' True 42
+'apples: 42' False 42
+7

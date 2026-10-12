@@ -1,0 +1,439 @@
+---
+language: python
+level: advanced
+module: Advanced data handling
+order: 13
+title: Algorithms the Pythonic way
+description: Binary search with bisect, priority queues with heapq, and graph searches built from dictionaries and deques.
+minVersion: "3.10"
+objectives:
+  - Search and insert into sorted lists with bisect, including the key parameter
+  - Build priority queues with heapq, with a tie-breaker that keeps them stable
+  - Represent a graph as a dictionary of neighbours
+  - Write breadth-first and depth-first search, and know which one finds shortest paths
+  - Implement Dijkstra's algorithm with heapq
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/21-searching-and-sorting", "fundamentals/beginner/17-trees-and-graphs"]
+---
+
+The fundamentals track explains the classic algorithms in general: [searching and sorting](../../../fundamentals/beginner/searching-and-sorting/), and [trees and graphs](../../../fundamentals/beginner/trees-and-graphs/). This lesson is about writing them in Python, where most of the work is already in the standard library. `bisect` does binary search, `heapq` gives you a priority queue, and a `dict` plus the `deque` from [the collections module](../collections-module/) is all a graph search needs. Sorting itself is covered in [sorting and key functions](../../intermediate/sorting-key-functions/).
+
+## Binary search with bisect
+
+On a sorted list, `bisect_left(items, x)` returns the position where `x` would be inserted to keep the list sorted, before any equal items. `bisect_right` returns the position after them. `insort` inserts in the right place:
+
+```python title="bisect_search.py"
+from bisect import bisect_left, bisect_right, insort
+
+scores = [10, 20, 20, 30]
+print(bisect_left(scores, 20), bisect_right(scores, 20))
+insort(scores, 25)
+print(scores)
+```
+
+```text
+1 3
+[10, 20, 20, 25, 30]
+```
+
+Both searches take about log₂(n) steps, so a million items need about twenty comparisons. `bisect` does not say whether `x` is present. It says where `x` belongs, so a membership test checks that position:
+
+```python title="bisect_search.py (continued)"
+def contains(items, x):
+    i = bisect_left(items, x)
+    return i < len(items) and items[i] == x
+
+
+print(contains(scores, 25), contains(scores, 26))
+```
+
+```text
+True False
+```
+
+Turning a number into a band is a natural use. The position in a list of breakpoints is the index of the band:
+
+```python title="bisect_search.py (continued)"
+def grade(score, breakpoints=(60, 70, 80, 90), grades="FDCBA"):
+    return grades[bisect_right(breakpoints, score)]
+
+
+print([grade(s) for s in [33, 60, 77, 89, 90, 100]])
+```
+
+```text
+['F', 'D', 'C', 'B', 'A', 'A']
+```
+
+`key=` searches records by one field, as `sorted` does. The key is applied to the items in the list, but not to `x`, so you pass the bare value you are looking for:
+
+```python title="bisect_key.py"
+from bisect import bisect_left
+from operator import itemgetter
+
+events = [(3, "boot"), (8, "login"), (15, "upload"), (21, "logout")]
+i = bisect_left(events, 10, key=itemgetter(0))
+print(events[i:])
+```
+
+```text
+[(15, 'upload'), (21, 'logout')]
+```
+
+This finds every event at time 10 or later. `insort` is fast to search, but the insertion itself shifts the later items, so building a large sorted list one item at a time is slow. Collect the items and call `sorted` once.
+
+## Priority queues with heapq
+
+A **heap** is a list arranged so that `heap[0]` is always the smallest item. `heappush` and `heappop` keep that true in about log₂(n) steps each. The rest of the list is not sorted:
+
+```python title="heapq_tasks.py"
+import heapq
+from itertools import count
+
+heap = []
+for n in [5, 1, 8, 3, 2]:
+    heapq.heappush(heap, n)
+print(heap[0], heap)
+print([heapq.heappop(heap) for _ in range(3)], heap)
+```
+
+```text
+1 [1, 2, 8, 5, 3]
+[1, 2, 3] [5, 8]
+```
+
+For a priority queue, push tuples: they compare by their first item, the priority. When priorities tie, Python compares the next item, so a counter in second place gives first-in, first-out order among equals, and stops it from ever comparing the task objects themselves:
+
+```python title="heapq_tasks.py (continued)"
+tasks = []
+order = count()
+for priority, name in [(2, "write"), (1, "fix bug"), (2, "review")]:
+    heapq.heappush(tasks, (priority, next(order), name))
+
+while tasks:
+    priority, _, name = heapq.heappop(tasks)
+    print(priority, name)
+```
+
+```text
+1 fix bug
+2 write
+2 review
+```
+
+For "the top few" of a collection, `nlargest` and `nsmallest` take a `key` and are quicker than sorting everything when `n` is small:
+
+```python title="heapq_tasks.py (continued)"
+sales = {"ana": 120, "ben": 340, "cy": 90, "dee": 410}
+print(heapq.nlargest(2, sales, key=sales.get))
+print(heapq.nsmallest(1, sales.items(), key=lambda pair: pair[1]))
+```
+
+```text
+['dee', 'ben']
+[('cy', 90)]
+```
+
+`heapq` is a min-heap. The old trick for a max-heap is to push negated numbers. <Since v="3.14" /> Python 3.14 adds `heapify_max`, `heappush_max`, `heappop_max` and the rest, which keep the largest item at index 0:
+
+```python title="heapq_max.py"
+import heapq
+
+scores = [40, 95, 70, 88]
+heapq.heapify_max(scores)
+print(scores[0])
+print(heapq.heappop_max(scores), heapq.heappop_max(scores))
+```
+
+```text
+95
+95 88
+```
+
+## Graphs as dictionaries
+
+A graph is a set of nodes connected by edges. In Python, the simplest useful representation is an **adjacency dictionary**: each node maps to a list of its neighbours. A tree is the special case with no cycles.
+
+```python title="graph_bfs.py"
+from collections import deque
+
+graph = {
+    "home": ["shop", "park"],
+    "shop": ["home", "bank"],
+    "park": ["home", "lake"],
+    "bank": ["shop", "lake"],
+    "lake": ["park", "bank", "hill"],
+    "hill": ["lake"],
+}
+print(graph["lake"], len(graph))
+```
+
+```text
+['park', 'bank', 'hill'] 6
+```
+
+**Breadth-first search** (BFS) explores in rings: all neighbours of the start, then all their neighbours, and so on. A `deque` is the queue, and a `previous` dictionary records how each node was first reached. It doubles as the "already seen" set, and it lets you walk back from the goal to rebuild the path:
+
+```python title="graph_bfs.py (continued)"
+def shortest_path(graph, start, goal):
+    previous = {start: None}
+    queue = deque([start])
+    while queue:
+        node = queue.popleft()
+        if node == goal:
+            path = []
+            while node is not None:
+                path.append(node)
+                node = previous[node]
+            return path[::-1]
+        for neighbour in graph[node]:
+            if neighbour not in previous:
+                previous[neighbour] = node
+                queue.append(neighbour)
+    return None
+
+
+print(shortest_path(graph, "home", "hill"))
+print(shortest_path(graph, "shop", "park"))
+```
+
+```text
+['home', 'park', 'lake', 'hill']
+['shop', 'home', 'park']
+```
+
+Because BFS reaches every node by the fewest possible edges first, the path it returns is a shortest one. Mark nodes as seen when you add them to the queue, not when you take them out, or the same node can be queued many times.
+
+**Depth-first search** (DFS) goes as far as it can along one branch before backing up. Recursion with a nested function is the natural shape. The `seen` set stops it from looping forever around the cycle back to `a`:
+
+```python title="graph_dfs.py"
+graph = {"a": ["b", "c"], "b": ["d"], "c": ["d"], "d": ["a"]}
+
+
+def dfs(graph, start):
+    seen, order = set(), []
+
+    def visit(node):
+        seen.add(node)
+        order.append(node)
+        for neighbour in graph[node]:
+            if neighbour not in seen:
+                visit(neighbour)
+
+    visit(start)
+    return order
+
+
+print(dfs(graph, "a"))
+```
+
+```text
+['a', 'b', 'd', 'c']
+```
+
+Python limits recursion depth to about 1,000 calls by default, so for deep graphs use a list as an explicit stack. Pushing the neighbours in reverse visits them in the same order as the recursive version:
+
+```python title="graph_dfs.py (continued)"
+def dfs_iterative(graph, start):
+    seen, order, stack = set(), [], [start]
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        order.append(node)
+        stack.extend(reversed(graph[node]))
+    return order
+
+
+print(dfs_iterative(graph, "a"))
+```
+
+```text
+['a', 'b', 'd', 'c']
+```
+
+DFS is the tool for "can I reach it at all?", finding cycles and ordering dependencies. It does not find shortest paths.
+
+## Common pitfalls
+
+- **Binary search on an unsorted list.** `bisect` does not check. It returns a meaningless position.
+- **Expecting a heap to be sorted.** Only `heap[0]` is guaranteed. Pop repeatedly, or call `sorted`, to get order.
+- **Heap entries that tie and cannot be compared.** `(1, task_a)` and `(1, task_b)` compare the tasks. Add a counter as the second item.
+- **Using `list.pop(0)` as the BFS queue.** It works but slows down as the queue grows. Use `deque.popleft()`.
+- **Using a stack and expecting shortest paths.** Only BFS (or Dijkstra, with weights) gives them.
+
+<Exercise title="Dijkstra with heapq">
+Each road below has a length. Write `dijkstra(graph, start)`, which returns the shortest distance from `start` to every reachable town and a `previous` dictionary for rebuilding paths. Use a heap of `(distance, town)` pairs, and skip a popped entry when a shorter distance to that town is already known. Print the distances from `A`, then the path to `D`. Expected output:
+
+```text
+A 0
+B 3
+C 1
+D 4
+path: A -> C -> B -> D
+```
+
+```python title="roads.py"
+roads = {
+    "A": {"B": 4, "C": 1},
+    "B": {"D": 1},
+    "C": {"B": 2, "D": 5},
+    "D": {},
+}
+```
+
+<Solution>
+
+```python title="dijkstra.py"
+import heapq
+
+
+def dijkstra(graph, start):
+    dist = {start: 0}
+    previous = {start: None}
+    heap = [(0, start)]
+    while heap:
+        d, node = heapq.heappop(heap)
+        if d > dist[node]:
+            continue
+        for neighbour, weight in graph[node].items():
+            new = d + weight
+            if new < dist.get(neighbour, float("inf")):
+                dist[neighbour] = new
+                previous[neighbour] = node
+                heapq.heappush(heap, (new, neighbour))
+    return dist, previous
+```
+
+```python title="dijkstra.py (continued)"
+roads = {
+    "A": {"B": 4, "C": 1},
+    "B": {"D": 1},
+    "C": {"B": 2, "D": 5},
+    "D": {},
+}
+
+dist, previous = dijkstra(roads, "A")
+for town in sorted(dist):
+    print(town, dist[town])
+
+path, node = [], "D"
+while node is not None:
+    path.append(node)
+    node = previous[node]
+print("path:", " -> ".join(reversed(path)))
+```
+
+```text
+A 0
+B 3
+C 1
+D 4
+path: A -> C -> B -> D
+```
+
+This is BFS with a priority queue in place of the plain queue: the heap always hands out the closest town not yet settled. A town can be pushed more than once, as `B` is, first at 4 and then at 3. The `if d > dist[node]` check discards the stale entry when it comes out. Dijkstra's algorithm requires lengths that are zero or more.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict: bisect and heapify">
+What does this print?
+
+```python title="predict_algorithms.py"
+import heapq
+from bisect import bisect_left, bisect_right
+
+xs = [1, 3, 3, 3, 7]
+print(bisect_left(xs, 3), bisect_right(xs, 3), bisect_left(xs, 4))
+
+h = [5, 4, 3, 2, 1]
+heapq.heapify(h)
+print(h[0], h == sorted(h))
+```
+
+<Solution>
+
+```text
+1 4 4
+1 False
+```
+
+The three 3s occupy positions 1 to 3, so `bisect_left` gives 1 and `bisect_right` gives 4. `4` is not in the list but belongs before the `7`, at position 4. After `heapify`, the smallest item is at index 0, but the list is a heap, not a sorted list: it is `[1, 2, 3, 5, 4]`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Debug the fewest-hops search">
+This function should return the route from `a` to `f` with the fewest hops, and print `['a', 'e', 'f'] 2 hops`. It prints `['a', 'b', 'c', 'd', 'f'] 4 hops` instead. Find the bug and fix it.
+
+```python title="fewest_hops_broken.py"
+def fewest_hops(graph, start, goal):
+    previous = {start: None}
+    queue = [start]
+    while queue:
+        node = queue.pop()
+        if node == goal:
+            path = []
+            while node is not None:
+                path.append(node)
+                node = previous[node]
+            return path[::-1]
+        for neighbour in graph[node]:
+            if neighbour not in previous:
+                previous[neighbour] = node
+                queue.append(neighbour)
+
+
+graph = {"a": ["e", "b"], "b": ["c"], "c": ["d"], "d": ["f"],
+         "e": ["f"], "f": []}
+path = fewest_hops(graph, "a", "f")
+print(path, len(path) - 1, "hops")
+```
+
+<Solution>
+
+```python title="fewest_hops.py"
+from collections import deque
+
+
+def fewest_hops(graph, start, goal):
+    previous = {start: None}
+    queue = deque([start])
+    while queue:
+        node = queue.popleft()
+        if node == goal:
+            path = []
+            while node is not None:
+                path.append(node)
+                node = previous[node]
+            return path[::-1]
+        for neighbour in graph[node]:
+            if neighbour not in previous:
+                previous[neighbour] = node
+                queue.append(neighbour)
+
+
+graph = {"a": ["e", "b"], "b": ["c"], "c": ["d"], "d": ["f"],
+         "e": ["f"], "f": []}
+path = fewest_hops(graph, "a", "f")
+print(path, len(path) - 1, "hops")
+```
+
+```text
+['a', 'e', 'f'] 2 hops
+```
+
+`queue.pop()` takes the *last* node added, which turns the search into a depth-first one, and it reached `f` by the long way round first. A queue must take from the front. `deque.popleft()` does that quickly, and the function becomes the BFS from the lesson.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `bisect_left`, `bisect_right` and `insort` search and insert in sorted lists in logarithmic time. `key=` searches records by a field.
+- `heapq` keeps the smallest item at index 0. Push `(priority, counter, item)` tuples for a stable priority queue. <Since v="3.14" /> `heappop_max` and friends handle max-heaps.
+- A graph is a dictionary of neighbour lists. BFS with a `deque` finds the fewest hops, and DFS with recursion or a stack explores reachability.
+- Dijkstra's algorithm is BFS with a heap, for weighted edges.
+- This ends the module. Next up: concurrency and parallelism.

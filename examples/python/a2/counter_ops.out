@@ -1,0 +1,8 @@
+Counter({'apples': 2})
+Counter({'apples': 8, 'pears': 4, 'plums': 1})
+Counter({'apples': 3, 'pears': 2})
+Counter({'apples': 5, 'pears': 2, 'plums': 1})
+7 6
+Counter({'apples': 2, 'pears': 0, 'plums': -1})
+Counter({'apples': 2})
+True

@@ -1,0 +1,7 @@
+42: hashable
+'text': hashable
+(1, 2): hashable
+frozenset({3}): hashable
+(1, [2]): unhashable type: 'list'
+[1, 2]: unhashable type: 'list'
+{'a': 1}: unhashable type: 'dict'

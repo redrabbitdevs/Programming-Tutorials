@@ -1,0 +1,462 @@
+---
+language: python
+level: advanced
+module: Advanced data handling
+order: 8
+title: Structural pattern matching in depth
+description: Destructure dictionaries, nested sequences and your own classes with match, and avoid the patterns that silently match everything.
+minVersion: "3.10"
+objectives:
+  - Match dictionaries with mapping patterns, including **rest
+  - Check types and capture values with class patterns for built-in types
+  - Destructure dataclasses and your own classes, positionally through __match_args__ or by keyword
+  - Tell value patterns from capture patterns, and use guards and as to refine a match
+estimatedMinutes: 45
+fundamentals: []
+---
+
+The [match statements intro](../../beginner/match-intro/) covered literals, wildcards, guards and sequence patterns, which is enough for a command parser. Real data is usually nested: JSON that arrives as dictionaries inside lists, or objects that hold other objects. This lesson covers the patterns that take such data apart in one step: mapping patterns, class patterns, and the rules for dotted names. Everything here needs Python 3.10 or later.
+
+## Mapping patterns
+
+A pattern written with braces matches any mapping, such as a `dict`, that has *at least* the keys it lists. Each value in the pattern is itself a pattern, so it can be a literal to compare or a name to capture:
+
+```python title="match_mapping.py"
+events = [
+    {"type": "click", "x": 10, "y": 20},
+    {"type": "key", "key": "q", "shift": True},
+    {"type": "scroll", "dy": -3, "source": "wheel"},
+    {"type": "click"},
+]
+
+for event in events:
+    match event:
+        case {"type": "click", "x": x, "y": y}:
+            print(f"click at ({x}, {y})")
+        case {"type": "key", "key": key}:
+            print(f"key {key!r}")
+        case {"type": kind, **rest}:
+            print(f"unhandled {kind}: {rest}")
+```
+
+```text
+click at (10, 20)
+key 'q'
+unhandled scroll: {'dy': -3, 'source': 'wheel'}
+unhandled click: {}
+```
+
+Three rules show up here. Extra keys do not prevent a match: the `key` event also carries `"shift"`, and it still matched. A missing key does: the last click has no `x`, so the first case failed and the event fell through to the general one. And `**rest` collects the keys that the pattern did not name into a new dictionary, which is empty when nothing is left over.
+
+A mapping pattern never matches a list or a string, and it looks keys up with `get`, so a `defaultdict` does not invent missing keys during a match.
+
+## Class patterns for built-in types
+
+A pattern such as `int(n)` means "an `int`, and call it `n`". It checks the type with `isinstance` and captures the value. `str()` with nothing inside only checks the type:
+
+```python title="match_types.py"
+def describe(value):
+    match value:
+        case bool(flag):
+            return f"flag {flag}"
+        case int(n) | float(n):
+            return f"number {n}"
+        case str() as text if text.isdigit():
+            return f"digits {text}"
+        case str(text):
+            return f"text {text!r}"
+        case [int(), int()] as pair:
+            return f"int pair {pair}"
+        case [*items]:
+            return f"sequence of {len(items)}"
+        case _:
+            return f"other {type(value).__name__}"
+
+
+for value in [True, 3, 2.5, "42", "hi", [1, 2], (1, "a", None), {"a": 1}]:
+    print(describe(value))
+```
+
+```text
+flag True
+number 3
+number 2.5
+digits 42
+text 'hi'
+int pair [1, 2]
+sequence of 3
+other dict
+```
+
+Read the cases in order, as Python does:
+
+- `bool(flag)` comes first because `True` is also an `int`. Swapped round, `True` would print `number True`.
+- `int(n) | float(n)` is an alternative. Both sides must bind the same names.
+- `str() as text` checks the type and binds the whole value with `as`, and the guard then tests it.
+- `[int(), int()] as pair` combines a sequence pattern with type checks on each item.
+- `[*items]` matched the tuple. Sequence patterns accept any sequence except `str`, `bytes` and `bytearray`, which is why `"hi"` never reached it.
+
+## Class patterns for your own classes
+
+The same syntax works with any class. A [dataclass](../../intermediate/dataclasses/) is the easiest case, because it generates a `__match_args__` tuple that lists the fields in order. That tuple is what lets you match positionally:
+
+```python title="match_class.py"
+from dataclasses import dataclass
+
+
+@dataclass
+class Point:
+    x: float
+    y: float
+
+
+@dataclass
+class Circle:
+    centre: Point
+    radius: float
+
+
+@dataclass
+class Rect:
+    corner: Point
+    width: float
+    height: float
+
+
+print(Point.__match_args__, Rect.__match_args__)
+```
+
+```text
+('x', 'y') ('corner', 'width', 'height')
+```
+
+Now patterns can nest one object inside another. Positional sub-patterns follow `__match_args__`, and keyword sub-patterns name attributes directly:
+
+```python title="match_class.py (continued)"
+def describe(shape):
+    match shape:
+        case Circle(Point(0, 0), r):
+            return f"circle of radius {r} at the origin"
+        case Circle(centre=Point(x=x), radius=r) if r > 5:
+            return f"big circle, centre x={x}"
+        case Rect(_, w, h) if w == h:
+            return f"square, side {w}"
+        case Rect(width=w, height=h):
+            return f"rectangle {w}x{h}"
+        case Point() | Circle():
+            return f"other {type(shape).__name__}"
+
+
+shapes = [
+    Circle(Point(0, 0), 2),
+    Circle(Point(3, 4), 9),
+    Rect(Point(1, 1), 4, 4),
+    Rect(Point(0, 0), 2, 5),
+    Circle(Point(1, 1), 1),
+]
+for shape in shapes:
+    print(describe(shape))
+```
+
+```text
+circle of radius 2 at the origin
+big circle, centre x=3
+square, side 4
+rectangle 2x5
+other Circle
+```
+
+`Circle(Point(0, 0), r)` checks that the shape is a `Circle`, that its first field is a `Point` whose fields equal `0` and `0`, and captures the radius. `Point(x=x)` names only the attribute it cares about. The guards then compare captured values, and `Point() | Circle()` is a pure type check. If no case matches, the function falls off the end and returns `None`, the same as without `match`.
+
+An ordinary class has no `__match_args__`, so keyword patterns work but positional ones raise an error when they are tried:
+
+```python title="match_args_manual.py"
+class Reading:
+    def __init__(self, sensor, value):
+        self.sensor = sensor
+        self.value = value
+
+
+reading = Reading("temp", 21.5)
+
+match reading:
+    case Reading(sensor="temp", value=v):
+        print("keyword pattern:", v)
+
+try:
+    match reading:
+        case Reading("temp", v):
+            print("positional pattern:", v)
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+keyword pattern: 21.5
+TypeError: Reading() accepts 0 positional sub-patterns (2 given)
+```
+
+Adding the class attribute fixes it. List the names of the attributes in the order you want positional patterns to use:
+
+```python title="match_args_manual.py (continued)"
+class Reading:
+    __match_args__ = ("sensor", "value")
+
+    def __init__(self, sensor, value):
+        self.sensor = sensor
+        self.value = value
+
+
+match Reading("temp", 21.5):
+    case Reading("temp", v):
+        print("positional pattern:", v)
+```
+
+```text
+positional pattern: 21.5
+```
+
+## Value patterns need a dot
+
+How does `match` know whether a name in a pattern is a value to compare against or a name to capture? By the dot. A dotted name such as `Level.ERROR` is a **value pattern** and is compared with `==`. A bare name is always a **capture pattern**. That makes [enums](../../intermediate/enums/) a natural fit:
+
+```python title="match_values.py"
+from enum import Enum
+
+
+class Level(Enum):
+    INFO = 1
+    WARNING = 2
+    ERROR = 3
+
+
+def route(level):
+    match level:
+        case Level.ERROR | Level.WARNING:
+            return "pager"
+        case Level.INFO:
+            return "log file"
+
+
+print(route(Level.WARNING), route(Level.INFO))
+```
+
+```text
+pager log file
+```
+
+The trap is a bare constant. This looks like a comparison with `ERROR`, but it captures the subject into a new local variable that happens to be called `ERROR`, so it matches every value:
+
+```python title="match_values.py (continued)"
+ERROR = "error"
+
+
+def is_error(level):
+    match level:
+        case ERROR:  # a capture pattern: matches anything
+            return True
+    return False
+
+
+print(is_error("info"))
+```
+
+```text
+True
+```
+
+When a case like that is followed by other cases, Python refuses to compile the code, with `SyntaxError: name capture 'ERROR' makes remaining patterns unreachable`. When it is the last case, there is no warning at all. Keep constants in an enum or a class, or compare in a guard: `case x if x == ERROR`.
+
+## Common pitfalls
+
+- **Expecting a mapping pattern to require exact keys.** `{"type": "click"}` matches any dictionary that has that key. Add `**rest` and a guard such as `if not rest` when extra keys are an error.
+- **Putting `int(n)` before `bool(b)`.** `True` and `False` are integers, so the order of cases decides which one wins.
+- **Expecting a string to match a sequence pattern.** `[a, b]` never matches `"ab"`. Use `str(s)` and then work on the string.
+- **Positional patterns on a class without `__match_args__`.** They raise `TypeError` when tried. Use keywords, or add the attribute.
+- **Bare names as constants.** `case ERROR:` captures. Use a dotted name such as `Level.ERROR`.
+
+<Exercise title="A JSON event router">
+Write `route(event)`, which turns each event below into a line of text, using one `match` statement. A purchase reports its number of item lines and its first item. Expected output:
+
+```text
+ada logged in
+ada bought 1 line(s), first: A1 x2
+bob sent an empty purchase
+ada logged out (timeout)
+bob logged out
+unknown event: ping
+```
+
+```python title="events_input.py"
+import json
+
+events = json.loads("""[
+ {"event": "login", "user": "ada"},
+ {"event": "purchase", "user": "ada", "items": [{"sku": "A1", "qty": 2}]},
+ {"event": "purchase", "user": "bob", "items": []},
+ {"event": "logout", "user": "ada", "reason": "timeout"},
+ {"event": "logout", "user": "bob"},
+ {"event": "ping"}
+]""")
+```
+
+<Solution>
+
+```python title="event_router.py"
+import json
+
+events = json.loads("""[
+ {"event": "login", "user": "ada"},
+ {"event": "purchase", "user": "ada", "items": [{"sku": "A1", "qty": 2}]},
+ {"event": "purchase", "user": "bob", "items": []},
+ {"event": "logout", "user": "ada", "reason": "timeout"},
+ {"event": "logout", "user": "bob"},
+ {"event": "ping"}
+]""")
+```
+
+```python title="event_router.py (continued)"
+def route(event):
+    match event:
+        case {"event": "login", "user": str(user)}:
+            return f"{user} logged in"
+        case {"event": "purchase", "user": user, "items": []}:
+            return f"{user} sent an empty purchase"
+        case {"event": "purchase", "user": user,
+              "items": [{"sku": sku, "qty": int(qty)}, *rest]}:
+            lines = 1 + len(rest)
+            return f"{user} bought {lines} line(s), first: {sku} x{qty}"
+        case {"event": "logout", "user": user, "reason": reason}:
+            return f"{user} logged out ({reason})"
+        case {"event": "logout", "user": user}:
+            return f"{user} logged out"
+        case {"event": kind}:
+            return f"unknown event: {kind}"
+
+
+for event in events:
+    print(route(event))
+```
+
+```text
+ada logged in
+ada bought 1 line(s), first: A1 x2
+bob sent an empty purchase
+ada logged out (timeout)
+bob logged out
+unknown event: ping
+```
+
+The logout with a reason must come before the one without, because the shorter mapping pattern would match both. The two purchase cases cannot overlap, since `[{"sku": sku, "qty": int(qty)}, *rest]` needs at least one item, so their order is a matter of reading the special case first.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the matches">
+What does this print? Decide for each call before you run it.
+
+```python title="predict_match.py"
+def check(value):
+    match value:
+        case [x, y]:
+            return f"pair {x} {y}"
+        case {"id": n}:
+            return f"id {n}"
+        case str(s):
+            return f"text {s}"
+    return "no match"
+
+
+print(check("ab"))
+print(check({"id": 1, "x": 2}))
+print(check((1, 2)))
+print(check({"x": 1}))
+```
+
+<Solution>
+
+```text
+text ab
+id 1
+pair 1 2
+no match
+```
+
+`"ab"` is a sequence of two characters, but sequence patterns skip strings, so it reaches `str(s)`. The dictionary with an extra key still matches `{"id": n}`. The tuple matches `[x, y]`, since square brackets in a pattern accept any sequence. `{"x": 1}` has no `"id"` key and is not a string, so nothing matches.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix the money matcher">
+Running this script raises `TypeError: Money() accepts 0 positional sub-patterns (2 given)`. Fix the class, without changing `show`, so that it prints:
+
+```text
+nothing
+5 euro
+7 GBP
+```
+
+```python title="money_broken.py"
+class Money:
+    def __init__(self, amount, currency):
+        self.amount = amount
+        self.currency = currency
+
+
+def show(money):
+    match money:
+        case Money(0, _):
+            return "nothing"
+        case Money(amount, "EUR"):
+            return f"{amount} euro"
+        case Money(amount, currency):
+            return f"{amount} {currency}"
+
+
+for money in [Money(0, "USD"), Money(5, "EUR"), Money(7, "GBP")]:
+    print(show(money))
+```
+
+<Solution>
+
+```python title="money_fixed.py"
+class Money:
+    __match_args__ = ("amount", "currency")
+
+    def __init__(self, amount, currency):
+        self.amount = amount
+        self.currency = currency
+
+
+def show(money):
+    match money:
+        case Money(0, _):
+            return "nothing"
+        case Money(amount, "EUR"):
+            return f"{amount} euro"
+        case Money(amount, currency):
+            return f"{amount} {currency}"
+
+
+for money in [Money(0, "USD"), Money(5, "EUR"), Money(7, "GBP")]:
+    print(show(money))
+```
+
+```text
+nothing
+5 euro
+7 GBP
+```
+
+`Money` is an ordinary class, so it has no `__match_args__`, and `Money(0, _)` has no way to know which attribute comes first. The tuple maps the first positional sub-pattern to `amount` and the second to `currency`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Mapping patterns match any mapping with at least the listed keys. `**rest` captures the others.
+- `int(n)`, `str()` and friends check a type and can capture the value. `as` binds a whole sub-pattern.
+- Class patterns match dataclasses positionally through the generated `__match_args__`, and any class by keyword. Add `__match_args__` to your own classes to allow positional patterns.
+- A dotted name is compared. A bare name captures, and matches anything.
+- Next: the [collections module](../collections-module/), with containers made for counting, grouping and queueing.

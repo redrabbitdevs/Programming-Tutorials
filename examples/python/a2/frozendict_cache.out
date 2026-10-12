@@ -1,0 +1,4 @@
+connecting with {'host': 'db', 'port': 5432}
+conn-2 conn-2
+cache hits: 1
+TypeError: unhashable type: 'list'
