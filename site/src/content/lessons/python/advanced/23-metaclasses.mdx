@@ -1,0 +1,430 @@
+---
+language: python
+level: advanced
+module: Metaprogramming
+order: 23
+title: Metaclasses
+description: See that classes are instances of type, write metaclasses with __new__, __init__, __prepare__ and __call__, read annotations safely during class creation, and learn the simpler tools that usually replace a metaclass.
+minVersion: "3.8"
+objectives:
+  - Create a class by calling type() directly
+  - Write a metaclass, and explain the roles of __new__ and __init__ in it
+  - Control the class namespace with __prepare__, and instance creation with __call__
+  - Read class annotations in a metaclass in Python 3.14 and later
+  - Choose a class decorator or __init_subclass__ instead of a metaclass when one will do
+estimatedMinutes: 50
+fundamentals: []
+---
+
+Tim Peters described metaclasses as "deeper magic than 99% of users should ever worry about". That is still true, and this lesson ends by showing how to avoid them. But they are worth understanding: `ABC`, `Enum` and many frameworks are built on them, and once you see the machinery, the hooks from [customising classes](../class-customisation/) stop being magic.
+
+## Classes are objects made by type
+
+Every object has a type, and a class is an object too. The type of an ordinary class is `type`, and you can call `type` with a name, a tuple of bases and a namespace dictionary to build a class without a `class` statement:
+
+```python title="type_call.py"
+class Point:
+    dims = 2
+
+
+print(type(Point), type(type))
+
+
+def area(self):
+    return self.w * self.h
+
+
+Rect = type("Rect", (), {"w": 3, "h": 4, "area": area})
+print(Rect.__name__, Rect().area())
+```
+
+```text
+<class 'type'> <class 'type'>
+Rect 12
+```
+
+A `class` statement does the same thing. It runs the body to fill a namespace and then calls `type(name, bases, namespace)`. The class that gets called is the **metaclass**. It is `type` unless you say otherwise.
+
+## Writing a metaclass
+
+A metaclass is a subclass of `type`. You attach it with the `metaclass` keyword, and it is inherited: subclasses are created by the same metaclass.
+
+```python title="meta_new.py"
+class Tracing(type):
+    def __new__(mcls, name, bases, namespace, **kwargs):
+        own = [k for k in namespace if not k.startswith("__")]
+        print(f"creating {name} with {own}")
+        return super().__new__(mcls, name, bases, namespace, **kwargs)
+
+
+class Service(metaclass=Tracing):
+    timeout = 5
+
+    def start(self):
+        pass
+
+
+class Web(Service):
+    port = 80
+
+
+print(type(Web).__name__)
+```
+
+```text
+creating Service with ['timeout', 'start']
+creating Web with ['port']
+Tracing
+```
+
+`Web` never mentions `Tracing`, but its parent does, so `Tracing.__new__` ran for it as well. That inheritance is the one thing a class decorator cannot give you.
+
+## __new__ and __init__ on a metaclass
+
+These are the same methods you know from ordinary classes, one level up. `__new__` runs before the class exists, so it can still change the namespace, the bases or the name. `__init__` receives the finished class and can only adjust it:
+
+```python title="meta_new_init.py"
+class Upper(type):
+    def __new__(mcls, name, bases, ns):
+        ns = {k if k.startswith("__") else k.upper(): v
+              for k, v in ns.items()}
+        return super().__new__(mcls, name, bases, ns)
+
+    def __init__(cls, name, bases, ns):
+        super().__init__(name, bases, ns)
+        print("initialised", cls.__name__, cls.__dict__.get("RETRIES"))
+
+
+class Config(metaclass=Upper):
+    retries = 3
+    host = "db"
+
+
+print(Config.RETRIES, Config.HOST, hasattr(Config, "retries"))
+```
+
+```text
+initialised Config 3
+3 db False
+```
+
+The `{... for k, v in ns.items()}` is a dictionary comprehension that renames every non-dunder key. The class is built from the new dictionary, so `retries` no longer exists on it. Work that needs to change what goes into the class belongs in `__new__`. Work that only needs to look at it, like registering, fits in `__init__`, or better, in `__init_subclass__`.
+
+## __prepare__: choosing the namespace
+
+Before the body runs, Python asks the metaclass for the dictionary the body will write into. `__prepare__` can return any mapping, including one that checks every assignment. This one catches the classic bug of defining a method twice, where the second silently replaces the first:
+
+```python title="prepare_no_dupes.py"
+class NoDuplicates(dict):
+    def __setitem__(self, key, value):
+        if key in self and not key.startswith("__"):
+            raise TypeError(f"{key!r} defined twice")
+        super().__setitem__(key, value)
+
+
+class Strict(type):
+    @classmethod
+    def __prepare__(mcls, name, bases, **kwargs):
+        return NoDuplicates()
+```
+
+```python title="prepare_no_dupes.py (continued)"
+try:
+    class Handlers(metaclass=Strict):
+        def on_save(self):
+            return "first"
+
+        def on_save(self):
+            return "second"
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+TypeError: 'on_save' defined twice
+```
+
+The error happens while the class body is still running, at the second `def`. `__prepare__` is a class method, and it receives the same keyword arguments as `__new__`. It is the one hook that has no lighter alternative, which makes it a legitimate reason to write a metaclass.
+
+## __call__: controlling instance creation
+
+`Settings()` calls the class, and calling an object runs `__call__` on its type. For a class, that type is the metaclass, so a metaclass can decide what instantiation means. The default `type.__call__` runs `__new__` and `__init__`. This one returns the same instance every time:
+
+```python title="meta_call.py"
+class Singleton(type):
+    def __call__(cls, *args, **kwargs):
+        if "_instance" not in cls.__dict__:
+            cls._instance = super().__call__(*args, **kwargs)
+        return cls._instance
+
+
+class Settings(metaclass=Singleton):
+    def __init__(self):
+        print("loading settings")
+
+
+a = Settings()
+b = Settings()
+print(a is b)
+```
+
+```text
+loading settings
+True
+```
+
+It works, but a plain module-level `settings = Settings()` gives you a single instance with no magic at all, and tests can still create a fresh one.
+
+## Metaclass conflicts
+
+A class has exactly one metaclass, and it must be a subclass of every base class's metaclass. `ABC` and `Enum` already have metaclasses of their own, so mixing them with a custom one fails:
+
+```python title="meta_conflict.py"
+from abc import ABC
+from enum import Enum
+
+
+class Meta(type):
+    pass
+
+
+class Plugin(metaclass=Meta):
+    pass
+
+
+print(type(ABC).__name__, type(Enum).__name__)
+try:
+    class Both(Plugin, ABC):
+        pass
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+ABCMeta EnumType
+TypeError: metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases
+```
+
+The fix is a metaclass that inherits from both, such as `class PluginMeta(Meta, ABCMeta)`. This is the main practical cost of metaclasses: two libraries that each use one cannot easily be combined, while two `__init_subclass__` hooks combine through `super()`.
+
+## Annotations during class creation
+
+<Since v="3.14" /> Annotations are evaluated lazily, as [annotations at runtime](../annotations-runtime/) explained. A side effect concerns metaclasses: the namespace passed to `__new__` no longer contains `__annotations__`. Code that read `ns["__annotations__"]` gets a `KeyError`. Ask `annotationlib` for the annotate function instead, and call it with the `FORWARDREF` format so that names defined later in the module do not raise:
+
+```python title="meta_annotations.py"
+import annotationlib
+from annotationlib import Format
+
+
+class Fields(type):
+    def __new__(mcls, name, bases, ns):
+        print("__annotations__" in ns)
+        annotate = annotationlib.get_annotate_from_class_namespace(ns)
+        hints = {}
+        if annotate is not None:
+            hints = annotationlib.call_annotate_function(
+                annotate, Format.FORWARDREF)
+        ns["_fields"] = tuple(hints)
+        return super().__new__(mcls, name, bases, ns)
+
+
+class Order(metaclass=Fields):
+    id: int
+    customer: Customer
+    total: float
+
+
+print(Order._fields)
+```
+
+```text
+False
+('id', 'customer', 'total')
+```
+
+`Customer` is not defined anywhere, and the metaclass still learned the field names. After the class exists, use `annotationlib.get_annotations(cls)` as usual. Never read annotations out of `cls.__dict__`: where they are stored is an implementation detail. A class decorator or `__init_subclass__` sees the finished class, so it can call `get_annotations` and avoid this problem entirely.
+
+## When not to use a metaclass
+
+Almost never write one. Go through this list first and stop at the first tool that works:
+
+| You want to | Use |
+|---|---|
+| Add or change methods on one class | A class decorator |
+| Register, check or set up every subclass | `__init_subclass__` |
+| Run code when an attribute is defined | `__set_name__` on a descriptor |
+| Control how instances are created | `__new__` on the class, or a factory function |
+| Change the namespace the body writes into | A metaclass with `__prepare__` |
+
+If the reader of your code has to know about metaclasses to understand a plain `class` statement, the design has a cost. Pay it only when no row above the last one fits.
+
+## Common pitfalls
+
+- **Forgetting `super().__new__`.** Returning anything else from a metaclass's `__new__` means the class statement binds that object instead of a class.
+- **Mutating `ns` in `__init__`.** The class was already built from it. Change the namespace in `__new__`.
+- **Metaclass conflicts.** Adding a metaclass to a widely used base class breaks every user who also inherits from an `ABC` or `Enum`.
+- **Reading `ns["__annotations__"]`.** <Since v="3.14" /> It is not there. Use `annotationlib.get_annotate_from_class_namespace`.
+
+<Exercise title="A metaclass that enforces method names">
+Write a metaclass `SnakeCase` that refuses any class with a callable attribute whose name contains upper-case letters. With it, this code:
+
+```python title="snake_check.py"
+class Good(metaclass=SnakeCase):
+    def load_data(self):
+        return []
+
+
+try:
+    class Bad(metaclass=SnakeCase):
+        def loadData(self):
+            return []
+except TypeError as error:
+    print("TypeError:", error)
+print(Good.__name__)
+```
+
+prints:
+
+```text
+TypeError: Bad.loadData is not snake_case
+Good
+```
+
+<Solution>
+
+```python title="snake_meta.py"
+class SnakeCase(type):
+    def __new__(mcls, name, bases, ns):
+        for key, value in ns.items():
+            if callable(value) and key != key.lower():
+                raise TypeError(f"{name}.{key} is not snake_case")
+        return super().__new__(mcls, name, bases, ns)
+```
+
+```python title="snake_meta.py (continued)"
+class Good(metaclass=SnakeCase):
+    def load_data(self):
+        return []
+
+
+try:
+    class Bad(metaclass=SnakeCase):
+        def loadData(self):
+            return []
+except TypeError as error:
+    print("TypeError:", error)
+print(Good.__name__)
+```
+
+```text
+TypeError: Bad.loadData is not snake_case
+Good
+```
+
+The check must happen before the class exists, so it lives in `__new__` and reads the namespace. `key != key.lower()` is true when the name has any upper-case letter. Dunder names such as `__init__` are already lower case.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Now without the metaclass">
+Rewrite `SnakeCase` as an ordinary base class that uses `__init_subclass__`. Change the class lines to `class Good(SnakeCase):` and `class Bad(SnakeCase):`. The output must stay the same.
+
+<Solution>
+
+```python title="snake_subclass.py"
+class SnakeCase:
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        for key, value in vars(cls).items():
+            if callable(value) and key != key.lower():
+                raise TypeError(f"{cls.__name__}.{key} is not snake_case")
+```
+
+```python title="snake_subclass.py (continued)"
+class Good(SnakeCase):
+    def load_data(self):
+        return []
+
+
+try:
+    class Bad(SnakeCase):
+        def loadData(self):
+            return []
+except TypeError as error:
+    print("TypeError:", error)
+print(Good.__name__)
+```
+
+```text
+TypeError: Bad.loadData is not snake_case
+Good
+```
+
+The rule is the same, applied to `vars(cls)` after the class is built. `Good` can now also inherit from an `ABC` without a conflict. The one difference is that the bad class did exist for a moment before the error was raised, which does not matter here.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict: the order of the hooks">
+Predict the nine lines this prints.
+
+```python title="predict_meta_order.py"
+class Meta(type):
+    @classmethod
+    def __prepare__(mcls, name, bases):
+        print("prepare", name)
+        return {}
+
+    def __new__(mcls, name, bases, ns):
+        print("new", name)
+        return super().__new__(mcls, name, bases, ns)
+
+    def __init__(cls, name, bases, ns):
+        print("init", name)
+        super().__init__(name, bases, ns)
+
+    def __call__(cls, *args):
+        print("call", cls.__name__)
+        return super().__call__(*args)
+```
+
+```python title="predict_meta_order.py (continued)"
+class Base(metaclass=Meta):
+    def __init_subclass__(cls):
+        print("init_subclass", cls.__name__)
+
+
+class Child(Base):
+    print("body")
+
+
+Child()
+```
+
+<Solution>
+
+```text
+prepare Base
+new Base
+init Base
+prepare Child
+body
+new Child
+init_subclass Child
+init Child
+call Child
+```
+
+Creating `Base` runs `__prepare__`, `__new__` and `__init__`. `Base`'s own `__init_subclass__` does not run, because it fires for subclasses only. For `Child`, the body runs between `__prepare__` and `__new__`. `__init_subclass__` runs inside `type.__new__`, so it comes before the metaclass's `__init__`. Finally `Child()` goes through `Meta.__call__`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A class is an instance of its metaclass, which is `type` by default. `type(name, bases, ns)` builds a class.
+- A metaclass's `__new__` can change the namespace before the class exists. `__init__` sees the finished class. Both are inherited by subclasses.
+- `__prepare__` chooses the mapping the class body writes into, and `__call__` controls instance creation.
+- <Since v="3.14" /> Use `annotationlib.get_annotate_from_class_namespace` to read annotations in a metaclass.
+- Prefer a class decorator, `__init_subclass__` or `__set_name__`. Two metaclasses conflict, two hooks combine.
+- Next: [advanced context managers](../contextlib-advanced/).

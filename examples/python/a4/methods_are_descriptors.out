@@ -1,0 +1,3 @@
+function True
+method hello from Greeter
+True

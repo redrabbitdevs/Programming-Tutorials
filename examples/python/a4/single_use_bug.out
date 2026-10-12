@@ -1,0 +1,4 @@
+--- job ---
+load
+--- end job ---
+failed: AttributeError

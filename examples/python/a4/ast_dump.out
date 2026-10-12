@@ -1,0 +1,9 @@
+Module(
+  body=[
+    Assign(
+      targets=[
+        Name(id='total', ctx=Store())],
+      value=BinOp(
+        left=Name(id='price'),
+        op=Mult(),
+        right=Constant(value=2)))])

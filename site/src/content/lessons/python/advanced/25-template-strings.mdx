@@ -1,0 +1,401 @@
+---
+language: python
+level: advanced
+module: Metaprogramming
+order: 25
+title: Template strings
+description: Use t-string literals to get the parts of an interpolated string before they are combined, and process them safely for HTML, SQL and logging.
+minVersion: "3.14"
+objectives:
+  - Explain how a t-string differs from an f-string, and why it does not render itself
+  - Read the strings, values and interpolations of a Template
+  - Render a Template with f-string semantics using convert and format
+  - Write an HTML escaper and a parameterised SQL builder on top of t-strings
+  - Build and combine Template objects in code
+estimatedMinutes: 40
+fundamentals: []
+---
+
+An f-string is convenient and dangerous for the same reason: by the time you see the result, the trusted text and the user's data are fused into one string. `f"<p>{comment}</p>"` cannot know that `comment` came from a stranger. Template strings, or t-strings, added in Python 3.14 by [PEP 750](https://peps.python.org/pep-0750/), keep the two apart and let your code decide how to combine them. They are metaprogramming in a small form: code that receives a description of a string and its expressions, not a finished string.
+
+## A t-string is a Template, not a str
+
+Write `t` instead of `f`. The syntax inside is identical, but the result is a `string.templatelib.Template`:
+
+```python title="tstring_basics.py"
+name = "Ada"
+f_result = f"Hello, {name}!"
+t_result = t"Hello, {name}!"
+print(type(f_result).__name__, type(t_result).__name__)
+print(t_result.strings)
+print(t_result.values)
+```
+
+```text
+str Template
+('Hello, ', '!')
+('Ada',)
+```
+
+`strings` holds the static text and `values` holds the evaluated expressions. There is always one more string than value, so the values sit between the strings. Empty strings are kept: `t"{a}{b}"` has three strings, all empty.
+
+A template does not render itself. `str()` gives you its representation, which is a common surprise:
+
+```python title="tstring_str.py"
+user = "Ada"
+template = t"Hi {user}"
+print(str(template))
+```
+
+```text
+Template(strings=('Hi ', ''), interpolations=(Interpolation('Ada', 'user', None, ''),))
+```
+
+That is deliberate. Turning a template into text needs a decision, such as "escape for HTML", and there is no safe default. Every use of t-strings is a function that takes a `Template` and returns something.
+
+## Interpolations
+
+Iterating over a template yields the static strings and `Interpolation` objects in order, skipping empty strings. An interpolation records everything that was inside the braces:
+
+```python title="tstring_parts.py"
+from string.templatelib import Interpolation
+
+price = 4.5
+template = t"Total: {price * 2:.2f} ({price!r})"
+for part in template:
+    if isinstance(part, Interpolation):
+        print(part.value, part.expression, part.conversion,
+              repr(part.format_spec))
+    else:
+        print("static:", repr(part))
+```
+
+```text
+static: 'Total: '
+9.0 price * 2 None '.2f'
+static: ' ('
+4.5 price r ''
+static: ')'
+```
+
+`value` is already evaluated, just as in an f-string. `expression` is the source text, which is useful for messages and for redaction. `conversion` (`"r"`, `"s"`, `"a"` or `None`) and `format_spec` are recorded but **not applied**. Applying them is up to the function that processes the template.
+
+## Rendering like an f-string
+
+To get the f-string result, apply the conversion with `string.templatelib.convert` and then the format spec with `format`. `Interpolation` supports class patterns from [pattern matching in depth](../match-advanced/), so `match` makes the processing loop short:
+
+```python title="tstring_render.py"
+from string.templatelib import Interpolation, Template, convert
+
+
+def render(template: Template) -> str:
+    out = []
+    for part in template:
+        match part:
+            case str() as text:
+                out.append(text)
+            case Interpolation(value, _, conversion, spec):
+                out.append(format(convert(value, conversion), spec))
+    return "".join(out)
+```
+
+```python title="tstring_render.py (continued)"
+item, qty = "tea", 3
+print(render(t"{qty:>3} x {item!r}"))
+print(render(t"{qty:>3} x {item!r}") == f"{qty:>3} x {item!r}")
+```
+
+```text
+  3 x 'tea'
+True
+```
+
+This `render` function is the skeleton for every processor in this lesson. Each one changes only what happens to a value.
+
+## Safe HTML
+
+An HTML processor escapes every value and passes the static parts through untouched. The static parts were written by the programmer, so they are trusted:
+
+```python title="html_escape.py"
+from html import escape
+from string.templatelib import Interpolation, Template
+
+
+def html(template: Template) -> str:
+    out = []
+    for part in template:
+        if isinstance(part, Interpolation):
+            out.append(escape(str(part.value)))
+        else:
+            out.append(part)
+    return "".join(out)
+```
+
+```python title="html_escape.py (continued)"
+comment = '<script>alert("hi")</script>'
+print(html(t"<p>{comment}</p>"))
+print(f"<p>{comment}</p>")
+```
+
+```text
+<p>&lt;script&gt;alert(&quot;hi&quot;)&lt;/script&gt;</p>
+<p><script>alert("hi")</script></p>
+```
+
+The f-string version on the last line would run the script in a browser. With the t-string, the caller cannot forget to escape, because the processor does it.
+
+Templates can contain templates. A value that is itself a `Template` was written by a programmer too, so the processor can render it recursively instead of escaping it:
+
+```python title="html_nested.py"
+from html import escape
+from string.templatelib import Interpolation, Template
+
+
+def html(template: Template) -> str:
+    out = []
+    for part in template:
+        match part:
+            case str():
+                out.append(part)
+            case Interpolation(value=Template() as inner):
+                out.append(html(inner))
+            case Interpolation(value=value):
+                out.append(escape(str(value)))
+    return "".join(out)
+```
+
+```python title="html_nested.py (continued)"
+name = "Ben & Co"
+greeting = t"<b>{name}</b>"
+print(html(t"<p>{greeting}, welcome</p>"))
+```
+
+```text
+<p><b>Ben &amp; Co</b>, welcome</p>
+```
+
+The `<b>` tags survived, and the `&` in the data was escaped.
+
+## Parameterised SQL
+
+SQL injection happens when data is pasted into a query. Database drivers avoid it with placeholders such as `?` and a separate tuple of parameters. A t-string processor can produce both from one readable literal:
+
+```python title="sql_params.py"
+from string.templatelib import Interpolation, Template
+
+
+def sql(template: Template) -> tuple[str, tuple]:
+    query = []
+    for part in template:
+        if isinstance(part, Interpolation):
+            query.append("?")
+        else:
+            query.append(part)
+    return "".join(query), template.values
+```
+
+```python title="sql_params.py (continued)"
+import sqlite3
+
+db = sqlite3.connect(":memory:")
+db.execute("CREATE TABLE users (name TEXT)")
+db.executemany("INSERT INTO users VALUES (?)", [("ada",), ("ben",)])
+
+name = "nobody' OR '1'='1"
+query, params = sql(t"SELECT name FROM users WHERE name = {name}")
+print(query, params)
+print(db.execute(query, params).fetchall())
+```
+
+```text
+SELECT name FROM users WHERE name = ? ("nobody' OR '1'='1",)
+[]
+```
+
+The hostile `name` arrived as a parameter, not as SQL, so it matched nothing. Note that `{name}` is not in quotes in the template: it becomes a placeholder, and the driver handles the quoting.
+
+## Building templates in code
+
+Templates can be concatenated with `+`, and created directly from strings and `Interpolation` objects. Adding a plain `str` is refused, because Python cannot know whether it is trusted text or data:
+
+```python title="template_concat.py"
+from string.templatelib import Interpolation, Template
+
+user = "ada"
+greeting = t"Hi {user}" + t"!"
+print(greeting.strings, greeting.values)
+built = Template("Hi ", Interpolation(user, "user"), "!")
+print(built.strings == greeting.strings, built.values)
+try:
+    t"Hi " + "there"
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+('Hi ', '!') ('ada',)
+True ('ada',)
+TypeError: can only concatenate string.templatelib.Template (not "str") to string.templatelib.Template
+```
+
+Wrap a string in `Template(...)` to add it as static text, or in `Interpolation(value, "name")` to add it as data.
+
+## When not to use t-strings
+
+For text that only you will read, such as a debug message or a file name, an f-string is simpler and correct. Use t-strings when the result goes into another language, like HTML, SQL or a shell command, or when the receiving code needs the values separately, as structured logging does. And a t-string processor is only as safe as its escaping: use `html.escape`, your database driver's placeholders, or a library, rather than inventing escaping rules.
+
+## Common pitfalls
+
+- **Calling `str()` on a template.** You get its representation, not text. Pass it to a processor.
+- **Ignoring conversion and format spec.** `{price:.2f}` silently prints `4.5` if the processor uses `str(value)`.
+- **Quoting placeholders in SQL.** Write `= {name}`, not `= '{name}'`. The quotes would end up around the `?`.
+- **Running on older Pythons.** `t"..."` is a syntax error before 3.14, so the whole file fails to compile, not just the line.
+
+<Exercise title="Redacting secrets">
+Write `redact(template, *secrets)` that renders a template like an f-string, but prints `***` for every interpolation whose expression is one of the names in `secrets`. This code:
+
+```python title="redact_check.py"
+user, password = "ada", "hunter2"
+print(redact(t"login {user} with {password}", "password"))
+print(redact(t"user={user!r} token={password}", "password"))
+```
+
+prints:
+
+```text
+login ada with ***
+user='ada' token=***
+```
+
+<Solution>
+
+```python title="redact.py"
+from string.templatelib import Interpolation, Template, convert
+
+
+def redact(template: Template, *secrets: str) -> str:
+    out = []
+    for part in template:
+        match part:
+            case str():
+                out.append(part)
+            case Interpolation(_, expr, _, _) if expr in secrets:
+                out.append("***")
+            case Interpolation(value, _, conversion, spec):
+                out.append(format(convert(value, conversion), spec))
+    return "".join(out)
+```
+
+```python title="redact.py (continued)"
+user, password = "ada", "hunter2"
+print(redact(t"login {user} with {password}", "password"))
+print(redact(t"user={user!r} token={password}", "password"))
+```
+
+```text
+login ada with ***
+user='ada' token=***
+```
+
+The guard `if expr in secrets` checks the source text of the expression, which only a t-string gives you. Cases are tried in order, so secrets are caught before the general rendering case.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict: the parts of a template">
+What do these four lines print?
+
+```python title="predict_tstrings.py"
+a, b = "x", "y"
+pair = t"{a}{b}"
+print(pair.strings)
+print(len(list(pair)))
+print(t"plain".values)
+part = t"{a!r:>5}".interpolations[0]
+print(part.conversion, repr(part.format_spec))
+```
+
+<Solution>
+
+```text
+('', '', '')
+2
+()
+r '>5'
+```
+
+Two adjacent interpolations still have strings around and between them, all empty. Iteration skips empty strings, so it yields only the two interpolations. A template without braces has no values. The conversion and spec are stored separately, with the `!` and `:` removed.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix: the lost format spec">
+This escaper ignores the format spec:
+
+```python title="html_spec_bug.py"
+from html import escape
+from string.templatelib import Interpolation, Template
+
+
+def html(template: Template) -> str:
+    out = []
+    for part in template:
+        if isinstance(part, Interpolation):
+            out.append(escape(str(part.value)))
+        else:
+            out.append(part)
+    return "".join(out)
+
+
+price, tag = 4.5, "<b>"
+print(html(t"<td>{price:.2f}</td><td>{tag}</td>"))
+```
+
+```text
+<td>4.5</td><td>&lt;b&gt;</td>
+```
+
+Fix `html` so that it applies conversions and format specs before escaping, and the output becomes:
+
+```text
+<td>4.50</td><td>&lt;b&gt;</td>
+```
+
+<Solution>
+
+```python title="html_spec_fixed.py"
+from html import escape
+from string.templatelib import Interpolation, Template, convert
+
+
+def html(template: Template) -> str:
+    out = []
+    for part in template:
+        if isinstance(part, Interpolation):
+            text = convert(part.value, part.conversion)
+            out.append(escape(format(text, part.format_spec)))
+        else:
+            out.append(part)
+    return "".join(out)
+
+
+price, tag = 4.5, "<b>"
+print(html(t"<td>{price:.2f}</td><td>{tag}</td>"))
+```
+
+```text
+<td>4.50</td><td>&lt;b&gt;</td>
+```
+
+`str(part.value)` throws away `.2f`. Applying `convert` and then `format` reproduces f-string behaviour, and escaping comes last, so the formatted text is what gets escaped.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `t"..."` evaluates its expressions like an f-string but returns a `Template`, with `strings`, `values` and `interpolations`.
+- A template never renders itself. A processor function decides what each value becomes.
+- Each `Interpolation` has `value`, `expression`, `conversion` and `format_spec`. Apply the last two with `convert` and `format`.
+- Escape values for HTML, turn them into placeholders for SQL, and render nested templates recursively.
+- Next: [introspection and the AST](../introspection-ast/).

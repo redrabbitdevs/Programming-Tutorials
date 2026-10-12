@@ -1,0 +1,4 @@
+SHOUT
+quiet
+AttributeError: property 'size' of 'Word' object has no setter
+3

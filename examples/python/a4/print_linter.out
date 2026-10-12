@@ -1,0 +1,2 @@
+line 3: avoid print(), use logging
+line 6: avoid print(), use logging

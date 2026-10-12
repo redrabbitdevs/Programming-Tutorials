@@ -1,0 +1,7 @@
+(to, subject, *, cc=None, retries=3)
+to       POSITIONAL_OR_KEYWORD  <class 'inspect._empty'>
+subject  POSITIONAL_OR_KEYWORD  <class 'inspect._empty'>
+cc       KEYWORD_ONLY           None
+retries  KEYWORD_ONLY           3
+{'to': 'ada@example.com', 'subject': 'Hi', 'cc': None, 'retries': 5}
+TypeError: missing a required argument: 'subject'

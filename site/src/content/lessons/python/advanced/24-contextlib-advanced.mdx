@@ -1,0 +1,469 @@
+---
+language: python
+level: advanced
+module: Metaprogramming
+order: 24
+title: Advanced context managers
+description: Build reusable context managers with ExitStack callbacks and pop_all, change directory safely with contextlib.chdir, use managers as decorators, and write async context managers.
+minVersion: "3.11"
+objectives:
+  - Register arbitrary clean-up with ExitStack.callback
+  - Write an __enter__ that acquires several resources all-or-nothing with pop_all
+  - Change the working directory temporarily with contextlib.chdir
+  - Use a context manager as a decorator, and know what changed for generators in 3.15
+  - Write async context managers with asynccontextmanager and AsyncExitStack
+estimatedMinutes: 45
+fundamentals: []
+---
+
+You can already use and write context managers: `with` and `ExitStack` from [context managers](../../intermediate/context-managers/), classes with `__enter__` and `__exit__` from [writing context manager classes](../../intermediate/context-manager-classes/), and generators with [@contextmanager](../../intermediate/contextmanager/). This lesson is about the parts of `contextlib` that turn those into reusable building blocks: managers that combine other managers, wrap functions, and work with `async`.
+
+## Clean-up without a context manager
+
+Not everything that needs cleaning up comes with `__exit__`. `ExitStack.callback(func, *args)` registers any function to run when the stack closes. It returns the function, so it also works as a decorator:
+
+```python title="stack_callback.py"
+from contextlib import ExitStack
+
+with ExitStack() as stack:
+    stack.callback(print, "registered first, runs last")
+
+    @stack.callback
+    def tidy():
+        print("registered second, runs first")
+
+    print("inside the block")
+print("after the block")
+```
+
+```text
+inside the block
+registered second, runs first
+registered first, runs last
+after the block
+```
+
+Callbacks and managers on one stack run in reverse order of registration, like nested `with` blocks. Unlike a manager's `__exit__`, a callback is not told about exceptions, so it cannot suppress one.
+
+## All-or-nothing setup with pop_all
+
+A manager that acquires several resources in `__enter__` has a problem: if the third one fails, the first two must be released, but `__exit__` will never run because `__enter__` did not finish. `ExitStack` solves this. Enter everything on a temporary stack inside a `with`. If something fails, that `with` unwinds what was entered. If everything succeeds, `pop_all()` moves the registered clean-up to a fresh stack that the `with` does not close:
+
+```python title="pop_all_setup.py"
+from contextlib import ExitStack
+
+
+class Resource:
+    def __init__(self, name):
+        if name == "broken":
+            raise OSError(f"cannot open {name}")
+        self.name = name
+        print("open", name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        print("close", self.name)
+```
+
+```python title="pop_all_setup.py (continued)"
+class Pool:
+    def __init__(self, *names):
+        self.names = names
+
+    def __enter__(self):
+        with ExitStack() as stack:
+            self.items = [stack.enter_context(Resource(name))
+                          for name in self.names]
+            self._stack = stack.pop_all()
+        return self
+
+    def __exit__(self, *exc):
+        self._stack.close()
+```
+
+```python title="pop_all_setup.py (continued)"
+with Pool("db", "cache") as pool:
+    print("using", [r.name for r in pool.items])
+try:
+    with Pool("db", "broken"):
+        print("never runs")
+except OSError as error:
+    print("OSError:", error)
+```
+
+```text
+open db
+open cache
+using ['db', 'cache']
+close cache
+close db
+open db
+close db
+OSError: cannot open broken
+```
+
+The first pool opened and closed both resources. The second opened `db`, failed on `broken`, and still closed `db` before the error reached the caller. `pop_all` is how you write that guarantee once and get it right.
+
+## Changing directory: contextlib.chdir
+
+`contextlib.chdir(path)` changes the working directory for the block and restores the previous one afterwards, even on error:
+
+```python title="chdir_demo.py"
+import tempfile
+from contextlib import chdir
+from pathlib import Path
+
+start = Path.cwd()
+with tempfile.TemporaryDirectory() as tmp:
+    with chdir(tmp):
+        Path("notes.txt").write_text("hi")
+        print(Path.cwd() == Path(tmp).resolve())
+        print([p.name for p in Path.cwd().iterdir()])
+    print(Path.cwd() == start)
+```
+
+```text
+True
+['notes.txt']
+True
+```
+
+The working directory belongs to the whole process, so `chdir` is not safe to use from several threads or async tasks at once. In library code, prefer passing paths to functions over changing directory at all. In scripts and tests it is exactly the right tool.
+
+## Context managers as decorators
+
+A manager built with `@contextmanager` is also a decorator. Each call of the decorated function runs inside a fresh `with` block:
+
+```python title="cm_decorator.py"
+from contextlib import contextmanager
+
+
+@contextmanager
+def section(title):
+    print(f"--- {title} ---")
+    try:
+        yield
+    finally:
+        print(f"--- end {title} ---")
+```
+
+```python title="cm_decorator.py (continued)"
+@section("report")
+def report(orders):
+    print(orders, "orders")
+
+
+report(2)
+report(5)
+```
+
+```text
+--- report ---
+2 orders
+--- end report ---
+--- report ---
+5 orders
+--- end report ---
+```
+
+This works because the object returned by `section("report")` is a `ContextDecorator`. You can make class-based managers decorators too, by inheriting from `contextlib.ContextDecorator`.
+
+<Since v="3.15" /> Decorating a generator function now keeps the manager open while the generator runs:
+
+```python title="cm_decorator.py (continued)"
+@section("numbers")
+def numbers():
+    yield 1
+    yield 2
+
+
+for n in numbers():
+    print(n)
+```
+
+```text
+--- numbers ---
+1
+2
+--- end numbers ---
+```
+
+Before 3.15, the decorator wrapped only the call that creates the generator object, so it printed `--- end numbers ---` before the first value. The same change applies to coroutine functions and async generator functions decorated with an async manager.
+
+## Async context managers
+
+An `async with` block awaits its entry and exit steps, which suits connections and other resources that need I/O to open or close. `@asynccontextmanager` works like `@contextmanager`, on an `async def` generator:
+
+```python title="async_cm.py"
+import asyncio
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def connection(name):
+    print("connect", name)
+    try:
+        yield name.upper()
+    finally:
+        await asyncio.sleep(0)
+        print("disconnect", name)
+
+
+async def main():
+    async with connection("db") as conn:
+        print("using", conn)
+
+
+asyncio.run(main())
+```
+
+```text
+connect db
+using DB
+disconnect db
+```
+
+`AsyncExitStack` is the async version of `ExitStack`. `enter_async_context` is awaited, and `push_async_callback` registers a coroutine function for clean-up:
+
+```python title="async_stack.py"
+import asyncio
+from contextlib import AsyncExitStack, asynccontextmanager
+
+
+@asynccontextmanager
+async def connection(name):
+    print("connect", name)
+    try:
+        yield name.upper()
+    finally:
+        await asyncio.sleep(0)
+        print("disconnect", name)
+
+
+async def main(names):
+    async with AsyncExitStack() as stack:
+        conns = [await stack.enter_async_context(connection(name))
+                 for name in names]
+        print("using", conns)
+
+
+asyncio.run(main(["db", "cache"]))
+```
+
+```text
+connect db
+connect cache
+using ['DB', 'CACHE']
+disconnect cache
+disconnect db
+```
+
+## When not to write your own manager
+
+Before writing a manager, check the standard library: `tempfile.TemporaryDirectory`, `contextlib.suppress`, `redirect_stdout` and `chdir` cover a lot. And not every pair of "before" and "after" steps needs one. If the clean-up does not have to run when an exception is raised, two plain function calls say it more directly. A context manager earns its place when forgetting the exit step would leak something.
+
+## Common pitfalls
+
+- **Reusing a `@contextmanager` object.** `job = section("job")` can be entered once. Call `section("job")` for each `with`.
+- **Doing work in `__enter__` without protection.** If acquisition can fail halfway, use an `ExitStack` and `pop_all`, or the earlier resources leak.
+- **`chdir` in threads or async code.** It changes the directory for every thread and task in the process.
+- **Expecting a callback to suppress errors.** Only managers and `push()` exit functions can. `callback()` functions just run.
+
+<Exercise title="A temporary environment">
+Write a context manager `temp_env(**changes)` that sets environment variables for the duration of a block. A value of `None` removes the variable. On exit, every variable must be restored to its earlier value, or removed if it did not exist, even after an exception. This code:
+
+```python title="temp_env_check.py"
+import os
+
+os.environ["MODE"] = "prod"
+os.environ.pop("DEBUG", None)
+with temp_env(MODE="test", DEBUG="1"):
+    print(os.environ["MODE"], os.environ["DEBUG"])
+print(os.environ["MODE"], "DEBUG" in os.environ)
+try:
+    with temp_env(MODE=None):
+        print("MODE" in os.environ)
+        raise RuntimeError("boom")
+except RuntimeError:
+    pass
+print(os.environ["MODE"])
+```
+
+prints:
+
+```text
+test 1
+prod False
+False
+prod
+```
+
+<Solution>
+
+```python title="temp_env.py"
+import os
+from contextlib import contextmanager
+
+
+@contextmanager
+def temp_env(**changes):
+    saved = {name: os.environ.get(name) for name in changes}
+    try:
+        for name, value in changes.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+```
+
+```python title="temp_env.py (continued)"
+os.environ["MODE"] = "prod"
+os.environ.pop("DEBUG", None)
+with temp_env(MODE="test", DEBUG="1"):
+    print(os.environ["MODE"], os.environ["DEBUG"])
+print(os.environ["MODE"], "DEBUG" in os.environ)
+try:
+    with temp_env(MODE=None):
+        print("MODE" in os.environ)
+        raise RuntimeError("boom")
+except RuntimeError:
+    pass
+print(os.environ["MODE"])
+```
+
+```text
+test 1
+prod False
+False
+prod
+```
+
+`saved` records each variable's old value, with `None` meaning "did not exist", before anything changes. The `finally` block restores from it whether the body finished or raised. The changes are inside the `try` as well, so a failure halfway through still restores the variables already set.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict: one stack, three exits">
+What does this print?
+
+```python title="predict_stack.py"
+from contextlib import ExitStack, suppress
+
+with ExitStack() as stack:
+    stack.callback(print, "A")
+    stack.enter_context(suppress(KeyError))
+    stack.callback(print, "B")
+    print("start")
+    {}["missing"]
+    print("never")
+print("done")
+```
+
+<Solution>
+
+```text
+start
+B
+A
+done
+```
+
+The `KeyError` ends the block, and the stack unwinds in reverse order. Callback `B` runs first; it cannot suppress anything. Then `suppress(KeyError)` sees the error and swallows it. Then `A` runs, and the program continues after the `with`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix: a section entered twice">
+The second step never runs:
+
+```python title="single_use_bug.py"
+from contextlib import contextmanager
+
+
+@contextmanager
+def section(title):
+    print(f"--- {title} ---")
+    try:
+        yield
+    finally:
+        print(f"--- end {title} ---")
+
+
+job = section("job")
+try:
+    for step in ("load", "save"):
+        with job:
+            print(step)
+except Exception as error:
+    print("failed:", type(error).__name__)
+```
+
+```text
+--- job ---
+load
+--- end job ---
+failed: AttributeError
+```
+
+Fix it so that the output is:
+
+```text
+--- job ---
+load
+--- end job ---
+--- job ---
+save
+--- end job ---
+```
+
+<Solution>
+
+```python title="single_use_fixed.py"
+from contextlib import contextmanager
+
+
+@contextmanager
+def section(title):
+    print(f"--- {title} ---")
+    try:
+        yield
+    finally:
+        print(f"--- end {title} ---")
+
+
+for step in ("load", "save"):
+    with section("job"):
+        print(step)
+```
+
+```text
+--- job ---
+load
+--- end job ---
+--- job ---
+save
+--- end job ---
+```
+
+`section("job")` creates a single-use manager around one generator. The first `with` used up that generator, and the second `with` failed when it tried to start it again. Creating a new manager for each block fixes it.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `ExitStack.callback` registers any function for clean-up, in reverse order, without the power to suppress errors.
+- In `__enter__`, acquire resources on a temporary `ExitStack` and keep them with `pop_all()`, so a failure halfway releases what was acquired.
+- `contextlib.chdir` changes directory for a block. It is process-wide, so keep it out of threads and async tasks.
+- Managers made with `@contextmanager` are decorators too. <Since v="3.15" /> They stay open across a decorated generator's iteration.
+- `@asynccontextmanager` and `AsyncExitStack` are the async equivalents.
+- Next: [template strings](../template-strings/).

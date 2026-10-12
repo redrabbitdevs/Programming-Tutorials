@@ -1,0 +1,5 @@
+connect db
+connect cache
+using ['DB', 'CACHE']
+disconnect cache
+disconnect db
