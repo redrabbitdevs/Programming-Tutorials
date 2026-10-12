@@ -5,6 +5,8 @@ a temporary folder first, so the check also runs on a machine that has only the
 standard library. It then checks the outcome itself: every test must pass and the count must match EXPECTED_PASSED.
 """
 
+import contextlib
+import io
 import subprocess
 import sys
 import tempfile
@@ -17,7 +19,7 @@ def load_pytest():
         import pytest
     except ImportError:
         target = tempfile.mkdtemp(prefix="pytest-")
-        pip = [sys.executable, "-m", "pip", "install", "--quiet", "--target", target, "pytest"]
+        pip = [sys.executable, "-m", "pip", "install", "--quiet", "--target", target, "pytest==9.1.1"]
         if subprocess.run(pip, capture_output=True).returncode != 0:
             subprocess.run([sys.executable, "-m", "ensurepip"], capture_output=True)
             subprocess.run(pip, check=True, capture_output=True)
@@ -40,7 +42,10 @@ class Count:
 
 
 sys.dont_write_bytecode = True
-code = int(pytest.main(["-qq", "--tb=no", "-p", "no:cacheprovider", "tests"], plugins=[Count()]))
+# pytest's own report depends on its version and the terminal width, so hide it
+# and print only the counts, which are the same everywhere.
+with contextlib.redirect_stdout(io.StringIO()):
+    code = int(pytest.main(["-qq", "--tb=no", "-p", "no:cacheprovider", "tests"], plugins=[Count()]))
 print(f"exit code {code}, {Count.passed} passed, {Count.failed} failed")
 if code != 0 or Count.passed != EXPECTED_PASSED:
     raise SystemExit(1)
