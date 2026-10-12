@@ -10,4 +10,5 @@ Got:
 1 item had failures:
    1 of   2 in c37_doctest_fail.add_tax
 ***Test Failed*** 1 failure.
-exit status: 1
+$ echo $?
+1

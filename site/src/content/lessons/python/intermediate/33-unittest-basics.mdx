@@ -56,7 +56,11 @@ class SlugifyTests(unittest.TestCase):
     def test_empty_text_gives_empty_slug(self):
         self.assertEqual(slugify(""), "")
 
+```
 
+Each test checks one behaviour, and its name says which. The expected value is written literally, not computed with the same logic as the code. The second class tests `average`, including the error case:
+
+```python title="c32_test_textutil.py (continued)"
 class AverageTests(unittest.TestCase):
     def test_mean_of_integers(self):
         self.assertEqual(average([2, 4, 6]), 4)
@@ -74,40 +78,45 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-Three habits are visible here. Each test checks one behaviour and its name says which. The expected value is written literally, not computed with the same logic as the code. And `assertAlmostEqual` compares floats within a tolerance, because `0.1 + 0.2` is not exactly `0.3` in binary floating point, as the [numbers lesson](../../beginner/numbers/) showed.
-
-`assertRaises` used as a `with` block passes only if the block raises that exception. Binding it with `as caught` lets you inspect the exception afterwards through `caught.exception`.
+`assertAlmostEqual` compares floats within a tolerance, because `0.1 + 0.2` is not exactly `0.3` in binary floating point, as the [numbers lesson](../../beginner/numbers/) showed. `assertRaises` used as a `with` block passes only if the block raises that exception. Binding it with `as caught` lets you inspect the exception afterwards through `caught.exception`.
 
 ## Running the tests
 
-The last two lines let you run the file as a script. The more common way is to let `unittest` find and run the tests from the command line:
+The last two lines let you run the file as a script. The more common way is to let `unittest` find and run the tests from the command line. The `-v` flag prints one line per test:
 
 ```console
-$ python -m unittest c32_test_textutil
-......
+$ python -m unittest -v c32_test_textutil.py
+test_empty_list_is_an_error (c32_test_textutil.AverageTests.test_empty_list_is_an_error) ... ok
+test_float_result_needs_tolerance (c32_test_textutil.AverageTests.test_float_result_needs_tolerance) ... ok
+test_mean_of_integers (c32_test_textutil.AverageTests.test_mean_of_integers) ... ok
+test_drops_punctuation (c32_test_textutil.SlugifyTests.test_drops_punctuation) ... ok
+test_empty_text_gives_empty_slug (c32_test_textutil.SlugifyTests.test_empty_text_gives_empty_slug) ... ok
+test_lowercases_and_joins_with_hyphens (c32_test_textutil.SlugifyTests.test_lowercases_and_joins_with_hyphens) ... ok
+
 ----------------------------------------------------------------------
-Ran 6 tests in 0.000s
+Ran 6 tests in 0.001s
 
 OK
 ```
 
-Each dot is a passing test. Add `-v` for one line per test with its name, or give a dotted name such as `c32_test_textutil.AverageTests.test_empty_list_is_an_error` to run a single test. With no arguments, `python -m unittest` discovers files named `test*.py` in the current folder and below, so a project can run everything with one command.
-
 <Callout type="note">
 
-Run order is alphabetical by method name, not the order in the file. Tests must not depend on each other. If one only passes after another has run, it is a bug in the tests.
+The `(module.Class.test_name)` form is what Python 3.11 and later print. On 3.8 to 3.10 each line ends with `(module.Class)` instead. Nothing else in this lesson's output changes.
 
 </Callout>
 
+Without `-v`, each test prints one character: `.` for a pass, `F` for a failure and `E` for an error. Give a dotted name such as `c32_test_textutil.AverageTests.test_empty_list_is_an_error` to run a single test. With no file name, `python -m unittest` discovers files named `test*.py` in the current folder and below, so a project can run everything with one command.
+
+Run order is alphabetical by method name, not the order in the file. Tests must not depend on each other. If one only passes after another has run, the bug is in the tests.
+
 ## Reading a failure
 
-A test can end in three ways. It passes (`.`), it fails because an assertion was false (`F`), or it errors because something else went wrong, such as an exception nobody expected (`E`). The difference tells you where to look. Here are three tests that have been written to disagree with the code:
+A test can end in three ways. It passes (`ok`), it fails because an assertion was false (`FAIL`), or it errors because something else went wrong, such as an exception nobody expected (`ERROR`). The difference tells you where to look. Here are three tests written to disagree with the code:
 
 ```python title="c32_failing.py"
 import unittest
 
 from c32_textutil import slugify
-from showtests import run_tests
 
 
 class SlugifyTests(unittest.TestCase):
@@ -121,32 +130,35 @@ class SlugifyTests(unittest.TestCase):
         self.assertEqual(slugify(None), "")
 
 
-print(run_tests(SlugifyTests))
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-`run_tests` is a small helper in `showtests.py` next to the lesson files. It runs the cases and returns the report as text with the timing and folder names removed, so the output below is exactly what your terminal would print, apart from those two details.
+```console
+$ python -m unittest -v c32_failing.py
+test_none_is_rejected_politely (c32_failing.SlugifyTests.test_none_is_rejected_politely) ... ERROR
+test_numbers_kept (c32_failing.SlugifyTests.test_numbers_kept) ... ok
+test_plus_signs_kept (c32_failing.SlugifyTests.test_plus_signs_kept) ... FAIL
 
-```text
-E.F
 ======================================================================
-ERROR: test_none_is_rejected_politely (__main__.SlugifyTests.test_none_is_rejected_politely)
+ERROR: test_none_is_rejected_politely (c32_failing.SlugifyTests.test_none_is_rejected_politely)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c32_failing.py", line 15, in test_none_is_rejected_politely
+  File "c32_failing.py", line 14, in test_none_is_rejected_politely
     self.assertEqual(slugify(None), "")
-                     ~~~~~~~^^^^^^^^^^^
+                     ~~~~~~~^^^^^^
   File "c32_textutil.py", line 6, in slugify
     words = "".join(ch.lower() if ch.isalnum() else " " for ch in text).split()
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 TypeError: 'NoneType' object is not iterable
 
 ======================================================================
-FAIL: test_plus_signs_kept (__main__.SlugifyTests.test_plus_signs_kept)
+FAIL: test_plus_signs_kept (c32_failing.SlugifyTests.test_plus_signs_kept)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c32_failing.py", line 9, in test_plus_signs_kept
+  File "c32_failing.py", line 8, in test_plus_signs_kept
     self.assertEqual(slugify("C++ tips"), "c++-tips")
-    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 AssertionError: 'c-tips' != 'c++-tips'
 - c-tips
 + c++-tips
@@ -159,10 +171,10 @@ Ran 3 tests in 0.001s
 FAILED (failures=1, errors=1)
 ```
 
-The first line, `E.F`, is the verdict per test in run order: an error, a pass, a failure. Then each problem gets a block.
+Each problem gets a block after the list of verdicts.
 
 - The `FAIL` block is a disagreement. The function ran and returned `'c-tips'`, and the test said `'c++-tips'`. `assertEqual` prints a diff of the two strings, with `?` marking the characters that differ. Either the code or the expectation is wrong, and you decide which.
-- The `ERROR` block is a crash. `slugify(None)` raised `TypeError` before any comparison happened, and the traceback points into the function. This is the same traceback you learned to read in [reading tracebacks](../../beginner/reading-tracebacks/). The `~~~^^^` marker lines appear in Python 3.11 and later.
+- The `ERROR` block is a crash. `slugify(None)` raised `TypeError` before any comparison happened, and the traceback points into the function. It is the same kind of traceback you learned to read in [reading tracebacks](../../beginner/reading-tracebacks/). The `~~~^^^` marker lines appear in Python 3.11 and later, and real runs show the full path of each file.
 
 ## The assert methods you will use most
 
@@ -183,12 +195,10 @@ The first line, `E.F`, is the verdict per test in run order: an error, a pass, a
 
 ## Shared preparation with setUp
 
-When several tests need the same starting state, put the preparation in `setUp`. `unittest` calls it before every test method, so each test gets its own fresh objects.
+When several tests need the same starting state, put the preparation in `setUp`. `unittest` calls it before every test method, so each test gets its own fresh objects. First, a class to test:
 
 ```python title="c32_setup.py"
 import unittest
-
-from showtests import run_tests
 
 
 class Basket:
@@ -200,8 +210,11 @@ class Basket:
 
     def total(self):
         return sum(price for _, price in self.items)
+```
 
+Then the tests, which all start from a basket that already holds some tea:
 
+```python title="c32_setup.py (continued)"
 class BasketTests(unittest.TestCase):
     def setUp(self):
         # runs before every test method, so each test gets a fresh basket
@@ -219,13 +232,15 @@ class BasketTests(unittest.TestCase):
         self.assertEqual(len(self.basket.items), 1)
 
 
-print(run_tests(BasketTests, verbosity=2))
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-```text
-test_tests_do_not_share_state (__main__.BasketTests.test_tests_do_not_share_state) ... ok
-test_total_after_adding (__main__.BasketTests.test_total_after_adding) ... ok
-test_total_with_one_item (__main__.BasketTests.test_total_with_one_item) ... ok
+```console
+$ python -m unittest -v c32_setup.py
+test_tests_do_not_share_state (c32_setup.BasketTests.test_tests_do_not_share_state) ... ok
+test_total_after_adding (c32_setup.BasketTests.test_total_after_adding) ... ok
+test_total_with_one_item (c32_setup.BasketTests.test_total_with_one_item) ... ok
 
 ----------------------------------------------------------------------
 Ran 3 tests in 0.001s
@@ -243,7 +258,6 @@ A table of inputs and expected outputs is a good shape for a test, but a plain l
 import unittest
 
 from c32_textutil import slugify
-from showtests import run_tests
 
 
 class SlugifyTable(unittest.TestCase):
@@ -262,16 +276,21 @@ class SlugifyTable(unittest.TestCase):
                 self.assertEqual(slugify(text), expected)
 
 
-print(run_tests(SlugifyTable))
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-```text
-FF
+```console
+$ python -m unittest -v c32_subtest.py
+test_table (c32_subtest.SlugifyTable.test_table) ... 
+  test_table (c32_subtest.SlugifyTable.test_table) (text='v1.2 notes') ... FAIL
+  test_table (c32_subtest.SlugifyTable.test_table) (text='a.b.c') ... FAIL
+
 ======================================================================
-FAIL: test_table (__main__.SlugifyTable.test_table) (text='v1.2 notes')
+FAIL: test_table (c32_subtest.SlugifyTable.test_table) (text='v1.2 notes')
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c32_subtest.py", line 20, in test_table
+  File "c32_subtest.py", line 19, in test_table
     self.assertEqual(slugify(text), expected)
     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
 AssertionError: 'v1-2-notes' != 'v1.2-notes'
@@ -282,15 +301,16 @@ AssertionError: 'v1-2-notes' != 'v1.2-notes'
 
 
 ======================================================================
-FAIL: test_table (__main__.SlugifyTable.test_table) (text='a.b.c')
+FAIL: test_table (c32_subtest.SlugifyTable.test_table) (text='a.b.c')
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c32_subtest.py", line 20, in test_table
+  File "c32_subtest.py", line 19, in test_table
     self.assertEqual(slugify(text), expected)
     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
 AssertionError: 'a-b-c' != 'a.b.c'
 - a-b-c
 + a.b.c
+
 
 ----------------------------------------------------------------------
 Ran 1 test in 0.001s
@@ -298,7 +318,7 @@ Ran 1 test in 0.001s
 FAILED (failures=2)
 ```
 
-The five other rows pass and the two failing ones are named by their `text=` value. Without `subTest`, the loop would have stopped at the first.
+The five other rows pass, and the two failing ones are named by their `text=` value. Without `subTest`, the loop would have stopped at the first.
 
 ## Common pitfalls
 
@@ -311,13 +331,10 @@ The five other rows pass and the two failing ones are named by their `text=` val
 
 <Exercise title="Predict the report">
 
-Before running anything, work out the report for this file. Which tests pass, which fail, and which error? What does the summary line say?
+Before running anything, work out the report for this file. Which tests pass, which fail, and which error? What does the last line say?
 
 ```python title="c32_ex_predict.py"
 import unittest
-
-from showtests import run_tests
-
 
 def discount(price, percent):
     return price - price * percent / 100
@@ -337,33 +354,63 @@ class DiscountTests(unittest.TestCase):
         self.assertEqual(discount("100", 10), 90)
 
 
-print(run_tests(DiscountTests, verbosity=2))
+if __name__ == "__main__":
+    unittest.main()
 ```
 
 <Solution>
 
 `test_ten_percent` and `test_zero_percent` pass. `test_full_discount` fails: a 100 per cent discount gives `0.0`, and the test expected `80`, so the test itself is wrong, not the function. `test_text_price` errors: `"100" * 10 / 100` tries to divide a string by an integer and raises `TypeError` before any comparison.
 
-```text
-test_full_discount (__main__.DiscountTests.test_full_discount) ... FAIL
-test_ten_percent (__main__.DiscountTests.test_ten_percent) ... ok
-test_text_price (__main__.DiscountTests.test_text_price) ... ERROR
-test_zero_percent (__main__.DiscountTests.test_zero_percent) ... ok
+```console
+$ python -m unittest -v c32_ex_predict.py
+test_full_discount (c32_ex_predict.DiscountTests.test_full_discount) ... FAIL
+test_ten_percent (c32_ex_predict.DiscountTests.test_ten_percent) ... ok
+test_text_price (c32_ex_predict.DiscountTests.test_text_price) ... ERROR
+test_zero_percent (c32_ex_predict.DiscountTests.test_zero_percent) ... ok
+
+======================================================================
+ERROR: test_text_price (c32_ex_predict.DiscountTests.test_text_price)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c32_ex_predict.py", line 18, in test_text_price
+    self.assertEqual(discount("100", 10), 90)
+                     ~~~~~~~~^^^^^^^^^^^
+  File "c32_ex_predict.py", line 4, in discount
+    return price - price * percent / 100
+                   ~~~~~~~~~~~~~~~~^~~~~
+TypeError: unsupported operand type(s) for /: 'str' and 'int'
+
+======================================================================
+FAIL: test_full_discount (c32_ex_predict.DiscountTests.test_full_discount)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c32_ex_predict.py", line 15, in test_full_discount
+    self.assertEqual(discount(80, 100), 80)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0.0 != 80
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.001s
+
+FAILED (failures=1, errors=1)
 ```
 
-The summary line reads `FAILED (failures=1, errors=1)`. Notice that the order is alphabetical by method name, and that the one "failure" is a bad expectation. A red test only says that code and test disagree.
+The last line is `FAILED (failures=1, errors=1)`. Notice that the order is alphabetical by method name, and that the one "failure" is a bad expectation. A red test only says that code and test disagree.
 
 </Solution>
 </Exercise>
 
 <Exercise title="Write the test that catches a leap-year bug">
 
-This function claims to say whether a year is a leap year, but it ignores the century rule: 1900 and 2100 are not leap years, while 2000 is. Write a `LeapYearTests` case with `subTest` over the years 2024, 2023, 1900, 2000 and 2100 that fails for this implementation, then fix the function until the test passes.
+This function claims to say whether a year is a leap year, but it ignores the century rule: 1900 and 2100 are not leap years, while 2000 is.
 
 ```python
 def is_leap_year(year):
     return year % 4 == 0
 ```
+
+Write a `LeapYearTests` case with `subTest` over the years 2024, 2023, 1900, 2000 and 2100. Run it against this function: the last line should read `FAILED (failures=2)`. Then fix the function until the same test ends with `OK`.
 
 <Solution>
 
@@ -371,9 +418,6 @@ The test is written against the buggy function first, and it reports two failure
 
 ```python title="c32_ex_leap.py"
 import unittest
-
-from showtests import run_tests
-
 
 def is_leap_year(year):
     return year % 4 == 0
@@ -393,25 +437,30 @@ class LeapYearTests(unittest.TestCase):
                 self.assertEqual(is_leap_year(year), expected)
 
 
-print(run_tests(LeapYearTests))
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-```text
-FF
+```console
+$ python -m unittest -v c32_ex_leap.py
+test_known_years (c32_ex_leap.LeapYearTests.test_known_years) ... 
+  test_known_years (c32_ex_leap.LeapYearTests.test_known_years) (year=1900) ... FAIL
+  test_known_years (c32_ex_leap.LeapYearTests.test_known_years) (year=2100) ... FAIL
+
 ======================================================================
-FAIL: test_known_years (__main__.LeapYearTests.test_known_years) (year=1900)
+FAIL: test_known_years (c32_ex_leap.LeapYearTests.test_known_years) (year=1900)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c32_ex_leap.py", line 21, in test_known_years
+  File "c32_ex_leap.py", line 18, in test_known_years
     self.assertEqual(is_leap_year(year), expected)
     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 AssertionError: True != False
 
 ======================================================================
-FAIL: test_known_years (__main__.LeapYearTests.test_known_years) (year=2100)
+FAIL: test_known_years (c32_ex_leap.LeapYearTests.test_known_years) (year=2100)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c32_ex_leap.py", line 21, in test_known_years
+  File "c32_ex_leap.py", line 18, in test_known_years
     self.assertEqual(is_leap_year(year), expected)
     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 AssertionError: True != False
@@ -426,9 +475,6 @@ The fix adds the century rule, and the same test now passes:
 
 ```python title="c32_ex_leap_fixed.py"
 import unittest
-
-from showtests import run_tests
-
 
 def is_leap_year(year):
     return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
@@ -448,11 +494,14 @@ class LeapYearTests(unittest.TestCase):
                 self.assertEqual(is_leap_year(year), expected)
 
 
-print(run_tests(LeapYearTests))
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-```text
-.
+```console
+$ python -m unittest -v c32_ex_leap_fixed.py
+test_known_years (c32_ex_leap_fixed.LeapYearTests.test_known_years) ... ok
+
 ----------------------------------------------------------------------
 Ran 1 test in 0.001s
 
@@ -464,9 +513,57 @@ The years 1900, 2000 and 2100 are the useful ones. They sit on the boundary of t
 </Solution>
 </Exercise>
 
+<Exercise title="Find the test that never runs">
+
+This file has three tests, but a run reports only two. Find out why, and fix it so the run ends with `Ran 3 tests` and `OK`.
+
+```python title="c32_ex_missing.py"
+import unittest
+
+
+def clamp(value, low, high):
+    return max(low, min(value, high))
+
+
+class ClampTests(unittest.TestCase):
+    def test_inside_range(self):
+        self.assertEqual(clamp(5, 0, 10), 5)
+
+    def test_below_range(self):
+        self.assertEqual(clamp(-3, 0, 10), 0)
+
+    def check_above_range(self):
+        self.assertEqual(clamp(99, 0, 10), 10)
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+<Solution>
+
+`check_above_range` does not start with `test`, so `unittest` never collects it, and nothing warns you. Rename it to `test_above_range`:
+
+```console
+$ python -m unittest -v c32_ex_missing_fixed.py
+test_above_range (c32_ex_missing_fixed.ClampTests.test_above_range) ... ok
+test_below_range (c32_ex_missing_fixed.ClampTests.test_below_range) ... ok
+test_inside_range (c32_ex_missing_fixed.ClampTests.test_inside_range) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+OK
+```
+
+The run now has three tests and all pass. After writing a test, glance at the `Ran N tests` line to confirm that the count went up.
+
+</Solution>
+</Exercise>
+
 ## Summary
 
-- A `unittest` test is a method starting with `test` in a `TestCase` subclass. Run it with `python -m unittest`, and read `F` as a disagreement and `E` as a crash.
+- A `unittest` test is a method starting with `test` in a `TestCase` subclass. Run it with `python -m unittest -v file.py`, and read `FAIL` as a disagreement and `ERROR` as a crash.
 - Use `assertEqual` for most checks, `assertAlmostEqual` for floats, and `assertRaises` as a context manager for exceptions.
 - `setUp` gives each test fresh objects, and `subTest` runs every row of a table and names the failing ones.
 - The [next lesson](../pytest-basics/) shows pytest, which runs the same kind of tests with much less ceremony.

@@ -1,9 +1,11 @@
-E.
+test_a_space_inside_a_part_is_refused (c35_ex_spaces_red.SpacesTests.test_a_space_inside_a_part_is_refused) ... ok
+test_spaces_between_parts (c35_ex_spaces_red.SpacesTests.test_spaces_between_parts) ... ERROR
+
 ======================================================================
-ERROR: test_spaces_between_parts (__main__.SpacesTests.test_spaces_between_parts)
+ERROR: test_spaces_between_parts (c35_ex_spaces_red.SpacesTests.test_spaces_between_parts)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c35_ex_spaces_red.py", line 9, in test_spaces_between_parts
+  File "c35_ex_spaces_red.py", line 8, in test_spaces_between_parts
     self.assertEqual(parse_duration("1h 30m"), 5400)
                      ~~~~~~~~~~~~~~^^^^^^^^^^
   File "c35_duration.py", line 14, in parse_duration

@@ -10,4 +10,3 @@ DEBUG    a detail for developers
 INFO     a normal event
 WARNING  something unexpected, but handled
 ERROR    an operation failed
-WARNING 30 ERROR

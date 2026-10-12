@@ -16,7 +16,11 @@ class RedactSecrets(logging.Filter):
 
 handler = logging.StreamHandler(sys.stdout)
 handler.addFilter(RedactSecrets())
-logging.basicConfig(handlers=[handler], level=logging.INFO, format="%(levelname)s %(message)s")
+logging.basicConfig(
+    handlers=[handler],
+    level=logging.INFO,
+    format="%(levelname)s %(message)s",
+)
 
 logging.info("connecting as ana with password=hunter2")
 logging.info("calling the API with token=abc123 for user %s", "ana")

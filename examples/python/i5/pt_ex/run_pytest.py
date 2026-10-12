@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tempfile
 
-EXPECTED_PASSED = 24
+EXPECTED_PASSED = 34
 
 
 def load_pytest():

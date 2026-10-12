@@ -11,11 +11,13 @@ console = logging.StreamHandler(sys.stdout)
 console.setLevel(logging.INFO)
 console.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
 
+FILE_FORMAT = "%(levelname)s %(name)s %(funcName)s: %(message)s"
+
 with tempfile.TemporaryDirectory() as folder:
     logfile = Path(folder) / "backup.log"
     to_file = logging.FileHandler(logfile, encoding="utf-8")
     to_file.setLevel(logging.DEBUG)
-    to_file.setFormatter(logging.Formatter("%(levelname)s %(name)s %(funcName)s: %(message)s"))
+    to_file.setFormatter(logging.Formatter(FILE_FORMAT))
 
     log.addHandler(console)
     log.addHandler(to_file)

@@ -30,8 +30,6 @@ The task: `parse_duration("1h30m")` should return the number of seconds. Start w
 ```python title="c35_red.py"
 import unittest
 
-from showtests import run_tests
-
 
 def parse_duration(text):
     return 0  # a stub: it exists, but it does not work yet
@@ -42,16 +40,19 @@ class ParseDurationTests(unittest.TestCase):
         self.assertEqual(parse_duration("90s"), 90)
 
 
-print(run_tests(ParseDurationTests))
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-```text
-F
+```console
+$ python -m unittest -v c35_red.py
+test_seconds_only (c35_red.ParseDurationTests.test_seconds_only) ... FAIL
+
 ======================================================================
-FAIL: test_seconds_only (__main__.ParseDurationTests.test_seconds_only)
+FAIL: test_seconds_only (c35_red.ParseDurationTests.test_seconds_only)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c35_red.py", line 12, in test_seconds_only
+  File "c35_red.py", line 10, in test_seconds_only
     self.assertEqual(parse_duration("90s"), 90)
     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
 AssertionError: 0 != 90
@@ -69,8 +70,6 @@ Now the least code that works. It does not parse hours or minutes, because no te
 ```python title="c35_green.py"
 import unittest
 
-from showtests import run_tests
-
 
 def parse_duration(text):
     # the least code that makes the one test pass
@@ -82,18 +81,21 @@ class ParseDurationTests(unittest.TestCase):
         self.assertEqual(parse_duration("90s"), 90)
 
 
-print(run_tests(ParseDurationTests))
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-```text
-.
+```console
+$ python -m unittest -v c35_green.py
+test_seconds_only (c35_green.ParseDurationTests.test_seconds_only) ... ok
+
 ----------------------------------------------------------------------
 Ran 1 test in 0.001s
 
 OK
 ```
 
-It feels almost silly, and that is the point. The next test, `"1m30s"`, will force a real parser into existence. You repeat the loop with `"1h30m"`, `"1h1m1s"`, capital letters, and then the error cases. After a few rounds the function looks like this:
+It feels almost silly, and that is the point. The next test, `"1m30s"`, forces a real parser into existence. You repeat the loop for `"1h30m"`, `"1h1m1s"`, capital letters, and then the error cases. After a few rounds the function looks like this. It uses the `re` module for pattern matching, which the [standard library tour](../stdlib-tour/#regular-expressions) introduces:
 
 ```python title="c35_duration.py"
 """parse_duration, grown one failing test at a time."""
@@ -113,13 +115,12 @@ def parse_duration(text):
     return sum(int(n) * _SECONDS[unit] for n, unit in parts)
 ```
 
-And its tests, which now record every decision you made along the way:
+And its tests, which now record every decision you made along the way. First the three units and their combinations:
 
 ```python title="c35_tdd_final.py"
 import unittest
 
 from c35_duration import parse_duration
-from showtests import run_tests
 
 
 class ParseDurationTests(unittest.TestCase):
@@ -134,7 +135,11 @@ class ParseDurationTests(unittest.TestCase):
 
     def test_all_three_units(self):
         self.assertEqual(parse_duration("1h1m1s"), 3661)
+```
 
+The rest cover tolerance and rejection:
+
+```python title="c35_tdd_final.py (continued)"
     def test_capitals_and_spaces_are_tolerated(self):
         self.assertEqual(parse_duration(" 2H "), 7200)
 
@@ -145,16 +150,18 @@ class ParseDurationTests(unittest.TestCase):
                     parse_duration(bad)
 
 
-print(run_tests(ParseDurationTests, verbosity=2))
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-```text
-test_all_three_units (__main__.ParseDurationTests.test_all_three_units) ... ok
-test_capitals_and_spaces_are_tolerated (__main__.ParseDurationTests.test_capitals_and_spaces_are_tolerated) ... ok
-test_hours_and_minutes (__main__.ParseDurationTests.test_hours_and_minutes) ... ok
-test_minutes_and_seconds (__main__.ParseDurationTests.test_minutes_and_seconds) ... ok
-test_rejects_text_that_is_not_a_duration (__main__.ParseDurationTests.test_rejects_text_that_is_not_a_duration) ... ok
-test_seconds_only (__main__.ParseDurationTests.test_seconds_only) ... ok
+```console
+$ python -m unittest -v c35_tdd_final.py
+test_all_three_units (c35_tdd_final.ParseDurationTests.test_all_three_units) ... ok
+test_capitals_and_spaces_are_tolerated (c35_tdd_final.ParseDurationTests.test_capitals_and_spaces_are_tolerated) ... ok
+test_hours_and_minutes (c35_tdd_final.ParseDurationTests.test_hours_and_minutes) ... ok
+test_minutes_and_seconds (c35_tdd_final.ParseDurationTests.test_minutes_and_seconds) ... ok
+test_rejects_text_that_is_not_a_duration (c35_tdd_final.ParseDurationTests.test_rejects_text_that_is_not_a_duration) ... ok
+test_seconds_only (c35_tdd_final.ParseDurationTests.test_seconds_only) ... ok
 
 ----------------------------------------------------------------------
 Ran 6 tests in 0.001s
@@ -162,9 +169,9 @@ Ran 6 tests in 0.001s
 OK
 ```
 
-The names of the tests read like a specification. The refactor beat is where you would tidy the regular expression or rename things, secure in knowing the six tests will tell you if you break something.
+The test names read like a specification. The refactor beat is where you tidy the regular expression, secure in knowing the six tests will tell you if you break something.
 
-TDD is a habit, not a law. It pays most for logic with clear inputs and outputs, like parsers and calculations. It pays least for exploratory code, where you do not yet know what you want.
+TDD is a habit, not a law. It pays most for logic with clear inputs and outputs, like parsers, and least for exploratory code.
 
 ## A bug report is a free test
 
@@ -185,6 +192,8 @@ Run the bank tests from the previous lessons with the plugin's report. `--cov-br
 ```console
 $ python -m pytest -q --cov=bank --cov-branch --cov-report=term-missing
 ......                                                                   [100%]
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.15.0-final-0 ________________
 
 Name      Stmts   Miss Branch BrPart  Cover   Missing
 -----------------------------------------------------
@@ -215,6 +224,8 @@ def test_negative_withdrawal_is_refused():
 ```console
 $ python -m pytest -q --cov=bank --cov-branch --cov-report=term-missing
 ........                                                                 [100%]
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.15.0-final-0 ________________
 
 Name      Stmts   Miss Branch BrPart  Cover   Missing
 -----------------------------------------------------
@@ -224,60 +235,40 @@ TOTAL        17      0      8      0   100%
 8 passed in 0.02s
 ```
 
-Use the number as a pointer, not a goal. A line can run without any assertion checking its result, so 100 per cent coverage does not mean 100 per cent correct. Chasing the percentage for its own sake leads to tests that execute code and assert nothing. The `Missing` list is the valuable output: it shows you where nobody has looked. The folder `pt_cov` holds both test files, and a `run_pytest.py` that runs all eight tests.
+Use the number as a pointer, not a goal. A line can run without any assertion checking its result, so 100 per cent coverage does not mean 100 per cent correct. The `Missing` list is the valuable output: it shows you where nobody has looked.
 
 ## One command for every check
 
-By now a project has several checks: tests, doctests (see the [doctest lesson](../doctest-and-docstrings/)), the linter and type checker from the [ruff and type checking lesson](../ruff-and-type-checking/). Nobody remembers to run five commands. Put them behind one. Here is a small script that does it with the standard library only, for a project with a doctest and a unittest file:
+By now a project has several checks: tests, doctests (see the [doctest lesson](../doctest-and-docstrings/)), the linter and type checker from the [ruff and type checking lesson](../ruff-and-type-checking/). Nobody remembers to run five commands. Put them behind one. Here is a small script that does it with the standard library only. It belongs to a project folder with a module `wordcount.py` that has a doctest, and a `test_wordcount.py` file of unit tests:
 
-```python title="c35_check.py"
-"""One command that runs every check this project has.
-
-Run it before each commit. Real projects add ruff, a type checker and pytest to
-the list (see the linting lesson); the pattern stays the same.
-"""
+```python title="c35_project/check.py"
+"""Run every check this project has. Exit with status 1 if any fails."""
 
 import subprocess
 import sys
-from pathlib import Path
-
-PROJECT = Path("c35_project")
-
-
-def no_leftover_breakpoints():
-    """A custom check: fail if any source file still calls breakpoint()."""
-    marker = "break" + "point("  # written in two pieces so this file does not flag itself
-    hits = [p.name for p in PROJECT.glob("*.py") if marker in p.read_text(encoding="utf-8")]
-    return (0 if not hits else 1), "found in " + ", ".join(hits) if hits else ""
-
-
-def run(command):
-    result = subprocess.run(command, capture_output=True, text=True)
-    return result.returncode, result.stdout + result.stderr
-
 
 CHECKS = [
-    ("doctests", lambda: run([sys.executable, "-B", "-m", "doctest", str(PROJECT / "wordcount.py")])),
-    ("unit tests", lambda: run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(PROJECT), "-q"])),
-    ("breakpoints", no_leftover_breakpoints),
+    ("doctests", [sys.executable, "-m", "doctest", "wordcount.py"]),
+    ("unit tests", [sys.executable, "-m", "unittest", "-q"]),
 ]
 
 failed = []
-for name, check in CHECKS:
-    code, output = check()
-    print(f"{name:12} {'ok' if code == 0 else 'FAILED'}")
-    if code != 0:
+for name, command in CHECKS:
+    result = subprocess.run(command, capture_output=True, text=True)
+    status = "ok" if result.returncode == 0 else "FAILED"
+    print(f"{name:12} {status}")
+    if result.returncode != 0:
         failed.append(name)
-        print(output)
+        print(result.stdout + result.stderr)
 
-print("all checks passed" if not failed else f"{len(failed)} check(s) failed: {', '.join(failed)}")
+print("all checks passed" if not failed else f"failed: {', '.join(failed)}")
 sys.exit(1 if failed else 0)
 ```
 
-```text
+```console
+$ python check.py
 doctests     ok
 unit tests   ok
-breakpoints  ok
 all checks passed
 ```
 
@@ -315,51 +306,52 @@ jobs:
       - run: python check.py
 ```
 
-Pick the Python version your project supports; many projects test several. The action versions (`@v4`, `@v5`) move on, so check each action's page for its current major version. The point is that the CI file holds almost nothing of its own. It installs the tools and calls the same script you run locally, so the two cannot drift apart.
+Action versions such as `@v4` move on, so check each action's page. The point is that the CI file holds almost nothing of its own. It installs the tools and calls the same script you run locally, so the two cannot drift apart.
 
 ## Common pitfalls
 
 - **Writing the test and the code together.** Without seeing red first, you do not know the test can fail. A test that has never failed may check nothing.
 - **A test that fails for the wrong reason.** `NameError` or `ImportError` is red, but not the red you wanted. Read the message.
 - **Writing a big code change to go green.** Make the smallest change, then run again. Large jumps mean large debugging sessions.
-- **Chasing a coverage percentage.** Aim for the lines that matter, such as error handling and branches, and assert real results.
 - **Skipping the hook with `--no-verify`.** If the checks are slow or flaky, fix them. A hook everyone bypasses is worse than none.
-- **Different commands locally and in CI.** Keep the logic in one script or one `pyproject.toml` section and have CI call it.
 
 <Exercise title="Take one more step through the loop">
 
-`parse_duration("1h 30m")` currently raises `ValueError`, but users type a space between the parts. You want `"1h 30m"` to give 5400, while `"1 h"` (a space between a number and its unit) is still rejected. Follow the loop: write the two tests first and show that they fail, then change the function until they pass without breaking the old cases.
+`parse_duration("1h 30m")` currently raises `ValueError`, but users type a space between the parts. You want `"1h 30m"` to give 5400, while `"1 h"` (a space between a number and its unit) is still rejected. Follow the loop. First write the two tests and run them against the function from this lesson: the run should end with `FAILED (errors=1)`. Then change the function until the run ends with `OK` without breaking the old cases.
 
 <Solution>
 
-Red: the two tests, run against the existing `c35_duration.parse_duration`. The first errors because the function does not allow a space, and the second already passes, which is fine. It guards against going too far later.
+Red: the first test errors because the function does not allow a space. The second already passes, which is fine. It guards against going too far later.
 
 ```python title="c35_ex_spaces_red.py"
 import unittest
 
 from c35_duration import parse_duration
-from showtests import run_tests
 
 
 class SpacesTests(unittest.TestCase):
     def test_spaces_between_parts(self):
         self.assertEqual(parse_duration("1h 30m"), 5400)
 
-    def test_spaces_inside_are_still_not_a_free_for_all(self):
+    def test_a_space_inside_a_part_is_refused(self):
         with self.assertRaises(ValueError):
             parse_duration("1 h")
 
 
-print(run_tests(SpacesTests))
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-```text
-E.
+```console
+$ python -m unittest -v c35_ex_spaces_red.py
+test_a_space_inside_a_part_is_refused (c35_ex_spaces_red.SpacesTests.test_a_space_inside_a_part_is_refused) ... ok
+test_spaces_between_parts (c35_ex_spaces_red.SpacesTests.test_spaces_between_parts) ... ERROR
+
 ======================================================================
-ERROR: test_spaces_between_parts (__main__.SpacesTests.test_spaces_between_parts)
+ERROR: test_spaces_between_parts (c35_ex_spaces_red.SpacesTests.test_spaces_between_parts)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c35_ex_spaces_red.py", line 9, in test_spaces_between_parts
+  File "c35_ex_spaces_red.py", line 8, in test_spaces_between_parts
     self.assertEqual(parse_duration("1h 30m"), 5400)
                      ~~~~~~~~~~~~~~^^^^^^^^^^
   File "c35_duration.py", line 14, in parse_duration
@@ -372,13 +364,10 @@ Ran 2 tests in 0.001s
 FAILED (errors=1)
 ```
 
-Green: split the text on whitespace, validate each word with the same pattern as before, and add the pieces together. A lone `"1"` or `"h"` is not a valid word, so `"1 h"` is still refused. The old cases are repeated in the test class so you see them still pass.
+Green: split the text on whitespace, validate each word with the same pattern as before, and add the pieces together. A lone `"1"` or `"h"` is not a valid word, so `"1 h"` is still refused.
 
-```python title="c35_ex_spaces_green.py"
+```python title="c35_spaces_duration.py"
 import re
-import unittest
-
-from showtests import run_tests
 
 _PART = re.compile(r"(\d+)([hms])")
 _SECONDS = {"h": 3600, "m": 60, "s": 1}
@@ -392,17 +381,25 @@ def parse_duration(text):
     total = 0
     for token in tokens:
         parts = _PART.findall(token)
-        if not parts or "".join(n + unit for n, unit in parts) != token:
+        if not parts or "".join(n + u for n, u in parts) != token:
             raise ValueError(f"not a duration: {text!r}")
-        total += sum(int(n) * _SECONDS[unit] for n, unit in parts)
+        total += sum(int(n) * _SECONDS[u] for n, u in parts)
     return total
+```
+
+The tests now include the old cases, so you see them still pass:
+
+```python title="c35_ex_spaces_green.py"
+import unittest
+
+from c35_spaces_duration import parse_duration
 
 
 class DurationTests(unittest.TestCase):
     def test_spaces_between_parts(self):
         self.assertEqual(parse_duration("1h 30m"), 5400)
 
-    def test_spaces_inside_are_still_not_a_free_for_all(self):
+    def test_a_space_inside_a_part_is_refused(self):
         with self.assertRaises(ValueError):
             parse_duration("1 h")
 
@@ -413,11 +410,16 @@ class DurationTests(unittest.TestCase):
             parse_duration("")
 
 
-print(run_tests(DurationTests))
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-```text
-...
+```console
+$ python -m unittest -v c35_ex_spaces_green.py
+test_a_space_inside_a_part_is_refused (c35_ex_spaces_green.DurationTests.test_a_space_inside_a_part_is_refused) ... ok
+test_spaces_between_parts (c35_ex_spaces_green.DurationTests.test_spaces_between_parts) ... ok
+test_the_old_cases_still_pass (c35_ex_spaces_green.DurationTests.test_the_old_cases_still_pass) ... ok
+
 ----------------------------------------------------------------------
 Ran 3 tests in 0.001s
 
@@ -427,31 +429,112 @@ OK
 </Solution>
 </Exercise>
 
-<Exercise title="Read a coverage report">
+<Exercise title="Predict the Missing column">
 
-A coverage run for `bank.py` printed `bank.py  17  2  8  2  84%  11, 22`. Looking at the source in lesson 33, state which behaviour lines 11 and 22 implement, and write two pytest tests that execute them. After adding them, which numbers in the report should change, and what should the `Missing` column say?
+These three tests cover the valid inputs of `parse_duration`, which lives in `duration.py` (the same code as `c35_duration.py` above). Before running anything, say which line of `duration.py` the coverage report will list under `Missing`, and what the last line of the pytest report reads.
+
+```python title="pt_duration/tests/test_valid.py"
+from duration import parse_duration
+
+
+def test_seconds_only():
+    assert parse_duration("90s") == 90
+
+
+def test_hours_and_minutes():
+    assert parse_duration("1h30m") == 5400
+
+
+def test_capitals_and_outer_spaces_are_tolerated():
+    assert parse_duration(" 2H ") == 7200
+```
 
 <Solution>
 
-Line 11 is `raise ValueError("opening balance cannot be negative")`, and line 22 is `raise ValueError("withdrawal must be positive")`. Tests that reach them:
+Line 14 is the `raise ValueError(...)` for text that is not a duration. No test passes bad input, so it never runs. Nothing else is missing, and `duration.py` shows one partly covered branch: the `if` on line 13 was never true.
 
-```python title="pt_cov/tests/test_bank_edges.py"
-import pytest
+```console
+$ python -m pytest -q --cov=duration --cov-branch --cov-report=term-missing
+...                                                                      [100%]
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.15.0-final-0 ________________
 
-from bank import Account
-
-
-def test_negative_opening_balance_is_refused():
-    with pytest.raises(ValueError, match="cannot be negative"):
-        Account("Ana", -1)
-
-
-def test_negative_withdrawal_is_refused():
-    with pytest.raises(ValueError, match="must be positive"):
-        Account("Ana", 10).withdraw(-5)
+Name          Stmts   Miss Branch BrPart  Cover   Missing
+---------------------------------------------------------
+duration.py       9      1      2      1    82%   14
+---------------------------------------------------------
+TOTAL             9      1      2      1    82%
+3 passed in 0.02s
 ```
 
-The `Miss` and `BrPart` (partially covered branches) columns drop to 0, `Cover` rises to 100%, and `Missing` becomes empty. The test run goes from 6 to 8 tests. Note that `match=` is part of what makes these tests meaningful: without it, any `ValueError` from anywhere in the code would satisfy them.
+The last line is `3 passed`, because coverage reports gaps and does not fail the run. The fix is a test with bad input, such as `pytest.raises(ValueError)` around `parse_duration("5x")`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A test that was never red">
+
+You are about to write `parse_duration("2m")`, so you start with a stub and one test. The run ends with `OK`, but a test written first must be red. Change the test so the run ends with `FAILED (failures=1)` against the stub. Then say what the stub needs to return to make it green.
+
+```python title="c35_ex_never_red.py"
+import unittest
+
+
+def parse_duration(text):
+    return 0  # a stub: the real parser is not written yet
+
+
+class MinutesTests(unittest.TestCase):
+    def test_two_minutes(self):
+        result = parse_duration("2m")
+        self.assertIsNotNone(result)
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+<Solution>
+
+`assertIsNotNone` only checks that the stub returns something, and `0` is not `None`. The test cannot tell a working parser from a stub. Assert the value you actually want:
+
+```python title="c35_ex_never_red_fixed.py"
+import unittest
+
+
+def parse_duration(text):
+    return 0  # a stub: the real parser is not written yet
+
+
+class MinutesTests(unittest.TestCase):
+    def test_two_minutes(self):
+        self.assertEqual(parse_duration("2m"), 120)
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+```console
+$ python -m unittest -v c35_ex_never_red_fixed.py
+test_two_minutes (c35_ex_never_red_fixed.MinutesTests.test_two_minutes) ... FAIL
+
+======================================================================
+FAIL: test_two_minutes (c35_ex_never_red_fixed.MinutesTests.test_two_minutes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c35_ex_never_red_fixed.py", line 10, in test_two_minutes
+    self.assertEqual(parse_duration("2m"), 120)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 120
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (failures=1)
+```
+
+The stub returns `0` and the test wants `120`, which is red for the right reason. Returning `int(text[:-1]) * 60` turns it green, and the next test will force the real parser. The habit is to watch every new test fail once before you trust it.
 
 </Solution>
 </Exercise>

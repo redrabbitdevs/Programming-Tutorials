@@ -1,4 +1,7 @@
-...
+test_a_space_inside_a_part_is_refused (c35_ex_spaces_green.DurationTests.test_a_space_inside_a_part_is_refused) ... ok
+test_spaces_between_parts (c35_ex_spaces_green.DurationTests.test_spaces_between_parts) ... ok
+test_the_old_cases_still_pass (c35_ex_spaces_green.DurationTests.test_the_old_cases_still_pass) ... ok
+
 ----------------------------------------------------------------------
 Ran 3 tests in 0.001s
 

@@ -1,4 +1,4 @@
-"""A module that logs but never configures logging. The application does that."""
+"""A module that logs but leaves logging setup to the application."""
 
 import logging
 

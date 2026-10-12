@@ -15,22 +15,22 @@ estimatedMinutes: 40
 fundamentals: ["fundamentals/beginner/20-big-o"]
 ---
 
-A program that is slow is rarely slow everywhere. Usually one function, or one line in it, takes most of the time, and guessing which one is a good way to waste an afternoon. The method is the same as for a bug: measure first, change one thing, measure again. The [fundamentals lesson on Big O](../../../fundamentals/beginner/big-o/) explains why some approaches scale badly. Python gives you two standard tools for finding out whether yours does: `timeit` for small snippets and a profiler for whole programs.
+A program that is slow is rarely slow everywhere. Usually one function takes most of the time, and guessing which one wastes an afternoon. The method is the same as for a bug: measure first, change one thing, measure again. The [fundamentals lesson on Big O](../../../fundamentals/beginner/big-o/) explains why some approaches scale badly. Python gives you two standard tools for finding out whether yours does: `timeit` for small snippets and a profiler for whole programs.
 
 ## timeit: compare two small alternatives
 
 `timeit` runs a snippet many times and reports the time. From the command line, `-s` gives set-up code that runs once, and the last argument is the statement to time:
 
 ```console
-$ python -m timeit -s "data = list(range(10_000)); as_set = set(data)" "9_999 in data"
-5000 loops, best of 5: 68 usec per loop
-$ python -m timeit -s "data = list(range(10_000)); as_set = set(data)" "9_999 in as_set"
-10000000 loops, best of 5: 21.4 nsec per loop
+$ python -m timeit -s "data = list(range(10_000))" "9_999 in data"
+5000 loops, best of 5: 67.2 usec per loop
+$ python -m timeit -s "data = set(range(10_000))" "9_999 in data"
+10000000 loops, best of 5: 21.2 nsec per loop
 ```
 
-`timeit` picked the number of loops itself, repeated the measurement five times, and reported the best one, since the fastest run is the one least disturbed by other programs. The numbers come from one machine and will differ on yours. The ratio will not: a membership test in a list scans it item by item, taking 68 microseconds here, while a set answers in about 21 nanoseconds. That is more than three thousand times faster for this size.
+`timeit` picked the number of loops itself, repeated the measurement five times, and reported the best, since the fastest run is the one least disturbed by other programs. Your numbers will differ. The ratio will not: a membership test in a list scans it item by item, taking 67 microseconds here, while a set answers in about 21 nanoseconds. That is more than three thousand times faster for this size.
 
-In code, `timeit.timeit` and `timeit.repeat` do the same. Absolute times differ from machine to machine, so a script that must print the same thing everywhere checks the *ratio* instead:
+In code, `timeit.timeit` and `timeit.repeat` do the same. A script that must print the same thing everywhere checks the *ratio* instead of the times:
 
 ```python title="c40_timeit.py"
 import timeit
@@ -44,7 +44,7 @@ in_set = timeit.timeit("9_999 in as_set", setup=setup, number=2_000)
 print("list slower than set:", in_list > in_set)
 print("at least 20 times slower:", in_list > 20 * in_set)
 
-# Repeat the measurement and keep the best run to reduce noise from other programs.
+# Repeat the measurement and keep the best run, which has the least noise.
 runs = timeit.repeat("sum(range(1_000))", number=1_000, repeat=5)
 print("runs taken:", len(runs))
 print("best is the smallest:", min(runs) == sorted(runs)[0])
@@ -59,7 +59,7 @@ best is the smallest: True
 
 `timeit.timeit` returns the total seconds for `number` runs. `timeit.repeat` returns a list of such totals, and you should take the `min`, not the average. To time your own function, pass `globals=globals()` so the snippet can see it, or give `timeit` a callable instead of a string.
 
-Some warnings about micro-benchmarks. Time what you actually do: a set is only faster if you can keep one around. Use realistic sizes, because many differences disappear at ten items and explode at ten million. And compare *results* first, so you are not timing something that is fast because it is wrong.
+Time what you actually do: a set is only faster if you can keep one around. Use realistic sizes, because many differences disappear at ten items and explode at ten million. And compare *results* first, so you are not timing something that is fast because it is wrong.
 
 ## cProfile: find the slow part of a program
 
@@ -101,19 +101,21 @@ Run it under the profiler, sorted by cumulative time (the time in a function inc
 ```console
 $ python -m cProfile -s cumulative c40_slow.py
 1500
-         4509 function calls in 0.048 seconds
+         4509 function calls in 0.051 seconds
 
    Ordered by: cumulative time
 
    ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.000    0.000    0.048    0.048 {built-in method builtins.exec}
-        1    0.000    0.000    0.048    0.048 c40_slow.py:1(<module>)
-        1    0.000    0.000    0.048    0.048 c40_slow.py:16(build_report)
-        1    0.000    0.000    0.048    0.048 c40_slow.py:12(count_known)
-        1    0.000    0.000    0.048    0.048 {built-in method builtins.sum}
-     1501    0.001    0.000    0.047    0.000 c40_slow.py:13(<genexpr>)
-     3000    0.047    0.000    0.047    0.000 c40_slow.py:8(is_known)
+        1    0.000    0.000    0.051    0.051 {built-in method builtins.exec}
+        1    0.000    0.000    0.051    0.051 c40_slow.py:1(<module>)
+        1    0.000    0.000    0.051    0.051 c40_slow.py:16(build_report)
+        1    0.000    0.000    0.051    0.051 c40_slow.py:12(count_known)
+        1    0.000    0.000    0.051    0.051 {built-in method builtins.sum}
+     1501    0.001    0.000    0.051    0.000 c40_slow.py:13(<genexpr>)
+     3000    0.050    0.000    0.050    0.000 c40_slow.py:8(is_known)
         1    0.000    0.000    0.000    0.000 c40_slow.py:4(load_ids)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.print}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof...
 ```
 
 Read the columns like this:
@@ -123,7 +125,7 @@ Read the columns like this:
 - `cumtime`: seconds including the functions it called.
 - `percall`: each of the two times divided by the number of calls.
 
-The top rows have a large `cumtime` simply because they contain everything below them. The one to look at is `tottime`: `is_known` was called 3000 times and its own time is 0.047 of the 0.048 seconds. That is the hot spot. The function is one line, `user_id in known`, and `known` is a list. The cure is the one `timeit` pointed to. (Profiling adds some overhead, so the timings are a guide to proportions, and they change from run to run.)
+The top rows have a large `cumtime` because they contain everything below them. Look at `tottime`: `is_known` was called 3000 times and its own time is 0.050 of the 0.051 seconds. That is the hot spot. The function is one line, `user_id in known`, and `known` is a list. The cure is the one `timeit` pointed to. Profiling adds overhead, so the timings are a guide to proportions and change from run to run.
 
 You can profile inside a program too, and read the numbers back with `pstats` rather than printing a table. Because the absolute times are different every run, the script below prints the call counts, which do not change:
 
@@ -137,17 +139,13 @@ profiler = cProfile.Profile()
 profiler.enable()
 result = build_report()
 profiler.disable()
-
 print("result:", result)
 
 stats = pstats.Stats(profiler)
-# stats.stats maps (file, line, name) to (primitive calls, calls, own time, cumulative time, callers).
-calls = {name: ncalls for (_, _, name), (_, ncalls, *_rest) in stats.stats.items()}
+# stats.stats maps (file, line, name) to (cc, nc, tottime, cumtime, callers)
+calls = {key[2]: value[1] for key, value in stats.stats.items()}
 for name in ["build_report", "count_known", "is_known", "load_ids"]:
     print(f"{name:13} called {calls[name]} times")
-
-# To read the table yourself, sort and print the top rows:
-#     stats.strip_dirs().sort_stats("cumulative").print_stats(5)
 ```
 
 ```text
@@ -158,7 +156,7 @@ is_known      called 3000 times
 load_ids      called 1 times
 ```
 
-`cProfile.Profile()` can also be used as a context manager (`with cProfile.Profile() as profiler:`). `stats.sort_stats("tottime")` sorts by own time, and `print_stats(10)` limits the table to ten rows, as in `c40_table.py` in the examples folder. Redirect the profile to a file with `-o out.prof` and open it later with `pstats` or a viewer.
+`cProfile.Profile()` can also be used as a context manager (`with cProfile.Profile() as profiler:`). To print the table yourself, use `stats.sort_stats("tottime").print_stats(10)`: it sorts by own time and shows ten rows. Redirect the profile to a file with `-o out.prof` and open it later with `pstats` or a viewer.
 
 ## Change one thing, then measure again
 
@@ -171,7 +169,8 @@ import c40_slow
 
 
 def build_report_fast():
-    known = set(c40_slow.load_ids(3_000))  # one change: a set answers "in" in constant time
+    # one change: a set answers "in" in constant time
+    known = set(c40_slow.load_ids(3_000))
     candidates = range(0, 6_000, 2)
     return c40_slow.count_known(candidates, known)
 
@@ -188,16 +187,16 @@ same answer: True
 faster by at least 5x: True
 ```
 
-The `assert` at the top is the correctness check, which belongs to your tests. The two `timeit` runs are the speed check. Without both, "optimised" code may be wrong or no faster. Stop when the program is fast enough: the goal is not the lowest possible number, but the point where the next improvement is not worth its complexity. Fast, wrong code and slow, clear code both lose to code that is right first and made fast only where a profile asked.
+The `assert` at the top is the correctness check, which belongs to your tests. The two `timeit` runs are the speed check. Without both, "optimised" code may be wrong or no faster. Stop when the program is fast enough: the goal is the point where the next improvement is not worth its complexity. Code that is right first, and made fast only where a profile asked, beats both fast, wrong code and slow, clear code.
 
-## Profiling in Python 3.15 <Since v="3.15" />
+## Profiling in Python 3.15
 
-Python 3.15 added a `profiling` package (PEP 799) to gather the profilers under one roof. It has two parts, according to the [3.15 documentation](https://docs.python.org/3/library/profile.html):
+Python 3.15 added a `profiling` package <Since v="3.15" /> (PEP 799) to gather the profilers under one roof. It has two parts, described in the [documentation](https://docs.python.org/3/library/profile.html):
 
 - `profiling.tracing` is the deterministic profiler, the former `cProfile`. The `cProfile` name remains as a backward-compatible alias, so existing code keeps working.
 - `profiling.sampling` is a **sampling** profiler. Instead of recording every call, it looks at the running program's stack many times a second. It adds very little overhead and can attach to a running process.
 
-The old pure-Python `profile` module is deprecated in 3.15 and will be removed in 3.17, per the same page; use `profiling.tracing` or `cProfile` instead. The API of the new name matches the old one:
+The old pure-Python `profile` module is deprecated in 3.15 and will be removed in 3.17. Use `profiling.tracing` or `cProfile` instead. The API of the new name matches the old one:
 
 ```python title="c40_tracing_315.py"
 import pstats
@@ -210,7 +209,7 @@ profiler = profiling.tracing.Profile()
 profiler.runcall(build_report)
 
 stats = pstats.Stats(profiler)
-calls = {name: ncalls for (_, _, name), (_, ncalls, *_rest) in stats.stats.items()}
+calls = {key[2]: value[1] for key, value in stats.stats.items()}
 print("is_known called", calls["is_known"], "times")
 ```
 
@@ -223,17 +222,16 @@ The sampling profiler runs from the command line, and its commands are `run`, `a
 ```console
 $ python -m profiling.sampling run c40_slow.py
 1500
-Captured 59 samples in 0.06 seconds
+Captured 64 samples in 0.06 seconds
 Sample rate: 1000.00 samples/sec
 Profile Stats:
-       nsamples   sample%  tottime (ms)    cumul%  cumtime (ms)  filename:lineno(function)
-          48/48     100.0        48.000     100.0        48.000  c40_slow.py:9(is_known)
-           0/48       0.0         0.000     100.0        48.000  c40_slow.py:13(count_known.<locals>.<genexpr>)
-           0/48       0.0         0.000     100.0        48.000  c40_slow.py:13(count_known)
-           0/48       0.0         0.000     100.0        48.000  c40_slow.py:19(build_report)
+   nsamples   sample%  tottime (ms)  filename:lineno(function)
+      50/50     100.0        50.000  c40_slow.py:9(is_known)
+       0/50       0.0         0.000  c40_slow.py:13(count_known.<locals>.<genexpr>)
+       0/50       0.0         0.000  c40_slow.py:13(count_known)
 ```
 
-(The listing is trimmed, and the sample counts and times vary.) 48 of the 48 samples were inside `is_known` itself: the same conclusion as `cProfile`, reached by sampling. Because it does not slow the program down much, sampling suits long-running programs where tracing every call would distort the result, and `python -m profiling.sampling attach PID` looks at a process that is already running, much like the pdb attach in the [debugging lesson](../debugging-pdb/). For short scripts and for learning, `cProfile` is still the simplest tool, and it works on every version.
+The real table has two more columns and more rows. Sample counts and times vary from run to run. Here 50 of 50 samples were inside `is_known` itself: the same conclusion as `cProfile`, reached by sampling. Sampling suits long-running programs where tracing every call would distort the result, and `python -m profiling.sampling attach PID` looks at a process that is already running, much like the pdb attach in the [debugging lesson](../debugging-pdb/). For short scripts, `cProfile` is still the simplest tool, and it works on every version.
 
 ## Common pitfalls
 
@@ -241,30 +239,11 @@ Profile Stats:
 - **Timing a single run.** One run includes start-up noise and caching effects. Use `timeit.repeat` and take the `min`.
 - **Trusting the profiler's seconds.** Profiling slows the program. Treat it as showing proportions, not as the real speed.
 - **Reading `cumtime` as the culprit.** A caller's cumulative time includes everything below it. Sort by `tottime` to find where the time is actually spent.
-- **Benchmarking with toy data.** A set beats a list at 10,000 items by a wide margin and at 10 items by almost nothing. Use sizes like the real ones.
 - **Forgetting to re-check correctness.** A faster function that returns a different answer is a bug. Keep a test next to the benchmark.
-- **Using the `profile` module in new code.** It is slower, and it is deprecated since 3.15. Use `cProfile` or `profiling.tracing`.
 
 <Exercise title="Prove which way of building a list is faster">
 
-This script builds a list of 4,000 numbers in two ways: `result = result + [i]` in a loop, which creates a new list on every pass, and `result.append(i)`. Write the `timeit.repeat` calls (5 runs of 5 builds each, taking the best) and print whether both functions return the same list, and whether `append` is at least 3 times faster than the plus version. The expected output is two lines of `True`.
-
-```python
-def build_with_plus(n):
-    result = []
-    for i in range(n):
-        result = result + [i]  # copies the whole list every time
-    return result
-
-
-def build_with_append(n):
-    result = []
-    for i in range(n):
-        result.append(i)
-    return result
-```
-
-<Solution>
+This script builds a list of 4,000 numbers in two ways: `result = result + [i]` in a loop, which creates a new list on every pass, and `result.append(i)`. Add the `timeit.repeat` calls (5 runs of 5 builds each, taking the best) and print whether both functions return the same list, and whether `append` is at least 3 times faster than the plus version. The expected output is two lines of `True`.
 
 ```python title="c40_ex_join.py"
 import timeit
@@ -285,9 +264,19 @@ def build_with_append(n):
 
 
 assert build_with_plus(100) == build_with_append(100)
+```
 
-plus = min(timeit.repeat("build_with_plus(4_000)", globals=globals(), number=5, repeat=5))
-append = min(timeit.repeat("build_with_append(4_000)", globals=globals(), number=5, repeat=5))
+<Solution>
+
+A small helper keeps the two measurements identical:
+
+```python title="c40_ex_join.py (continued)"
+def best(call):
+    return min(timeit.repeat(call, globals=globals(), number=5, repeat=5))
+
+
+plus = best("build_with_plus(4_000)")
+append = best("build_with_append(4_000)")
 
 print("same result:", build_with_plus(100) == build_with_append(100))
 print("append is at least 3 times faster:", plus > 3 * append)
@@ -307,16 +296,6 @@ append is at least 3 times faster: True
 
 `duplicates_slow` returns the sorted list of values that occur more than once in a list. Run it under `cProfile` on the data below and print how many times `list.count` was called. Then write `duplicates_fast` that makes a single pass using two sets, and confirm that it returns the same answer and is at least 20 times faster. Expected output: `duplicates found: 1000`, `list.count calls: 6000`, then `same answer: True` and `at least 20 times faster: True`.
 
-```python
-def duplicates_slow(items):
-    return sorted({x for x in items if items.count(x) > 1})
-
-
-data = [i % 1_000 for i in range(4_000)] + list(range(1_000, 3_000))
-```
-
-<Solution>
-
 ```python title="c40_ex_dups.py"
 import cProfile
 import pstats
@@ -327,6 +306,14 @@ def duplicates_slow(items):
     return sorted({x for x in items if items.count(x) > 1})
 
 
+data = [i % 1_000 for i in range(4_000)] + list(range(1_000, 3_000))
+```
+
+<Solution>
+
+The fast version visits each item once, remembering what it has seen:
+
+```python title="c40_ex_dups.py (continued)"
 def duplicates_fast(items):
     seen = set()
     repeated = set()
@@ -335,17 +322,19 @@ def duplicates_fast(items):
             repeated.add(x)
         seen.add(x)
     return sorted(repeated)
+```
 
+Then profile the slow one, and check the fast one for correctness and speed:
 
-data = [i % 1_000 for i in range(4_000)] + list(range(1_000, 3_000))
-
+```python title="c40_ex_dups.py (continued)"
 with cProfile.Profile() as profiler:
     answer = duplicates_slow(data)
 
 stats = pstats.Stats(profiler)
-calls = {name: ncalls for (_, _, name), (_, ncalls, *_rest) in stats.stats.items()}
+calls = {key[2]: value[1] for key, value in stats.stats.items()}
+count = "<method 'count' of 'list' objects>"
 print("duplicates found:", len(answer))
-print("list.count calls:", calls["<method 'count' of 'list' objects>"])
+print("list.count calls:", calls[count])
 
 assert duplicates_fast(data) == answer
 slow = min(timeit.repeat(lambda: duplicates_slow(data), number=1, repeat=3))
@@ -361,7 +350,44 @@ same answer: True
 at least 20 times faster: True
 ```
 
-`items.count(x)` scans the whole list, and it is called once per item (6,000 times for 6,000 items), so the work is quadratic. The fast version visits each item once. The profile gave the number to point at, and the `assert` and the final comparison guard correctness and speed.
+`items.count(x)` scans the whole list, and it is called once per item (6,000 times for 6,000 items), so the work is quadratic. The profile gave the number to point at, and the `assert` and the final comparison guard correctness and speed.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the call count">
+
+`fib` calls itself twice per step. Before running anything, predict how many calls `cProfile` records for `fib(10)`, and how many of them are *primitive* (not made by recursion). Hint: with `calls(n) = 1 + calls(n - 1) + calls(n - 2)` and `calls(0) = calls(1) = 1`, the table builds up quickly.
+
+```python title="c40_ex_fib.py"
+import cProfile
+import pstats
+
+
+def fib(n):
+    return n if n < 2 else fib(n - 1) + fib(n - 2)
+
+
+with cProfile.Profile() as profiler:
+    fib(10)
+
+stats = pstats.Stats(profiler)
+for key, value in stats.stats.items():
+    if key[2] == "fib":
+        print("primitive calls:", value[0])
+        print("total calls:", value[1])
+```
+
+<Solution>
+
+The calls follow the Fibonacci-like sequence 1, 1, 3, 5, 9, 15, 25, 41, 67, 109, 177 for `n` = 0 to 10, so there are 177 calls in total. Only the outermost call, `fib(10)`, was not made by `fib` itself, so there is 1 primitive call. This is what the `177/1` form in the `ncalls` column of a profile means:
+
+```text
+primitive calls: 1
+total calls: 177
+```
+
+A high `ncalls` like this is what repeated work looks like in a profile.
 
 </Solution>
 </Exercise>

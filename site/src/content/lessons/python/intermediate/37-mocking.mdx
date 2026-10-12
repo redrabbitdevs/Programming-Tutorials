@@ -108,53 +108,58 @@ def describe(city):
 
 `describe` holds the logic worth testing: the threshold and the wording. `fetch_temperature` is the part that needs the network. Patch that one:
 
+The first test uses `patch` as a decorator:
+
 ```python title="c36_patch_basic.py"
 import unittest
 from unittest.mock import patch
 
 import c36_weather
-from showtests import run_tests
+
+FETCH = "c36_weather.fetch_temperature"
 
 
 class DescribeTests(unittest.TestCase):
-    @patch("c36_weather.fetch_temperature")
+    @patch(FETCH)
     def test_cold_day(self, fake_fetch):
         fake_fetch.return_value = 2
-        self.assertEqual(c36_weather.describe("Oslo"), "Oslo: 2 C, wear a coat")
+        result = c36_weather.describe("Oslo")
+        self.assertEqual(result, "Oslo: 2 C, wear a coat")
         fake_fetch.assert_called_once_with("Oslo")
+```
 
+The other two use it as a context manager:
+
+```python title="c36_patch_basic.py (continued)"
     def test_warm_day(self):
-        with patch("c36_weather.fetch_temperature", return_value=21) as fake_fetch:
+        with patch(FETCH, return_value=21) as fake_fetch:
             result = c36_weather.describe("Lima")
         self.assertEqual(result, "Lima: 21 C, no coat needed")
         self.assertEqual(fake_fetch.call_count, 1)
 
     def test_network_failure_reaches_the_caller(self):
-        with patch("c36_weather.fetch_temperature", side_effect=ConnectionError):
+        with patch(FETCH, side_effect=ConnectionError):
             with self.assertRaises(ConnectionError):
                 c36_weather.describe("Oslo")
 
 
-print(run_tests(DescribeTests, verbosity=2))
-
-# Outside the tests the real function is back in place.
-print(c36_weather.fetch_temperature.__module__, c36_weather.fetch_temperature.__name__)
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-```text
-test_cold_day (__main__.DescribeTests.test_cold_day) ... ok
-test_network_failure_reaches_the_caller (__main__.DescribeTests.test_network_failure_reaches_the_caller) ... ok
-test_warm_day (__main__.DescribeTests.test_warm_day) ... ok
+```console
+$ python -m unittest -v c36_patch_basic.py
+test_cold_day (c36_patch_basic.DescribeTests.test_cold_day) ... ok
+test_network_failure_reaches_the_caller (c36_patch_basic.DescribeTests.test_network_failure_reaches_the_caller) ... ok
+test_warm_day (c36_patch_basic.DescribeTests.test_warm_day) ... ok
 
 ----------------------------------------------------------------------
 Ran 3 tests in 0.001s
 
 OK
-
-c36_weather fetch_temperature
 ```
 
-`patch` appears in two forms. As a **decorator** (`test_cold_day`), the fake is passed in as an extra argument. As a **context manager** (`test_warm_day`), the patch lasts only for the `with` block, and arguments such as `return_value=21` configure the mock directly. Both undo themselves, even if the test fails, which is what the last line demonstrates. No test needed the internet, and all three finish in a millisecond.
+`patch` appears in two forms. As a **decorator** (`test_cold_day`), the fake is passed in as an extra argument. As a **context manager** (`test_warm_day`), the patch lasts only for the `with` block, and arguments such as `return_value=21` configure the mock directly. Both undo themselves, even if the test fails. No test needed the internet, and all three finish in a millisecond.
 
 Under pytest, the same patches work with `with patch(...)` inside a plain test function. For a patch that should last a whole test, pytest's `monkeypatch.setattr` from the [previous lesson](../fixtures-and-parametrize/) does the same job without the `unittest.mock` machinery. Reach for `patch` when you also want to inspect the calls.
 
@@ -187,8 +192,9 @@ from unittest.mock import patch
 
 import c36_shop
 
-# c36_shop did `from c36_clock import current_hour`, so the shop module holds its
-# own name for the function. Patching the clock module replaces a different name.
+# c36_shop did `from c36_clock import current_hour`, so the shop module
+# holds its own name for the function. Patching the clock module replaces
+# a different name.
 with patch("c36_clock.current_hour", return_value=9):
     print("shop sees:", type(c36_shop.current_hour).__name__)
 
@@ -227,7 +233,11 @@ class Mailer:
 loose = Mock()
 loose.sned("ana@example.com", "Hi")
 print("typo accepted:", loose.sned.called)
+```
 
+Now the same call against a mock built from the real class, which also checks signatures:
+
+```python title="c36_autospec.py (continued)"
 # A spec'd mock only has the attributes of the real class.
 strict = create_autospec(Mailer, instance=True)
 strict.send("ana@example.com", "Hi")
@@ -269,7 +279,7 @@ Mocking has a cost: the test now checks that your code calls the mock the way yo
 
 <Exercise title="Predict what the mock prints">
 
-Work out the output of this script before running it. Pay attention to `reset_mock()`.
+Work out the seven lines this script prints before running it. Pay attention to `reset_mock()`.
 
 ```python title="c36_ex_predict.py"
 from unittest.mock import Mock
@@ -311,13 +321,14 @@ When an item of a `side_effect` list is an exception, the mock raises it. `reset
 
 <Exercise title="Test a retry loop without waiting">
 
-Write tests for this function with `unittest.mock`. A real run would sleep for seconds, so patch `time.sleep`. Check three things. First, a fetch that fails twice and then returns 7 gives 7 after three calls, with sleeps of 1 and 2 seconds. Second, a fetch that always fails with `ConnectionError` is called twice when `attempts=2`, the error reaches the caller, and sleep was called once with 1. Third, a fetch that works straight away never sleeps.
+Write tests for this function, saved as `c36_retry.py`, with `unittest.mock`. A real run would sleep for seconds, so patch `time.sleep`. Check three things. First, a fetch that fails twice and then returns 7 gives 7 after three calls, with sleeps of 1 and 2 seconds. Second, a fetch that always fails with `ConnectionError` is called twice when `attempts=2`, the error reaches the caller, and sleep was called once with 1. Third, a fetch that works straight away never sleeps. Run them: the report should end with `Ran 3 tests` and `OK`.
 
-```python
+```python title="c36_retry.py"
+import time
+
+
 def fetch_with_retry(fetch, attempts=3):
-    """Call fetch() until it works, at most `attempts` times, pausing between tries."""
-    import time
-
+    """Call fetch() until it works, at most `attempts` times."""
     for attempt in range(1, attempts + 1):
         try:
             return fetch()
@@ -333,20 +344,7 @@ def fetch_with_retry(fetch, attempts=3):
 import unittest
 from unittest.mock import Mock, patch
 
-from showtests import run_tests
-
-
-def fetch_with_retry(fetch, attempts=3):
-    """Call fetch() until it works, at most `attempts` times, pausing between tries."""
-    import time
-
-    for attempt in range(1, attempts + 1):
-        try:
-            return fetch()
-        except ConnectionError:
-            if attempt == attempts:
-                raise
-            time.sleep(attempt)
+from c36_retry import fetch_with_retry
 
 
 class RetryTests(unittest.TestCase):
@@ -355,8 +353,13 @@ class RetryTests(unittest.TestCase):
         fetch = Mock(side_effect=[ConnectionError, ConnectionError, 7])
         self.assertEqual(fetch_with_retry(fetch), 7)
         self.assertEqual(fetch.call_count, 3)
-        self.assertEqual([c.args for c in fake_sleep.call_args_list], [(1,), (2,)])
+        sleeps = [c.args for c in fake_sleep.call_args_list]
+        self.assertEqual(sleeps, [(1,), (2,)])
+```
 
+The other two tests follow the same pattern:
+
+```python title="c36_ex_retry.py (continued)"
     @patch("time.sleep")
     def test_gives_up_after_the_last_attempt(self, fake_sleep):
         fetch = Mock(side_effect=ConnectionError("down"))
@@ -367,22 +370,88 @@ class RetryTests(unittest.TestCase):
 
     @patch("time.sleep")
     def test_no_pause_when_the_first_call_works(self, fake_sleep):
-        self.assertEqual(fetch_with_retry(Mock(return_value="ok")), "ok")
+        fetch = Mock(return_value="ok")
+        self.assertEqual(fetch_with_retry(fetch), "ok")
         fake_sleep.assert_not_called()
 
 
-print(run_tests(RetryTests))
+if __name__ == "__main__":
+    unittest.main()
 ```
 
-```text
-...
+```console
+$ python -m unittest -v c36_ex_retry.py
+test_gives_up_after_the_last_attempt (c36_ex_retry.RetryTests.test_gives_up_after_the_last_attempt) ... ok
+test_no_pause_when_the_first_call_works (c36_ex_retry.RetryTests.test_no_pause_when_the_first_call_works) ... ok
+test_succeeds_on_the_third_try (c36_ex_retry.RetryTests.test_succeeds_on_the_third_try) ... ok
+
 ----------------------------------------------------------------------
 Ran 3 tests in 0.001s
 
 OK
 ```
 
-The function takes `fetch` as a parameter, so no patch was needed for it. A `Mock` is passed in directly. Only `time.sleep` is patched, because the function imports `time` itself and calls `time.sleep` at run time, which makes `"time.sleep"` the right place to patch.
+The function takes `fetch` as a parameter, so a `Mock` is passed in directly. Only `time.sleep` is patched. The module calls `time.sleep` through the `time` module at run time, which makes `"time.sleep"` the right place to patch.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix a patch that does nothing">
+
+This test patches the clock, but the run ends with `FAILED (failures=1)` and `0 != 1`: the mock was never called. Using the section on where to patch, change one line so the run ends with `OK`.
+
+```python title="c36_ex_wrong_target.py"
+import unittest
+from unittest.mock import patch
+
+import c36_shop
+
+
+class BannerTests(unittest.TestCase):
+    def test_morning_banner(self):
+        with patch("c36_clock.current_hour", return_value=9) as fake_hour:
+            c36_shop.banner()
+        self.assertEqual(fake_hour.call_count, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+<Solution>
+
+`c36_shop` copied `current_hour` into its own namespace with `from c36_clock import current_hour`. Patching `c36_clock.current_hour` replaces a name the shop never looks at. Patch the name where it is used:
+
+```python title="c36_ex_wrong_target_fixed.py"
+import unittest
+from unittest.mock import patch
+
+import c36_shop
+
+
+class BannerTests(unittest.TestCase):
+    def test_morning_banner(self):
+        with patch("c36_shop.current_hour", return_value=9) as fake_hour:
+            result = c36_shop.banner()
+        self.assertEqual(fake_hour.call_count, 1)
+        self.assertEqual(result, "Good morning")
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+```console
+$ python -m unittest -v c36_ex_wrong_target_fixed.py
+test_morning_banner (c36_ex_wrong_target_fixed.BannerTests.test_morning_banner) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+OK
+```
+
+The patch now takes effect, so the fake is called once and the banner says `Good morning` whatever the real time is. The new assertion on the result would have been flaky before the fix.
 
 </Solution>
 </Exercise>

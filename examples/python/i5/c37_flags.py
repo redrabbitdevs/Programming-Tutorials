@@ -4,7 +4,7 @@ import doctest
 def describe(obj):
     """Show an object the way a debugger would.
 
-    The address changes on every run, so the ELLIPSIS option matches it loosely:
+    The address changes on every run, so ELLIPSIS matches it loosely:
 
     >>> describe(object())  # doctest: +ELLIPSIS
     '<object object at 0x...>'

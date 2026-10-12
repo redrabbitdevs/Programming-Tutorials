@@ -1,4 +1,5 @@
-.
+test_known_years (c32_ex_leap_fixed.LeapYearTests.test_known_years) ... ok
+
 ----------------------------------------------------------------------
 Ran 1 test in 0.001s
 

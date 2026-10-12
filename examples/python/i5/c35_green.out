@@ -1,4 +1,5 @@
-.
+test_seconds_only (c35_green.ParseDurationTests.test_seconds_only) ... ok
+
 ----------------------------------------------------------------------
 Ran 1 test in 0.001s
 

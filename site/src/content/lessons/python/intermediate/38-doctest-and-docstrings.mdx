@@ -42,8 +42,11 @@ def resize(width, height, factor=1.0):
     if factor <= 0:
         raise ValueError("factor must be positive")
     return round(width * factor), round(height * factor)
+```
 
+The docstring is stored on the function, and the standard `inspect` module can show it:
 
+```python title="c37_docstring.py (continued)"
 print(resize.__doc__.splitlines()[0])
 print("---")
 print(inspect.getdoc(resize))
@@ -83,12 +86,9 @@ The conventions are short:
 
 ## Examples that run: doctest
 
-The docstring below ends with something that looks like an interactive session. Lines starting with `>>>` are code, and the lines under them are the expected output. The standard `doctest` module finds those and runs them.
+A docstring can contain something that looks like an interactive session. Lines starting with `>>>` are code, and the lines under them are the expected output. The standard `doctest` module finds those and runs them. We build a small statistics module in three steps, one function each. First `mean`, whose docstring shows two results and an error:
 
-```python title="c37_stats.py"
-"""Small statistics helpers whose docstrings double as tests."""
-
-
+```python title="c37_mean.py"
 def mean(values):
     """Return the arithmetic mean of a non-empty sequence of numbers.
 
@@ -109,6 +109,19 @@ def mean(values):
     return sum(values) / len(values)
 
 
+if __name__ == "__main__":
+    import doctest
+
+    print(doctest.testmod())
+```
+
+```text
+TestResults(failed=0, attempted=3)
+```
+
+`doctest.testmod()` runs the examples in every docstring of the module it is called from and returns a result with the number of examples attempted and failed. Silence means success, apart from that summary. Second, `clamp`, with three examples and the same runner:
+
+```python title="c37_clamp.py"
 def clamp(value, low, high):
     """Limit value to the range low..high.
 
@@ -122,6 +135,19 @@ def clamp(value, low, high):
     return max(low, min(value, high))
 
 
+if __name__ == "__main__":
+    import doctest
+
+    print(doctest.testmod())
+```
+
+```text
+TestResults(failed=0, attempted=3)
+```
+
+Third, `histogram`, whose docstring has a sentence of prose between the description and the example:
+
+```python title="c37_histogram.py"
 def histogram(words):
     """Count how often each word occurs, most common first.
 
@@ -143,17 +169,17 @@ if __name__ == "__main__":
 ```
 
 ```text
-TestResults(failed=0, attempted=7)
+TestResults(failed=0, attempted=1)
 ```
 
-`doctest.testmod()` runs the examples in every docstring of the module it is called from and returns a result with the number of examples attempted and failed. Silence means success, apart from that summary. You can also run it without editing the file, and add `-v` to see each example:
+You can also run doctests without editing the file, and add `-v` to see each example:
 
 ```console
-$ python -m doctest c37_stats.py
-$ python -m doctest -v c37_stats.py
+$ python -m doctest c37_mean.py
+$ python -m doctest -v c37_mean.py
 ```
 
-The first prints nothing when all examples pass. The second lists every example and ends with a count like `7 passed.` Exceptions work too. The expected output starts with `Traceback (most recent call last):`, then an ellipsis line (the middle of the traceback is ignored), and then the exception line, which must match.
+The first prints nothing when all examples pass. The second lists every example and ends with `3 passed.` Exceptions work too. The expected output starts with `Traceback (most recent call last):`, then an ellipsis line (the middle of the traceback is ignored), and then the exception line, which must match.
 
 ## When an example fails
 
@@ -171,9 +197,10 @@ def add_tax(price, rate):
     return round(price * (1 + rate), 2)
 ```
 
-The script `c37_run_fail.py` runs `python -m doctest` on this file and prints the report with the folder name removed:
+Running it prints the report below. Your report shows the full path of the file instead of just its name.
 
-```text
+```console
+$ python -m doctest c37_doctest_fail.py
 **********************************************************************
 File "c37_doctest_fail.py", line 4, in c37_doctest_fail.add_tax
 Failed example:
@@ -186,7 +213,8 @@ Got:
 1 item had failures:
    1 of   2 in c37_doctest_fail.add_tax
 ***Test Failed*** 1 failure.
-exit status: 1
+$ echo $?
+1
 ```
 
 The report names the file, the line of the example and the function, and then puts `Expected` above `Got`. The exit status is 1, so doctest is suitable for the [one-command check](../test-driven-workflow/) from the test-driven workflow lesson. The second example passed, and so only one failure is reported.
@@ -202,7 +230,7 @@ import doctest
 def describe(obj):
     """Show an object the way a debugger would.
 
-    The address changes on every run, so the ELLIPSIS option matches it loosely:
+    The address changes on every run, so ELLIPSIS matches it loosely:
 
     >>> describe(object())  # doctest: +ELLIPSIS
     '<object object at 0x...>'
@@ -219,8 +247,11 @@ def describe(obj):
     >>> describe(open("/no/such/file"))  # doctest: +SKIP
     """
     return repr(obj)
+```
 
+The runner at the bottom counts the examples:
 
+```python title="c37_flags.py (continued)"
 result = doctest.testmod()
 print(result.failed, "failed,", result.attempted, "attempted")
 ```
@@ -243,7 +274,8 @@ Using the stats helpers
 
 This file is a plain text guide. Every line that starts with ">>> " is a test.
 
-    >>> from c37_stats import mean, clamp
+    >>> from c37_mean import mean
+    >>> from c37_clamp import clamp
     >>> mean([1, 2, 3, 4])
     2.5
 
@@ -260,10 +292,10 @@ print(doctest.testfile("c37_guide.txt"))
 ```
 
 ```text
-TestResults(failed=0, attempted=3)
+TestResults(failed=0, attempted=4)
 ```
 
-The whole file shares one namespace, which is why `clamp` and `mean` imported in the first example are available in the second. If you use pytest, `python -m pytest --doctest-modules` collects the docstring examples of your modules, and `--doctest-glob="*.txt"` does the same for text files, so they run alongside your other tests.
+The whole file shares one namespace, which is why `mean` and `clamp`, imported in the first examples, are available in the later ones. If you use pytest, `python -m pytest --doctest-modules` collects the docstring examples of your modules, and `--doctest-glob="*.txt"` does the same for text files, so they run alongside your other tests.
 
 ## Docstring or comment?
 
@@ -280,7 +312,7 @@ A docstring explains **what** and **how to use**, for a caller. A comment explai
 
 <Exercise title="Add doctests to a function">
 
-Write the function `percent(part, whole)` that returns `part` as a percentage of `whole`, rounded to one decimal place. Give it a docstring with four doctest examples: `percent(1, 4)` gives `25.0`, `percent(1, 3)` gives `33.3`, `percent(0, 5)` gives `0.0`, and `percent(1, 0)` raises `ValueError` with the message `whole must not be zero`. Run it so that the output is `TestResults(failed=0, attempted=4)`.
+Write the function `percent(part, whole)` that returns `part` as a percentage of `whole`, rounded to one decimal place. Give it a docstring with four doctest examples: `percent(1, 4)` gives `25.0`, `percent(1, 3)` gives `33.3`, `percent(0, 5)` gives `0.0`, and `percent(1, 0)` raises `ValueError` with the message `whole must not be zero`. Run the file: it should print `TestResults(failed=0, attempted=4)`.
 
 <Solution>
 
@@ -309,7 +341,6 @@ def percent(part, whole):
 
 if __name__ == "__main__":
     import doctest
-
     print(doctest.testmod())
 ```
 
@@ -324,23 +355,22 @@ The prose line before the last example is allowed: any text between examples is 
 
 <Exercise title="Document and test a text-wrapping function">
 
-Write `wrap_words(text, width)`, which splits text into a list of lines no longer than `width`, breaking only between words. A word longer than `width` gets its own line, an empty text gives `[]`, and a `width` below 1 raises `ValueError("width must be at least 1")`. Write a module docstring, a Google-style function docstring with `Args`, `Returns` and `Raises`, and doctest examples for `("the quick brown fox jumps", 10)`, the long-word case, the empty case, the error, and one example that prints the lines one per row with a `for` loop. Expected doctest summary: `TestResults(failed=0, attempted=5)`.
+Write `wrap_words(text, width)`, which splits text into a list of lines no longer than `width`, breaking only between words. A word longer than `width` gets its own line, an empty text gives `[]`, and a `width` below 1 raises `ValueError("width must be at least 1")`. Write a module docstring and a Google-style function docstring with `Args` and `Raises`. Add doctest examples for `("the quick brown fox jumps", 10)`, the long-word case, the empty case and the error. Run the file: it should print `TestResults(failed=0, attempted=4)`.
 
 <Solution>
+
+Start with the docstring, which doubles as the specification. Without a body the function returns `None`, so the examples fail until you write one:
 
 ```python title="c37_ex_wrap.py"
 """Break text into lines of a fixed width."""
 
 
 def wrap_words(text, width):
-    """Split text into lines no longer than width, breaking only between words.
+    """Split text into lines of at most width characters.
 
     Args:
-        text: The text to wrap. Runs of whitespace count as one space.
-        width: Maximum line length. A single word longer than this gets its own line.
-
-    Returns:
-        A list of lines.
+        text: The text to wrap.
+        width: Maximum line length. A longer word gets its own line.
 
     Raises:
         ValueError: If width is less than 1.
@@ -351,16 +381,16 @@ def wrap_words(text, width):
     ['extraordinarily', 'short']
     >>> wrap_words("", 10)
     []
-    >>> for line in wrap_words("one two three four", 9):
-    ...     print(line)
-    one two
-    three
-    four
     >>> wrap_words("x", 0)
     Traceback (most recent call last):
         ...
     ValueError: width must be at least 1
     """
+```
+
+Then the body, and the runner:
+
+```python title="c37_ex_wrap.py (continued)"
     if width < 1:
         raise ValueError("width must be at least 1")
     lines = []
@@ -383,10 +413,75 @@ if __name__ == "__main__":
 ```
 
 ```text
-TestResults(failed=0, attempted=5)
+TestResults(failed=0, attempted=4)
 ```
 
-A multi-line statement in doctest uses `...` as the continuation prompt, and the output of the loop follows directly. The doctests do double duty as the specification and as the test suite.
+</Solution>
+</Exercise>
+
+<Exercise title="Make the doctest pass">
+
+This doctest fails, and the function is correct. Change only the docstring so that the file prints `TestResults(failed=0, attempted=1)` and no report.
+
+```python title="c37_ex_shout.py"
+def shout(text):
+    """Return text in capitals with an exclamation mark.
+
+    >>> shout("hi")
+    HI!
+    """
+    return text.upper() + "!"
+
+
+if __name__ == "__main__":
+    import doctest
+
+    print(doctest.testmod())
+```
+
+Running it prints:
+
+```text
+**********************************************************************
+File "c37_ex_shout.py", line 4, in __main__.shout
+Failed example:
+    shout("hi")
+Expected:
+    HI!
+Got:
+    'HI!'
+**********************************************************************
+1 item had failures:
+   1 of   1 in __main__.shout
+***Test Failed*** 1 failure.
+TestResults(failed=1, attempted=1)
+```
+
+<Solution>
+
+Expected `HI!` but got `'HI!'`. In an interactive session, a string result is shown with its quotes, because the value's repr is printed, and doctest compares text exactly. Put the quotes in the expected output:
+
+```python title="c37_ex_shout_fixed.py"
+def shout(text):
+    """Return text in capitals with an exclamation mark.
+
+    >>> shout("hi")
+    'HI!'
+    """
+    return text.upper() + "!"
+
+
+if __name__ == "__main__":
+    import doctest
+
+    print(doctest.testmod())
+```
+
+```text
+TestResults(failed=0, attempted=1)
+```
+
+If you wanted the text without quotes, the example would have to call `print(shout("hi"))`.
 
 </Solution>
 </Exercise>

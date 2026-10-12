@@ -3,7 +3,8 @@ Using the stats helpers
 
 This file is a plain text guide. Every line that starts with ">>> " is a test.
 
-    >>> from c37_stats import mean, clamp
+    >>> from c37_mean import mean
+    >>> from c37_clamp import clamp
     >>> mean([1, 2, 3, 4])
     2.5
 

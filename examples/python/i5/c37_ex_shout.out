@@ -1,0 +1,13 @@
+**********************************************************************
+File "c37_ex_shout.py", line 4, in __main__.shout
+Failed example:
+    shout("hi")
+Expected:
+    HI!
+Got:
+    'HI!'
+**********************************************************************
+1 item had failures:
+   1 of   1 in __main__.shout
+***Test Failed*** 1 failure.
+TestResults(failed=1, attempted=1)

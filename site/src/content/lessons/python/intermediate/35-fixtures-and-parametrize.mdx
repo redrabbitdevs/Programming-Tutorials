@@ -131,14 +131,17 @@ def test_file_values_override_defaults(settings_file):
 def test_settings_path_follows_app_home(monkeypatch, tmp_path):
     monkeypatch.setenv("APP_HOME", str(tmp_path))
     assert settings_path() == tmp_path / "settings.json"
+```
 
+The next three tests show the environment and the `yield` fixture:
 
+```python title="pt_params/tests/test_appconfig.py (continued)"
 def test_settings_path_falls_back_to_the_home_folder(monkeypatch):
     monkeypatch.delenv("APP_HOME", raising=False)
     assert settings_path() == Path.home() / ".app" / "settings.json"
 
 
-def test_load_settings_reads_the_folder_from_the_environment(monkeypatch, settings_file):
+def test_load_settings_uses_app_home(monkeypatch, settings_file):
     monkeypatch.setenv("APP_HOME", str(settings_file.parent))
     assert load_settings()["theme"] == "dark"
 
@@ -157,7 +160,7 @@ Other built-in fixtures worth knowing are `capsys` (captures what the code print
 The tests above for settings have one case each. When the *same* check applies to a table of inputs, `@pytest.mark.parametrize` runs the function once per row. The first argument names the parameters, and the second is a list of tuples of values.
 
 ```python title="pt_params/numparse.py"
-"""Parse numbers typed by people: spaces, thousands separators and underscores."""
+"""Parse numbers typed by people: spaces, commas and underscores."""
 
 
 def parse_number(text):
@@ -193,8 +196,11 @@ def test_parses_valid_text(text, expected):
     result = parse_number(text)
     assert result == expected
     assert type(result) is type(expected)
+```
 
+A table of inputs that must fail needs only one parameter per row. Rows can also carry a readable id:
 
+```python title="pt_params/tests/test_numparse.py (continued)"
 @pytest.mark.parametrize("text", ["", "   ", "abc", "1.2.3", "12 34"])
 def test_rejects_invalid_text(text):
     with pytest.raises(ValueError):
@@ -215,20 +221,29 @@ def test_named_cases(text, expected):
 Each row becomes its own test with an id built from the values, so a failure names the row:
 
 ```console
-$ python -m pytest -v tests/test_numparse.py
-tests/test_numparse.py::test_parses_valid_text[42-42] PASSED             [  5%]
-tests/test_numparse.py::test_parses_valid_text[  42  -42] PASSED         [ 10%]
-tests/test_numparse.py::test_parses_valid_text[1,234-1234] PASSED        [ 15%]
-tests/test_numparse.py::test_parses_valid_text[1_000_000-1000000] PASSED [ 20%]
-...
-tests/test_numparse.py::test_rejects_invalid_text[abc] PASSED            [ 80%]
-tests/test_numparse.py::test_named_cases[simple-float] PASSED             [ 95%]
+$ python -m pytest -v --no-header tests/test_numparse.py
+============================= test session starts ==============================
+collecting ... collected 14 items
+
+tests/test_numparse.py::test_parses_valid_text[42-42] PASSED             [  7%]
+tests/test_numparse.py::test_parses_valid_text[  42  -42] PASSED         [ 14%]
+tests/test_numparse.py::test_parses_valid_text[1,234-1234] PASSED        [ 21%]
+tests/test_numparse.py::test_parses_valid_text[1_000_000-1000000] PASSED [ 28%]
+tests/test_numparse.py::test_parses_valid_text[3.5-3.5] PASSED           [ 35%]
+tests/test_numparse.py::test_parses_valid_text[-7--7] PASSED             [ 42%]
+tests/test_numparse.py::test_parses_valid_text[1e3-1000.0] PASSED        [ 50%]
+tests/test_numparse.py::test_rejects_invalid_text[] PASSED               [ 57%]
+tests/test_numparse.py::test_rejects_invalid_text[   ] PASSED            [ 64%]
+tests/test_numparse.py::test_rejects_invalid_text[abc] PASSED            [ 71%]
+tests/test_numparse.py::test_rejects_invalid_text[1.2.3] PASSED          [ 78%]
+tests/test_numparse.py::test_rejects_invalid_text[12 34] PASSED          [ 85%]
+tests/test_numparse.py::test_named_cases[simple-float] PASSED            [ 92%]
 tests/test_numparse.py::test_named_cases[thousands-and-decimal] PASSED   [100%]
+
+============================== 14 passed in 0.02s ==============================
 ```
 
-(The percentages here depend on which other files run.) Where the generated id would be unreadable, `pytest.param(..., id="name")` gives the row a label. Compare this with `subTest` from the [unittest lesson](../unittest-basics/): `subTest` reports several failures inside one test, while parametrization produces independent tests that you can select with `-k` and re-run one by one.
-
-The folder `pt_params` contains a `run_pytest.py` that runs these twenty tests and checks that all of them pass.
+Where the generated id would be unreadable, `pytest.param(..., id="name")` gives the row a label. Compare this with `subTest` from the [unittest lesson](../unittest-basics/): `subTest` reports several failures inside one test, while parametrization produces independent tests that you can select with `-k` and re-run one by one.
 
 ## Common pitfalls
 
@@ -241,14 +256,15 @@ The folder `pt_params` contains a `run_pytest.py` that runs these twenty tests a
 
 <Exercise title="Turn a loop into a parametrized test">
 
-This test checks four slugs with a `for` loop, and stops at the first failure. Rewrite it as one parametrized test over these five pairs: `("Hello World", "hello-world")`, `("  padded  ", "padded")`, `("Rock & Roll", "rock-roll")`, `("a.b.c", "a-b-c")` and `("", "")`. Run it and check that pytest reports five tests.
+This test checks two slugs with a `for` loop, and stops at the first failure. Rewrite it as one parametrized test over five pairs: `("Hello World", "hello-world")`, `("  padded  ", "padded")`, `("Rock & Roll", "rock-roll")`, `("a.b.c", "a-b-c")` and `("", "")`. Run it: the last line should read `5 passed`.
 
 ```python
 from textutil import slugify
 
 
 def test_slugify_table():
-    for text, expected in [("Hello World", "hello-world"), ("  padded  ", "padded")]:
+    cases = [("Hello World", "hello-world"), ("  padded  ", "padded")]
+    for text, expected in cases:
         assert slugify(text) == expected
 ```
 
@@ -279,43 +295,74 @@ With `-v`, the ids read `test_slugify_table[Hello World-hello-world]`, `test_slu
 </Solution>
 </Exercise>
 
-<Exercise title="Fixture plus parametrize for the bank account">
+<Exercise title="Test a notebook with tmp_path">
 
-Given an `Account` with a balance of 100, write a fixture `account` that builds it. Then write two parametrized tests. The first checks that withdrawing 10 leaves 90 and withdrawing 100 leaves 0. The second checks that withdrawing 150 raises `InsufficientFunds`, and withdrawing 0 or -5 raises `ValueError`, and that in all three cases the balance is still 100. Together they should give five tests.
+Here is a module that saves and loads notes as text files. Write tests for it that never touch your real folders. One parametrized test should save then load the texts `""`, `"hello"` and `"two\nlines"` and check each comes back unchanged. A second test should check that loading a note that does not exist raises `FileNotFoundError` with `no note called 'plans'`. Run them: the last line should read `4 passed`.
+
+```python title="pt_ex/notebook.py"
+"""Save and load short notes as text files, one file per title."""
+
+from pathlib import Path
+
+
+def save_note(folder, title, text):
+    """Write text to <folder>/<title>.txt and return that path."""
+    path = Path(folder) / f"{title}.txt"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def load_note(folder, title):
+    """Return the text of a saved note, or raise FileNotFoundError."""
+    path = Path(folder) / f"{title}.txt"
+    if not path.exists():
+        raise FileNotFoundError(f"no note called {title!r}")
+    return path.read_text(encoding="utf-8")
+```
 
 <Solution>
 
-This is the file at the start of the lesson. The fixture supplies the account, and each parametrize decorator supplies the other two arguments:
+`tmp_path` gives each test its own empty folder. It is passed to `save_note` as the folder, and parametrize supplies `text`:
 
-```python title="pt_ex/tests/test_withdraw_param.py"
+```python title="pt_ex/tests/test_notebook.py"
 import pytest
 
-from bank import Account, InsufficientFunds
+from notebook import load_note, save_note
 
 
-@pytest.fixture
-def account():
-    """An account with 100 in it, rebuilt for every test."""
-    return Account("Ana", 100)
+@pytest.mark.parametrize("text", ["", "hello", "two\nlines"])
+def test_a_saved_note_reads_back_unchanged(tmp_path, text):
+    save_note(tmp_path, "draft", text)
+    assert load_note(tmp_path, "draft") == text
 
 
-@pytest.mark.parametrize(("amount", "expected_balance"), [(10, 90), (100, 0)])
-def test_valid_withdrawals(account, amount, expected_balance):
-    account.withdraw(amount)
-    assert account.balance == expected_balance
-
-
-@pytest.mark.parametrize(
-    ("amount", "error"),
-    [(150, InsufficientFunds), (0, ValueError), (-5, ValueError)],
-)
-def test_refused_withdrawals_leave_the_balance_alone(account, amount, error):
-    with pytest.raises(error):
-        account.withdraw(amount)
-    assert account.balance == 100
+def test_a_missing_note_is_reported_by_name(tmp_path):
+    with pytest.raises(FileNotFoundError, match="no note called 'plans'"):
+        load_note(tmp_path, "plans")
 ```
 
-Exception classes are ordinary values, so they can sit in a parameter table. The ids read `[150-InsufficientFunds]`, `[0-ValueError]` and `[-5-ValueError]`.
+The three rows make three tests and the missing-note test makes the fourth. Because `tmp_path` is new for every test, no note saved by one test can be found by another.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict how many tests run">
+
+Two `parametrize` decorators are stacked on one test. Before running it, predict how many tests pytest reports, and the ids of the first and last.
+
+```python title="pt_ex/tests/test_stacked.py"
+import pytest
+
+
+@pytest.mark.parametrize("quantity", [1, 2, 3])
+@pytest.mark.parametrize("price", [10, 20])
+def test_order_total_is_positive(quantity, price):
+    assert quantity * price > 0
+```
+
+<Solution>
+
+Stacked decorators multiply: 2 prices times 3 quantities makes 6 tests, and `python -m pytest -v` ends with `6 passed`. The decorator nearest the function varies slowest in the id, so the ids run from `test_order_total_is_positive[10-1]` to `test_order_total_is_positive[20-3]`, with `price` first and `quantity` second. One table per decorator is often clearer than one long list of every combination.
 
 </Solution>
 </Exercise>

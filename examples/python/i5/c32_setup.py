@@ -1,7 +1,5 @@
 import unittest
 
-from showtests import run_tests
-
 
 class Basket:
     def __init__(self):
@@ -31,4 +29,5 @@ class BasketTests(unittest.TestCase):
         self.assertEqual(len(self.basket.items), 1)
 
 
-print(run_tests(BasketTests, verbosity=2))
+if __name__ == "__main__":
+    unittest.main()

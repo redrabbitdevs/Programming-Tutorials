@@ -1,0 +1,15 @@
+test_two_minutes (c35_ex_never_red_fixed.MinutesTests.test_two_minutes) ... FAIL
+
+======================================================================
+FAIL: test_two_minutes (c35_ex_never_red_fixed.MinutesTests.test_two_minutes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c35_ex_never_red_fixed.py", line 10, in test_two_minutes
+    self.assertEqual(parse_duration("2m"), 120)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 120
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (failures=1)
