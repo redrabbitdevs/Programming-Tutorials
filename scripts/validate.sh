@@ -64,7 +64,11 @@ if [ -d "$ROOT/examples" ]; then
       echo "$actual" >/tmp/validate_stderr.$$
       [ -f "$expected" ] && code=0
     else
-      actual="$(cd "$dir" && timeout 30 "${PYTHON:-python3}" "$(basename "$f")" 2>/tmp/validate_stderr.$$ <"$stdin_file")"
+      # A project with a src/ folder (src layout) runs as if installed with
+      # `pip install -e .`: its src folder is put on the import path.
+      run_env=(env)
+      [ -d "$dir/src" ] && run_env=(env "PYTHONPATH=$dir/src")
+      actual="$(cd "$dir" && timeout 30 "${run_env[@]}" "${PYTHON:-python3}" "$(basename "$f")" 2>/tmp/validate_stderr.$$ <"$stdin_file")"
       code=$?
     fi
     # Tracebacks and doctest reports print absolute paths. Strip this example's

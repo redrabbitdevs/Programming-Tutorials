@@ -1,0 +1,16 @@
+[project]
+name = "spendlog"
+version = "0.1.0"
+description = "Summarise a CSV file of expenses"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+spend = "spendlog.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest"]

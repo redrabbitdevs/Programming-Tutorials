@@ -1,0 +1,4 @@
+Expense(day=datetime.date(2026, 3, 2), category=<Category.FOOD: 'food'>, amount=Decimal('3.50'), note='Coffee')
+transport True
+FrozenInstanceError
+'travel' is not a valid Category

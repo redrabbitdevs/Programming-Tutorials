@@ -1,0 +1,4 @@
+generator
+{'date': '2026-02-27', 'category': 'food', 'amount': '12.40', 'note': 'Market'}
+8 expenses
+Expense(day=datetime.date(2026, 3, 1), category=<Category.HOME: 'home'>, amount=Decimal('640.00'), note='Rent')
