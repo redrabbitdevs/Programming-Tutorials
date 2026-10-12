@@ -1,0 +1,838 @@
+---
+language: python
+level: intermediate
+module: Project
+order: 42
+title: "Project: a tested command-line tool"
+description: Build and install a small expense-summary command in seven checkable steps, using packaging, pathlib, dates, a dataclass, an enum, a generator pipeline, logging and pytest.
+minVersion: "3.11"
+objectives:
+  - Lay out an installable package with a pyproject.toml and a console-script entry point
+  - Combine pathlib, csv, datetime, a dataclass, an enum and generators into one data pipeline
+  - Report problems with logging instead of print, and control the volume from the command line
+  - Test the finished tool with pytest, using a fixture, parametrize, tmp_path, caplog and capsys
+estimatedMinutes: 90
+fundamentals: ["fundamentals/beginner/25-testing-mindset"]
+---
+
+This lesson has no new topics. You will build one small program from the five modules you have finished, and every step ends with a result you can check before you move on. If a piece feels shaky, the step that uses it links back to its lesson.
+
+The program is **spendlog**, a command-line expense summariser. It reads a CSV file of purchases and prints how much was spent in each category, for one month or for all of them.
+
+## The specification
+
+- Installing the project gives you a command called `spend`.
+- `spend` reads `expenses.csv` in the current folder. `--file` names another file.
+- `--month 2026-03` keeps only the expenses of that month.
+- The output lists the categories from the biggest total to the smallest, then a grand total. `--list` also prints every expense.
+- A row that cannot be understood is skipped with a warning, and the rest of the file is still used. A missing file prints a short message and exits with code 1.
+- `-v` adds progress messages. The code is covered by automated tests.
+
+The test data is `expenses.csv`, eight purchases from February to April:
+
+```text title="expenses.csv"
+date,category,amount,note
+2026-02-27,food,12.40,Market
+2026-03-01,home,640.00,Rent
+2026-03-02,food,23.15,Groceries
+2026-03-05,transport,48.50,Monthly pass
+2026-03-09,fun,15.00,Cinema
+2026-03-14,food,31.80,Dinner with Ana
+2026-03-20,transport,7.25,Taxi
+2026-04-02,food,19.90,Groceries
+```
+
+By hand, March adds up to 640.00 + (23.15 + 31.80) + (48.50 + 7.25) + 15.00 = 765.70. Keep that number in mind: it is the answer the finished program must give.
+
+The finished project has this layout. You will create each file in the step that needs it.
+
+```text
+spendlog/
+├── pyproject.toml
+├── expenses.csv
+├── src/
+│   └── spendlog/
+│       ├── __init__.py
+│       ├── models.py      step 2
+│       ├── store.py       steps 3 and 6
+│       ├── report.py      steps 4 and 5
+│       └── cli.py         steps 1, 5 and 6
+└── tests/
+    ├── __init__.py
+    ├── conftest.py        step 7
+    ├── test_report.py
+    ├── test_store.py
+    ├── test_models.py
+    └── test_cli.py
+```
+
+Build the project one step at a time. Run the check after each step, and never write the next step on top of code you have not seen working.
+
+## Step 1: an installable package that does nothing yet
+
+Start with the shell, not the logic. If installing and running a command works first, every later step has a working place to land. Create the folders, then write the project file from the [pyproject lesson](../pyproject-uv/). The `[project.scripts]` line is the important one: it says that the command `spend` calls the function `main` in the module `spendlog.cli`.
+
+```toml title="pyproject.toml"
+[project]
+name = "spendlog"
+version = "0.1.0"
+description = "Summarise a CSV file of expenses"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+spend = "spendlog.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest"]
+```
+
+The package lives in `src/spendlog/`, the layout from the [packages lesson](../packages/). Its `__init__.py` holds only a docstring. The `cli.py` file is a stub that proves the wiring:
+
+```python title="step 1, src/spendlog/cli.py"
+def main():
+    print("spendlog is installed")
+```
+
+Create a virtual environment ([the venv lesson](../venv-pip/)) and install the project in editable mode, so that every later edit takes effect without installing again:
+
+```console
+$ python -m venv .venv
+$ source .venv/bin/activate
+(.venv) $ python -m pip install -e .
+(.venv) $ spend
+spendlog is installed
+```
+
+On Windows the activation line is `.venv\Scripts\activate`. **Check:** the last line must be `spendlog is installed`. If the shell says `spend: command not found`, the environment is not active, or the install failed. Read the install output before you change any code.
+
+## Step 2: the data model
+
+Each row of the file becomes one `Expense`. A [dataclass](../dataclasses/) is the right tool: it is a record with a few named fields, and it should not change once it exists, so `frozen=True`. The category is one of a fixed set of choices, which is what an [enum](../enums/) is for. A `StrEnum` has string values, so a member compares equal to the text in the CSV file.
+
+```python title="src/spendlog/models.py"
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
+from enum import StrEnum
+
+
+class Category(StrEnum):
+    FOOD = "food"
+    TRANSPORT = "transport"
+    HOME = "home"
+    FUN = "fun"
+
+
+@dataclass(frozen=True)
+class Expense:
+    day: date
+    category: Category
+    amount: Decimal
+    note: str = ""
+```
+
+Two choices are worth a sentence each. The field is called `day`, not `date`, so it does not hide the imported `date` class inside the class body. The amount is a `Decimal`, not a `float`, because money should not carry binary rounding errors (the [numbers lesson](../../beginner/numbers/) showed why).
+
+Try the model in a scratch file in the project folder. The package is installed, so the import works from anywhere in the environment.
+
+```python title="try_models.py"
+from datetime import date
+from decimal import Decimal
+
+from spendlog.models import Category, Expense
+
+coffee = Expense(date(2026, 3, 2), Category.FOOD, Decimal("3.50"), "Coffee")
+print(coffee)
+print(Category("transport"), coffee.category == "food")
+```
+
+```text
+Expense(day=datetime.date(2026, 3, 2), category=<Category.FOOD: 'food'>, amount=Decimal('3.50'), note='Coffee')
+transport True
+```
+
+The dataclass wrote the `__repr__` for you, and `Category("transport")` looked the member up by value. The second print shows why `StrEnum` was chosen: the member equals the plain string `"food"`. Now check the two protections, by adding this to the same file:
+
+```python title="try_models.py (continued)"
+try:
+    coffee.amount = Decimal("4.00")
+except AttributeError as error:
+    print(type(error).__name__)
+
+try:
+    Category("travel")
+except ValueError as error:
+    print(error)
+```
+
+```text
+FrozenInstanceError
+'travel' is not a valid Category
+```
+
+**Check:** four lines of output, ending with these two. The frozen dataclass refuses changes (its error is a kind of `AttributeError`), and an unknown category raises `ValueError`. Step 3 relies on that `ValueError`.
+
+## Step 3: reading the file lazily
+
+Reading is split into two small functions, so each does one job. `read_rows` opens the file with `pathlib` and hands out one dictionary per line, using `csv.DictReader` from the [CSV lesson](../csv-json-toml/). Because it uses `yield from`, it is a [generator](../generators/), and the file is read only as fast as the caller asks. `parse_expense` turns one dictionary into one `Expense`.
+
+```python title="step 3, src/spendlog/store.py"
+import csv
+from datetime import date
+from decimal import Decimal
+
+from .models import Category, Expense
+
+
+def read_rows(path):
+    with path.open(newline="", encoding="utf-8") as file:
+        yield from csv.DictReader(file)
+
+
+def parse_expense(row):
+    return Expense(
+        day=date.fromisoformat(row["date"]),
+        category=Category(row["category"]),
+        amount=Decimal(row["amount"]),
+        note=row["note"],
+    )
+```
+
+The `newline=""` is what the `csv` module asks for, so it can handle line breaks inside quoted fields. `date.fromisoformat` reads the `2026-03-01` form that the [dates lesson](../dates-times/) called the format to exchange. The relative import `.models` comes from the [packages lesson](../packages/).
+
+One more function ties the two together, as a second generator that turns rows into expenses one at a time:
+
+```python title="step 3, src/spendlog/store.py (continued)"
+def parse_expenses(rows):
+    for row in rows:
+        yield parse_expense(row)
+```
+
+Check it in a scratch file:
+
+```python title="try_store.py"
+from pathlib import Path
+
+from spendlog.store import parse_expenses, read_rows
+
+path = Path("expenses.csv")
+
+rows = read_rows(path)
+print(type(rows).__name__)
+print(next(rows))
+
+expenses = list(parse_expenses(read_rows(path)))
+print(len(expenses), "expenses")
+print(expenses[1])
+```
+
+```text
+generator
+{'date': '2026-02-27', 'category': 'food', 'amount': '12.40', 'note': 'Market'}
+8 expenses
+Expense(day=datetime.date(2026, 3, 1), category=<Category.HOME: 'home'>, amount=Decimal('640.00'), note='Rent')
+```
+
+**Check:** `generator`, then the first row as plain strings, then `8 expenses` and the Rent expense. Calling `read_rows(path)` did not open the file; the first `next` did. Everything in the CSV is text until `parse_expense` converts it, which is why the row shows `'12.40'` in quotes and the expense shows `Decimal('640.00')`.
+
+## Step 4: dates and the generator pipeline
+
+Now the filtering. `in_month` is a third generator: it takes any iterable of expenses and passes on only those from one month. `total_by_category` is not a generator. It is the *consumer* at the end of the pipeline, and it adds up what flows into it.
+
+```python title="src/spendlog/report.py"
+from decimal import Decimal
+
+
+def in_month(expenses, month):
+    for expense in expenses:
+        if (expense.day.year, expense.day.month) == (month.year, month.month):
+            yield expense
+
+
+def total_by_category(expenses):
+    totals = {}
+    for expense in expenses:
+        totals[expense.category] = totals.get(expense.category, Decimal("0")) + expense.amount
+    return totals
+```
+
+The `month` argument is a `date` for the first day of the month. The command line gives text such as `2026-03`, and `datetime.strptime` converts it, as in the [dates lesson](../dates-times/). Chain the three stages in a scratch file, exactly as the [generator pipeline section](../generators/) did:
+
+```python title="try_pipeline.py"
+from datetime import datetime
+from pathlib import Path
+
+from spendlog.report import in_month, total_by_category
+from spendlog.store import parse_expenses, read_rows
+
+march = datetime.strptime("2026-03", "%Y-%m").date()
+print(march)
+
+pipeline = in_month(parse_expenses(read_rows(Path("expenses.csv"))), march)
+print(type(pipeline).__name__)
+
+totals = total_by_category(pipeline)
+for category, amount in totals.items():
+    print(category, amount)
+```
+
+```text
+2026-03-01
+generator
+home 640.00
+food 54.95
+transport 55.75
+fun 15.00
+```
+
+**Check:** the four totals add up to the 765.70 from the specification (640.00 + 54.95 + 55.75 + 15.00). Building `pipeline` read nothing. The file was opened, read, parsed and filtered one row at a time while `total_by_category` looped, and no list of all rows ever existed. The February and April rows were read and dropped without being stored.
+
+## Step 5: the report and the command
+
+Two small formatting functions finish the report module. `format_report` sorts the categories from the biggest total to the smallest with a `key=` function, as in the [sorting lesson](../sorting-key-functions/), and `format_expense` makes one line for `--list`. The format specs `<10` and `>9.2f` align the columns and show two decimals.
+
+```python title="src/spendlog/report.py (continued)"
+def format_expense(expense):
+    return f"{expense.day}  {expense.category:<10}{expense.amount:>8.2f}  {expense.note}"
+
+
+def format_report(totals):
+    ranked = sorted(totals.items(), key=lambda item: item[1], reverse=True)
+    lines = [f"{category:<10}{amount:>9.2f}" for category, amount in ranked]
+    lines.append(f"{'total':<10}{sum(totals.values()):>9.2f}")
+    return "\n".join(lines)
+```
+
+Next, the command-line layer. The [standard library tour](../stdlib-tour/) previewed `argparse`. Here it reads the real command line. Two details matter. `type=Path` and `type=parse_month` convert the text before `main` sees it, and `main` *returns* the exit code (0 for success, 1 for a missing file) while the generated `spend` script passes that value to `sys.exit`.
+
+```python title="step 5, src/spendlog/cli.py"
+import argparse
+import sys
+from datetime import datetime
+from pathlib import Path
+
+from .report import format_expense, format_report, in_month, total_by_category
+from .store import parse_expenses, read_rows
+
+
+def parse_month(text):
+    return datetime.strptime(text, "%Y-%m").date()
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="spend", description="Summarise expenses from a CSV file.")
+    parser.add_argument("--file", type=Path, default=Path("expenses.csv"), help="CSV file to read")
+    parser.add_argument("--month", type=parse_month, help="only this month, as YYYY-MM")
+    parser.add_argument("--list", action="store_true", help="also list every expense")
+    return parser
+```
+
+The `main` function replaces the stub from step 1. It builds the pipeline, then turns it into a list. That one `list(...)` is deliberate: `--list` and the totals both need the expenses, and a generator can be used only once, as the [iterators lesson](../iterators/) showed.
+
+```python title="step 5, src/spendlog/cli.py (continued)"
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+
+    try:
+        expenses = parse_expenses(read_rows(args.file))
+        if args.month:
+            expenses = in_month(expenses, args.month)
+        expenses = list(expenses)
+    except FileNotFoundError:
+        print(f"spend: cannot find {args.file}", file=sys.stderr)
+        return 1
+
+    if args.list:
+        for expense in expenses:
+            print(format_expense(expense))
+        print()
+    print(format_report(total_by_category(expenses)))
+    return 0
+```
+
+Notice that the `try` surrounds the `list(...)` call, not only the first line. The generators do nothing until they are consumed, so a missing file raises `FileNotFoundError` at that point. Run the command four ways:
+
+```console
+$ spend --month 2026-03
+home         640.00
+transport     55.75
+food          54.95
+fun           15.00
+total        765.70
+$ spend --month 2026-03 --list
+2026-03-01  home        640.00  Rent
+2026-03-02  food         23.15  Groceries
+2026-03-05  transport    48.50  Monthly pass
+2026-03-09  fun          15.00  Cinema
+2026-03-14  food         31.80  Dinner with Ana
+2026-03-20  transport     7.25  Taxi
+
+home         640.00
+transport     55.75
+food          54.95
+fun           15.00
+total        765.70
+$ spend --file nothing.csv
+spend: cannot find nothing.csv
+$ spend --month 2026-13
+usage: spend [-h] [--file FILE] [--month MONTH] [--list]
+spend: error: argument --month: invalid parse_month value: '2026-13'
+```
+
+**Check:** the first block ends with the `765.70` you computed by hand. The third command exits with code 1 (`echo $?` shows it) and the fourth with code 2, which `argparse` uses for a bad command line. The `-v` option and its line in the usage text come in the next step.
+
+## Step 6: report problems with logging
+
+The tool trusts every row. Add a bad one and `parse_expense` raises, and the whole run dies on one typo. The better behaviour is to skip the row and say so. The [logging lesson](../logging/) gave the reason to use `logging` rather than `print` for this: warnings go to standard error, so they do not mix into the report, and the level can be changed without editing the code.
+
+Here is `messy.csv`, which has three bad rows in five lines:
+
+```text title="messy.csv"
+date,category,amount,note
+2026-03-02,food,23.15,Groceries
+2026-03-31,food,abc,Lunch
+2026-03-05,travel,48.50,Flight
+2026-13-01,home,10.00,Typo
+2026-03-09,fun,15.00,Cinema
+```
+
+Row 3 has an amount that is not a number, row 4 a category that is not in the enum, and row 5 a month that does not exist. In `store.py`, add the imports at the top, and a logger named after the module:
+
+```python title="src/spendlog/store.py (changed: top of file)"
+import csv
+import logging
+from datetime import date
+from decimal import Decimal, InvalidOperation
+
+from .models import Category, Expense
+
+log = logging.getLogger(__name__)
+```
+
+Then replace `parse_expenses`. The `try` is inside the loop, so one bad row costs one iteration, not the run. A bad date, an unknown category and a bad amount raise `ValueError`, and `Decimal` raises its own `InvalidOperation` for text such as `abc`, so both are caught. A generator can have a `try` around its `yield`, and the loop simply goes on to the next row.
+
+```python title="src/spendlog/store.py (parse_expenses replaced)"
+def parse_expenses(rows):
+    # Line 1 of the file is the header, so the first data row is line 2.
+    for number, row in enumerate(rows, start=2):
+        try:
+            yield parse_expense(row)
+        except (ValueError, InvalidOperation):
+            log.warning("line %d: skipped invalid row %r", number, row)
+```
+
+In `cli.py`, add `import logging` to the imports and `log = logging.getLogger(__name__)` below the last import. Then replace the first lines of `main` so that it configures logging, and add one `info` message after the `try` block. The `-v` flag raises the level from `WARNING` to `INFO`.
+
+```python title="src/spendlog/cli.py (changed: parser and start of main)"
+def build_parser():
+    parser = argparse.ArgumentParser(prog="spend", description="Summarise expenses from a CSV file.")
+    parser.add_argument("--file", type=Path, default=Path("expenses.csv"), help="CSV file to read")
+    parser.add_argument("--month", type=parse_month, help="only this month, as YYYY-MM")
+    parser.add_argument("--list", action="store_true", help="also list every expense")
+    parser.add_argument("-v", "--verbose", action="store_true", help="log progress to stderr")
+    return parser
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+```
+
+```python title="src/spendlog/cli.py (changed: after the try block)"
+    log.info("loaded %d expenses from %s", len(expenses), args.file)
+```
+
+The line goes directly after the `except` block and before `if args.list:`. Run the tool on the messy file, and then verbosely on the clean one. The warnings come from the module `spendlog.store`, the progress message from `spendlog.cli`, because each used `getLogger(__name__)`.
+
+```console
+$ spend --file messy.csv
+WARNING spendlog.store: line 3: skipped invalid row {'date': '2026-03-31', 'category': 'food', 'amount': 'abc', 'note': 'Lunch'}
+WARNING spendlog.store: line 4: skipped invalid row {'date': '2026-03-05', 'category': 'travel', 'amount': '48.50', 'note': 'Flight'}
+WARNING spendlog.store: line 5: skipped invalid row {'date': '2026-13-01', 'category': 'home', 'amount': '10.00', 'note': 'Typo'}
+food          23.15
+fun           15.00
+total         38.15
+$ spend --month 2026-03 -v
+INFO spendlog.cli: loaded 6 expenses from expenses.csv
+home         640.00
+transport     55.75
+food          54.95
+fun           15.00
+total        765.70
+```
+
+**Check:** three warnings naming lines 3, 4 and 5, and a report from the two good rows (23.15 + 15.00 = 38.15). Without `-v`, the clean file gives the same report as before and no log lines at all. The line numbers count the header as line 1, so they match what a text editor shows.
+
+## Step 7: tests
+
+A program you cannot change safely is a program you will stop changing. The tests use the pytest tools from the [pytest lesson](../pytest-basics/) and the [fixtures lesson](../fixtures-and-parametrize/). Install pytest into the same environment (`python -m pip install pytest`), and create a `tests` folder with an empty `__init__.py`.
+
+The tests must not depend on your real `expenses.csv`, which you may edit tomorrow. A **fixture** builds a small file of known content in a temporary folder, new for each test. A second fixture parses it. Fixtures that several files need go in `conftest.py`:
+
+```python title="tests/conftest.py"
+import pytest
+
+from spendlog.store import parse_expenses, read_rows
+
+CSV_TEXT = """date,category,amount,note
+2026-02-27,food,12.40,Market
+2026-03-01,home,640.00,Rent
+2026-03-02,food,23.15,Groceries
+2026-03-05,transport,48.50,Monthly pass
+2026-04-02,food,19.90,Groceries
+"""
+
+
+@pytest.fixture
+def csv_file(tmp_path):
+    """A small expenses file in a temporary folder, new for every test."""
+    path = tmp_path / "expenses.csv"
+    path.write_text(CSV_TEXT, encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def expenses(csv_file):
+    """The same file, already parsed into Expense objects."""
+    return list(parse_expenses(read_rows(csv_file)))
+```
+
+The `expenses` fixture asks for `csv_file` by name, so fixtures can build on each other. Now the report tests. `parametrize` runs one test function over four months, and `ids=` gives the cases readable names in the output:
+
+```python title="tests/test_report.py"
+from datetime import date
+from decimal import Decimal
+
+import pytest
+
+from spendlog.models import Category
+from spendlog.report import format_report, in_month, total_by_category
+
+
+@pytest.mark.parametrize(
+    ("month", "count"),
+    [
+        (date(2026, 2, 1), 1),
+        (date(2026, 3, 1), 3),
+        (date(2026, 4, 1), 1),
+        (date(2026, 5, 1), 0),
+    ],
+    ids=["february", "march", "april", "may"],
+)
+def test_in_month_keeps_only_that_month(expenses, month, count):
+    assert len(list(in_month(expenses, month))) == count
+
+
+def test_totals_add_up_per_category(expenses):
+    totals = total_by_category(expenses)
+    assert totals[Category.FOOD] == Decimal("55.45")
+    assert totals[Category.HOME] == Decimal("640.00")
+
+
+def test_report_lists_the_biggest_category_first_and_ends_with_the_total():
+    totals = {Category.FOOD: Decimal("5"), Category.HOME: Decimal("20")}
+    assert format_report(totals).splitlines() == [
+        "home          20.00",
+        "food           5.00",
+        "total         25.00",
+    ]
+```
+
+```console
+$ python -m pytest -q tests/test_report.py
+......                                                                   [100%]
+6 passed in 0.03s
+```
+
+**Check:** six dots and `6 passed`. That is four parametrized cases plus two single tests. The timing differs on every machine. Next come the store and model tests. The store test for bad rows uses `tmp_path` to write a file and `caplog` to capture what was logged, so it checks the warnings without reading the terminal:
+
+```python title="tests/test_store.py"
+import logging
+from datetime import date
+from decimal import Decimal
+
+from spendlog.models import Category, Expense
+from spendlog.store import parse_expenses, read_rows
+
+
+def test_read_rows_gives_one_dict_per_line(csv_file):
+    rows = read_rows(csv_file)
+    first = next(rows)
+    assert first == {"date": "2026-02-27", "category": "food", "amount": "12.40", "note": "Market"}
+
+
+def test_parse_expenses_builds_expense_objects(expenses):
+    assert len(expenses) == 5
+    assert expenses[1] == Expense(date(2026, 3, 1), Category.HOME, Decimal("640.00"), "Rent")
+
+
+def test_bad_rows_are_skipped_and_logged(tmp_path, caplog):
+    path = tmp_path / "messy.csv"
+    path.write_text(
+        "date,category,amount,note\n"
+        "2026-03-02,food,23.15,Groceries\n"
+        "2026-03-31,food,abc,Lunch\n"
+        "2026-13-01,home,10.00,Typo\n",
+        encoding="utf-8",
+    )
+    with caplog.at_level(logging.WARNING):
+        result = list(parse_expenses(read_rows(path)))
+
+    assert len(result) == 1
+    assert [record.getMessage()[:7] for record in caplog.records] == ["line 3:", "line 4:"]
+```
+
+The model tests use `parametrize` twice, once for good input and once for bad, and `pytest.raises` for the errors:
+
+```python title="tests/test_models.py"
+from dataclasses import FrozenInstanceError
+from datetime import date
+from decimal import Decimal
+
+import pytest
+
+from spendlog.models import Category, Expense
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("food", Category.FOOD), ("transport", Category.TRANSPORT), ("home", Category.HOME)],
+)
+def test_category_from_text(text, expected):
+    assert Category(text) is expected
+
+
+@pytest.mark.parametrize("text", ["travel", "Food", ""])
+def test_unknown_category_is_refused(text):
+    with pytest.raises(ValueError):
+        Category(text)
+
+
+def test_expense_cannot_be_changed():
+    expense = Expense(date(2026, 3, 2), Category.FOOD, Decimal("3.50"))
+    with pytest.raises(FrozenInstanceError):
+        expense.amount = Decimal("4.00")
+```
+
+```console
+$ python -m pytest -q
+................                                                         [100%]
+16 passed in 0.04s
+```
+
+**Check:** `16 passed`: the 6 from before, plus 3 store tests and 7 model tests (3 and 3 parametrized cases and one more). The last file tests the command itself. It calls `main` with a list of arguments, so there is no subprocess, and `capsys` captures what it prints:
+
+```python title="tests/test_cli.py"
+import pytest
+
+from spendlog.cli import main
+
+
+def test_summary_for_one_month(csv_file, capsys):
+    code = main(["--file", str(csv_file), "--month", "2026-03"])
+
+    assert code == 0
+    last_line = capsys.readouterr().out.splitlines()[-1]
+    assert last_line.split() == ["total", "711.65"]
+
+
+def test_missing_file_gives_exit_code_1(tmp_path, capsys):
+    code = main(["--file", str(tmp_path / "none.csv")])
+
+    assert code == 1
+    assert "cannot find" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("month", ["2026-13", "March", "2026"])
+def test_bad_month_is_a_usage_error(month):
+    with pytest.raises(SystemExit) as stop:
+        main(["--month", month])
+    assert stop.value.code == 2
+```
+
+The total `711.65` belongs to the small fixture file, not to your `expenses.csv`: 640.00 + 23.15 + 48.50. Run the whole suite one last time:
+
+```console
+$ python -m pytest -q
+.....................                                                    [100%]
+21 passed in 0.06s
+```
+
+**Check:** `21 passed`, with no failures. You now have an installed command, a data pipeline, a log, and a suite that tells you within a second whether a change broke something. The finished project is in the course repository under `examples/python/i6/spendlog/`.
+
+## Where each piece came from
+
+| Piece of the project | Lesson |
+|---|---|
+| `pyproject.toml`, the `spend` entry point, editable install | [pyproject.toml and uv](../pyproject-uv/), [Virtual environments and pip](../venv-pip/) |
+| `src/` layout, relative imports | [Packages](../packages/) |
+| `Path.open`, reading by line | [Paths and folders with pathlib](../pathlib/), [CSV, JSON and TOML](../csv-json-toml/) |
+| `date.fromisoformat`, `strptime` | [Dates and times](../dates-times/) |
+| `Expense` | [Dataclasses](../dataclasses/) |
+| `Category` | [Enums](../enums/) |
+| `read_rows`, `parse_expenses`, `in_month` | [Generators](../generators/), [The iterator protocol](../iterators/) |
+| `argparse` | [A tour of the standard library](../stdlib-tour/) |
+| `log.warning`, `-v` | [Logging instead of print](../logging/) |
+| Fixtures, `parametrize`, `tmp_path`, `caplog`, `capsys` | [Testing with pytest](../pytest-basics/), [Fixtures, parametrization and temporary files](../fixtures-and-parametrize/) |
+
+## Common pitfalls
+
+- **Testing before installing.** In the src layout the package is importable only once it is installed. If `python -m pytest` says `ModuleNotFoundError: No module named 'spendlog'`, run `python -m pip install -e .` in the active environment.
+- **Using a generator twice.** `rows = parse_expenses(...)` can be looped over once. A second `for` loop, or a second `sum`, sees nothing and gives a silent zero. Make a list when two readers need the data.
+- **A `try` that wraps only the line that creates the generator.** Creating `read_rows(path)` cannot fail, because nothing has run yet. The error appears when something consumes it, so the `try` must surround the consumer.
+- **Money in `float`.** `0.1 + 0.2` is not `0.3`. Parse amounts with `Decimal`, and print with `.2f`.
+- **Running `spend` from another folder.** The default file is `expenses.csv` in the *current* folder. From elsewhere, the tool correctly says it cannot find the file, and `--file` fixes it.
+- **Tests that read your real data.** A test that opens `expenses.csv` breaks the day you add a row. Build the input in `tmp_path`.
+- **Logging with an f-string.** `log.warning(f"line {n}")` formats the text even when the level hides it. Pass the values as arguments, as the code above does.
+
+<Exercise title="Filter by category">
+
+Write a generator `in_category(expenses, category)` that passes on only the expenses of one category, in the same style as `in_month`. Use it with `in_month` in a scratch file in the project folder, to print the food expenses of March with `format_expense`. Expected output:
+
+```text
+2026-03-02  food         23.15  Groceries
+2026-03-14  food         31.80  Dinner with Ana
+```
+
+<Solution>
+
+```python title="ext_category.py"
+from datetime import datetime
+from pathlib import Path
+
+from spendlog.models import Category
+from spendlog.report import format_expense, in_month
+from spendlog.store import parse_expenses, read_rows
+
+
+def in_category(expenses, category):
+    for expense in expenses:
+        if expense.category == category:
+            yield expense
+
+
+march = datetime.strptime("2026-03", "%Y-%m").date()
+expenses = parse_expenses(read_rows(Path("expenses.csv")))
+for expense in in_category(in_month(expenses, march), Category.FOOD):
+    print(format_expense(expense))
+```
+
+```text
+2026-03-02  food         23.15  Groceries
+2026-03-14  food         31.80  Dinner with Ana
+```
+
+The new stage is a fourth generator in the chain, and nothing else changes: every stage takes an iterable and returns an iterable. To make it a real option, move `in_category` into `report.py`, add `--category` to the parser with `type=Category` (the enum's constructor converts and checks the text), and apply it in `main` the way `--month` is applied. Then add a parametrized test next to the `in_month` one.
+
+</Solution>
+</Exercise>
+
+<Exercise title="The biggest purchases">
+
+Write `biggest(expenses, n)` that returns the `n` expenses with the largest amount, biggest first. It may use a list, because it needs to see every expense before it can rank them. Print the two biggest expenses of March. Expected output:
+
+```text
+2026-03-01  home        640.00  Rent
+2026-03-05  transport    48.50  Monthly pass
+```
+
+<Solution>
+
+```python title="ext_biggest.py"
+from datetime import datetime
+from pathlib import Path
+
+from spendlog.report import format_expense, in_month
+from spendlog.store import parse_expenses, read_rows
+
+
+def biggest(expenses, n):
+    ranked = sorted(expenses, key=lambda expense: expense.amount, reverse=True)
+    return ranked[:n]
+
+
+march = datetime.strptime("2026-03", "%Y-%m").date()
+expenses = parse_expenses(read_rows(Path("expenses.csv")))
+for expense in biggest(in_month(expenses, march), 2):
+    print(format_expense(expense))
+```
+
+```text
+2026-03-01  home        640.00  Rent
+2026-03-05  transport    48.50  Monthly pass
+```
+
+`sorted` accepts any iterable, so the pipeline feeds it directly. This stage cannot be lazy: you cannot know the biggest item until you have seen them all. Knowing which stages can stream and which must collect is the main design decision in a pipeline.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A friendlier month error">
+
+At the moment `spend --month 2026-13` says `invalid parse_month value: '2026-13'`, which names a function the user has never heard of. Change `parse_month` so that `argparse` prints `not a month: '2026-13' (use YYYY-MM)` instead. Use `argparse.ArgumentTypeError` and hide the original error with `from None`. Check it with a one-option parser, where the exit code stays 2. Expected output:
+
+```text
+2026-03-01
+usage: spend [-h] [--month MONTH]
+spend: error: argument --month: not a month: '2026-13' (use YYYY-MM)
+exit code 2
+```
+
+<Solution>
+
+```python title="ext_month_error.py"
+import argparse
+import contextlib
+import sys
+from datetime import datetime
+
+
+def parse_month(text):
+    try:
+        return datetime.strptime(text, "%Y-%m").date()
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a month: {text!r} (use YYYY-MM)") from None
+
+
+parser = argparse.ArgumentParser(prog="spend")
+parser.add_argument("--month", type=parse_month)
+
+print(parser.parse_args(["--month", "2026-03"]).month)
+
+# argparse writes its error to stderr and exits with code 2.
+with contextlib.redirect_stderr(sys.stdout):
+    try:
+        parser.parse_args(["--month", "2026-13"])
+    except SystemExit as stop:
+        print("exit code", stop.code)
+```
+
+```text
+2026-03-01
+usage: spend [-h] [--month MONTH]
+spend: error: argument --month: not a month: '2026-13' (use YYYY-MM)
+exit code 2
+```
+
+`argparse` turns a `ValueError` from a `type=` function into its generic message, but it prints the text of an `ArgumentTypeError` as written. The `redirect_stderr` and `SystemExit` lines are only there so that the script can print the error and keep running. In the real tool you change `parse_month` in `cli.py` and the existing `test_bad_month_is_a_usage_error` test still passes, because the exit code is unchanged.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Start a project with a package you can install and a command that runs, then add one piece at a time, with a check after each.
+- `pyproject.toml` with a `[project.scripts]` entry makes the command, and `pip install -e .` makes it editable. The `main` function returns an exit code.
+- Small generators chained together (read, parse, filter) process a file one row at a time. A consumer at the end, such as `sum` or `list`, drives them, and an error appears when the consumer runs.
+- A frozen dataclass and a `StrEnum` give the data a shape, and the `ValueError` from the enum is what the parser uses to find bad rows.
+- `logging` with a named logger reports skipped rows on standard error, and a `-v` flag changes the level without touching the log calls.
+- Fixtures build known input in `tmp_path`, `parametrize` multiplies one test into many cases, and `caplog` and `capsys` let a test check what the program logged and printed.
+- That completes the intermediate level. You can now structure, package, test and debug a real program.

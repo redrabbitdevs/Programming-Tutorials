@@ -1,0 +1,40 @@
+$ spend --month 2026-03
+home         640.00
+transport     55.75
+food          54.95
+fun           15.00
+total        765.70
+$ spend --month 2026-03 --list
+2026-03-01  home        640.00  Rent
+2026-03-02  food         23.15  Groceries
+2026-03-05  transport    48.50  Monthly pass
+2026-03-09  fun          15.00  Cinema
+2026-03-14  food         31.80  Dinner with Ana
+2026-03-20  transport     7.25  Taxi
+
+home         640.00
+transport     55.75
+food          54.95
+fun           15.00
+total        765.70
+$ spend --file messy.csv
+WARNING spendlog.store: line 3: skipped invalid row {'date': '2026-03-31', 'category': 'food', 'amount': 'abc', 'note': 'Lunch'}
+WARNING spendlog.store: line 4: skipped invalid row {'date': '2026-03-05', 'category': 'travel', 'amount': '48.50', 'note': 'Flight'}
+WARNING spendlog.store: line 5: skipped invalid row {'date': '2026-13-01', 'category': 'home', 'amount': '10.00', 'note': 'Typo'}
+food          23.15
+fun           15.00
+total         38.15
+$ spend --month 2026-03 -v
+INFO spendlog.cli: loaded 6 expenses from expenses.csv
+home         640.00
+transport     55.75
+food          54.95
+fun           15.00
+total        765.70
+$ spend --file nothing.csv
+spend: cannot find nothing.csv
+[exit code 1]
+$ spend --month 2026-13
+usage: spend [-h] [--file FILE] [--month MONTH] [--list] [-v]
+spend: error: argument --month: invalid parse_month value: '2026-13'
+[exit code 2]

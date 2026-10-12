@@ -6,7 +6,9 @@
   supported baseline. Where code is marked 3.11, 3.11 through 3.15 all run it.
 - `[F]` marks a concept taught in the shared fundamentals track (`research/fundamentals/outline.md`).
   The Python lesson links to that fundamentals lesson and covers only Python syntax, idioms and pitfalls.
-- 107 lessons in 17 modules: Beginner 31, Intermediate 32, Advanced 26, Expert 18.
+- 117 lessons in 18 modules: Beginner 31, Intermediate 42, Advanced 26, Expert 18. Intermediate
+  is rewritten from the built lessons (5 modules plus the Project module). The Beginner section
+  below is still the original plan: 37 beginner lessons are built, so it needs the same sync.
 - Do not teach the items in facts.md "Deprecated or removed" as current practice.
 
 Columns: slug | title | objectives | key concepts | minVersion | exercise idea
@@ -73,64 +75,101 @@ Columns: slug | title | objectives | key concepts | minVersion | exercise idea
 
 ---
 
-## Intermediate (32 lessons)
+## Intermediate (42 lessons)
 
-### Module I1 - Errors and files (6)
+Status: **built.** This section was rewritten from the 42 lesson files on 2026-10-12, so slugs, order, titles and `minVersion` are the real ones. The file name is `NN-slug.mdx` in `site/src/content/lessons/python/intermediate/`. Lessons cross-link with `../slug/`. Rows that were planned but not built are in "Deferred" at the end of this section.
 
-| slug | title | objectives | key concepts | minVersion | exercise idea |
-|---|---|---|---|---|---|
-| `exceptions` | Exceptions | Handle errors with try/except | errors and exceptions [F], `try`/`except`/`else`/`finally`, exception hierarchy, EAFP vs LBYL, `except A, B:` without parentheses (3.14) | 3.11 | Robust number parser |
-| `raising-custom-exceptions` | Raising and custom exceptions | Define and raise meaningful errors | `raise`, `raise ... from`, custom exception classes, `add_note()` (3.11) | 3.11 | Bank-account withdrawal errors |
-| `files-pathlib` | Files and pathlib | Read and write files safely | `open` modes, `encoding="utf-8"`, `pathlib.Path`, `read_text`/`write_text`, glob | 3.8 | Log-file line counter across a folder |
-| `context-managers` | The with statement | Manage resources with context managers | `with`, parenthesised multi-item `with` (3.10), `contextlib.suppress` | 3.10 | Copy one file to another with two managers |
-| `data-formats` | CSV, JSON and TOML | Parse and write common formats | `csv.DictReader`, `json`, `tomllib` (3.11, read-only) | 3.11 | Convert a CSV of books to JSON; read settings from TOML |
-| `dates-times` | Dates and times | Work with aware datetimes | `datetime.now(tz=UTC)` (not `utcnow()`), `zoneinfo` (3.9), `timedelta`, ISO 8601 | 3.11 | Meeting planner across 3 time zones |
+`minVersion` is the lowest Python on which the lesson's unlabelled main path runs; a newer feature has an inline `<Since>` label. Lesson 42 is the end-of-level project and has its own module.
 
-### Module I2 - Modules, packages and tooling (7)
+### Module I1 - Errors and files (8)
 
-| slug | title | objectives | key concepts | minVersion | exercise idea |
-|---|---|---|---|---|---|
-| `modules-imports` | Modules and imports | Organise code into modules | `import`, `from ... import`, `__name__ == "__main__"`, module search path, `-P` (3.11) | 3.11 | Split a script into 3 modules |
-| `packages` | Packages | Build a package layout | `__init__.py`, relative imports, the src layout, namespace packages | 3.8 | Package a small utility library |
-| `venv-pip` | Virtual environments and pip | Isolate dependencies | `python -m venv`, activate, `pip install`, PEP 668 externally managed environments | 3.11 | Create a venv and install `requests` |
-| `pyproject-uv` | pyproject.toml and uv | Define a modern project | PEP 621 `[project]`, build backends, dependency groups (PEP 735), `uv init/add/run/lock` | 3.11 | Turn the package into a pyproject project with uv |
-| `single-file-scripts` | Single-file scripts with dependencies | Ship self-contained scripts | PEP 723 `# /// script` metadata, `uv run script.py` | 3.11 | A weather script with inline dependencies |
-| `lazy-imports` | Lazy imports | Speed up startup with lazy imports | `lazy import` (3.15+, PEP 810), module scope only, `__lazy_modules__` for older versions, `-X importtime` | 3.15 | Measure CLI startup before and after lazy imports |
-| `stdlib-tour` | A tour of the standard library | Know where to look before installing packages | `os`, `sys`, `shutil`, `subprocess`, `random`, `statistics`, `math.integer` (3.15), `argparse` preview, reading docs [F] | 3.8 | Scavenger hunt: solve 6 tasks with the stdlib only |
+| # | slug | title | objectives | key concepts | minVersion | exercise idea |
+|---|---|---|---|---|---|---|
+| 01 | `exception-hierarchy` | The exception family tree | Catch whole families of errors and order handlers correctly | errors and exceptions [F], `try`/`except`/`else`/`finally`, hierarchy, EAFP vs LBYL, `except A, B:` without parentheses (3.14) | 3.8 | Rewrite a check as EAFP; forgiving number parser |
+| 02 | `raise-and-chain` | Raising and chaining exceptions | Raise clear errors and keep the cause | `raise`, re-raise, `raise ... from`, `finally` with `return` (3.14 `SyntaxWarning`) | 3.8 | Refuse bad withdrawals |
+| 03 | `notes-and-groups` | Notes and exception groups | Add context to errors and handle several at once | `add_note()`, `ExceptionGroup`, `except*` | 3.11 | Check every value, report every problem |
+| 04 | `pathlib` | Paths and folders with pathlib | Build portable paths and search folders | `Path`, `/`, `read_text`/`write_text`, `glob`, `iterdir` | 3.8 | Count lines in every log file |
+| 05 | `text-and-binary` | Text, bytes and newlines | Read and write bytes and recover from decoding errors | `rb`/`wb`, chunked reads, `errors=`, `newline=` | 3.8 | Copy in chunks and count them |
+| 06 | `context-managers` | The with statement in depth | Guarantee clean-up and combine managers | `with`, parenthesised multi-item `with` (3.10), `contextlib.suppress`, `tempfile` | 3.10 | Copy a file in capitals |
+| 07 | `csv-json-toml` | CSV, JSON and TOML | Parse and write common formats | `csv.DictReader`, `json`, `tomllib` (3.11, read-only) | 3.11 | Convert a CSV of books to JSON |
+| 08 | `dates-times` | Dates and times | Work with aware datetimes | `date`, `datetime`, `timedelta`, ISO 8601, `zoneinfo`, `datetime.now(tz=UTC)` | 3.11 | Meeting planner across 3 time zones |
 
-### Module I3 - Object-oriented Python (7)
+### Module I2 - Modules, packages and tooling (8)
 
-| slug | title | objectives | key concepts | minVersion | exercise idea |
-|---|---|---|---|---|---|
-| `classes-objects` | Classes and objects | Define classes with state and behaviour | records and objects [F], `class`, `__init__`, `self`, instance vs class attributes | 3.8 | `BankAccount` class |
-| `methods-properties` | Methods and properties | Use instance, class and static methods and properties | `@property`, `@classmethod`, `@staticmethod`, encapsulation by convention `_x` | 3.8 | `Temperature` with validated setters |
-| `inheritance` | Inheritance and composition | Reuse code appropriately | `super()`, MRO, composition over inheritance, `@override` (3.12, typing) | 3.12 | Shapes hierarchy, then refactor to composition |
-| `data-model` | The Python data model | Implement dunder methods | `__repr__`, `__eq__`, `__hash__`, `__len__`, `__iter__`, operator overloading | 3.8 | `Vector` class with `+`, `==` and `abs()` |
-| `dataclasses` | Dataclasses | Write data classes with less boilerplate | `@dataclass`, `field`, `frozen`, `slots=True` and `kw_only` (3.10), `copy.replace()` (3.13) | 3.13 | Inventory items with immutable updates |
-| `enums` | Enums | Model fixed sets of values | `Enum`, `IntEnum`, `StrEnum` (3.11), `auto()`, matching on enums | 3.11 | Traffic-light state machine |
-| `abc-protocols` | Abstract base classes and protocols | Define interfaces | `abc.ABC`, `@abstractmethod`, duck typing, `typing.Protocol`, `@runtime_checkable` | 3.8 | Plugin interface with two implementations |
+| # | slug | title | objectives | key concepts | minVersion | exercise idea |
+|---|---|---|---|---|---|---|
+| 09 | `modules-imports` | Writing your own modules | Split code across files | `import`, `from ... import`, `__name__ == "__main__"`, `sys.path`, `-P` (3.11) | 3.8 | Split a script into three modules |
+| 10 | `packages` | Packages | Build a package layout | `__init__.py`, relative imports, src layout, namespace packages | 3.8 | Package a small utility library |
+| 11 | `venv-pip` | Virtual environments and pip | Isolate dependencies | `python -m venv`, activation, `pip install`/`freeze`, PEP 668 | 3.8 | Create, install, freeze, rebuild |
+| 12 | `pyproject-uv` | pyproject.toml and uv | Define a modern project | PEP 621 `[project]`, `[project.scripts]`, build backends, PEP 735 groups, editable install, `uv init/add/run/lock` | 3.11 | Turn the package into a uv project |
+| 13 | `single-file-scripts` | Single-file scripts with dependencies | Ship self-contained scripts | PEP 723 `# /// script`, `uv run script.py` | 3.11 | Add a metadata block to a script |
+| 14 | `ruff-and-type-checking` | Linting, formatting and type checking | Automate code quality | ruff lint and format, `[tool.ruff]`, mypy/pyright, version control [F] | 3.10 | Fix what mypy reports |
+| 15 | `lazy-imports` | Lazy imports | Speed up startup | `lazy import` (3.15, PEP 810), `__lazy_modules__`, `-X importtime` | 3.15 | Measure a CLI before and after |
+| 16 | `stdlib-tour` | A tour of the standard library | Know where to look before installing | `os`, `sys`, `shutil`, `subprocess`, `statistics`, `Counter`, `re`, `math.integer` (3.15), `argparse` preview | 3.9 | Scavenger hunt with the stdlib only |
 
-### Module I4 - Iteration and functional tools (6)
+### Module I3 - Object-oriented Python (9)
 
-| slug | title | objectives | key concepts | minVersion | exercise idea |
-|---|---|---|---|---|---|
-| `iterators` | The iterator protocol | Explain how `for` works | `iter`, `next`, `StopIteration`, iterables vs iterators, writing an iterator class | 3.8 | Countdown iterator |
-| `generators` | Generators | Produce values lazily | `yield`, generator expressions, `yield from`, pipelines, memory benefits | 3.8 | Lazy log-processing pipeline |
-| `itertools-functools` | itertools and functools | Use the standard functional toolkits | `chain`, `groupby`, `islice`, `batched` (3.12), `pairwise` (3.10), `partial`, `reduce`, `cache` (3.9) | 3.12 | Batch API calls with `batched`; memoise Fibonacci |
-| `closures` | Closures | Capture state in functions | free variables, `nonlocal`, late-binding pitfalls in loops | 3.8 | Counter factory; fix the lambda-in-loop bug |
-| `decorators` | Decorators | Write and apply decorators | wrappers, `functools.wraps`, decorators with arguments, stacking | 3.8 | `@timer` and `@retry(n)` decorators |
-| `sorting-key-functions` | Sorting and key functions | Sort complex data correctly | `sorted(key=)`, `operator.itemgetter`/`attrgetter`, stability, `reverse`, sorting [F] | 3.8 | Leaderboard with tie-breakers |
+| # | slug | title | objectives | key concepts | minVersion | exercise idea |
+|---|---|---|---|---|---|---|
+| 17 | `classes-objects` | Classes and objects | Define classes with state and behaviour | records and objects [F], `class`, `__init__`, `self`, instance vs class attributes | 3.8 | Rectangle; a bank account |
+| 18 | `methods-properties` | Properties, class methods and static methods | Choose the right kind of method | `@property`, `@classmethod`, `@staticmethod`, `_x` convention | 3.8 | `Temperature` with two views |
+| 19 | `inheritance` | Inheritance and composition | Reuse code appropriately | paradigms [F], `super()`, MRO, `@override` (3.12), composition | 3.8 | Shapes hierarchy, then composition |
+| 20 | `custom-exceptions` | Defining your own exceptions | Write exception families that carry data | subclassing `Exception`, attributes, chaining | 3.8 | Bank withdrawal errors |
+| 21 | `data-model` | The Python data model | Implement dunder methods | `__repr__`, `__eq__`, `__hash__`, `__lt__`, `__len__`, `__iter__`, `__getitem__`, `__contains__`, `__bool__`, `__call__`, operators | 3.8 | `Vector` with `+`, `==`, `abs()` |
+| 22 | `context-manager-classes` | Writing a context manager class | Support `with` in your own classes | `__enter__`, `__exit__`, swallowing errors | 3.8 | A timer |
+| 23 | `dataclasses` | Dataclasses | Write data classes with less boilerplate | `@dataclass`, `field`, `__post_init__`, `frozen`, `slots=True`, `kw_only` (3.10), `copy.replace()` (3.13) | 3.10 | Inventory with immutable updates |
+| 24 | `enums` | Enums | Model fixed sets of values | `Enum`, `IntEnum`, `StrEnum` (3.11), `auto()`, `match` on members (3.10) | 3.8 | Traffic-light state machine |
+| 25 | `abc-protocols` | Abstract base classes and protocols | Define interfaces | duck typing, `abc.ABC`, `typing.Protocol`, `@runtime_checkable` | 3.9 | Plugin interface, then a Protocol |
 
-### Module I5 - Testing, debugging and quality (6)
+### Module I4 - Iteration and functional tools (7)
 
-| slug | title | objectives | key concepts | minVersion | exercise idea |
-|---|---|---|---|---|---|
-| `debugging-py` | Debugging Python | Use Python's debugging tools | debugging [F], reading tracebacks (3.11+ fine-grained locations), `breakpoint()`, `pdb` commands | 3.11 | Find 4 bugs with `pdb` |
-| `logging` | Logging | Replace prints with logging | loggers, levels, handlers, formatters, `basicConfig`, never log secrets | 3.8 | Add logging to a script, with a level switch |
-| `pytest-basics` | Testing with pytest | Write and run tests | testing mindset [F], `assert` rewriting, test discovery, `pytest.raises` | 3.11 | Test the bank-account class |
-| `pytest-fixtures-param` | Fixtures and parametrisation | Structure larger test suites | fixtures, `tmp_path`, `@pytest.mark.parametrize`, `monkeypatch`, coverage | 3.11 | Parametrised tests for the number parser |
-| `lint-format-typecheck` | Linting, formatting and type checking | Automate code quality | ruff (lint and format), mypy/pyright, pre-commit, CI basics, version control [F] | 3.11 | Fix all ruff findings in a sample repo |
-| `docs-and-docstrings` | Documentation | Document code for users and maintainers | docstring conventions, `help()`, README, `doctest` | 3.8 | Add docstrings and doctests to a module |
+| # | slug | title | objectives | key concepts | minVersion | exercise idea |
+|---|---|---|---|---|---|---|
+| 26 | `iterators` | The iterator protocol | Explain how `for` works | loops [F], `iter`, `next`, `StopIteration`, iterator classes | 3.8 | Countdown iterator |
+| 27 | `generators` | Generators | Produce values lazily | `yield`, generator expressions, `yield from`, pipelines | 3.8 | Count error messages lazily |
+| 28 | `contextmanager` | Writing context managers with generators | Build managers from generators | `contextlib.contextmanager`, `try`/`finally` around `yield` | 3.8 | Temporary environment variable |
+| 29 | `itertools-functools` | itertools and functools | Use the standard functional toolkits | `chain`, `groupby`, `islice`, `pairwise` (3.10), `batched` (3.12), `partial`, `cache`, `singledispatch` | 3.8 | Batch the API calls; memoise Fibonacci |
+| 30 | `closures` | Closures and higher-order functions | Capture state in functions | scope and lifetime [F], free variables, `nonlocal`, late binding | 3.8 | Counter factory with reset |
+| 31 | `decorators` | Decorators | Write and apply decorators | wrappers, `functools.wraps`, decorators with arguments, stacking | 3.8 | A retry decorator |
+| 32 | `sorting-key-functions` | Sorting and key functions | Sort complex data correctly | searching and sorting [F], `sorted(key=)`, stability, `reverse`, tuple keys | 3.8 | Leaderboard with tie-breakers |
+
+### Module I5 - Testing, debugging and quality (9)
+
+| # | slug | title | objectives | key concepts | minVersion | exercise idea |
+|---|---|---|---|---|---|---|
+| 33 | `unittest-basics` | Automated tests with unittest | Write and run standard-library tests | testing mindset [F], `TestCase`, assertions, `setUp`, `subTest`, `python -m unittest` | 3.8 | Catch a leap-year bug |
+| 34 | `pytest-basics` | Testing with pytest | Write tests as plain functions | `assert` rewriting, discovery, `pytest.raises`, failure reports | 3.8 | Test the bank account's input checks |
+| 35 | `fixtures-and-parametrize` | Fixtures, parametrization and temporary files | Structure larger suites | `@pytest.fixture`, `conftest.py`, `yield` fixtures, `parametrize`, `tmp_path`, `monkeypatch` | 3.8 | Turn a loop into a parametrized test |
+| 36 | `test-driven-workflow` | A test-driven workflow and a quality gate | Grow code one failing test at a time | red-green-refactor, coverage, one check command, CI, version control [F] | 3.8 | A test that was never red |
+| 37 | `mocking` | Mocking with unittest.mock | Replace slow or external parts | `Mock`, `patch`, `autospec`, call assertions | 3.8 | Test a retry loop without waiting |
+| 38 | `doctest-and-docstrings` | Docstrings and doctest | Document code that is tested | docstring conventions, `help()`, `doctest`, reading docs [F] | 3.8 | Document and test a text-wrapping function |
+| 39 | `logging` | Logging instead of print | Replace prints with logging | debugging [F], levels, handlers, formatters, `basicConfig` (`formatter=` 3.15), secrets | 3.8 | Add logging with a verbosity switch |
+| 40 | `debugging-pdb` | Debugging with pdb | Debug beyond `breakpoint()` | conditional breakpoints, post-mortem, scripted sessions, `pdb -p` (3.14) | 3.8 | Find four bugs with pdb |
+| 41 | `profiling` | Measuring speed with timeit and cProfile | Find the slow part | big-O [F], `timeit`, `cProfile`, `profiling.tracing`/sampling (3.15) | 3.8 | Profile, fix and confirm |
+
+### Module Project - End-of-level project (1)
+
+| # | slug | title | objectives | key concepts | minVersion | exercise idea |
+|---|---|---|---|---|---|---|
+| 42 | `project-tested-cli` | Project: a tested command-line tool | Combine packaging, files, dates, classes, generators, logging and tests in one installable tool | `spend` console script (src layout, `[project.scripts]`), `pathlib` + `csv`, `datetime`, frozen dataclass, `StrEnum`, generator pipeline, `logging`, pytest fixture, `parametrize`, `tmp_path`, `caplog`, `capsys` | 3.11 | Filter by category; biggest purchases; friendlier month error |
+
+Verified code for lesson 42 is in `examples/python/i6/spendlog/` (21 tests, run by `run_pytest.py`).
+
+### Deferred
+
+These were planned in the earlier outline or in `gaps-intermediate.md` but are **not built**. None blocks the level.
+
+| planned item | source | status and reason |
+|---|---|---|
+| Project A, an inventory project after I3 | gaps item 6 | Deferred. Lesson 42 already joins I1 to I5. A second project would repeat the dataclass and enum steps. Revisit if learners need a smaller bridge project before I4. |
+| `sqlite3-basics` | gaps item 8 | Deferred. It is in no outline and has no slot yet. Needs a placement decision (I1 or I2) before it is written. |
+| `collections-and-copying` moved into I4 | gaps item 8 | Deferred. `collections-module` and `copying-references` stay in Advanced module A2. |
+| `namedtuple` / `typing.NamedTuple` comparison in `dataclasses` | gaps item 8 | Deferred. Not added to lesson 23. Note that the keyword form `NamedTuple("P", x=int)` was removed in 3.15. |
+| Building and publishing (`uv build`, TestPyPI) | gaps item 14 | Deferred. Lesson 12 stops at the editable install. Add as a section when lesson 12 is next revised. |
+| Property-based testing and memory profiling (`hypothesis`, `tracemalloc`) | gaps item 12 | Deferred. P2, and `hypothesis` is a third-party package beyond the level's pytest-only toolchain. |
+| `enum.Flag`, `itertools.batched(strict=True)`, `zip(strict=True)` | gaps item 16 | Deferred. P2 extras. |
+| README checklist, `pydoc` and doc generators | gaps item 17 | Deferred. P2. Lesson 38 covers docstrings and doctest only. |
+| Full `argparse` lesson | earlier note | Not an intermediate topic. Lesson 16 previews flat options and lesson 42 uses them. Subcommands stay in Expert `cli-apps`. |
 
 ---
 
@@ -178,7 +217,7 @@ Columns: slug | title | objectives | key concepts | minVersion | exercise idea
 | `descriptors` | Descriptors | Explain how attribute access works | `__get__`/`__set__`/`__set_name__`, properties as descriptors, lookup order | 3.8 | Validated field descriptor |
 | `class-customisation` | Customising classes | Hook into class creation | `__init_subclass__`, class decorators, `__class_getitem__`, `__slots__` | 3.8 | Plugin registry via `__init_subclass__` |
 | `metaclasses` | Metaclasses | Know when (rarely) to use metaclasses | `type()`, `__new__` vs `__init__`, `__prepare__`, alternatives | 3.8 | Metaclass that enforces method names, then rewrite it without one |
-| `contextlib-advanced` | Advanced context managers | Write reusable context managers | `@contextmanager`, `ExitStack`, async context managers, `chdir` (3.11) | 3.11 | Temporary-environment manager |
+| `contextlib-advanced` | Advanced context managers | Write reusable context managers | `ExitStack` (`@contextmanager` is taught in intermediate lesson 28), async context managers, `chdir` (3.11) | 3.11 | Temporary-environment manager |
 | `template-strings` | Template strings | Process interpolations safely | `t"..."` literals (3.14, PEP 750), `string.templatelib.Template`, safe HTML/SQL rendering | 3.14 | HTML escaper built on t-strings |
 | `introspection-ast` | Introspection and the AST | Inspect and transform code | `inspect`, `ast.parse`, `NodeVisitor`, `dis` preview, `eval`/`exec` dangers | 3.11 | Linter rule that flags `print` calls |
 
