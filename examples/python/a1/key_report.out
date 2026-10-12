@@ -1,0 +1,4 @@
+Product
+  required: price, sku
+  optional: note
+  readonly: sku

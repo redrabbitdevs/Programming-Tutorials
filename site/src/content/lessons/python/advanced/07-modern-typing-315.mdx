@@ -1,0 +1,439 @@
+---
+language: python
+level: advanced
+module: Typing in depth
+order: 7
+title: New in typing (3.15)
+description: Use the typing features that arrived in Python 3.15, the sentinel builtin, TypeForm and disjoint bases, alongside the slightly older Self and @override that modern code relies on.
+minVersion: "3.15"
+objectives:
+  - Return Self from methods so subclasses keep their own type
+  - Catch misspelt overrides with @override
+  - Replace object() sentinels with the sentinel builtin and use them in type hints
+  - Annotate functions that take a type expression as an argument, with TypeForm
+  - Explain what a disjoint base is and what @disjoint_base tells a checker
+estimatedMinutes: 40
+fundamentals: []
+---
+
+This lesson ends the module with the newest pieces. Two of them, `Self` and `@override`, have been around since 3.11 and 3.12 and belong in every codebase. Three arrived in Python 3.15.0, released on 9 October 2026: the `sentinel` builtin ([PEP 661](https://peps.python.org/pep-0661/)), `typing.TypeForm` ([PEP 747](https://peps.python.org/pep-0747/)) and `@typing.disjoint_base` ([PEP 800](https://peps.python.org/pep-0800/)). All three PEPs are Final, and all three appear in [What's New in Python 3.15](https://docs.python.org/3/whatsnew/3.15.html).
+
+Checkers adopt new features at their own pace. Of the two used in this module, pyright 1.1.414 understood all three 3.15 features. mypy 2.3.1 understood `TypeForm` and `@disjoint_base`, but did not yet accept a sentinel in a type hint.
+
+## Self: methods that return their own class
+
+A method that returns `self` for chaining is awkward to annotate with the class name: a subclass calling it would get the parent type back. `Self` means "the type of the instance this was called on":
+
+```python title="self_chain.py"
+from typing import Self, reveal_type
+
+
+class Query:
+    def __init__(self) -> None:
+        self.parts: list[str] = []
+
+    def where(self, condition: str) -> Self:
+        self.parts.append(condition)
+        return self
+
+
+class UserQuery(Query):
+    def active(self) -> Self:
+        return self.where("active = 1")
+
+
+q = UserQuery().where("age > 30").active()
+reveal_type(q)
+print(type(q).__name__, q.parts)
+```
+
+```text
+UserQuery ['age > 30', 'active = 1']
+```
+
+```console title="mypy 2.3.1"
+$ mypy self_chain.py
+self_chain.py:19: note: Revealed type is "self_chain.UserQuery"
+Success: no issues found in 1 source file
+```
+
+`where` is defined on `Query`, yet calling it on a `UserQuery` keeps the `UserQuery` type, so `.active()` is still available afterwards. Use `Self` for fluent methods, for `__enter__` returning `self`, and for alternative constructors written as class methods.
+
+## @override: catch misspelt overrides
+
+[Inheritance](../../intermediate/inheritance/) introduced `@override`. It asks the checker to confirm that a method really replaces one in a base class:
+
+```python title="override_typo.py"
+from typing import override
+
+
+class Report:
+    def render(self) -> str:
+        return "report"
+
+
+class SalesReport(Report):
+    @override
+    def rendr(self) -> str:
+        return "sales"
+
+
+print(SalesReport().render())
+```
+
+```text
+report
+```
+
+```console title="mypy 2.3.1"
+$ mypy override_typo.py
+override_typo.py:11: error: Method "rendr" is marked as an override, but no base method was found with this name  [misc]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+Without the decorator, the typo silently creates a new method, and `render()` keeps returning the base class's text. With it, the checker reports the mistake. It also catches the opposite drift, when a base class method is renamed and the subclasses are not.
+
+## The sentinel builtin
+
+A **sentinel** is a unique marker value, usually meaning "no argument given" where `None` is a legitimate value. The traditional idiom was `_MISSING = object()`, which has an unreadable repr, does not survive copying or pickling, and cannot be named in a type hint. Python 3.15 adds `sentinel(name)` as a builtin:
+
+```python title="sentinel_basic.py"
+import copy
+import pickle
+
+MISSING = sentinel("MISSING")
+
+print(MISSING, repr(MISSING), bool(MISSING))
+print(MISSING is copy.deepcopy(MISSING))
+print(MISSING is pickle.loads(pickle.dumps(MISSING)))
+print(MISSING == sentinel("MISSING"))
+print(int | MISSING)
+```
+
+```text
+MISSING MISSING True
+True
+True
+False
+int | MISSING
+```
+
+A sentinel prints as its name, is always truthy, keeps its identity through `copy` and `pickle`, and is equal only to itself: a second `sentinel("MISSING")` is a different object. Pickling works for sentinels assigned to a module-level name that matches their name, as here. And `int | MISSING` is a valid union, which is the point of the next example.
+
+The sentinel's name can appear directly in a type hint, and `is` narrows it away:
+
+```python title="sentinel_default.py"
+from typing import reveal_type
+
+MISSING = sentinel("MISSING")
+
+
+def get(
+    data: dict[str, int], key: str, default: int | MISSING = MISSING
+) -> int:
+    if key in data:
+        return data[key]
+    if default is MISSING:
+        raise KeyError(key)
+    reveal_type(default)
+    return default
+
+
+print(get({"a": 1}, "a"), get({}, "b", 0), get({}, "c", default=-1))
+try:
+    get({}, "d")
+except KeyError as error:
+    print("KeyError:", error)
+```
+
+```text
+1 0 -1
+KeyError: 'd'
+```
+
+```console title="pyright 1.1.414"
+$ pyright sentinel_default.py
+sentinel_default.py:13:17 - information: Type of "default" is "int"
+0 errors, 0 warnings, 1 information
+```
+
+After `if default is MISSING: raise`, pyright knows `default` is an `int`. mypy 2.3.1 does not yet support this:
+
+```console title="mypy 2.3.1"
+$ mypy sentinel_default.py
+sentinel_default.py:7: error: Variable "sentinel_default.MISSING" is not valid as a type  [valid-type]
+sentinel_default.py:7: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
+sentinel_default.py:13: note: Revealed type is "int | MISSING?"
+Found 1 error in 1 file (checked 1 source file)
+```
+
+Until your checker catches up, code can still use `sentinel` for its run-time benefits.
+
+## TypeForm: types as arguments
+
+Some functions take a type expression as an argument: `cast(int, x)`, or a JSON loader that is told what it should return. `type[T]` describes only classes, so it rejects `list[str]` or `int | None`. `TypeForm[T]` describes any value that is a valid type expression for `T`:
+
+```python title="typeform_load.py"
+import json
+from typing import TypeForm, cast, get_origin, reveal_type
+
+
+def load[T](form: TypeForm[T], raw: str) -> T:
+    value = json.loads(raw)
+    expected = get_origin(form) or form
+    if not isinstance(value, cast(type, expected)):
+        raise TypeError(f"expected {form}, got {value!r}")
+    return cast(T, value)
+
+
+port = load(int, "8080")
+hosts = load(list[str], '["a.example", "b.example"]')
+reveal_type(port)
+reveal_type(hosts)
+print(port + 1, hosts[0].upper())
+print(TypeForm(int | None))
+try:
+    load(int, '"8080"')
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+8081 A.EXAMPLE
+int | None
+TypeError: expected <class 'int'>, got '8080'
+```
+
+```console title="mypy 2.3.1"
+$ mypy typeform_load.py
+typeform_load.py:15: note: Revealed type is "int"
+typeform_load.py:16: note: Revealed type is "list[str]"
+Success: no issues found in 1 source file
+```
+
+`load(int, ...)` returns an `int` and `load(list[str], ...)` returns a `list[str]`, so `hosts[0].upper()` type-checks. At run time `TypeForm(x)` simply returns `x`, which lets you mark a value as a type form for the checker without changing anything. The run-time check inside `load` handles only plain classes and simple generics like `list[str]`. A real validator would walk the type with `get_origin` and `get_args`, as in [Annotations at runtime](../annotations-runtime/).
+
+## Disjoint bases
+
+Some classes cannot share a subclass, because their instances are laid out differently in memory. CPython calls them **solid bases**, and `int` and `str` are two of them. `@disjoint_base` lets a stub or a library tell checkers that a class behaves the same way, so a class inheriting from two disjoint bases is reported:
+
+```python title="disjoint.py"
+from typing import disjoint_base
+
+
+@disjoint_base
+class Vector:
+    pass
+
+
+@disjoint_base
+class Matrix:
+    pass
+
+
+class Hybrid(Vector, Matrix):
+    pass
+
+
+print([cls.__name__ for cls in Hybrid.__mro__])
+try:
+
+    class Both(int, str):
+        pass
+
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+['Hybrid', 'Vector', 'Matrix', 'object']
+TypeError: multiple bases have instance lay-out conflict
+```
+
+```console title="pyright 1.1.414"
+$ pyright disjoint.py
+disjoint.py:14:7 - error: Base classes have incompatible disjoint bases: "Vector", "Matrix" (reportGeneralTypeIssues)
+disjoint.py:21:11 - error: Base classes have incompatible disjoint bases: "int", "str" (reportGeneralTypeIssues)
+2 errors, 0 warnings, 0 informations
+```
+
+For `Vector` and `Matrix`, nothing happened at run time: the decorator only informs the checker. For `int` and `str`, the run-time `TypeError` is real, and the checker now reports it before the program runs. The practical benefit is sharper reasoning: if no class can be both a `Vector` and a `Matrix`, an `isinstance(x, Matrix)` branch after `x` was narrowed to `Vector` is unreachable, and the checker can say so. Most application code will never write `@disjoint_base`; you will see it in stubs for built-in and compiled types.
+
+## Common pitfalls
+
+**Defining a sentinel inside a function.** Only sentinels bound to a matching module-level or class-level name can be pickled. Define them at the top of the module, as `NAME = sentinel("NAME")`.
+
+**Testing a sentinel with `==` or truthiness.** Sentinels are truthy, so `if not default` is wrong. Compare with `is`.
+
+**Using `Self` in a static method or outside a class.** `Self` refers to the instance or class a method is bound to, so it is only meaningful in instance and class methods.
+
+**Adopting 3.15 typing features in a library too soon.** `sentinel` and `TypeForm` do not exist before 3.15. A library that supports older versions needs a fallback, such as an `object()` sentinel with an explicit annotation of `object`.
+
+<Exercise title="Refactor an object() sentinel">
+This function uses the old `object()` idiom, and has no annotations. Rewrite it with the `sentinel` builtin so that it has a full signature, `MISSING` prints readably, and pyright reports no errors.
+
+```python title="missing_object.py"
+_MISSING = object()
+
+
+def first_word(text: str, default=_MISSING):
+    words = text.split()
+    if words:
+        return words[0]
+    if default is _MISSING:
+        raise ValueError("empty text and no default")
+    return default
+
+
+print(first_word("hello world"), first_word("", None))
+print(repr(_MISSING).startswith("<object object at 0x"))
+```
+
+```text
+hello None
+True
+```
+
+Your version should also show what happens when there is no word and no default. Expected output:
+
+```text
+hello None
+MISSING
+ValueError: empty text and no default
+```
+
+<Solution>
+
+```python title="missing_sentinel.py"
+MISSING = sentinel("MISSING")
+
+
+def first_word(
+    text: str, default: str | None | MISSING = MISSING
+) -> str | None:
+    words = text.split()
+    if words:
+        return words[0]
+    if default is MISSING:
+        raise ValueError("empty text and no default")
+    return default
+
+
+print(first_word("hello world"), first_word("", None))
+print(repr(MISSING))
+try:
+    first_word("   ")
+except ValueError as error:
+    print("ValueError:", error)
+```
+
+```text
+hello None
+MISSING
+ValueError: empty text and no default
+```
+
+```console title="pyright 1.1.414"
+$ pyright missing_sentinel.py
+0 errors, 0 warnings, 0 informations
+```
+
+`None` stays a legitimate default because the sentinel, not `None`, means "not given". The annotation `str | None | MISSING` documents all three cases, and `is MISSING` narrows the last one away before `return default`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A fluent request builder">
+Write `Request(url)` with a `headers` dict and a method `header(name, value)` that sets a header and returns the instance. Write a subclass `AuthRequest` with `token(token)`, which sets `Authorization` to `Bearer <token>` through `header`. Annotate both methods with `Self` so that this chain type-checks:
+
+```python
+AuthRequest("/me").header("Accept", "json").token("abc")
+```
+
+Print the class name, URL and headers of the result. Expected output, and `Success` from mypy:
+
+```text
+AuthRequest /me {'Accept': 'json', 'Authorization': 'Bearer abc'}
+```
+
+<Solution>
+
+```python title="request_builder.py"
+from typing import Self
+
+
+class Request:
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self.headers: dict[str, str] = {}
+
+    def header(self, name: str, value: str) -> Self:
+        self.headers[name] = value
+        return self
+
+
+class AuthRequest(Request):
+    def token(self, token: str) -> Self:
+        return self.header("Authorization", f"Bearer {token}")
+
+
+req = AuthRequest("/me").header("Accept", "json").token("abc")
+print(type(req).__name__, req.url, req.headers)
+```
+
+```text
+AuthRequest /me {'Accept': 'json', 'Authorization': 'Bearer abc'}
+```
+
+```console title="mypy 2.3.1"
+$ mypy request_builder.py
+Success: no issues found in 1 source file
+```
+
+If `header` returned `"Request"` instead of `Self`, the chain would fail at `.token`, because the checker would think the object had become a plain `Request`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict sentinel behaviour">
+Predict all four lines this program prints. `OTHER` uses the same name as `UNSET`.
+
+```python title="predict_sentinel.py"
+import copy
+
+UNSET = sentinel("UNSET")
+OTHER = sentinel("UNSET")
+
+print(f"value: {UNSET}")
+print(UNSET is copy.copy(UNSET), UNSET == OTHER)
+print("truthy" if UNSET else "falsy")
+print(type(UNSET).__name__, UNSET.__name__)
+```
+
+Expected: four lines of output.
+
+<Solution>
+
+
+```text
+value: UNSET
+True False
+truthy
+sentinel UNSET
+```
+
+- A sentinel's `str` and `repr` are its name.
+- Copies are the same object. Two sentinels are never equal, even with the same name, because equality is identity.
+- Sentinels are truthy, which is why `is` is the only safe test.
+- The type is the builtin `sentinel`, and `__name__` holds the name.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `Self` keeps the caller's type through chained methods. `@override` makes the checker verify that a method overrides something.
+- `sentinel("NAME")` creates a unique, readable, copy- and pickle-safe marker that can appear in type hints as `int | NAME`.
+- `TypeForm[T]` annotates parameters that receive type expressions such as `list[str]` or `int | None`.
+- `@disjoint_base` tells checkers that no class may inherit from it and another unrelated disjoint base, mirroring CPython's solid bases.
+- Check your type checker's support before relying on brand-new typing features.

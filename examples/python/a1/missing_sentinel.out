@@ -1,0 +1,3 @@
+hello None
+MISSING
+ValueError: empty text and no default

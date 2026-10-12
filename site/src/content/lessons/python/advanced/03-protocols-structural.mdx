@@ -1,0 +1,525 @@
+---
+language: python
+level: advanced
+module: Typing in depth
+order: 3
+title: Protocols and structural typing
+description: Type duck-typed code with protocols that describe methods, attributes and call signatures, and write decorators that keep the signature of the function they wrap, with ParamSpec and Concatenate.
+minVersion: "3.12"
+objectives:
+  - Use a protocol as the bound of a type parameter
+  - Write protocols with attributes, and explain how classes match them
+  - Describe a callable with keyword arguments using a callable protocol
+  - Type a decorator with ParamSpec so the wrapped function keeps its signature
+  - Type a decorator that supplies an argument, with Concatenate
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/23-paradigms"]
+---
+
+[Abstract base classes and protocols](../../intermediate/abc-protocols/) introduced `typing.Protocol`: a class that lists the methods a value needs, which any class matches by having them, without inheriting. That is **structural typing**, and it is how a checker understands duck-typed Python. This lesson puts protocols to work in generic code and callbacks, and then fixes the classic weak spot of typed Python, decorators, which you wrote untyped in [Decorators](../../intermediate/decorators/).
+
+## A protocol as a bound
+
+The last exercise of [Generics with type parameter syntax](../generics-pep695/) constrained `biggest` to `int`, `float` and `str`. What the function really needs is "something with `>`". Say exactly that with a protocol, and use it as the bound:
+
+```python title="proto_bound.py"
+from decimal import Decimal
+from typing import Any, Protocol
+
+
+class SupportsGt(Protocol):
+    def __gt__(self, other: Any, /) -> bool: ...
+
+
+def biggest[T: SupportsGt](a: T, b: T) -> T:
+    return a if a > b else b
+
+
+print(biggest(3, 7), biggest("pear", "apple"))
+print(biggest(Decimal("1.10"), Decimal("1.05")))
+print(biggest((1, 2), (1, 3)))
+```
+
+```text
+7 pear
+1.10
+(1, 3)
+```
+
+```console title="mypy 2.3.1"
+$ mypy proto_bound.py
+Success: no issues found in 1 source file
+```
+
+`int`, `str`, `Decimal` and `tuple` all define `__gt__`, so all of them match, and the return type is still the argument type. The standard library's own stubs use protocols like this one throughout. The `/` makes `other` positional-only, which matches how operator methods are called.
+
+## Protocols with attributes
+
+A protocol can require data as well as methods. Annotate the attribute in the protocol body:
+
+```python title="proto_attr.py"
+from dataclasses import dataclass
+from typing import Protocol
+
+
+class Named(Protocol):
+    name: str
+
+
+@dataclass
+class User:
+    name: str
+
+
+def greet(thing: Named) -> str:
+    return f"Hello, {thing.name}"
+
+
+print(greet(User("Ada")))
+try:
+    greet({"name": "Mars"})
+except AttributeError as error:
+    print("AttributeError:", error)
+```
+
+```text
+Hello, Ada
+AttributeError: 'dict' object has no attribute 'name'
+```
+
+```console title="mypy 2.3.1"
+$ mypy proto_attr.py
+proto_attr.py:20: error: Argument 1 to "greet" has incompatible type "dict[str, str]"; expected "Named"  [arg-type]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+`User` is a [dataclass](../../intermediate/dataclasses/) that never mentions `Named`. It matches because it has a `name` attribute of type `str`. A dict with a `"name"` key does not: keys are not attributes. A protocol attribute declared like this must also be writable. If the protocol only reads it, declare a read-only property in the protocol instead, which lets frozen dataclasses and properties match too.
+
+## Callable protocols
+
+`Callable[[float], str]` cannot express keyword arguments, defaults or overloads. A protocol whose only method is `__call__` can. Any function, or any object with a matching `__call__`, satisfies it.
+
+```python title="callable_proto.py"
+from typing import Protocol
+
+
+class Formatter(Protocol):
+    def __call__(self, value: float, *, digits: int = 2) -> str: ...
+
+
+def fixed(value: float, *, digits: int = 2) -> str:
+    return f"{value:.{digits}f}"
+
+
+def percent(value: float, *, digits: int = 2) -> str:
+    return f"{value:.{digits}%}"
+
+
+def report(values: list[float], fmt: Formatter) -> None:
+    print(", ".join(fmt(v) for v in values), "|", fmt(values[0], digits=0))
+
+
+report([0.125, 0.5], fixed)
+report([0.125, 0.5], percent)
+```
+
+```text
+0.12, 0.50 | 0
+12.50%, 50.00% | 12%
+```
+
+```console title="mypy 2.3.1"
+$ mypy callable_proto.py
+Success: no issues found in 1 source file
+```
+
+Both functions accept the keyword-only `digits` with a default, so both are `Formatter`s, and `report` may rely on calling `fmt(value, digits=0)`. A function without that parameter is rejected, and the note shows the signature that was expected:
+
+```python title="callable_proto_wrong.py"
+from typing import Protocol
+
+
+class Formatter(Protocol):
+    def __call__(self, value: float, *, digits: int = 2) -> str: ...
+
+
+def rounded(value: float) -> str:
+    return str(round(value, 2))
+
+
+def report(values: list[float], fmt: Formatter) -> None:
+    print(", ".join(fmt(v) for v in values))
+
+
+report([0.125, 0.5], rounded)
+```
+
+```text
+0.12, 0.5
+```
+
+```console title="mypy 2.3.1"
+$ mypy callable_proto_wrong.py
+callable_proto_wrong.py:16: error: Argument 2 to "report" has incompatible type "Callable[[float], str]"; expected "Formatter"  [arg-type]
+callable_proto_wrong.py:16: note: "Formatter.__call__" has type "def __call__(self, value: float, *, digits: int = ...) -> str"
+Found 1 error in 1 file (checked 1 source file)
+```
+
+The program printed a line, but `report` was one edit away from calling `rounded(v, digits=0)` and crashing. Callable protocols are the right tool for callbacks, hooks and strategy objects.
+
+## Decorators that keep their signature
+
+A decorator replaces a function with a wrapper. If you annotate the wrapper as `Callable[..., Any]`, the checker forgets the original signature, and every call through it goes unchecked. A **parameter specification** fixes this. Written `**P` in the type parameter list, it captures a function's entire parameter list, positional and keyword:
+
+```python title="logged.py"
+import functools
+from collections.abc import Callable
+
+
+def logged[**P, R](func: Callable[P, R]) -> Callable[P, R]:
+    @functools.wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        print(f"calling {func.__name__}{args}")
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+@logged
+def scale(value: float, factor: float = 2.0) -> float:
+    return value * factor
+
+
+print(scale(1.5))
+print(scale(1.5, factor=10))
+print(logged.__type_params__)
+```
+
+```text
+calling scale(1.5,)
+3.0
+calling scale(1.5,)
+15.0
+(P, R)
+```
+
+```console title="mypy 2.3.1"
+$ mypy logged.py
+Success: no issues found in 1 source file
+```
+
+Read the signature as "given a function taking parameters `P` and returning `R`, return a function taking the same `P` and returning the same `R`". Inside, `*args: P.args, **kwargs: P.kwargs` says the wrapper accepts exactly those arguments and forwards them. `functools.wraps` copies the name, docstring and signature for run-time tools, and `P` for the checker. At run time `P` is a `typing.ParamSpec` object, stored with `R` in `__type_params__`.
+
+The payoff shows when a call is wrong:
+
+```python title="logged_check.py"
+import functools
+import inspect
+from collections.abc import Callable
+from typing import reveal_type
+
+
+def logged[**P, R](func: Callable[P, R]) -> Callable[P, R]:
+    @functools.wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+@logged
+def scale(value: float, factor: float = 2.0) -> float:
+    return value * factor
+
+
+reveal_type(scale)
+print(inspect.signature(scale))
+try:
+    scale("1.5", fator=3)
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+(value: float, factor: float = 2.0) -> float
+TypeError: scale() got an unexpected keyword argument 'fator'. Did you mean 'factor'?
+```
+
+```console title="mypy 2.3.1"
+$ mypy logged_check.py
+logged_check.py:20: note: Revealed type is "def (value: float, factor: float =) -> float"
+logged_check.py:23: error: Unexpected keyword argument "fator" for "scale"; did you mean "factor"?  [call-arg]
+logged_check.py:23: error: Argument 1 to "scale" has incompatible type "str"; expected "float"  [arg-type]
+Found 2 errors in 1 file (checked 1 source file)
+```
+
+The checker knows `scale` still takes `(value: float, factor: float = ...)`, so it catches both mistakes. Python caught only the misspelt keyword, and only when the line ran. `inspect.signature` reports the original signature too, because `wraps` set `__wrapped__`.
+
+## Adding or removing an argument: Concatenate
+
+Some decorators supply an argument themselves, such as a database connection or a request ID. The wrapped function takes that argument first, and callers must not pass it. `Concatenate[int, P]` means "an `int`, followed by the parameters `P`":
+
+```python title="concatenate.py"
+import itertools
+from collections.abc import Callable
+from typing import Concatenate
+
+_ids = itertools.count(1)
+
+
+def with_request_id[**P, R](
+    func: Callable[Concatenate[int, P], R],
+) -> Callable[P, R]:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        return func(next(_ids), *args, **kwargs)
+
+    return wrapper
+
+
+@with_request_id
+def handle(request_id: int, path: str) -> str:
+    return f"[{request_id}] GET {path}"
+
+
+print(handle("/"))
+print(handle(path="/about"))
+```
+
+```text
+[1] GET /
+[2] GET /about
+```
+
+```console title="mypy 2.3.1"
+$ mypy concatenate.py
+Success: no issues found in 1 source file
+```
+
+The decorated `handle` has the signature `(path: str) -> str`. Calling `handle(5, "/")` is now a checker error, because the decorator consumed the `int`. `Concatenate` must come first in the parameter list and can only add positional parameters at the front.
+
+## Common pitfalls
+
+**Annotating decorators with `Callable[..., Any]`.** It type-checks, which is the problem: it switches checking off for every decorated function. Use `[**P, R]`.
+
+**Forgetting that protocol attributes are writable.** A protocol that declares `name: str` rejects a class with a read-only `name` property. Use a property in the protocol if you only read it.
+
+**Writing `isinstance` checks against a protocol.** That needs `@runtime_checkable`, and it only checks that names exist, as the intermediate lesson showed. Prefer to let the checker do the work.
+
+**Relying on parameter names in callable protocols.** A callable protocol with `value: float` requires the implementation's parameter to be called `value` too, because it could be passed by keyword. Make it positional-only with `/` when the name should not matter.
+
+<Exercise title="A typed retry decorator">
+Write a decorator factory `retry(times)` in `retry.py`. Its decorator calls the function up to `times` times, prints `attempt N failed: <error>` after each `ConnectionError`, and raises `ConnectionError("gave up after N attempts")` when all fail. The decorated function must keep its signature: `reveal_type` on it should show the original parameters.
+
+Test it with `fetch(url)`, which fails with `"timeout"` and then `"reset"` before succeeding:
+
+```python title="retry_use.py"
+from typing import reveal_type
+
+from retry import retry
+
+failures = iter(["timeout", "reset"])
+
+
+@retry(times=3)
+def fetch(url: str) -> str:
+    reason = next(failures, None)
+    if reason is not None:
+        raise ConnectionError(reason)
+    return f"200 OK {url}"
+
+
+reveal_type(fetch)
+print(fetch("https://example.com"))
+```
+
+Expected output, and a revealed type of `def (url: str) -> str`:
+
+```text
+attempt 1 failed: timeout
+attempt 2 failed: reset
+200 OK https://example.com
+```
+
+<Solution>
+
+```python title="retry.py"
+import functools
+from collections.abc import Callable
+
+
+def retry[**P, R](times: int) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    def decorate(func: Callable[P, R]) -> Callable[P, R]:
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            for attempt in range(1, times + 1):
+                try:
+                    return func(*args, **kwargs)
+                except ConnectionError as error:
+                    print(f"attempt {attempt} failed: {error}")
+            raise ConnectionError(f"gave up after {times} attempts")
+
+        return wrapper
+
+    return decorate
+```
+
+```console title="mypy 2.3.1"
+$ mypy retry_use.py
+retry_use.py:16: note: Revealed type is "def (url: str) -> str"
+Success: no issues found in 1 source file
+```
+
+Running `retry_use.py` prints the expected output:
+
+
+```text
+attempt 1 failed: timeout
+attempt 2 failed: reset
+200 OK https://example.com
+```
+
+`retry` itself is generic in `P` and `R`, even though they only appear in its return type. The checker solves them when the returned decorator is applied to `fetch`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A logger protocol">
+Write a `Logger` callable protocol for functions called as `log(message)` or `log(message, level="WARN")`, with `"INFO"` as the default level. Write a class `Collector` whose instances satisfy it by appending `"LEVEL:message"` to a list `lines`. `run_job(log: Logger)` logs `"starting"`, then `"disk almost full"` at level `WARN`.
+
+Run the job with a `Collector` and print its `lines`. Expected output, and `Success` from mypy:
+
+```text
+['INFO:starting', 'WARN:disk almost full']
+```
+
+<Solution>
+
+```python title="logger_proto.py"
+from typing import Protocol
+
+
+class Logger(Protocol):
+    def __call__(self, message: str, *, level: str = "INFO") -> None: ...
+
+
+class Collector:
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def __call__(self, message: str, *, level: str = "INFO") -> None:
+        self.lines.append(f"{level}:{message}")
+
+
+def run_job(log: Logger) -> None:
+    log("starting")
+    log("disk almost full", level="WARN")
+
+
+collector = Collector()
+run_job(collector)
+print(collector.lines)
+```
+
+```text
+['INFO:starting', 'WARN:disk almost full']
+```
+
+```console title="mypy 2.3.1"
+$ mypy logger_proto.py
+Success: no issues found in 1 source file
+```
+
+An instance matches a callable protocol through its `__call__` method, so stateful callbacks need no special treatment.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Debug the silent decorator">
+This decorator is annotated, and mypy reports success. Yet the second call is plainly wrong. Use the revealed type to explain why the checker let it through, then fix the annotations so that mypy reports `area("ab", 2)`.
+
+```python title="loose_decorator.py"
+import functools
+from collections.abc import Callable
+from typing import Any, reveal_type
+
+
+def logged(func: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+@logged
+def area(width: float, height: float) -> float:
+    return width * height
+
+
+reveal_type(area)
+print(area(3, 4))
+print(area("ab", 2))
+```
+
+```text
+12
+abab
+```
+
+```console title="mypy 2.3.1"
+$ mypy loose_decorator.py
+loose_decorator.py:19: note: Revealed type is "def (*Any, **Any) -> Any"
+Success: no issues found in 1 source file
+```
+
+Expected: after your fix, mypy reports one `arg-type` error on the `area("ab", 2)` line.
+
+<Solution>
+
+`Callable[..., Any]` accepts any arguments and returns `Any`, so `area` lost its signature the moment it was decorated. Replace the annotations with a parameter specification:
+
+```python title="loose_decorator_fixed.py"
+import functools
+from collections.abc import Callable
+
+
+def logged[**P, R](func: Callable[P, R]) -> Callable[P, R]:
+    @functools.wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+@logged
+def area(width: float, height: float) -> float:
+    return width * height
+
+
+print(area(3, 4))
+print(area("ab", 2))
+```
+
+```text
+12
+abab
+```
+
+```console title="mypy 2.3.1"
+$ mypy loose_decorator_fixed.py
+loose_decorator_fixed.py:19: error: Argument 1 to "area" has incompatible type "str"; expected "float"  [arg-type]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+The program still prints `abab` when run, because `"ab" * 2` is valid Python. The checker is the only thing that can catch this.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A protocol describes what a value can do. Classes match it by structure, not by inheritance.
+- A protocol works as the bound of a type parameter, which keeps precise return types.
+- Protocol attributes must exist with a compatible type, and are treated as writable unless declared as properties.
+- A protocol with `__call__` describes callables with keyword arguments and defaults.
+- `def deco[**P, R](func: Callable[P, R]) -> Callable[P, R]` keeps a decorated function's signature. `Concatenate[X, P]` describes a decorator that supplies the first argument.

@@ -1,0 +1,554 @@
+---
+language: python
+level: advanced
+module: Typing in depth
+order: 1
+title: Static typing fundamentals
+description: Type real code precisely with Callable, Literal, Final and TypedDict, know when Any switches checking off, and use cast and reveal_type deliberately.
+minVersion: "3.11"
+objectives:
+  - Use reveal_type to see what a type checker infers
+  - Annotate functions that take functions, with collections.abc.Callable
+  - Restrict values with Literal and protect constants with Final
+  - Describe the shape of a dict with TypedDict
+  - Choose between Any and object, and use cast only where you can justify it
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/03-values-and-types"]
+---
+
+You already annotate parameters with `int`, `list[str]` and `X | None`, from the [type hints lesson](../../beginner/type-hints-intro/), and you have run a checker in [Linting, formatting and type checking](../../intermediate/ruff-and-type-checking/). This module goes further: it is about making the checker understand real code, not toy functions. The general idea of static versus dynamic typing is in the [fundamentals lesson on values and types](../../../fundamentals/beginner/values-and-types/).
+
+Every checker run in this module was done with mypy 2.3.1 or pyright 1.1.414, targeting Python 3.15. Other versions word their messages a little differently.
+
+## Ask the checker what it sees
+
+`reveal_type(expr)` asks a type checker to print the type it has inferred. It is the single most useful debugging tool in typing. It lives in `typing` from Python 3.11, and checkers understand it even without the import.
+
+```python title="reveal.py"
+from typing import reveal_type
+
+scores = [90, 72, 85]
+best = max(scores)
+reveal_type(scores)
+reveal_type(best)
+print(best)
+```
+
+```text
+90
+```
+
+At run time, `reveal_type` returns its argument unchanged and writes a line such as `Runtime type is 'list'` to standard error, which is why only `90` appears above. The checker reports something more useful:
+
+```console title="mypy 2.3.1"
+$ mypy reveal.py
+reveal.py:5: note: Revealed type is "list[int]"
+reveal.py:6: note: Revealed type is "int"
+Success: no issues found in 1 source file
+```
+
+Delete `reveal_type` calls once you have your answer. They are questions, not documentation.
+
+## Functions as values: Callable
+
+A parameter that receives a function is annotated with `Callable[[arg types], return type]`. Import it from `collections.abc`, which is the current home; `typing.Callable` is an older alias.
+
+```python title="callable_apply.py"
+from collections.abc import Callable
+
+
+def apply_twice(func: Callable[[int], int], value: int) -> int:
+    return func(func(value))
+
+
+def add_three(n: int) -> int:
+    return n + 3
+
+
+print(apply_twice(add_three, 10))
+print(apply_twice(lambda n: n * n, 3))
+```
+
+```text
+16
+81
+```
+
+The lambda needs no annotation of its own. The checker sees that it is passed where a `Callable[[int], int]` is expected and checks `n * n` with `n: int`.
+
+Now pass a function with the wrong return type. Python is happy, because `"#1"` can be formatted again:
+
+```python title="callable_wrong.py"
+from collections.abc import Callable
+
+
+def apply_twice(func: Callable[[int], int], value: int) -> int:
+    return func(func(value))
+
+
+def label(n: int) -> str:
+    return f"#{n}"
+
+
+print(apply_twice(label, 1))
+```
+
+```text
+##1
+```
+
+The output `##1` is the kind of quiet nonsense that reaches production. The checker refuses it:
+
+```console title="mypy 2.3.1"
+$ mypy callable_wrong.py
+callable_wrong.py:12: error: Argument 1 to "apply_twice" has incompatible type "Callable[[int], str]"; expected "Callable[[int], int]"  [arg-type]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+`Callable` describes positional parameters only. Keyword arguments, defaults and overloads need a callable protocol, which is in [Protocols and structural typing](../protocols-structural/).
+
+## A fixed set of values: Literal
+
+`Literal["left", "right", "center"]` is a type with exactly three values. It documents an option parameter more precisely than `str`, and a checker rejects anything else. Assigning it to a name makes a reusable alias.
+
+```python title="literal_align.py"
+from typing import Literal, get_args
+
+Align = Literal["left", "right", "center"]
+
+
+def pad(text: str, width: int, align: Align = "left") -> str:
+    if align == "left":
+        return text.ljust(width)
+    if align == "right":
+        return text.rjust(width)
+    return text.center(width)
+
+
+print(f"[{pad('ok', 6)}]")
+print(f"[{pad('ok', 6, 'right')}]")
+print(f"[{pad('ok', 6, 'middle')}]")
+print(get_args(Align))
+```
+
+```text
+[ok    ]
+[    ok]
+[  ok  ]
+('left', 'right', 'center')
+```
+
+At run time `'middle'` fell through to the last branch and nobody noticed. `get_args` shows that the allowed values are stored on the alias, which libraries use to build command-line choices or validation. The checker catches the typo:
+
+```console title="mypy 2.3.1"
+$ mypy literal_align.py
+literal_align.py:16: error: Argument 3 to "pad" has incompatible type "Literal['middle']"; expected "Literal['left', 'right', 'center']"  [arg-type]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+Literal values can be strings, integers, bytes, `True`, `False`, `None` and enum members. Arbitrary expressions are not allowed.
+
+## Constants: Final
+
+`Final` tells the checker that a name must not be rebound. It is the closest Python has to a constant.
+
+```python title="final_const.py"
+from typing import Final
+
+MAX_RETRIES: Final = 3
+print(MAX_RETRIES)
+
+MAX_RETRIES = 5
+print(MAX_RETRIES)
+```
+
+```text
+3
+5
+```
+
+Python rebound the name without complaint. The checker did not:
+
+```console title="mypy 2.3.1"
+$ mypy final_const.py
+final_const.py:6: error: Cannot assign to final name "MAX_RETRIES"  [misc]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+`MAX_RETRIES: Final = 3` lets the checker infer `int`. Write `Final[int]` only when you want a wider type than the value suggests. In a class body, `Final` marks an attribute that subclasses and instances may not replace.
+
+## The shape of a dict: TypedDict
+
+JSON, configuration and many APIs hand you dicts with known keys. `dict[str, object]` loses all that knowledge. A `TypedDict` lists each key and its value type.
+
+```python title="typeddict_basic.py"
+from typing import TypedDict
+
+
+class Movie(TypedDict):
+    title: str
+    year: int
+
+
+film: Movie = {"title": "Alien", "year": 1979}
+print(film["title"], film["year"])
+print(type(film) is dict)
+print(sorted(Movie.__required_keys__))
+print(Movie(title="Heat", year=1995))
+```
+
+```text
+Alien 1979
+True
+['title', 'year']
+{'title': 'Heat', 'year': 1995}
+```
+
+At run time a `TypedDict` value is an ordinary `dict`. Calling `Movie(...)` builds one, and the class keeps the key names in `__required_keys__`. All the checking is static. A typo is caught twice, once for the key that is missing and once for the stranger:
+
+```python title="typeddict_typo.py"
+from typing import TypedDict
+
+
+class Movie(TypedDict):
+    title: str
+    year: int
+
+
+film: Movie = {"title": "Alien", "yaer": 1979}
+print(film)
+```
+
+```text
+{'title': 'Alien', 'yaer': 1979}
+```
+
+```console title="mypy 2.3.1"
+$ mypy typeddict_typo.py
+typeddict_typo.py:9: error: Missing key "year" for TypedDict "Movie"  [typeddict-item]
+typeddict_typo.py:9: error: Extra key "yaer" for TypedDict "Movie"  [typeddict-unknown-key]
+Found 2 errors in 1 file (checked 1 source file)
+```
+
+If you control the data and want behaviour, a dataclass from [Dataclasses](../../intermediate/dataclasses/) is usually better. Reach for `TypedDict` when the value really is a dict, for example straight out of `json.loads`. Optional keys, read-only keys and extra keys are in [TypedDict in depth](../typeddict-advanced/).
+
+## Any versus object
+
+Both accept every value, but they mean opposite things:
+
+- `object` says "anything, so you may only do what every object can do".
+- `Any` says "stop checking": every operation is allowed, and the result is `Any` too.
+
+```python title="any_object.py"
+from typing import Any
+
+
+def loose(value: Any) -> int:
+    return value.bit_length()
+
+
+def strict(value: object) -> int:
+    return value.bit_length()
+
+
+print(loose(255), strict(255))
+try:
+    loose("255")
+except AttributeError as error:
+    print("AttributeError:", error)
+```
+
+```text
+8 8
+AttributeError: 'str' object has no attribute 'bit_length'
+```
+
+```console title="mypy 2.3.1"
+$ mypy any_object.py
+any_object.py:9: error: "object" has no attribute "bit_length"  [attr-defined]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+The checker flags `strict`, whose body really is wrong for most inputs, and says nothing about `loose("255")`, which crashed. `Any` spreads: anything computed from an `Any` is `Any`, so one careless annotation can switch checking off for a whole call chain. With `object` you must prove the type first, and an `isinstance` check does that:
+
+```python title="object_narrowed.py"
+def strict(value: object) -> int:
+    if isinstance(value, int):
+        return value.bit_length()
+    return 0
+
+
+print(strict(255), strict("255"))
+```
+
+```text
+8 0
+```
+
+```console title="mypy 2.3.1"
+$ mypy object_narrowed.py
+Success: no issues found in 1 source file
+```
+
+Use `object` for "I accept anything and only pass it along or inspect it". Keep `Any` for the boundary with untyped code, and for the rare value whose type you genuinely cannot express.
+
+## Overriding the checker: cast
+
+`cast(T, value)` tells the checker "treat this as `T`". At run time it returns `value` untouched, with no conversion and no check.
+
+```python title="cast_json.py"
+import json
+from typing import TypedDict, cast
+
+
+class Item(TypedDict):
+    sku: str
+    qty: int
+
+
+item = cast(Item, json.loads('{"sku": "A1", "qty": 4}'))
+print(item["sku"], item["qty"] * 2)
+
+wrong = cast(int, "not a number")
+print(repr(wrong), type(wrong).__name__)
+```
+
+```text
+A1 8
+'not a number' str
+```
+
+`json.loads` returns `Any`, so the cast to `Item` lets the rest of the code use precise key types. The second cast shows the danger: the checker now believes `wrong` is an `int`, and nothing at run time disagrees until something breaks far away. Every `cast` is an unchecked claim, so keep them few, close to the source of the data, and preferably replaced by a real check or by narrowing, which [Type narrowing](../narrowing/) covers.
+
+## Common pitfalls
+
+**Reading hints as runtime checks.** Every example above ran past its type error. Annotations are enforced only by a checker, or by a library you choose to use, such as a validator.
+
+**Typing parameters too narrowly.** A function that only iterates should accept `Iterable[str]` from `collections.abc`, not `list[str]`. Accept the most general type you need and return the most specific type you have.
+
+**Silencing with Any.** Writing `Any` to make an error go away turns off the very check that found the problem. Find the type the code really needs, or use `object` and narrow.
+
+**Expecting Final to freeze the value.** `Final` stops rebinding the name. A `Final` list can still be appended to.
+
+<Exercise title="Type an inventory module">
+Here is an untyped inventory script. Add annotations so that mypy reports no errors, without using `Any`. Use a `TypedDict` for the items, `Final` for `LOW_STOCK`, and `Callable` for `keep`. You may replace `make_item` with direct construction of the `TypedDict`.
+
+```python title="inventory_untyped.py"
+LOW_STOCK = 5
+
+
+def make_item(name, qty, price):
+    return {"name": name, "qty": qty, "price": price}
+
+
+def select(items, keep):
+    return [item for item in items if keep(item)]
+
+
+stock = [
+    make_item("pen", 40, 1.5),
+    make_item("ink", 3, 7.0),
+    make_item("pad", 2, 4.25),
+]
+low = select(stock, lambda item: item["qty"] < LOW_STOCK)
+print([item["name"] for item in low])
+print(sum(item["qty"] * item["price"] for item in stock))
+```
+
+```text
+['ink', 'pad']
+89.5
+```
+
+Expected: the same two output lines, and `Success: no issues found in 1 source file` from `mypy`.
+
+<Solution>
+
+```python title="inventory_typed.py"
+from collections.abc import Callable
+from typing import Final, TypedDict
+
+LOW_STOCK: Final = 5
+
+
+class Item(TypedDict):
+    name: str
+    qty: int
+    price: float
+
+
+def select(items: list[Item], keep: Callable[[Item], bool]) -> list[Item]:
+    return [item for item in items if keep(item)]
+
+
+stock: list[Item] = [
+    Item(name="pen", qty=40, price=1.5),
+    Item(name="ink", qty=3, price=7.0),
+    Item(name="pad", qty=2, price=4.25),
+]
+low = select(stock, lambda item: item["qty"] < LOW_STOCK)
+print([item["name"] for item in low])
+print(sum(item["qty"] * item["price"] for item in stock))
+```
+
+```text
+['ink', 'pad']
+89.5
+```
+
+```console title="mypy 2.3.1"
+$ mypy inventory_typed.py
+Success: no issues found in 1 source file
+```
+
+`select` is now precise: its `keep` argument must take an `Item` and return a `bool`, so the lambda is checked with `item: Item`, and `item["qty"]` is known to be an `int`. A misspelt key such as `item["qtty"]` would be an error.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the checker's findings">
+Without running anything, decide which of the lines marked `A` to `D` mypy reports, and why. Then run the program and the checker.
+
+```python title="predict_flags.py"
+from collections.abc import Callable
+from typing import Any, Literal
+
+
+def level(name: Literal["low", "high"]) -> int:
+    return 1 if name == "low" else 2
+
+
+def shout(value: object) -> str:
+    return str(value).upper()
+
+
+def whisper(value: Any) -> str:
+    return value.lower()
+
+
+print(level("high"))  # A
+print(level("medium"))  # B
+print(shout(42), whisper("HEY"))  # C
+op: Callable[[float], float] = shout  # D
+print(op(1.5))
+```
+
+Expected: the letters of the flagged lines, then confirm with `mypy predict_flags.py`.
+
+<Solution>
+
+
+```text
+2
+2
+42 hey
+1.5
+```
+
+```console title="mypy 2.3.1"
+$ mypy predict_flags.py
+predict_flags.py:18: error: Argument 1 to "level" has incompatible type "Literal['medium']"; expected "Literal['low', 'high']"  [arg-type]
+predict_flags.py:20: error: Incompatible types in assignment (expression has type "Callable[[object], str]", variable has type "Callable[[float], float]")  [assignment]
+Found 2 errors in 1 file (checked 1 source file)
+```
+
+- **A** passes: `"high"` is one of the literal values.
+- **B** fails: `"medium"` is not, even though the program printed `2`.
+- **C** passes. `shout` accepts `object`, and `whisper` takes `Any`, so the checker would accept `whisper(42)` too, which would crash.
+- **D** fails: `shout` returns `str`, but the variable promises a function returning `float`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A typed dispatch table">
+Write `OPERATIONS`, a dict from the operation names `"add"`, `"sub"` and `"mul"` to two-argument integer functions, and `calc(op, a, b)` that looks up and calls one. Use a `Literal` alias for the names, so that `calc("div", 6, 3)` is a checker error. Loop over the alias's values with `get_args` and print each result for `6` and `3`.
+
+Expected output, and `Success` from mypy:
+
+```text
+add 9
+sub 3
+mul 18
+```
+
+<Solution>
+
+```python title="dispatch.py"
+from collections.abc import Callable
+from typing import Literal, get_args
+
+Op = Literal["add", "sub", "mul"]
+
+OPERATIONS: dict[Op, Callable[[int, int], int]] = {
+    "add": lambda a, b: a + b,
+    "sub": lambda a, b: a - b,
+    "mul": lambda a, b: a * b,
+}
+
+
+def calc(op: Op, a: int, b: int) -> int:
+    return OPERATIONS[op](a, b)
+
+
+for name in get_args(Op):
+    print(name, calc(name, 6, 3))
+```
+
+```text
+add 9
+sub 3
+mul 18
+```
+
+```console title="mypy 2.3.1"
+$ mypy dispatch.py
+Success: no issues found in 1 source file
+```
+
+With the alias in place, a bad name is caught before the program runs. At run time it would have been a `KeyError`:
+
+```python title="dispatch_wrong.py"
+from collections.abc import Callable
+from typing import Literal
+
+Op = Literal["add", "sub", "mul"]
+
+OPERATIONS: dict[Op, Callable[[int, int], int]] = {
+    "add": lambda a, b: a + b,
+    "sub": lambda a, b: a - b,
+    "mul": lambda a, b: a * b,
+}
+
+
+def calc(op: Op, a: int, b: int) -> int:
+    return OPERATIONS[op](a, b)
+
+
+try:
+    print(calc("div", 6, 3))
+except KeyError as error:
+    print("KeyError:", error)
+```
+
+```text
+KeyError: 'div'
+```
+
+```console title="mypy 2.3.1"
+$ mypy dispatch_wrong.py
+dispatch_wrong.py:18: error: Argument 1 to "calc" has incompatible type "Literal['div']"; expected "Literal['add', 'sub', 'mul']"  [arg-type]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `reveal_type(expr)` shows what the checker inferred. Remove it when you are done.
+- `Callable[[int], int]` from `collections.abc` types a function argument by its positional parameters and return type.
+- `Literal[...]` restricts a value to a fixed set, and `get_args` reads that set at run time.
+- `Final` forbids rebinding a name, but does not freeze the object.
+- `TypedDict` describes dict shapes for checkers. At run time the values are plain dicts.
+- `object` accepts everything and allows little. `Any` accepts everything and checks nothing.
+- `cast` changes only what the checker believes. Use it sparingly, at data boundaries.

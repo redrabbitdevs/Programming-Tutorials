@@ -1,0 +1,2 @@
+{'x': 'int', 'y': 'int', 'nearest': 'Point | None'}
+{'x': <class 'int'>, 'y': <class 'int'>, 'nearest': __main__.Point | None}

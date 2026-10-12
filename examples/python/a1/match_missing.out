@@ -1,0 +1,1 @@
+AssertionError: Expected code to be unreachable, but got: Triangle(side=3.0)

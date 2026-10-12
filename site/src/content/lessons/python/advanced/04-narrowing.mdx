@@ -1,0 +1,510 @@
+---
+language: python
+level: advanced
+module: Typing in depth
+order: 4
+title: Type narrowing
+description: See how checkers narrow unions through is None, isinstance and equality, write your own narrowing functions with TypeIs and TypeGuard, and make match statements provably exhaustive with assert_never.
+minVersion: "3.13"
+objectives:
+  - Predict the narrowed type in each branch of an if statement
+  - Write a type predicate with TypeIs, and explain how it differs from TypeGuard
+  - Use class patterns in match to take apart dataclasses
+  - Make a match or if chain exhaustive with assert_never, so new cases cannot be forgotten
+estimatedMinutes: 45
+fundamentals: []
+---
+
+A union such as `int | str | None` says a value may be one of several types. Before you can use it, you must find out which. Checkers follow your `if` statements and **narrow** the type in each branch. You have relied on this since [Static typing fundamentals](../typing-fundamentals/), where an `isinstance` check made an `object` usable. This lesson shows the rules, how to extend them, and how to turn "I handled every case" into something the checker proves.
+
+## Built-in narrowing
+
+`is None`, `isinstance`, `==` against literals, `in`, and plain truthiness all narrow. After a branch returns, the rest of the function sees what is left:
+
+```python title="narrow_basics.py"
+from typing import reveal_type
+
+
+def describe(value: int | str | None) -> str:
+    if value is None:
+        reveal_type(value)
+        return "nothing"
+    reveal_type(value)
+    if isinstance(value, str):
+        reveal_type(value)
+        return f"text of length {len(value)}"
+    reveal_type(value)
+    return f"number {value + 1}"
+
+
+print(describe(None), describe("abc"), describe(41), sep=" | ")
+```
+
+```text
+nothing | text of length 3 | number 42
+```
+
+```console title="mypy 2.3.1"
+$ mypy narrow_basics.py
+narrow_basics.py:6: note: Revealed type is "None"
+narrow_basics.py:8: note: Revealed type is "int | str"
+narrow_basics.py:10: note: Revealed type is "str"
+narrow_basics.py:12: note: Revealed type is "int"
+Success: no issues found in 1 source file
+```
+
+Line 8 runs only when `value` is not `None`, so `None` has been removed. Inside the `isinstance` branch it is `str`. After that branch returns, only `int` is left, so `value + 1` is accepted. Narrowing works on local names and, with some care, on attributes. It does not survive a function call that might change the attribute, so copy an attribute into a local before testing it.
+
+## Your own predicates: TypeIs
+
+A helper such as `is_text(value)` hides the `isinstance` from the checker, so by default nothing narrows. Annotate its return as `TypeIs[str]` ([PEP 742](https://peps.python.org/pep-0742/)) and the checker treats a call like the `isinstance` inside it:
+
+```python title="typeis_basic.py"
+from typing import TypeIs, reveal_type
+
+
+def is_text(value: object) -> TypeIs[str]:
+    return isinstance(value, str)
+
+
+def shout(value: int | str) -> str:
+    if is_text(value):
+        reveal_type(value)
+        return value.upper()
+    reveal_type(value)
+    return str(value * 10)
+
+
+print(is_text("hi"), is_text(3), type(is_text("hi")).__name__)
+print(shout("hi"), shout(3))
+```
+
+```text
+True False bool
+HI 30
+```
+
+```console title="mypy 2.3.1"
+$ mypy typeis_basic.py
+typeis_basic.py:10: note: Revealed type is "str"
+typeis_basic.py:12: note: Revealed type is "int"
+Success: no issues found in 1 source file
+```
+
+At run time `is_text` is an ordinary function returning `bool`, as the first output line shows. `TypeIs[str]` is a promise to the checker: "`True` means the argument is a `str`, and `False` means it is not". The checker uses both halves: `str` in the `if` branch, and `int` in the `else` branch, since `str` has been removed from `int | str`.
+
+## TypeGuard: the older, weaker form
+
+`TypeGuard` (Python 3.10) looks similar but promises less: `True` means the type, and `False` means nothing at all. Compare the negative branches:
+
+```python title="typeguard_vs_typeis.py"
+from typing import TypeGuard, TypeIs, reveal_type
+
+
+def guard_text(value: object) -> TypeGuard[str]:
+    return isinstance(value, str)
+
+
+def is_text(value: object) -> TypeIs[str]:
+    return isinstance(value, str)
+
+
+def check(value: int | str) -> None:
+    if not guard_text(value):
+        reveal_type(value)
+    if not is_text(value):
+        reveal_type(value)
+
+
+check(5)
+print(guard_text("x"), is_text(5))
+```
+
+```text
+True False
+```
+
+```console title="mypy 2.3.1"
+$ mypy typeguard_vs_typeis.py
+typeguard_vs_typeis.py:14: note: Revealed type is "int | str"
+typeguard_vs_typeis.py:16: note: Revealed type is "int"
+Success: no issues found in 1 source file
+```
+
+After `not guard_text(value)`, the type is still `int | str`. After `not is_text(value)`, it is `int`.
+
+`TypeGuard` remains useful for one thing `TypeIs` forbids: narrowing to a type that is not a subtype of the input. `list[str]` is not a subtype of `list[object]`, because lists are invariant, so `TypeIs[list[str]]` on a `list[object]` parameter is an error (`Narrowed type "list[str]" is not a subtype of input type "list[object]"`, in mypy's words). `TypeGuard` allows it:
+
+```python title="typeguard_list.py"
+from typing import TypeGuard
+
+
+def all_text(items: list[object]) -> TypeGuard[list[str]]:
+    return all(isinstance(item, str) for item in items)
+
+
+def join(items: list[object]) -> str:
+    if all_text(items):
+        return "-".join(items)
+    return "mixed"
+
+
+print(join(["a", "b"]), join(["a", 1]))
+```
+
+```text
+a-b mixed
+```
+
+```console title="mypy 2.3.1"
+$ mypy typeguard_list.py
+Success: no issues found in 1 source file
+```
+
+Use `TypeIs` by default, and `TypeGuard` only for this kind of conversion.
+
+## Exhaustiveness with assert_never
+
+A union of dataclasses is a common way to model "one of these shapes". Here is the union, written with the `type` statement from [Generics with type parameter syntax](../generics-pep695/):
+
+```python title="shapes.py"
+from dataclasses import dataclass
+
+
+@dataclass
+class Circle:
+    radius: float
+
+
+@dataclass
+class Square:
+    side: float
+
+
+type Shape = Circle | Square
+```
+
+`match` takes such values apart with **class patterns**. `case Circle(radius=r)` matches when the subject is a `Circle`, and binds its `radius` attribute to `r`. Inside each `case`, the checker narrows the subject to that class. The wildcard `case _` catches everything else, and here everything else should be nothing:
+
+```python title="match_never.py"
+from typing import assert_never
+
+from shapes import Circle, Shape, Square
+
+
+def area(shape: Shape) -> float:
+    match shape:
+        case Circle(radius=r):
+            return 3.14159 * r * r
+        case Square(side=s):
+            return s * s
+        case _:
+            assert_never(shape)
+
+
+print(round(area(Circle(1.0)), 2), area(Square(3.0)))
+```
+
+```text
+3.14 9.0
+```
+
+```console title="mypy 2.3.1"
+$ mypy match_never.py
+Success: no issues found in 1 source file
+```
+
+`assert_never(arg)` is annotated to accept only `Never`, the type with no values. After `Circle` and `Square` are handled, the checker has narrowed `shape` to `Never`, so the call type-checks. Now add a third shape and forget to handle it:
+
+```python title="match_missing.py"
+from dataclasses import dataclass
+from typing import assert_never
+
+from shapes import Circle, Square
+
+
+@dataclass
+class Triangle:
+    side: float
+
+
+def area(shape: Circle | Square | Triangle) -> float:
+    match shape:
+        case Circle(radius=r):
+            return 3.14159 * r * r
+        case Square(side=s):
+            return s * s
+        case _:
+            assert_never(shape)
+
+
+try:
+    area(Triangle(3.0))
+except AssertionError as error:
+    print("AssertionError:", error)
+```
+
+```text
+AssertionError: Expected code to be unreachable, but got: Triangle(side=3.0)
+```
+
+```console title="mypy 2.3.1"
+$ mypy match_missing.py
+match_missing.py:19: error: Argument 1 to "assert_never" has incompatible type "Triangle"; expected "Never"  [arg-type]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+The checker reports the forgotten case by name, before any triangle is ever drawn. At run time `assert_never` raises `AssertionError` with the offending value, so the mistake is loud either way. The same works with `if` chains over a `Literal` or an enum:
+
+```python title="status_never.py"
+from typing import Literal, assert_never
+
+type Status = Literal["ok", "warn", "fail"]
+
+
+def colour(status: Status) -> str:
+    if status == "ok":
+        return "green"
+    elif status == "warn":
+        return "amber"
+    elif status == "fail":
+        return "red"
+    else:
+        assert_never(status)
+
+
+print([colour(s) for s in ("ok", "warn", "fail")])
+```
+
+```text
+['green', 'amber', 'red']
+```
+
+```console title="mypy 2.3.1"
+$ mypy status_never.py
+Success: no issues found in 1 source file
+```
+
+This is the main reason to type a closed set of cases as a union or `Literal`: adding a case turns every incomplete handler into a checker error.
+
+## Common pitfalls
+
+**A predicate that lies.** `TypeIs` is trusted, not checked. If the function returns `False` for some values of the narrowed type, the `else` branch will be wrong. The third exercise shows the bug.
+
+**A wildcard that swallows new cases.** `case _: return "unknown"` makes a match exhaustive in a useless way. Put `assert_never` in the wildcard, so additions are reported.
+
+**Narrowing an attribute, then calling something.** After `if self.user is not None:`, a method call can set `self.user = None`. Checkers differ on how much they trust attribute narrowing across calls. Assign to a local first.
+
+**Using `isinstance` with a generic alias.** `isinstance(x, list[int])` raises `TypeError`. Check `isinstance(x, list)`, then the items, or use `TypeGuard`.
+
+<Exercise title="An exhaustive event handler">
+Define three event dataclasses in `events.py`: `Click` with `x` and `y`, `Key` with `name`, and `Quit` with no fields, plus `type Event = Click | Key | Quit`. Write `handle(event)` with `match`: report clicks as `click at X,Y`, the key `"Escape"` as `escape pressed`, other keys as `key NAME`, and quit as `bye`. End with `assert_never`.
+
+Handle `[Click(3, 4), Key("a"), Key("Escape"), Quit()]`. Expected output, and `Success` from mypy:
+
+```text
+click at 3,4
+key a
+escape pressed
+bye
+```
+
+<Solution>
+
+```python title="events.py"
+from dataclasses import dataclass
+
+
+@dataclass
+class Click:
+    x: int
+    y: int
+
+
+@dataclass
+class Key:
+    name: str
+
+
+@dataclass
+class Quit:
+    pass
+
+
+type Event = Click | Key | Quit
+```
+
+```python title="events_handle.py"
+from typing import assert_never
+
+from events import Click, Event, Key, Quit
+
+
+def handle(event: Event) -> str:
+    match event:
+        case Click(x=x, y=y):
+            return f"click at {x},{y}"
+        case Key(name="Escape"):
+            return "escape pressed"
+        case Key(name=name):
+            return f"key {name}"
+        case Quit():
+            return "bye"
+        case _:
+            assert_never(event)
+
+
+events: list[Event] = [Click(3, 4), Key("a"), Key("Escape"), Quit()]
+for event in events:
+    print(handle(event))
+```
+
+```text
+click at 3,4
+key a
+escape pressed
+bye
+```
+
+```console title="mypy 2.3.1"
+$ mypy events_handle.py
+Success: no issues found in 1 source file
+```
+
+`Key(name="Escape")` uses a literal sub-pattern, so it must come before the general `Key(name=name)` case. `Quit()` with no arguments matches any `Quit`. Remove the `Quit()` case and mypy reports the missing `Quit` at the `assert_never` line, just as it did for the triangle.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A number predicate">
+Write `is_number(value: object) -> TypeIs[int | float]` that is true for ints and floats but false for `bool`, which is a subclass of `int`. Use it in `total(items: list[object]) -> float` to add up only the numbers.
+
+Print `total([1, "two", 3.5, None, True, 4])`, then `is_number` of `2`, `"2"` and `False`. Expected output, and `Success` from mypy:
+
+```text
+8.5
+True False False
+```
+
+<Solution>
+
+```python title="is_number.py"
+from typing import TypeIs
+
+
+def is_number(value: object) -> TypeIs[int | float]:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def total(items: list[object]) -> float:
+    result = 0.0
+    for item in items:
+        if is_number(item):
+            result += item
+    return result
+
+
+print(total([1, "two", 3.5, None, True, 4]))
+print(is_number(2), is_number("2"), is_number(False))
+```
+
+```text
+8.5
+True False False
+```
+
+```console title="mypy 2.3.1"
+$ mypy is_number.py
+Success: no issues found in 1 source file
+```
+
+Inside the `if`, `item` is `int | float`, so `result += item` type-checks. Without `TypeIs`, `item` would stay `object` and the addition would be an error.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Debug the lying predicate">
+mypy reports no errors for this program, yet it crashes. Find the line that breaks the `TypeIs` promise, explain why the `else` branch is wrong, and fix `show` so that it prints `+5`, `ABC` and `-5`.
+
+```python title="positive_bug.py"
+from typing import TypeIs
+
+
+def is_positive(value: int | str) -> TypeIs[int]:
+    return isinstance(value, int) and value > 0
+
+
+def show(value: int | str) -> str:
+    if is_positive(value):
+        return f"+{value}"
+    return value.upper()
+
+
+values: list[int | str] = [5, "abc", -5]
+for value in values:
+    try:
+        print(show(value))
+    except AttributeError as error:
+        print("AttributeError:", error)
+```
+
+```text
++5
+ABC
+AttributeError: 'int' object has no attribute 'upper'
+```
+
+```console title="mypy 2.3.1"
+$ mypy positive_bug.py
+Success: no issues found in 1 source file
+```
+
+Expected output after the fix:
+
+```text
++5
+ABC
+-5
+```
+
+<Solution>
+
+`is_positive(-5)` returns `False`, so the checker concludes that `-5` is not an `int` and narrows `value` to `str` in the rest of `show`. That is false, and `.upper()` fails on an `int`. A `TypeIs` function must return `True` for *every* value of the narrowed type. "Is a positive int" is not a type, so it cannot be a `TypeIs`. Test the type and the value separately:
+
+```python title="positive_fixed.py"
+def show(value: int | str) -> str:
+    if isinstance(value, str):
+        return value.upper()
+    if value > 0:
+        return f"+{value}"
+    return str(value)
+
+
+values: list[int | str] = [5, "abc", -5]
+for value in values:
+    print(show(value))
+```
+
+```text
++5
+ABC
+-5
+```
+
+```console title="mypy 2.3.1"
+$ mypy positive_fixed.py
+Success: no issues found in 1 source file
+```
+
+Annotating `is_positive` with `TypeGuard[int]` would also have been honest, because `TypeGuard` makes no promise about `False`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Checkers narrow unions through `is None`, `isinstance`, literal comparisons, `in` and truthiness, branch by branch.
+- `TypeIs[T]` narrows in both branches. The function must return `True` exactly when the argument is a `T`.
+- `TypeGuard[T]` narrows only on `True`, and may narrow to a type that is not a subtype of the input.
+- Class patterns such as `case Circle(radius=r)` match a type and bind its attributes.
+- `assert_never` in the final branch makes the checker prove a `match` or `if` chain is exhaustive.
