@@ -2,14 +2,11 @@
 
 
 def wrap_words(text, width):
-    """Split text into lines no longer than width, breaking only between words.
+    """Split text into lines of at most width characters.
 
     Args:
-        text: The text to wrap. Runs of whitespace count as one space.
-        width: Maximum line length. A single word longer than this gets its own line.
-
-    Returns:
-        A list of lines.
+        text: The text to wrap.
+        width: Maximum line length. A longer word gets its own line.
 
     Raises:
         ValueError: If width is less than 1.
@@ -20,11 +17,6 @@ def wrap_words(text, width):
     ['extraordinarily', 'short']
     >>> wrap_words("", 10)
     []
-    >>> for line in wrap_words("one two three four", 9):
-    ...     print(line)
-    one two
-    three
-    four
     >>> wrap_words("x", 0)
     Traceback (most recent call last):
         ...

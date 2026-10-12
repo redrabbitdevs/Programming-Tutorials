@@ -1,7 +1,11 @@
 import logging
 import sys
 
-logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.INFO,
+    format="%(name)s %(levelname)s %(message)s",
+)
 
 app = logging.getLogger("app")
 db = logging.getLogger("app.db")

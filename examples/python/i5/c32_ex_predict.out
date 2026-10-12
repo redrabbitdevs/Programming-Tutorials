@@ -1,25 +1,25 @@
-test_full_discount (__main__.DiscountTests.test_full_discount) ... FAIL
-test_ten_percent (__main__.DiscountTests.test_ten_percent) ... ok
-test_text_price (__main__.DiscountTests.test_text_price) ... ERROR
-test_zero_percent (__main__.DiscountTests.test_zero_percent) ... ok
+test_full_discount (c32_ex_predict.DiscountTests.test_full_discount) ... FAIL
+test_ten_percent (c32_ex_predict.DiscountTests.test_ten_percent) ... ok
+test_text_price (c32_ex_predict.DiscountTests.test_text_price) ... ERROR
+test_zero_percent (c32_ex_predict.DiscountTests.test_zero_percent) ... ok
 
 ======================================================================
-ERROR: test_text_price (__main__.DiscountTests.test_text_price)
+ERROR: test_text_price (c32_ex_predict.DiscountTests.test_text_price)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c32_ex_predict.py", line 21, in test_text_price
+  File "c32_ex_predict.py", line 18, in test_text_price
     self.assertEqual(discount("100", 10), 90)
                      ~~~~~~~~^^^^^^^^^^^
-  File "c32_ex_predict.py", line 7, in discount
+  File "c32_ex_predict.py", line 4, in discount
     return price - price * percent / 100
                    ~~~~~~~~~~~~~~~~^~~~~
 TypeError: unsupported operand type(s) for /: 'str' and 'int'
 
 ======================================================================
-FAIL: test_full_discount (__main__.DiscountTests.test_full_discount)
+FAIL: test_full_discount (c32_ex_predict.DiscountTests.test_full_discount)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c32_ex_predict.py", line 18, in test_full_discount
+  File "c32_ex_predict.py", line 15, in test_full_discount
     self.assertEqual(discount(80, 100), 80)
     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
 AssertionError: 0.0 != 80

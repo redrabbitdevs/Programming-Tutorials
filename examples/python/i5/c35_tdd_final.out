@@ -1,9 +1,9 @@
-test_all_three_units (__main__.ParseDurationTests.test_all_three_units) ... ok
-test_capitals_and_spaces_are_tolerated (__main__.ParseDurationTests.test_capitals_and_spaces_are_tolerated) ... ok
-test_hours_and_minutes (__main__.ParseDurationTests.test_hours_and_minutes) ... ok
-test_minutes_and_seconds (__main__.ParseDurationTests.test_minutes_and_seconds) ... ok
-test_rejects_text_that_is_not_a_duration (__main__.ParseDurationTests.test_rejects_text_that_is_not_a_duration) ... ok
-test_seconds_only (__main__.ParseDurationTests.test_seconds_only) ... ok
+test_all_three_units (c35_tdd_final.ParseDurationTests.test_all_three_units) ... ok
+test_capitals_and_spaces_are_tolerated (c35_tdd_final.ParseDurationTests.test_capitals_and_spaces_are_tolerated) ... ok
+test_hours_and_minutes (c35_tdd_final.ParseDurationTests.test_hours_and_minutes) ... ok
+test_minutes_and_seconds (c35_tdd_final.ParseDurationTests.test_minutes_and_seconds) ... ok
+test_rejects_text_that_is_not_a_duration (c35_tdd_final.ParseDurationTests.test_rejects_text_that_is_not_a_duration) ... ok
+test_seconds_only (c35_tdd_final.ParseDurationTests.test_seconds_only) ... ok
 
 ----------------------------------------------------------------------
 Ran 6 tests in 0.001s

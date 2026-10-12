@@ -17,8 +17,13 @@ def build_with_append(n):
 
 assert build_with_plus(100) == build_with_append(100)
 
-plus = min(timeit.repeat("build_with_plus(4_000)", globals=globals(), number=5, repeat=5))
-append = min(timeit.repeat("build_with_append(4_000)", globals=globals(), number=5, repeat=5))
+
+def best(call):
+    return min(timeit.repeat(call, globals=globals(), number=5, repeat=5))
+
+
+plus = best("build_with_plus(4_000)")
+append = best("build_with_append(4_000)")
 
 print("same result:", build_with_plus(100) == build_with_append(100))
 print("append is at least 3 times faster:", plus > 3 * append)

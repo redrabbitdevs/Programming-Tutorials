@@ -22,5 +22,3 @@ emit_all()
 print("-- after log.setLevel(logging.DEBUG)")
 log.setLevel(logging.DEBUG)
 emit_all()
-
-print(logging.getLevelName(30), logging.WARNING, logging.getLevelName(logging.ERROR))

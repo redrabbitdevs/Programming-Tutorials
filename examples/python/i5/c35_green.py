@@ -1,7 +1,5 @@
 import unittest
 
-from showtests import run_tests
-
 
 def parse_duration(text):
     # the least code that makes the one test pass
@@ -13,4 +11,5 @@ class ParseDurationTests(unittest.TestCase):
         self.assertEqual(parse_duration("90s"), 90)
 
 
-print(run_tests(ParseDurationTests))
+if __name__ == "__main__":
+    unittest.main()

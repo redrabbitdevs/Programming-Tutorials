@@ -1,0 +1,9 @@
+> c39_ex_tbreak.py(7)running_total()
+-> total = 0
+(Pdb) Breakpoint 1 at c39_ex_tbreak.py:9
+(Pdb) Deleted breakpoint 1 at c39_ex_tbreak.py:9
+> c39_ex_tbreak.py(9)running_total()
+-> total += n
+(Pdb) (2, 15, 15)
+(Pdb) 
+returned 75

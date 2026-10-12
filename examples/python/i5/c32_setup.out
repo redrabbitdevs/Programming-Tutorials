@@ -1,6 +1,6 @@
-test_tests_do_not_share_state (__main__.BasketTests.test_tests_do_not_share_state) ... ok
-test_total_after_adding (__main__.BasketTests.test_total_after_adding) ... ok
-test_total_with_one_item (__main__.BasketTests.test_total_with_one_item) ... ok
+test_tests_do_not_share_state (c32_setup.BasketTests.test_tests_do_not_share_state) ... ok
+test_total_after_adding (c32_setup.BasketTests.test_total_after_adding) ... ok
+test_total_with_one_item (c32_setup.BasketTests.test_total_with_one_item) ... ok
 
 ----------------------------------------------------------------------
 Ran 3 tests in 0.001s

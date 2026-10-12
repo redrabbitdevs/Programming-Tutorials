@@ -1,7 +1,6 @@
 import unittest
 
 from c32_textutil import slugify
-from showtests import run_tests
 
 
 class SlugifyTable(unittest.TestCase):
@@ -20,4 +19,5 @@ class SlugifyTable(unittest.TestCase):
                 self.assertEqual(slugify(text), expected)
 
 
-print(run_tests(SlugifyTable))
+if __name__ == "__main__":
+    unittest.main()

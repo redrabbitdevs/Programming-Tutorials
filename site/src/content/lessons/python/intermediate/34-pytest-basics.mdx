@@ -49,18 +49,24 @@ class Account:
         if amount <= 0:
             raise ValueError("deposit must be positive")
         self.balance += amount
+```
 
+Withdrawing is the method with two ways to refuse:
+
+```python title="pt_bank/bank.py (continued)"
     def withdraw(self, amount):
         if amount <= 0:
             raise ValueError("withdrawal must be positive")
         if amount > self.balance:
-            raise InsufficientFunds(f"balance {self.balance}, asked for {amount}")
+            raise InsufficientFunds(
+                f"balance {self.balance}, asked for {amount}"
+            )
         self.balance -= amount
 ```
 
 ## Tests are functions with assert
 
-Put the tests in a file whose name starts with `test_`, in a `tests` folder next to the module. Each test builds an account, does one thing, and asserts what should be true.
+Put the tests in a file whose name starts with `test_`, in a `tests` folder next to the module. Each test builds an account, does one thing, and asserts what should be true. The first three cover the happy path:
 
 ```python title="pt_bank/tests/test_bank.py"
 import pytest
@@ -84,7 +90,11 @@ def test_withdraw_subtracts_from_the_balance():
     account.withdraw(20)
     assert account.balance == 30
 
+```
 
+The next three cover refusals, using `pytest.raises` (more on it below):
+
+```python title="pt_bank/tests/test_bank.py (continued)"
 def test_withdraw_more_than_the_balance_is_refused():
     account = Account("Ana", 50)
     with pytest.raises(InsufficientFunds):
@@ -123,7 +133,7 @@ tests/test_bank.py::test_negative_deposit_is_a_value_error PASSED        [100%]
 ============================== 6 passed in 0.01s ===============================
 ```
 
-(The header with platform and version lines is left out here.) The file `pt_bank/run_pytest.py` runs exactly these tests from a script and checks that six pass. That is how this site's checks verify the example.
+The header lines naming your platform and versions are left out here.
 
 ## How pytest finds tests
 
@@ -211,7 +221,7 @@ FAILED tests/test_fail.py::test_lists - assert [1, 2, 3, 4] == [1, 2, 4, 4]
 3 failed in 0.02s
 ```
 
-Read each block from the `>` line. It marks the assert that failed, and the `E` lines below it explain why. For the dictionaries, pytest names the one key that differs and hides the two that match. For lists it reports the first index that differs. Add `-v` to see more of a long comparison, or `-vv` for all of it. The `pt_fail` example runs these three tests and checks that exactly three fail.
+Read each block from the `>` line. It marks the assert that failed, and the `E` lines below it explain why. For the dictionaries, pytest names the one key that differs and hides the two that match. For lists it reports the first index that differs. Add `-v` to see more of a long comparison, or `-vv` for all of it.
 
 ## Checking exceptions and floats
 
@@ -238,7 +248,11 @@ def test_empty_text_gives_empty_slug():
 def test_average_of_integers():
     assert average([2, 4, 6]) == 4
 
+```
 
+The rest of the file covers the error case and the float:
+
+```python title="pt_ex/tests/test_slugify.py (continued)"
 def test_average_of_floats_needs_a_tolerance():
     assert average([0.1, 0.2]) == pytest.approx(0.15)
 
@@ -248,7 +262,7 @@ def test_average_of_nothing_is_an_error():
         average([])
 ```
 
-This file is the pytest version of last lesson's `unittest` tests for `slugify` and `average`. Compare it with `c32_test_textutil.py`: the same six checks, about half the lines. `pytest.approx(0.15)` makes `==` compare within a small tolerance, which is how pytest handles the floating-point issue.
+These are the pytest versions of the six `unittest` tests from the previous lesson, in about half the lines. `pytest.approx(0.15)` makes `==` compare within a small tolerance, which is how pytest handles the floating-point issue.
 
 ## Common pitfalls
 
@@ -260,7 +274,7 @@ This file is the pytest version of last lesson's `unittest` tests for `slugify` 
 
 <Exercise title="Port the slug tests, and add edge cases">
 
-Without looking at the lesson, write pytest tests for `slugify("Rock & Roll")` (expected `"rock-roll"`), `slugify("  padded  ")` (expected `"padded"`) and `slugify("a.b.c")` (expected `"a-b-c"`), as three separate functions. Then write a test that checks `average([1, 2])` equals `1.5` using `pytest.approx`. Run them: all four should pass.
+Without looking at the lesson, write pytest tests for `slugify("Rock & Roll")` (expected `"rock-roll"`), `slugify("  padded  ")` (expected `"padded"`) and `slugify("a.b.c")` (expected `"a-b-c"`), as three separate functions. Then write a test that checks `average([1, 2])` equals `1.5` using `pytest.approx`. Run them with `python -m pytest`: the last line should read `4 passed`.
 
 <Solution>
 
@@ -293,7 +307,7 @@ All four pass. `approx` is not strictly needed for 1.5, which is exactly represe
 
 <Exercise title="Test the bank account's input checks">
 
-The tests in `test_bank.py` never check what happens with an opening balance of `-1`, a deposit of `0`, or a withdrawal of `0`. Write four tests that fix this. Each should use `pytest.raises(ValueError, match=...)` with the message the code raises, and a fourth should check that a refused withdrawal of `-5` leaves the balance at 10.
+The tests in `test_bank.py` never check what happens with an opening balance of `-1`, a deposit of `0`, or a withdrawal of `0`. Write four tests that fix this. Three should use `pytest.raises(ValueError, match=...)` with the message the code raises, one per case. The fourth should check that a refused withdrawal of `-5` leaves the balance at 10. Run the file: the last line should read `4 passed`.
 
 <Solution>
 
@@ -326,6 +340,54 @@ def test_balance_is_unchanged_after_a_refused_withdrawal():
 ```
 
 The last test matters most: it checks that a refused operation has no side effects. The next lessons build on this account.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the summary line">
+
+Before running anything, say which of these three tests pass and which fail, and what the last line of `python -m pytest -q` reads.
+
+```python title="pt_predict/tests/test_prices.py"
+def total(prices):
+    return sum(prices)
+
+
+def test_two_prices():
+    assert total([1.5, 2.5]) == 4.0
+
+
+def test_empty_list():
+    total([])
+
+
+def test_rounded_sum():
+    assert round(total([0.1, 0.2]), 1) == 0.4
+```
+
+<Solution>
+
+The first test passes. The second passes too: it calls `total([])` but asserts nothing, so it can only fail if the call raises. The third fails, because `0.1 + 0.2` is `0.30000000000000004`, which rounds to `0.3`, not `0.4`. That is a mistake in the test, not in `total`.
+
+```console
+$ python -m pytest -q
+..F                                                                      [100%]
+=================================== FAILURES ===================================
+_______________________________ test_rounded_sum _______________________________
+
+    def test_rounded_sum():
+>       assert round(total([0.1, 0.2]), 1) == 0.4
+E       assert 0.3 == 0.4
+E        +  where 0.3 = round(0.30000000000000004, 1)
+E        +    where 0.30000000000000004 = total([0.1, 0.2])
+
+tests/test_prices.py:14: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_prices.py::test_rounded_sum - assert 0.3 == 0.4
+1 failed, 2 passed in 0.01s
+```
+
+The last line is `1 failed, 2 passed`. The `where` lines show how pytest got each value, which is the reason to prefer plain `assert` over a hand-written message. The test with no assert is a pitfall listed above: it proves only that nothing crashed.
 
 </Solution>
 </Exercise>

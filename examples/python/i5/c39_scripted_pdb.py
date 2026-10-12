@@ -1,8 +1,4 @@
-"""Drive pdb from a list of commands, so the session can be checked automatically.
-
-At the keyboard you would type the commands yourself. Here they are fed in as a
-string and the output is captured, with the folder name removed.
-"""
+"""Drive pdb from a list of commands, so the session can be checked."""
 
 import io
 import os
@@ -17,7 +13,7 @@ def total_with_tax(prices, rate):
 
 
 commands = """\
-break 16
+break 12
 continue
 p total
 p rate

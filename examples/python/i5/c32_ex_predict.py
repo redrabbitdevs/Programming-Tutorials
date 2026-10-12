@@ -1,8 +1,5 @@
 import unittest
 
-from showtests import run_tests
-
-
 def discount(price, percent):
     return price - price * percent / 100
 
@@ -21,4 +18,5 @@ class DiscountTests(unittest.TestCase):
         self.assertEqual(discount("100", 10), 90)
 
 
-print(run_tests(DiscountTests, verbosity=2))
+if __name__ == "__main__":
+    unittest.main()

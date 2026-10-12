@@ -1,4 +1,4 @@
-"""Parse numbers typed by people: spaces, thousands separators and underscores."""
+"""Parse numbers typed by people: spaces, commas and underscores."""
 
 
 def parse_number(text):

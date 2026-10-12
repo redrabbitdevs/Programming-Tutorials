@@ -1,4 +1,7 @@
-...
+test_gives_up_after_the_last_attempt (c36_ex_retry.RetryTests.test_gives_up_after_the_last_attempt) ... ok
+test_no_pause_when_the_first_call_works (c36_ex_retry.RetryTests.test_no_pause_when_the_first_call_works) ... ok
+test_succeeds_on_the_third_try (c36_ex_retry.RetryTests.test_succeeds_on_the_third_try) ... ok
+
 ----------------------------------------------------------------------
 Ran 3 tests in 0.001s
 

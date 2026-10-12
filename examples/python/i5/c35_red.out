@@ -1,9 +1,10 @@
-F
+test_seconds_only (c35_red.ParseDurationTests.test_seconds_only) ... FAIL
+
 ======================================================================
-FAIL: test_seconds_only (__main__.ParseDurationTests.test_seconds_only)
+FAIL: test_seconds_only (c35_red.ParseDurationTests.test_seconds_only)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c35_red.py", line 12, in test_seconds_only
+  File "c35_red.py", line 10, in test_seconds_only
     self.assertEqual(parse_duration("90s"), 90)
     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
 AssertionError: 0 != 90

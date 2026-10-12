@@ -52,8 +52,24 @@ if [ -d "$ROOT/examples" ]; then
     expected="${f%.py}.out"
     stdin_file=/dev/null
     [ -f "${f%.py}.in" ] && stdin_file="${f%.py}.in"
-    actual="$(cd "$(dirname "$f")" && timeout 30 "${PYTHON:-python3}" "$(basename "$f")" 2>/tmp/validate_stderr.$$ <"$stdin_file")"
-    code=$?
+    dir="$(cd "$(dirname "$f")" && pwd)"
+    if grep -q 'unittest\.main(' "$f"; then
+      # unittest examples: run as `python -m unittest -v FILE`, which is the command
+      # the lessons show. The report goes to stderr, so merge it into the output,
+      # then fix the timing in `Ran N tests in X.XXXs`. A failing run is expected
+      # when the example has a .out file (the lessons show red tests on purpose).
+      raw="$(cd "$dir" && timeout 30 "${PYTHON:-python3}" -m unittest -v "$(basename "$f")" 2>&1 <"$stdin_file"; echo "@@exit=$?")"
+      code="${raw##*@@exit=}"
+      actual="$(printf '%s' "${raw%@@exit=*}" | sed -E 's/^(Ran [0-9]+ tests?) in [0-9.]+s$/\1 in 0.001s/')"
+      echo "$actual" >/tmp/validate_stderr.$$
+      [ -f "$expected" ] && code=0
+    else
+      actual="$(cd "$dir" && timeout 30 "${PYTHON:-python3}" "$(basename "$f")" 2>/tmp/validate_stderr.$$ <"$stdin_file")"
+      code=$?
+    fi
+    # Tracebacks and doctest reports print absolute paths. Strip this example's
+    # own directory so the output is the same on every machine.
+    actual="${actual//"$dir"\//}"
     if [ $code -ne 0 ]; then
       echo "  FAIL $rel (exit $code)"; sed 's/^/       /' /tmp/validate_stderr.$$ | head -10
       EX_BAD=$((EX_BAD + 1)); continue

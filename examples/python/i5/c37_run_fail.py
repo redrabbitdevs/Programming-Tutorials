@@ -9,7 +9,8 @@ result = subprocess.run(
     capture_output=True,
     text=True,
 )
-# doctest prints the full path of the file. Show it relative, so the output is the
-# same on every machine.
+# doctest prints the full path of the file. Show it relative, so the output is
+# the same on every machine. The last two lines mirror `echo $?` in a shell.
 print(result.stdout.replace(os.getcwd() + os.sep, ""), end="")
-print("exit status:", result.returncode)
+print("$ echo $?")
+print(result.returncode)

@@ -1,4 +1,4 @@
-"""breakpoint() calls sys.breakpointhook(), which PYTHONBREAKPOINT can redirect or disable."""
+"""breakpoint() calls sys.breakpointhook(), which PYTHONBREAKPOINT controls."""
 
 import os
 import subprocess
@@ -10,23 +10,19 @@ breakpoint()
 print("finished without stopping:", x + 1)
 """
 
-env = dict(os.environ, PYTHONBREAKPOINT="0")
-result = subprocess.run(
-    [sys.executable, "-B", "-c", child_code],
-    env=env,
-    capture_output=True,
-    text=True,
-    stdin=subprocess.DEVNULL,
-)
-print(result.stdout, end="")
 
-# Any importable callable can take over, for example a function that only prints.
-env["PYTHONBREAKPOINT"] = "builtins.print"
-result = subprocess.run(
-    [sys.executable, "-B", "-c", child_code],
-    env=env,
-    capture_output=True,
-    text=True,
-    stdin=subprocess.DEVNULL,
-)
-print(repr(result.stdout))
+def run_child(setting):
+    env = dict(os.environ, PYTHONBREAKPOINT=setting)
+    command = [sys.executable, "-B", "-c", child_code]
+    run = subprocess.run(
+        command,
+        env=env,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+    )
+    return run.stdout
+
+
+print(run_child("0"), end="")
+print(repr(run_child("builtins.print")))

@@ -1,0 +1,15 @@
+test_morning_banner (c36_ex_wrong_target.BannerTests.test_morning_banner) ... FAIL
+
+======================================================================
+FAIL: test_morning_banner (c36_ex_wrong_target.BannerTests.test_morning_banner)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "c36_ex_wrong_target.py", line 11, in test_morning_banner
+    self.assertEqual(fake_hour.call_count, 1)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 1
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (failures=1)

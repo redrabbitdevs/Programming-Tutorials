@@ -1,7 +1,9 @@
 import logging
 import sys
 
-logging.basicConfig(stream=sys.stdout, level=logging.WARNING, format="%(message)s")
+logging.basicConfig(
+    stream=sys.stdout, level=logging.WARNING, format="%(message)s"
+)
 log = logging.getLogger("lazy")
 
 

@@ -1,0 +1,11 @@
+test_empty_list_is_an_error (c32_test_textutil.AverageTests.test_empty_list_is_an_error) ... ok
+test_float_result_needs_tolerance (c32_test_textutil.AverageTests.test_float_result_needs_tolerance) ... ok
+test_mean_of_integers (c32_test_textutil.AverageTests.test_mean_of_integers) ... ok
+test_drops_punctuation (c32_test_textutil.SlugifyTests.test_drops_punctuation) ... ok
+test_empty_text_gives_empty_slug (c32_test_textutil.SlugifyTests.test_empty_text_gives_empty_slug) ... ok
+test_lowercases_and_joins_with_hyphens (c32_test_textutil.SlugifyTests.test_lowercases_and_joins_with_hyphens) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.001s
+
+OK

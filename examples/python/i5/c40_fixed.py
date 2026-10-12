@@ -4,7 +4,8 @@ import c40_slow
 
 
 def build_report_fast():
-    known = set(c40_slow.load_ids(3_000))  # one change: a set answers "in" in constant time
+    # one change: a set answers "in" in constant time
+    known = set(c40_slow.load_ids(3_000))
     candidates = range(0, 6_000, 2)
     return c40_slow.count_known(candidates, known)
 

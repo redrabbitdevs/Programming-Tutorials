@@ -21,5 +21,7 @@ class Account:
         if amount <= 0:
             raise ValueError("withdrawal must be positive")
         if amount > self.balance:
-            raise InsufficientFunds(f"balance {self.balance}, asked for {amount}")
+            raise InsufficientFunds(
+                f"balance {self.balance}, asked for {amount}"
+            )
         self.balance -= amount

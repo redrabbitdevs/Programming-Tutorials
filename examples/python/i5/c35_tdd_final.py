@@ -1,7 +1,6 @@
 import unittest
 
 from c35_duration import parse_duration
-from showtests import run_tests
 
 
 class ParseDurationTests(unittest.TestCase):
@@ -27,4 +26,5 @@ class ParseDurationTests(unittest.TestCase):
                     parse_duration(bad)
 
 
-print(run_tests(ParseDurationTests, verbosity=2))
+if __name__ == "__main__":
+    unittest.main()

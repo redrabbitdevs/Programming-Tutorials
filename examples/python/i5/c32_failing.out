@@ -1,9 +1,12 @@
-E.F
+test_none_is_rejected_politely (c32_failing.SlugifyTests.test_none_is_rejected_politely) ... ERROR
+test_numbers_kept (c32_failing.SlugifyTests.test_numbers_kept) ... ok
+test_plus_signs_kept (c32_failing.SlugifyTests.test_plus_signs_kept) ... FAIL
+
 ======================================================================
-ERROR: test_none_is_rejected_politely (__main__.SlugifyTests.test_none_is_rejected_politely)
+ERROR: test_none_is_rejected_politely (c32_failing.SlugifyTests.test_none_is_rejected_politely)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c32_failing.py", line 15, in test_none_is_rejected_politely
+  File "c32_failing.py", line 14, in test_none_is_rejected_politely
     self.assertEqual(slugify(None), "")
                      ~~~~~~~^^^^^^
   File "c32_textutil.py", line 6, in slugify
@@ -12,10 +15,10 @@ Traceback (most recent call last):
 TypeError: 'NoneType' object is not iterable
 
 ======================================================================
-FAIL: test_plus_signs_kept (__main__.SlugifyTests.test_plus_signs_kept)
+FAIL: test_plus_signs_kept (c32_failing.SlugifyTests.test_plus_signs_kept)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "c32_failing.py", line 9, in test_plus_signs_kept
+  File "c32_failing.py", line 8, in test_plus_signs_kept
     self.assertEqual(slugify("C++ tips"), "c++-tips")
     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 AssertionError: 'c-tips' != 'c++-tips'

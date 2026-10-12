@@ -5,11 +5,17 @@ import logging
 import sys
 
 log = logging.getLogger("cleanup")
+LEVELS = {-1: logging.ERROR, 0: logging.WARNING, 1: logging.INFO}
 
 
 def configure(verbosity):
-    level = {-1: logging.ERROR, 0: logging.WARNING, 1: logging.INFO}.get(verbosity, logging.DEBUG)
-    logging.basicConfig(stream=sys.stdout, level=level, format="%(levelname)s %(message)s", force=True)
+    level = LEVELS.get(verbosity, logging.DEBUG)
+    logging.basicConfig(
+        stream=sys.stdout,
+        level=level,
+        format="%(levelname)s %(message)s",
+        force=True,
+    )
 
 
 def cleanup(names):

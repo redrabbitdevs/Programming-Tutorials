@@ -17,18 +17,14 @@ fundamentals: ["fundamentals/beginner/24-debugging"]
 
 The [debugging habits lesson](../../beginner/debugging-habits/) taught a routine and the first pdb commands: `breakpoint()`, then `p`, `n`, `s`, `c`, `l`, `w` and `q`. That is enough when you know which line to stop on. This lesson covers what you need when you do not: stopping only in the interesting iteration, inspecting a crash after it happened, and looking inside a program that is already running.
 
-To keep the sessions below reproducible, many of them are driven by a script that feeds pdb its commands as text and captures the output. At your keyboard you type the same commands one at a time after the `(Pdb)` prompt. The scripts print the session without the folder names.
+To keep the sessions below reproducible, many are driven by a script that feeds pdb its commands as text. At your keyboard you type the same commands one at a time after the `(Pdb)` prompt.
 
 ## Breakpoints you set from inside pdb
 
 You do not have to edit the file to stop somewhere. At the prompt, `break` (or `b`) sets a breakpoint at a line number or function name, and `continue` runs until the next one. Here is the tax function from the beginner lesson, driven by a script:
 
 ```python title="c39_scripted_pdb.py"
-"""Drive pdb from a list of commands, so the session can be checked automatically.
-
-At the keyboard you would type the commands yourself. Here they are fed in as a
-string and the output is captured, with the folder name removed.
-"""
+"""Drive pdb from a list of commands, so the session can be checked."""
 
 import io
 import os
@@ -40,10 +36,13 @@ def total_with_tax(prices, rate):
     for price in prices:
         total += price
     return total * 1 + rate
+```
 
+The driver feeds pdb its commands and prints the captured session:
 
+```python title="c39_scripted_pdb.py (continued)"
 commands = """\
-break 16
+break 12
 continue
 p total
 p rate
@@ -62,10 +61,10 @@ print("returned", result)
 ```
 
 ```text
-> c39_scripted_pdb.py(13)total_with_tax()
+> c39_scripted_pdb.py(9)total_with_tax()
 -> total = 0
-(Pdb) Breakpoint 1 at c39_scripted_pdb.py:16
-(Pdb) > c39_scripted_pdb.py(16)total_with_tax()
+(Pdb) Breakpoint 1 at c39_scripted_pdb.py:12
+(Pdb) > c39_scripted_pdb.py(12)total_with_tax()
 -> return total * 1 + rate
 (Pdb) 30
 (Pdb) 0.1
@@ -75,7 +74,7 @@ print("returned", result)
 returned 30.1
 ```
 
-`runcall` starts the function under the debugger, which stops on its first line. `break 16` sets a breakpoint on the `return`, and `continue` runs the loop at full speed and stops there. Then four `p` commands inspect the values, including the two competing expressions: `total * 1 + rate` gives the wrong 30.1 and `total * (1 + rate)` gives 33.0. The last `continue` lets the function finish. The `(Pdb)` prompts are all on one line each because the commands were not typed, so the echo of your input is missing.
+`runcall` starts the function under the debugger, which stops on its first line. `break 12` sets a breakpoint on the `return`, and `continue` runs the loop at full speed and stops there. Then four `p` commands inspect the values, including the two competing expressions: `total * 1 + rate` gives the wrong 30.1 and `total * (1 + rate)` gives 33.0. The last `continue` lets the function finish. Your typed commands would appear after each `(Pdb)` prompt, which a script cannot echo.
 
 Useful companions of `break`:
 
@@ -91,7 +90,7 @@ Useful companions of `break`:
 
 ## Stop only when it matters: conditional breakpoints
 
-A loop with ten thousand iterations is hopeless with `n` and `c` alone. Give the breakpoint a condition and pdb stops only when it holds. `display` is the other time saver: it prints an expression every time execution stops in that frame, and notes when the value has changed.
+A loop with ten thousand iterations is hopeless with `n` and `c` alone. Give the breakpoint a condition and pdb stops only when it holds. `display` prints an expression every time execution stops in that frame, and notes when its value has changed.
 
 ```python title="c39_ex_cond.py"
 import io
@@ -104,8 +103,9 @@ def running_total(numbers):
     for i, n in enumerate(numbers):
         total += n
     return total
+```
 
-
+```python title="c39_ex_cond.py (continued)"
 commands = """\
 break 9, i == 3
 continue
@@ -141,7 +141,7 @@ display total: 50  [old: 30]
 returned 75
 ```
 
-The breakpoint on line 9 has the condition `i == 3`, so pdb skipped the first three iterations. At the stop, `p i, n, total` printed the tuple `(3, 20, 30)`. After `display total`, the next `next` moved to the `for` line and pdb reported that `total` changed from 30 to 50 (the line had run). The final `continue` finished the function with 75.
+The breakpoint on line 9 has the condition `i == 3`, so pdb skipped the first three iterations. At the stop, `p i, n, total` printed `(3, 20, 30)`. After `display total`, the next `next` moved to the `for` line and pdb reported that `total` changed from 30 to 50, because the line had run. The final `continue` finished the function with 75.
 
 ## Post-mortem: inspect a crash after it happened
 
@@ -151,7 +151,7 @@ When a program has already crashed, you do not need to guess a breakpoint and re
 $ python -m pdb crash.py
 ```
 
-If the script ends with an uncaught exception, pdb prints the traceback and drops into a `(Pdb)` prompt inside the failing frame. In an interactive session, `import pdb; pdb.pm()` does the same for the last exception. In code, `pdb.post_mortem()` called in an `except` block does it too. The script below lets pdb post-mortem a caught `KeyError`, feeding it commands so we can read the result:
+If the script ends with an uncaught exception, pdb prints the traceback and drops into a `(Pdb)` prompt inside the failing frame. In an interactive session, `import pdb; pdb.pm()` does the same for the last exception, and `pdb.post_mortem()` does it from an `except` block. This script post-mortems a caught `KeyError`:
 
 ```python title="c39_postmortem.py"
 """Inspect a crash after the fact, with a scripted post-mortem session."""
@@ -174,7 +174,9 @@ try:
     average_by_group(rows)
 except KeyError:
     traceback = sys.exc_info()[2]
+```
 
+```python title="c39_postmortem.py (continued)"
 commands = """\
 where
 p group
@@ -206,17 +208,17 @@ print(out.getvalue().replace(os.getcwd() + os.sep, ""))
 (Pdb) > c39_postmortem.py(18)<module>()
 -> average_by_group(rows)
 (Pdb) [('a', 1), ('b', 2)]
-(Pdb)
+(Pdb) 
 ```
 
-(`interaction` is the lower-level call that `post_mortem` wraps. You will normally use `pdb.post_mortem()` or `python -m pdb`.) The session lands on line 12 and the bug is plain once you can look: `group` is `'a'`, and `sums` is empty. The code reads `sums[group]` before anything was stored, which raises the `KeyError`. `where` (also `w`) lists the stack of calls with an arrow at the current frame, `up` moves to the caller's frame so you can look at *its* variables (`rows`), and `down` moves back. This is the same chain of frames as the lines in a traceback.
+`interaction` is the lower-level call that `post_mortem` wraps. The session lands on line 12, and the bug is plain once you can look: `group` is `'a'` and `sums` is empty, so `sums[group]` raises the `KeyError`. `where` (also `w`) lists the stack with an arrow at the current frame, `up` moves to the caller's frame so you can look at *its* variables (`rows`), and `down` moves back.
 
 ## Turning breakpoint() on and off
 
 `breakpoint()` calls `sys.breakpointhook()`, which by default starts pdb. The environment variable `PYTHONBREAKPOINT` changes what it does, without touching the source. Setting it to `0` disables every `breakpoint()` call. Setting it to the dotted name of a callable runs that instead:
 
 ```python title="c39_breakpoint_off.py"
-"""breakpoint() calls sys.breakpointhook(), which PYTHONBREAKPOINT can redirect or disable."""
+"""breakpoint() calls sys.breakpointhook(), which PYTHONBREAKPOINT controls."""
 
 import os
 import subprocess
@@ -228,26 +230,23 @@ breakpoint()
 print("finished without stopping:", x + 1)
 """
 
-env = dict(os.environ, PYTHONBREAKPOINT="0")
-result = subprocess.run(
-    [sys.executable, "-B", "-c", child_code],
-    env=env,
-    capture_output=True,
-    text=True,
-    stdin=subprocess.DEVNULL,
-)
-print(result.stdout, end="")
 
-# Any importable callable can take over, for example a function that only prints.
-env["PYTHONBREAKPOINT"] = "builtins.print"
-result = subprocess.run(
-    [sys.executable, "-B", "-c", child_code],
-    env=env,
-    capture_output=True,
-    text=True,
-    stdin=subprocess.DEVNULL,
-)
-print(repr(result.stdout))
+def run_child(setting):
+    env = dict(os.environ, PYTHONBREAKPOINT=setting)
+    command = [sys.executable, "-B", "-c", child_code]
+    run = subprocess.run(
+        command,
+        env=env,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+    )
+    return run.stdout
+```
+
+```python title="c39_breakpoint_off.py (continued)"
+print(run_child("0"), end="")
+print(repr(run_child("builtins.print")))
 ```
 
 ```text
@@ -255,17 +254,17 @@ finished without stopping: 42
 '\nfinished without stopping: 42\n'
 ```
 
-With `PYTHONBREAKPOINT=0` the program ran straight through. With `builtins.print`, the `breakpoint()` call became `print()`, which printed an empty line first. In real use, the value might be `pdb.set_trace` (the default) or the name of a different debugger's entry function. The standard library documents `breakpoint()` as available since 3.7, per the [pdb documentation](https://docs.python.org/3/library/pdb.html). Run a test suite or a deployed service with `PYTHONBREAKPOINT=0` and a forgotten `breakpoint()` cannot freeze it.
+With `PYTHONBREAKPOINT=0` the program ran straight through. With `builtins.print`, the `breakpoint()` call became `print()`, which printed an empty line first. In real use, the value is often the entry function of a different debugger. `breakpoint()` has been available since 3.7. Run a test suite or a deployed service with `PYTHONBREAKPOINT=0` and a forgotten `breakpoint()` cannot freeze it.
 
-## Attaching to a running process <Since v="3.14" />
+## Attaching to a running process
 
-Sometimes the problem is in a program that is already running: a server that has hung, a job that has been going for an hour. You cannot add a `breakpoint()` and restart without losing the state you want to look at. Since Python 3.14, pdb can attach to a running Python process by its process ID (PEP 768):
+Sometimes the problem is in a program that is already running: a server that has hung, a job that has been going for an hour. pdb can attach to a running Python process by its process ID <Since v="3.14" /> (PEP 768):
 
 ```console
 $ python -m pdb -p 1234
 ```
 
-The `-p` (or `--pid`) option takes the PID of a process running Python 3.14 or newer. The [pdb documentation](https://docs.python.org/3/library/pdb.html) lists it as "Added in version 3.14". Here is a long-running script to try it on. Start it in one terminal and note the PID that it prints:
+The `-p` (or `--pid`) option takes the PID of a process running Python 3.14 or newer, as described in the [pdb documentation](https://docs.python.org/3/library/pdb.html). Here is a long-running script to try it on. Start it in one terminal and note the PID that it prints:
 
 ```python
 import os
@@ -302,17 +301,13 @@ $ python -m pdb -p 18660
 (Pdb) quit
 ```
 
-pdb stopped the program at whatever line it was executing, showed its stack, and let us read `i` and `total` from the live process. Typing `quit` ended the debugging session. The documentation gives one caveat: attaching to a process that is blocked in a system call or waiting for I/O only works once the next bytecode instruction runs, or when the process receives a signal. A script sleeping in `time.sleep` took a moment to respond for that reason. Attaching also needs operating-system permission to inspect the target process, so it works on your own processes and may be refused for others'.
-
-Inside a server you cannot easily attach to, `faulthandler` (to dump the stack of every thread on a signal) is another standard tool to know. Reach for it when you want a stack trace and do not need to step.
+pdb stopped the program at whatever line it was executing, showed its stack, and let us read `i` and `total` from the live process. A process blocked in a system call, such as `time.sleep`, only responds once its next bytecode instruction runs, so expect a short wait. Attaching also needs operating-system permission to inspect the target, so it works on your own processes and may be refused for others'. When you only want a stack trace and do not need to step, `faulthandler` can dump every thread's stack on a signal.
 
 ## Common pitfalls
 
-- **Leaving `breakpoint()` in code.** A forgotten call freezes a program with nobody at the keyboard. Search for it before committing, as the one-command check in the [test-driven workflow lesson](../test-driven-workflow/) does, or run with `PYTHONBREAKPOINT=0`.
+- **Leaving `breakpoint()` in code.** A forgotten call freezes a program with nobody at the keyboard. Search for it before committing, or run with `PYTHONBREAKPOINT=0`.
 - **A variable named like a pdb command.** `n`, `c`, `l` and `p` are commands. Use `p n` or `!n` to see your variable.
-- **Stepping with `n` through a long loop.** Use `until`, a conditional `break`, or `tbreak` instead.
 - **Debugging in a test run with output capture.** pytest captures output, which hides the pdb prompt. Use `pytest --pdb` to drop into post-mortem on a failing test, or `pytest -s` to turn capture off.
-- **Changing code while stopped.** Edits to the file do not affect the running process. Quit, edit and run again.
 - **Attaching to the wrong process.** Check the PID. A shell command like `pgrep -f server.py` helps, and the attach needs Python 3.14 or newer in the *target*, not only in your terminal.
 
 <Exercise title="Stop only on the interesting iteration">
@@ -321,16 +316,16 @@ Write down the pdb commands that stop `running_total([5, 10, 15, 20, 25])` on th
 
 <Solution>
 
-The commands are in the session above:
+The commands are the ones from the session above:
 
-```text
+```text title="pdb commands"
 break 9, i == 3
 continue
 p i, n, total
 continue
 ```
 
-The tuple is `(3, 20, 30)`: at iteration 3 the value of `n` is 20, and `total` is still 5 + 10 + 15 = 30 because the `+=` has not run yet (the stop happens before the line executes). The function returns 75.
+The tuple is `(3, 20, 30)`: at iteration 3 the value of `n` is 20, and `total` is still 5 + 10 + 15 = 30 because the stop happens before the `+=` runs. The function returns 75.
 
 </Solution>
 </Exercise>
@@ -361,8 +356,11 @@ def most_valuable(items):
         if best is None or item[1] * item[2] < best[1] * best[2]:
             best = item
     return best[0]
+```
 
+The report functions and the printing follow:
 
+```python title="c39_ex_stock.py (continued)"
 def low_stock(items, limit=5):
     return [name for name, qty, price in items if qty < limit]
 
@@ -395,54 +393,50 @@ Stopping inside each function and printing the values shows:
 3. `low_stock`: the requirement says 5 or fewer, and `fig` has exactly 5. Use `qty <= limit`.
 4. `name_list`: `p names[:-1]` shows the slice drops the last name. Join `names`.
 
-```python title="c39_ex_stock_fixed.py"
-LINES = ["apple,3,0.5", "pear,12,0.25", "fig,5,2.0", "plum,20,0.1"]
+With those four edits, the script prints the correct report:
 
-
-def parse_line(line):
-    name, qty, price = line.split(",")
-    return name, int(qty), float(price)
-
-
-def total_value(items):
-    total = 0
-    for name, qty, price in items:
-        total += qty * price
-    return total
-
-
-def most_valuable(items):
-    best = None
-    for item in items:
-        if best is None or item[1] * item[2] > best[1] * best[2]:
-            best = item
-    return best[0]
-
-
-def low_stock(items, limit=5):
-    return [name for name, qty, price in items if qty <= limit]
-
-
-def name_list(items):
-    names = sorted(name for name, qty, price in items)
-    return ", ".join(names)
-
-
-items = [parse_line(line) for line in LINES]
-print("total value:", total_value(items))
-print("most valuable:", most_valuable(items))
-print("low stock:", low_stock(items))
-print("names:", name_list(items))
-```
-
-```text
+```console
+$ python c39_ex_stock_fixed.py
 total value: 16.5
 most valuable: fig
 low stock: ['apple', 'fig']
 names: apple, fig, pear, plum
 ```
 
-Notice how each bug is a different kind of mistake: the wrong operator, the wrong comparison, an off-by-one at a boundary, and a slice that is too short. Boundary values like `fig` with exactly 5 are the ones a test should include, as in the [test-driven workflow lesson](../test-driven-workflow/).
+Boundary values like `fig` with exactly 5 are the ones a test should include, as in the [test-driven workflow lesson](../test-driven-workflow/).
+
+</Solution>
+</Exercise>
+
+<Exercise title="Stop once, on the first big number">
+
+Using the same `running_total([5, 10, 15, 20, 25])` function, write the commands that stop only the first time `n` is greater than 12, print `i`, `n` and `total` as a tuple, and then finish the run. Use a temporary breakpoint. What does the tuple print?
+
+<Solution>
+
+`tbreak` takes a condition like `break` does, and it deletes itself after the first hit:
+
+```text title="pdb commands"
+tbreak 9, n > 12
+continue
+p i, n, total
+continue
+```
+
+```console
+$ python c39_ex_tbreak.py
+> c39_ex_tbreak.py(7)running_total()
+-> total = 0
+(Pdb) Breakpoint 1 at c39_ex_tbreak.py:9
+(Pdb) Deleted breakpoint 1 at c39_ex_tbreak.py:9
+> c39_ex_tbreak.py(9)running_total()
+-> total += n
+(Pdb) (2, 15, 15)
+(Pdb) 
+returned 75
+```
+
+The stop is at `i == 2`, where `n` is 15 and `total` is 15. `Deleted breakpoint 1` shows the temporary breakpoint is gone, so the second `continue` runs to the end.
 
 </Solution>
 </Exercise>

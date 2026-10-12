@@ -1,0 +1,8 @@
+test_above_range (c32_ex_missing_fixed.ClampTests.test_above_range) ... ok
+test_below_range (c32_ex_missing_fixed.ClampTests.test_below_range) ... ok
+test_inside_range (c32_ex_missing_fixed.ClampTests.test_inside_range) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+OK
