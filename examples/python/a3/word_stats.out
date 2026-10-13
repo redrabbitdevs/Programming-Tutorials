@@ -1,0 +1,4 @@
+4 words, longest 'quick'         <- the quick brown fox
+5 words, longest 'jumps'         <- jumps over the lazy dog
+4 words, longest 'concurrency'   <- concurrency is not parallelism
+4 words, longest 'isolation'     <- isolation makes sharing explicit

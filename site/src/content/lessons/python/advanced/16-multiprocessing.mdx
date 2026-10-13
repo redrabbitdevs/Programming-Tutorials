@@ -1,0 +1,367 @@
+---
+language: python
+level: advanced
+module: Concurrency and parallelism
+order: 16
+title: Processes
+description: Run CPU-bound Python on every core with ProcessPoolExecutor, and learn the rules that come with separate processes - the main guard, pickling, copied state and start methods.
+minVersion: "3.8"
+objectives:
+  - Parallelise CPU-bound work with ProcessPoolExecutor
+  - Explain why worker scripts need the if __name__ == "__main__" guard
+  - Predict what can and cannot be sent to a worker process
+  - Explain why changes made in a worker never reach the parent
+  - Choose a start method explicitly when the default does not suit you
+estimatedMinutes: 40
+fundamentals: []
+---
+
+[Threads](../threading/) take turns on the default build, so they cannot speed up CPU-bound Python. Processes can. Each worker process runs its own interpreter with its own GIL, on its own core. The price is that processes share nothing: every argument and every result is copied between them.
+
+## A process pool
+
+`concurrent.futures.ProcessPoolExecutor` has the same interface as the thread pool. This program finds the number below 100,000 with the longest [Collatz](https://en.wikipedia.org/wiki/Collatz_conjecture) chain, split into four ranges that run in parallel:
+
+```python title="collatz_pool.py"
+from concurrent.futures import ProcessPoolExecutor
+
+
+def steps(n):
+    count = 0
+    while n != 1:
+        n = n // 2 if n % 2 == 0 else 3 * n + 1
+        count += 1
+    return count
+
+
+def longest_chain(start, stop):
+    best = max(range(start, stop), key=steps)
+    return best, steps(best)
+
+
+if __name__ == "__main__":
+    starts = [1, 25_001, 50_001, 75_001]
+    stops = [s + 25_000 for s in starts]
+    with ProcessPoolExecutor() as pool:
+        for best, length in pool.map(longest_chain, starts, stops):
+            print(f"{best:6} needs {length} steps")
+```
+
+```text
+ 23529 needs 281 steps
+ 35655 needs 323 steps
+ 52527 needs 339 steps
+ 77031 needs 350 steps
+```
+
+Without `max_workers`, the pool starts one process per CPU this process may use (`os.process_cpu_count()`). Each job is a big chunk of work, which matters: sending a job to another process costs far more than calling a function, so many tiny jobs can make a process pool *slower* than a plain loop. For long lists of small items, pass `chunksize=` to `map` so each message carries a batch.
+
+## The main guard
+
+Every process example in this module puts its top-level code under `if __name__ == "__main__":`, as you saw in [Modules and imports](../../intermediate/modules-imports/). Here it is required, not just good style.
+
+A worker process does not start as a copy of the running parent. It starts a fresh interpreter, which **imports your main module** to find the function to call. In the worker, the module's `__name__` is not `"__main__"`, so the guarded block does not run. Without the guard, each worker would run the pool-creating code again. Python refuses with a `RuntimeError` inside the worker, and the pool breaks instead of spawning processes forever. Put function and class definitions at module level, and everything that does work under the guard.
+
+## What can be sent: pickling
+
+Arguments, the function itself and results travel between processes with [pickle](https://docs.python.org/3/library/pickle.html). Pickle sends a function **by name**: "the function `double` in module `__main__`". The worker then looks that name up. So a function must be importable at module level:
+
+```python title="pickle_limits.py"
+import pickle
+from concurrent.futures import ProcessPoolExecutor
+
+
+def double(x):
+    return x * 2
+
+
+if __name__ == "__main__":
+    with ProcessPoolExecutor(max_workers=2) as pool:
+        print(list(pool.map(double, [1, 2, 3])))
+        try:
+            print(list(pool.map(lambda x: x * 2, [1, 2, 3])))
+        except pickle.PicklingError:
+            print("PicklingError: a lambda cannot be sent to a worker")
+```
+
+```text
+[2, 4, 6]
+PicklingError: a lambda cannot be sent to a worker
+```
+
+A lambda has no name to look up, and neither has a function defined inside another function. Open files, locks, sockets and database connections cannot be pickled either. Pass the file name, and let the worker open the file.
+
+## Nothing is shared
+
+Each worker has its own copy of every module-level variable. A change made there never reaches the parent:
+
+```python title="worker_globals.py"
+from concurrent.futures import ProcessPoolExecutor
+
+seen = []
+
+
+def record(word):
+    seen.append(word)  # appends to the worker's own copy
+    return len(seen)
+
+
+if __name__ == "__main__":
+    with ProcessPoolExecutor(max_workers=1) as pool:
+        counts = list(pool.map(record, ["a", "b", "c"]))
+    print("worker saw:", counts)
+    print("parent sees:", seen)
+```
+
+```text
+worker saw: [1, 2, 3]
+parent sees: []
+```
+
+The single worker kept its own `seen` list across three calls. The parent's list stayed empty. The rule for process code is: **send inputs as arguments, return outputs as results**. Then there is nothing to race on, and no lock is needed.
+
+## Start methods
+
+How a worker process comes to life is called the **start method**:
+
+- `spawn` starts a brand-new Python interpreter. It is safe and works everywhere, but it is the slowest.
+- `fork` copies the parent process on Unix. It is fast, but copying a process that has threads running can deadlock.
+- `forkserver` starts one clean server process early, and forks workers from it.
+
+<Since v="3.14" /> On Linux and other Unix platforms except macOS, the default changed from `fork` to `forkserver` in Python 3.14. Windows and macOS keep `spawn`. You can check what your platform uses:
+
+```python title="start_method.py"
+import multiprocessing
+
+if __name__ == "__main__":
+    print(multiprocessing.get_start_method())
+    print(multiprocessing.get_all_start_methods())
+```
+
+```console
+$ python3.15 start_method.py      # on Linux
+forkserver
+['forkserver', 'fork', 'spawn']
+```
+
+On macOS and Windows the first line is `spawn`. Code that worked by accident under `fork`, because the child inherited the parent's variables, breaks under the other two. To get the same behaviour everywhere, ask for a start method explicitly with a context:
+
+```python title="spawn_context.py"
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
+
+
+def cube(x):
+    return x**3
+
+
+if __name__ == "__main__":
+    spawn = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=2, mp_context=spawn) as pool:
+        print(list(pool.map(cube, range(6))))
+```
+
+```text
+[0, 1, 8, 27, 64, 125]
+```
+
+Use a context rather than `multiprocessing.set_start_method()`, which changes the default for the whole program.
+
+## When a worker dies
+
+If a worker process crashes, for example in a C extension, the pool cannot finish its jobs. Every pending future then raises `BrokenProcessPool`. <Since v="3.15" /> Python 3.15 attaches the dead worker's process ID and exit code to the error, as its `__cause__`:
+
+```python title="broken_pool.py"
+import os
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
+
+
+def crash(code):
+    os._exit(code)  # the worker dies without any cleanup
+
+
+if __name__ == "__main__":
+    with ProcessPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(crash, 3)
+        try:
+            future.result()
+        except BrokenProcessPool as error:
+            print(type(error).__name__)
+            print("exit code 3" in str(error.__cause__))
+```
+
+```text
+BrokenProcessPool
+True
+```
+
+On 3.14 the second line prints `False`. The traceback names the process: `Process 20998 terminated abruptly with exit code 3`.
+
+`multiprocessing.Pool` is the older interface to the same machinery. Prefer `ProcessPoolExecutor` in new code: it matches the thread and interpreter pools.
+
+## Common pitfalls
+
+**Forgetting the main guard.** Workers import the main module. Without the guard, the pool-creating code runs again in every worker.
+
+**Sending many tiny jobs.** Each job is pickled and sent through a pipe. Make jobs big, or use `chunksize`.
+
+**Relying on global state.** A global set in the parent after start-up, or changed in a worker, is not shared. Pass it as an argument.
+
+**Passing objects that cannot be pickled.** Lambdas, nested functions, open files, locks and connections. Pass plain data and names instead.
+
+<Exercise title="A parallel prime sieve">
+Write `prime_ranges.py`. Its `count_primes(start, stop)` counts the primes `p` with `start <= p < stop` using the sieve of Eratosthenes. Split `[0, 200000)` into four ranges of 50,000, count them in a `ProcessPoolExecutor`, and print each range and the total.
+
+```text
+[      0,   50000): 5133
+[  50000,  100000): 4459
+[ 100000,  150000): 4256
+[ 150000,  200000): 4136
+total: 17984
+```
+
+<Solution>
+
+```python title="prime_ranges.py"
+from concurrent.futures import ProcessPoolExecutor
+
+
+def count_primes(start, stop):
+    """Sieve the numbers below stop, then count those from start on."""
+    is_prime = [True] * stop
+    is_prime[:2] = [False] * min(2, stop)
+    for n in range(2, int(stop**0.5) + 1):
+        if is_prime[n]:
+            is_prime[n * n :: n] = [False] * len(range(n * n, stop, n))
+    return sum(is_prime[start:])
+
+
+if __name__ == "__main__":
+    bounds = [(i * 50_000, (i + 1) * 50_000) for i in range(4)]
+    with ProcessPoolExecutor(max_workers=4) as pool:
+        counts = list(pool.map(count_primes, *zip(*bounds)))
+    for (start, stop), count in zip(bounds, counts):
+        print(f"[{start:>7}, {stop:>7}): {count}")
+    print("total:", sum(counts))
+```
+
+```text
+[      0,   50000): 5133
+[  50000,  100000): 4459
+[ 100000,  150000): 4256
+[ 150000,  200000): 4136
+total: 17984
+```
+
+`zip(*bounds)` turns the list of pairs into a tuple of starts and a tuple of stops, the two iterables `map` needs. Each worker sieves from 0, which repeats some work. A real segmented sieve would sieve only its own range, using the primes below the square root of `stop`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Debug the tax calculator">
+This program prints `PicklingError` instead of prices with tax. Find out why, then fix it so the rate is still set in `main()`.
+
+```python title="nested_worker.py"
+from concurrent.futures import ProcessPoolExecutor
+
+
+def main():
+    rate = 0.2
+
+    def add_tax(price):
+        return round(price * (1 + rate), 2)
+
+    with ProcessPoolExecutor(max_workers=2) as pool:
+        try:
+            print(list(pool.map(add_tax, [10, 25])))
+        except Exception as error:
+            print(type(error).__name__)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```text
+PicklingError
+```
+
+Expected output after the fix:
+
+```text
+[12.0, 30.0]
+```
+
+<Solution>
+
+`add_tax` is defined inside `main()`, so pickle cannot send it by name: the full message is `Can't pickle local object <function main.<locals>.add_tax ...>`. Move the function to module level and make the rate a parameter. [`functools.partial`](../../intermediate/itertools-functools/) fixes the rate, and a partial of a module-level function pickles fine:
+
+```python title="nested_worker_fixed.py"
+import functools
+from concurrent.futures import ProcessPoolExecutor
+
+
+def add_tax(price, rate):
+    return round(price * (1 + rate), 2)
+
+
+def main():
+    with_tax = functools.partial(add_tax, rate=0.2)
+    with ProcessPoolExecutor(max_workers=2) as pool:
+        print(list(pool.map(with_tax, [10, 25])))
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```text
+[12.0, 30.0]
+```
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the copies">
+Predict the three lines this prints.
+
+```python title="copy_in_copy_out.py"
+from concurrent.futures import ProcessPoolExecutor
+
+
+def tag(order):
+    order["status"] = "packed"
+    return order
+
+
+if __name__ == "__main__":
+    order = {"id": 7, "status": "new"}
+    with ProcessPoolExecutor(max_workers=1) as pool:
+        result = pool.submit(tag, order).result()
+    print(order)
+    print(result)
+    print(result == order, result is order)
+```
+
+<Solution>
+
+```text
+{'id': 7, 'status': 'new'}
+{'id': 7, 'status': 'packed'}
+False False
+```
+
+The worker changed its own copy of the dictionary. The parent's `order` is untouched, and `result` is a third dictionary, unpickled from the worker's reply. With a thread pool, all three would be the same object and the last line would print `True True`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `ProcessPoolExecutor` runs functions in separate processes, so CPU-bound Python uses every core.
+- Workers import your main module. Keep definitions at module level and the work under `if __name__ == "__main__":`.
+- Functions, arguments and results are pickled. Lambdas, nested functions, files and locks cannot be sent.
+- Nothing is shared: pass inputs as arguments and return outputs as results.
+- <Since v="3.14" /> The default start method is `forkserver` on Linux, and `spawn` on macOS and Windows. Use `get_context()` for an explicit choice.
+- <Since v="3.15" /> A crashed worker's exit code appears in the `BrokenProcessPool` error's cause.

@@ -1,0 +1,451 @@
+---
+language: python
+level: advanced
+module: Concurrency and parallelism
+order: 15
+title: Threads
+description: Start and join threads, see a race condition happen on purpose, fix it with a lock, pass work through a queue, and run I/O-bound jobs with ThreadPoolExecutor.
+minVersion: "3.8"
+objectives:
+  - Start threads and wait for them with join
+  - Explain a race condition as an interleaving of read and write steps
+  - Protect shared state with threading.Lock
+  - Hand work between threads with queue.Queue
+  - Run I/O-bound jobs with ThreadPoolExecutor and collect results and errors
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/16-stacks-queues-linked"]
+---
+
+A thread is a separate line of execution inside your program. All threads share the same objects, which makes them easy to start and easy to get wrong. On the default build of CPython they take turns running Python code, as [the previous lesson](../concurrency-models/) explained, so use them for work that waits: network calls, disk access, slow APIs.
+
+## Starting and joining
+
+`threading.Thread` takes a `target` function and its `args`. `start()` launches it, and `join()` waits until it has finished:
+
+```python title="threads_basic.py"
+import threading
+import time
+
+results = {}
+
+
+def fetch(name, delay):
+    time.sleep(delay)  # stands in for a network call
+    results[name] = len(name)
+
+
+threads = [
+    threading.Thread(target=fetch, args=(name, 0.1))
+    for name in ["alpha", "beta", "gamma"]
+]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+
+print(sorted(results.items()))
+```
+
+```text
+[('alpha', 5), ('beta', 4), ('gamma', 5)]
+```
+
+The three sleeps overlap, so the program takes about 0.1 seconds, not 0.3. Start every thread first, then join them all. Joining inside the first loop would wait for each thread before starting the next, which is just a slow sequential program.
+
+The threads finish in an order you do not control, so the program prints `sorted(...)`. Treat any order that comes out of threads as random unless you impose one.
+
+## A race condition, on purpose
+
+Here is the classic bug. `balance = balance + 1` looks like one step but is two: read `balance`, then write a new value. If two threads both read before either writes, one deposit is lost. That timing is rare, so a buggy program can pass its tests for months. To make it happen every time, this example holds both threads at a `Barrier` between the read and the write:
+
+```python title="lost_update.py"
+import threading
+
+balance = 0
+both_have_read = threading.Barrier(2)
+
+
+def deposit(amount):
+    global balance
+    current = balance          # 1. read
+    both_have_read.wait()      # force the unlucky schedule
+    balance = current + amount  # 2. write
+
+
+threads = [threading.Thread(target=deposit, args=(1,)) for _ in range(2)]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+
+print("expected 2, got", balance)
+```
+
+```text
+expected 2, got 1
+```
+
+Both threads read `0`, both write `1`. Without the barrier the same interleaving can still happen, just not reliably. That is what a **race condition** is: the result depends on the order in which threads happen to run. The GIL does not prevent it, because a thread can be switched out between any two bytecode instructions.
+
+## Locks
+
+A `threading.Lock` lets only one thread at a time into a block of code. Use it as a [context manager](../../intermediate/context-managers/), so it is released even if the block raises:
+
+```python title="lock_counter.py"
+import threading
+
+balance = 0
+balance_lock = threading.Lock()
+
+
+def deposit_many(times):
+    global balance
+    for _ in range(times):
+        with balance_lock:
+            balance = balance + 1
+
+
+threads = [
+    threading.Thread(target=deposit_many, args=(50_000,))
+    for _ in range(4)
+]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+
+print("expected 200000, got", balance)
+```
+
+```text
+expected 200000, got 200000
+```
+
+The read and the write now happen together, as one **critical section**. Every piece of code that touches `balance` must take the same lock. A lock that only some code paths use protects nothing.
+
+Keep critical sections short and never call unknown code while holding a lock. If thread A holds lock 1 and waits for lock 2 while thread B holds lock 2 and waits for lock 1, both wait forever. That is a **deadlock**. Taking locks in one fixed order everywhere avoids it.
+
+## Queues
+
+Often the cleanest design shares nothing at all: threads pass messages through a `queue.Queue`, which does its own locking. [Stacks and queues](../../../fundamentals/beginner/stacks-queues-linked/) introduced the data structure. Here, three worker threads take words from one queue and put results on another:
+
+```python title="queue_pipeline.py"
+import queue
+import threading
+
+jobs = queue.Queue()
+done = queue.Queue()
+STOP = None
+
+
+def worker():
+    while (word := jobs.get()) is not STOP:
+        done.put(word.upper())
+
+
+workers = [threading.Thread(target=worker) for _ in range(3)]
+for w in workers:
+    w.start()
+for word in ["pear", "fig", "kiwi", "plum", "lime"]:
+    jobs.put(word)
+for _ in workers:
+    jobs.put(STOP)  # one stop signal per worker
+for w in workers:
+    w.join()
+
+print(sorted(done.get() for _ in range(done.qsize())))
+```
+
+```text
+['FIG', 'KIWI', 'LIME', 'PEAR', 'PLUM']
+```
+
+`jobs.get()` blocks until an item arrives, so idle workers cost nothing. Each worker stops when it receives the `STOP` sentinel, so put one sentinel per worker.
+
+## Thread pools
+
+Creating, starting and joining threads by hand gets repetitive. `concurrent.futures.ThreadPoolExecutor` keeps a pool of worker threads and hands them jobs. Its `map` works like the built-in `map`, and returns results **in input order**, whatever order the jobs finish in:
+
+```python title="pool_fetch.py"
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+PAGES = {
+    "/": "<h1>Home</h1>",
+    "/about": "<p>About us</p>",
+    "/contact": "<p>Write to us</p>",
+}
+
+
+def fetch(path):
+    time.sleep(0.1)  # pretend to wait for the network
+    return len(PAGES[path])
+
+
+with ThreadPoolExecutor(max_workers=3) as pool:
+    sizes = pool.map(fetch, PAGES)
+    for path, size in zip(PAGES, sizes):
+        print(f"{path:10} {size:3} bytes")
+```
+
+```text
+/           13 bytes
+/about      15 bytes
+/contact    18 bytes
+```
+
+Leaving the `with` block waits for all jobs and shuts the pool down.
+
+For more control, `submit` schedules one call and returns a **future**, an object that will hold the result. `as_completed` yields futures as they finish. `future.result()` returns the value, or raises the exception the call raised:
+
+```python title="pool_errors.py"
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+def parse_port(text):
+    port = int(text)
+    if not 0 < port < 65536:
+        raise ValueError(f"port out of range: {port}")
+    return port
+
+
+inputs = ["8080", "http", "443", "70000"]
+ok, failed = [], []
+with ThreadPoolExecutor(max_workers=4) as pool:
+    futures = {pool.submit(parse_port, text): text for text in inputs}
+    for future in as_completed(futures):
+        try:
+            ok.append(future.result())
+        except ValueError as error:
+            failed.append(f"{futures[future]!r}: {error}")
+
+print("ok:", sorted(ok))
+for line in sorted(failed):
+    print("failed", line)
+```
+
+```text
+ok: [443, 8080]
+failed '70000': port out of range: 70000
+failed 'http': invalid literal for int() with base 10: 'http'
+```
+
+The dictionary maps each future back to its input, a common idiom. An exception in a worker never disappears: it waits inside the future until you call `result()`.
+
+## Sharing an iterator
+
+<Since v="3.15" /> A generator must not be advanced by two threads at once. Python 3.15 adds `threading.serialize_iterator`, which wraps any iterator so that each item goes to exactly one caller:
+
+```python title="shared_generator.py"
+import threading
+
+
+def ticket_numbers(count):
+    for number in range(1, count + 1):
+        yield number
+
+
+tickets = threading.serialize_iterator(ticket_numbers(300))
+taken = {name: [] for name in ("ann", "bob", "cy")}
+
+
+def take_tickets(name):
+    for number in tickets:
+        taken[name].append(number)
+
+
+threads = [threading.Thread(target=take_tickets, args=(n,)) for n in taken]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+
+everything = sorted(n for numbers in taken.values() for n in numbers)
+print(len(everything), everything == list(range(1, 301)))
+```
+
+```text
+300 True
+```
+
+How the 300 tickets are split between the threads changes from run to run. That none is lost or duplicated does not. The same release added the `@threading.synchronized_iterator` decorator and `threading.concurrent_tee()`. On older versions, use a queue.
+
+## Common pitfalls
+
+**Assuming the GIL makes your code thread-safe.** It makes single bytecode steps safe, not your multi-step logic. `x += 1`, check-then-act and read-modify-write all need a lock.
+
+**Locking some accesses but not others.** Every reader and writer of shared state must use the same lock.
+
+**Swallowed exceptions.** An exception in a plain `Thread` prints a traceback and the thread ends, but the main thread carries on. With a pool, call `result()` so errors reach you.
+
+**Using threads for CPU-bound work.** On the default build they take turns. Use [processes](../multiprocessing/) instead.
+
+<Exercise title="A parallel downloader">
+`FAKE_WEB` maps four URLs to response bodies, and every request takes 0.2 seconds. Write `downloader.py` so it downloads all four at once with a `ThreadPoolExecutor`, then prints each size and URL, smallest first, and the total. The whole run should take about 0.2 seconds, not 0.8.
+
+```text
+  45  https://example.com/d
+  80  https://example.com/b
+ 120  https://example.com/a
+ 300  https://example.com/c
+ 545  total
+```
+
+<Solution>
+
+```python title="downloader.py"
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+FAKE_WEB = {
+    "https://example.com/a": b"A" * 120,
+    "https://example.com/b": b"B" * 80,
+    "https://example.com/c": b"C" * 300,
+    "https://example.com/d": b"D" * 45,
+}
+
+
+def download(url):
+    time.sleep(0.2)  # every request takes 0.2 s
+    return url, len(FAKE_WEB[url])
+
+
+with ThreadPoolExecutor(max_workers=4) as pool:
+    results = list(pool.map(download, FAKE_WEB))
+
+for url, size in sorted(results, key=lambda pair: pair[1]):
+    print(f"{size:4}  {url}")
+print(f"{sum(size for _, size in results):4}  total")
+```
+
+```text
+  45  https://example.com/d
+  80  https://example.com/b
+ 120  https://example.com/a
+ 300  https://example.com/c
+ 545  total
+```
+
+Returning the URL with the size keeps each result paired with its input, whatever order you sort them into later.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix the overbooking">
+This box office has one seat left and two customers. It sells two tickets. Explain the race, then fix it with a lock so it sells exactly one ticket, even when the step between the check and the sale is slow.
+
+```python title="ticket_race.py"
+import threading
+
+seats_left = 1
+sold = []
+both_checked = threading.Barrier(2)
+
+
+def buy(customer):
+    global seats_left
+    if seats_left > 0:
+        both_checked.wait()  # simulate an unlucky thread switch
+        seats_left -= 1
+        sold.append(customer)
+
+
+buyers = [threading.Thread(target=buy, args=(c,)) for c in ("ann", "bob")]
+for t in buyers:
+    t.start()
+for t in buyers:
+    t.join()
+
+print(f"tickets sold: {len(sold)}, seats left: {seats_left}")
+```
+
+```text
+tickets sold: 2, seats left: -1
+```
+
+Expected output after the fix:
+
+```text
+tickets sold: 1, seats left: 0
+```
+
+<Solution>
+
+This is **check-then-act**: both threads check `seats_left > 0` while it is still `1`, then both act on that stale answer. The barrier only makes the bad timing certain. The fix puts the check and the action in one critical section. The barrier has to go, since a thread holding the lock would wait at it forever. A slow `sleep` takes its place, to show the lock still holds:
+
+```python title="ticket_lock.py"
+import threading
+import time
+
+seats_left = 1
+sold = []
+seats_lock = threading.Lock()
+
+
+def buy(customer):
+    global seats_left
+    with seats_lock:
+        if seats_left > 0:
+            time.sleep(0.05)  # a slow step can no longer hurt us
+            seats_left -= 1
+            sold.append(customer)
+
+
+buyers = [threading.Thread(target=buy, args=(c,)) for c in ("ann", "bob")]
+for t in buyers:
+    t.start()
+for t in buyers:
+    t.join()
+
+print(f"tickets sold: {len(sold)}, seats left: {seats_left}")
+```
+
+```text
+tickets sold: 1, seats left: 0
+```
+
+Which customer gets the seat varies between runs. That only one does, does not.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict where map stops">
+Predict exactly what this prints. The third input makes `inverse` raise.
+
+```python title="map_stops.py"
+from concurrent.futures import ThreadPoolExecutor
+
+
+def inverse(x):
+    return 1 / x
+
+
+with ThreadPoolExecutor(max_workers=4) as pool:
+    try:
+        for result in pool.map(inverse, [4, 2, 0, 1]):
+            print(result)
+    except ZeroDivisionError as error:
+        print("stopped:", error)
+```
+
+<Solution>
+
+```text
+0.25
+0.5
+stopped: division by zero
+```
+
+All four calls run, but `map` hands back results in input order. The exception from the third call is raised when the loop asks for the third result, so the first two print and the fourth (`1.0`) never does. If you need every result that succeeded, use `submit` and `as_completed`, as in `pool_errors.py`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `Thread(target=..., args=...)`, then `start()` all threads, then `join()` them all.
+- A race condition is a result that depends on how threads interleave. Read-modify-write and check-then-act are the usual culprits, and the GIL does not prevent them.
+- A `Lock` used as `with lock:` makes a block a critical section. Every access to the shared state must take it.
+- `queue.Queue` passes work between threads without shared state. Send one sentinel per worker to stop them.
+- `ThreadPoolExecutor.map` returns results in input order. `submit` with `as_completed` gives results as they finish, and `result()` re-raises a worker's exception.
+- <Since v="3.15" /> `threading.serialize_iterator` lets several threads share one iterator safely.

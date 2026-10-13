@@ -1,0 +1,411 @@
+---
+language: python
+level: advanced
+module: Concurrency and parallelism
+order: 18
+title: Structured concurrency
+description: Run many asyncio tasks safely with TaskGroup, put deadlines on them with asyncio.timeout, handle cancellation and grouped errors correctly, and inspect a running program with python -m asyncio ps.
+minVersion: "3.11"
+objectives:
+  - Start tasks in an asyncio.TaskGroup and explain what leaving the block guarantees
+  - Handle failures from several tasks with except*
+  - Put a deadline on async work with asyncio.timeout and catch TimeoutError in the right place
+  - Cancel a task and clean up correctly when cancelled
+  - Stop a whole task group early, and inspect running tasks from outside
+estimatedMinutes: 45
+fundamentals: []
+---
+
+`create_task` and `gather` from [asyncio fundamentals](../asyncio-basics/) have a weakness. When one task fails, the others keep running, unsupervised, and their errors can go unnoticed. **Structured concurrency** fixes this with one rule: tasks live inside a block, and the block does not end until every task in it has finished. In Python that block is `asyncio.TaskGroup`, added in 3.11.
+
+## async with
+
+A `TaskGroup` is an **asynchronous context manager**. It works like the context managers from [the intermediate level](../../intermediate/context-managers/), except that entering and leaving can pause, so you write `async with`. It is only allowed inside `async def`.
+
+## TaskGroup
+
+`tg.create_task()` starts a task in the group. Leaving the `async with` block waits for all of them:
+
+```python title="taskgroup_basic.py"
+import asyncio
+
+
+async def fetch(name, delay):
+    await asyncio.sleep(delay)
+    return f"{name}: 200 OK"
+
+
+async def main():
+    async with asyncio.TaskGroup() as tg:
+        home = tg.create_task(fetch("home", 0.2))
+        about = tg.create_task(fetch("about", 0.1))
+    # Leaving the block waited for both tasks.
+    print(home.result())
+    print(about.result())
+
+
+asyncio.run(main())
+```
+
+```text
+home: 200 OK
+about: 200 OK
+```
+
+After the block, every task is done, so `result()` is safe to call. No task can outlive the code that started it.
+
+## When a task fails
+
+If any task raises, the group cancels the others, waits for them to finish cancelling, and raises an `ExceptionGroup` containing the failures. [Exception notes and groups](../../intermediate/notes-and-groups/) taught `except*` for exactly this:
+
+```python title="taskgroup_fail.py"
+import asyncio
+
+
+async def slow_download():
+    try:
+        await asyncio.sleep(10)
+        return "big file"
+    except asyncio.CancelledError:
+        print("download cancelled, cleaning up")
+        raise
+
+
+async def broken_parser():
+    await asyncio.sleep(0)
+    raise ValueError("bad header")
+```
+
+```python title="taskgroup_fail.py (continued)"
+async def main():
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(slow_download())
+            tg.create_task(broken_parser())
+    except* ValueError as group:
+        print("failed:", [str(e) for e in group.exceptions])
+
+
+asyncio.run(main())
+```
+
+```text
+download cancelled, cleaning up
+failed: ['bad header']
+```
+
+The program ends at once, not after ten seconds. The download received `asyncio.CancelledError` at its `await`, ran its cleanup and re-raised. The group always raises an `ExceptionGroup`, even for a single failure, so catch it with `except*`, not plain `except ValueError`.
+
+## Cancellation
+
+Cancelling a task throws `asyncio.CancelledError` into it at the `await` where it is paused. `task.cancel()` requests it:
+
+```python title="cancel_task.py"
+import asyncio
+
+
+async def heartbeat():
+    beats = 0
+    try:
+        while True:
+            beats += 1
+            await asyncio.sleep(0)
+    finally:
+        print("heartbeat stopped after", beats, "beats")
+
+
+async def main():
+    task = asyncio.create_task(heartbeat())
+    for _ in range(3):
+        await asyncio.sleep(0)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        print("cancelled:", task.cancelled())
+
+
+asyncio.run(main())
+```
+
+```text
+heartbeat stopped after 3 beats
+cancelled: True
+```
+
+Use `finally` or `except CancelledError: ... raise` to clean up. Never swallow `CancelledError` without re-raising it: `TaskGroup` and `timeout` both rely on it reaching them. `CancelledError` derives from `BaseException`, so a plain `except Exception` does not catch it by accident.
+
+## Timeouts
+
+`asyncio.timeout(delay)` is an async context manager that cancels the code inside it when the time runs out, and turns that cancellation into a `TimeoutError` as the block exits:
+
+```python title="timeout_demo.py"
+import asyncio
+
+
+async def slow_query():
+    await asyncio.sleep(10)
+    return "rows"
+
+
+async def main():
+    try:
+        async with asyncio.timeout(0.1) as deadline:
+            print(await slow_query())
+    except TimeoutError:
+        print("query timed out")
+    print("expired:", deadline.expired())
+
+
+asyncio.run(main())
+```
+
+```text
+query timed out
+expired: True
+```
+
+The `try` goes **around** the `async with`. Inside the block the code sees `CancelledError`. Only when the block exits does it become `TimeoutError`. `asyncio.timeout(None)` means no limit, and `deadline.reschedule()` can move the deadline while it runs. Both `timeout` and `TaskGroup` arrived in 3.11. In older code you will see `asyncio.wait_for(coro, timeout)`, which still works.
+
+A timeout around a `TaskGroup` puts one deadline on all its tasks. A timeout inside each task gives each its own deadline, as the first exercise shows.
+
+## Stopping a group early
+
+<Since v="3.15" /> Sometimes the group's job is done before every task is: you asked three mirrors for the same file and one answered. `TaskGroup.cancel()` cancels all remaining tasks and leaves the block normally, without raising:
+
+```python title="first_mirror.py"
+import asyncio
+
+
+async def download(mirror, delay, tg, log):
+    try:
+        await asyncio.sleep(delay)
+    except asyncio.CancelledError:
+        log["cancelled"].append(mirror)
+        raise
+    log["winner"] = mirror
+    tg.cancel()  # we have what we need: stop the whole group
+
+
+async def main():
+    log = {"winner": None, "cancelled": []}
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(download("eu", 0.5, tg, log))
+        tg.create_task(download("us", 0.1, tg, log))
+        tg.create_task(download("asia", 0.9, tg, log))
+    print("winner:", log["winner"])
+    print("cancelled:", sorted(log["cancelled"]))
+
+
+asyncio.run(main())
+```
+
+```text
+winner: us
+cancelled: ['asia', 'eu']
+```
+
+Before 3.15 the usual workaround was to raise a private exception from the winning task and suppress it outside the group. The cancelled list is sorted because the order in which the group cancels its tasks is not specified.
+
+## Seeing what is running
+
+<Since v="3.14" /> When an async program hangs, `python -m asyncio ps PID` and `python -m asyncio pstree PID` show its tasks from another terminal, without changing the program. Here `pstree` inspects a program whose `TaskGroup` is still waiting for a task called `stuck` (paths shortened):
+
+```console
+$ python3.15 -m asyncio pstree 19348
+└── (T) Task-1
+    └──  main stuck.py:11
+        └──  TaskGroup.__aexit__ .../asyncio/taskgroups.py:75
+            └──  TaskGroup._aexit .../asyncio/taskgroups.py:125
+                └── (T) stuck
+                    └──  fetch stuck.py:6
+                        └──  sleep .../asyncio/tasks.py:721
+```
+
+Each `(T)` is a task, and below it is the stack where it is paused. Naming tasks, with `tg.create_task(coro, name="stuck")`, makes this output far easier to read. `ps` prints the same information as a flat table. These tools may need extra permissions to inspect another process. <Since v="3.15" /> A `--retries N` option retries when the target changes while it is being read.
+
+## Common pitfalls
+
+**Catching `TimeoutError` inside the timeout block.** It is only raised at the block's exit. See the second exercise.
+
+**Swallowing `CancelledError`.** A task that catches it and carries on breaks timeouts and task groups. Clean up, then re-raise.
+
+**Plain `except` around a `TaskGroup`.** Failures arrive as an `ExceptionGroup`. Use `except*`.
+
+**Fire-and-forget tasks.** A task created with `asyncio.create_task` and never awaited can fail silently. Put it in a `TaskGroup` instead.
+
+<Exercise title="Fetch with deadlines and an error report">
+Four fake servers answer after different delays, and one refuses the connection. Write `checked_fetch(url, report)`, which gives each request 0.5 seconds and records `status 200`, `timed out` or `error: <message>` in the `report` dictionary. Run all four in one `TaskGroup` so that one bad server cannot cancel the others, and print the sorted report. The whole run should take about 0.5 seconds.
+
+```text
+/blog  timed out
+/home  status 200
+/news  status 200
+/shop  error: connection refused
+```
+
+<Solution>
+
+```python title="fetch_report.py"
+import asyncio
+
+FAKE_SERVERS = {  # url: (seconds to answer, what happens)
+    "/home": (0.1, "ok"),
+    "/news": (0.2, "ok"),
+    "/shop": (0.1, "refused"),
+    "/blog": (5.0, "ok"),
+}
+
+
+async def fetch(url):
+    delay, outcome = FAKE_SERVERS[url]
+    await asyncio.sleep(delay)
+    if outcome == "refused":
+        raise ConnectionRefusedError("connection refused")
+    return 200
+```
+
+```python title="fetch_report.py (continued)"
+async def checked_fetch(url, report):
+    try:
+        async with asyncio.timeout(0.5):
+            report[url] = f"status {await fetch(url)}"
+    except TimeoutError:
+        report[url] = "timed out"
+    except ConnectionError as error:
+        report[url] = f"error: {error}"
+
+
+async def main():
+    report = {}
+    async with asyncio.TaskGroup() as tg:
+        for url in FAKE_SERVERS:
+            tg.create_task(checked_fetch(url, report))
+    for url in sorted(report):
+        print(f"{url:6} {report[url]}")
+
+
+asyncio.run(main())
+```
+
+```text
+/blog  timed out
+/home  status 200
+/news  status 200
+/shop  error: connection refused
+```
+
+Each task handles its own expected failures, so none of them escapes into the group. An unexpected error, such as a `KeyError` from a bug, would still escape and cancel the rest, which is what you want for bugs.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Debug the cached fallback">
+This program should print `timed out, using cached data` and then `carrying on`. Run it, explain what it prints instead, and fix it.
+
+```python title="timeout_wrong_place.py"
+import asyncio
+
+
+async def main():
+    async with asyncio.timeout(0.1):
+        try:
+            await asyncio.sleep(10)
+        except TimeoutError:
+            print("timed out, using cached data")
+    print("carrying on")
+
+
+try:
+    asyncio.run(main())
+except TimeoutError:
+    print("TimeoutError escaped from main()")
+```
+
+```text
+TimeoutError escaped from main()
+```
+
+<Solution>
+
+Inside the block, the sleeping code receives `CancelledError`, which `except TimeoutError` does not match. The timeout converts it to `TimeoutError` only at the end of the `async with`, which is outside the `try`, so it escapes `main()` and skips `carrying on`. Move the `try` outside the block:
+
+```python title="timeout_right_place.py"
+import asyncio
+
+
+async def main():
+    try:
+        async with asyncio.timeout(0.1):
+            await asyncio.sleep(10)
+    except TimeoutError:
+        print("timed out, using cached data")
+    print("carrying on")
+
+
+try:
+    asyncio.run(main())
+except TimeoutError:
+    print("TimeoutError escaped from main()")
+```
+
+```text
+timed out, using cached data
+carrying on
+```
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the group's errors">
+Both checks fail. Predict whether one or both `except*` clauses run.
+
+```python title="predict_group.py"
+import asyncio
+
+
+async def check_disk():
+    await asyncio.sleep(0)
+    raise ValueError("disk full")
+
+
+async def check_config():
+    raise KeyError("port")
+
+
+async def main():
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(check_disk())
+            tg.create_task(check_config())
+    except* ValueError as group:
+        print("ValueError:", len(group.exceptions))
+    except* KeyError as group:
+        print("KeyError:", len(group.exceptions))
+
+
+asyncio.run(main())
+```
+
+<Solution>
+
+Both run:
+
+```text
+ValueError: 1
+KeyError: 1
+```
+
+Trace the event loop's queue. `check_disk` runs first and pauses at `sleep(0)`, which puts its next step at the back of the queue. `check_config` runs and raises. The group learns about that failure through a callback, and the callback joins the queue *behind* `check_disk`'s next step. So `check_disk` resumes and raises `ValueError` before the group can cancel it. A task group cancels its other tasks on the first failure it *sees*, which can be after several have failed. That is why it reports an `ExceptionGroup`, and why `except*` lets every matching clause run.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `async with asyncio.TaskGroup() as tg:` starts tasks with `tg.create_task()` and does not exit until all of them are done.
+- If a task fails, the group cancels the rest and raises an `ExceptionGroup`. Handle it with `except*`.
+- Cancellation arrives as `CancelledError` at an `await`. Clean up in `finally`, and re-raise.
+- `asyncio.timeout(delay)` raises `TimeoutError` at the block's exit, so put the `try` around the block.
+- <Since v="3.15" /> `tg.cancel()` stops a whole group early without an error.
+- <Since v="3.14" /> `python -m asyncio ps` and `pstree` show the tasks of a running program.
