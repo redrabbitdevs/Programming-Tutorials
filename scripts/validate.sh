@@ -42,6 +42,10 @@ fi
 # 2. Runnable examples -------------------------------------------------------
 step "examples: run every examples/**/*.py"
 EX_RUN=0; EX_BAD=0; EX_CMP=0
+# Run unbuffered, as a learner's terminal effectively does. Piped stdout is
+# block-buffered, and each subinterpreter or child process has its own buffer,
+# so buffered runs can print lines in a different order from the lesson.
+export PYTHONUNBUFFERED=1
 if [ -d "$ROOT/examples" ]; then
   while IFS= read -r -d '' f; do
     # Files inside a package (their folder has __init__.py) may use relative
