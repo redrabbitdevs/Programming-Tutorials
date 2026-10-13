@@ -16,6 +16,10 @@ const languages = defineCollection({
     wikipedia: z.string().nullish(),
     summary: z.string(),
     status: z.enum(['planned', 'in-progress', 'complete']),
+    // Per-language level blurbs, e.g. levels: { advanced: { blurb: '...' } }.
+    levels: z
+      .partialRecord(z.enum(['beginner', 'intermediate', 'advanced', 'expert']), z.object({ blurb: z.string() }))
+      .optional(),
   }),
 });
 

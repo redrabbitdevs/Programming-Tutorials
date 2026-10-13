@@ -8,4 +8,7 @@ latestVersion: "3.15.0"
 latestVersionDate: "2026-10-09"
 summary: A readable general-purpose language used for scripting, data work, web back ends and teaching.
 status: in-progress
+levels:
+  advanced:
+    blurb: Typing in depth, advanced data handling, concurrency and metaprogramming.
 ---

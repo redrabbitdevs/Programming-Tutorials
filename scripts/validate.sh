@@ -120,6 +120,12 @@ VER_OUT="$(python3 "$ROOT/scripts/check_versions.py" 2>&1)"; VER_CODE=$?
 printf '%s\n' "$VER_OUT"
 if [ $VER_CODE -eq 0 ]; then pass "$(printf '%s\n' "$VER_OUT" | tail -1)"; else fail "version claims (minVersion / <Since>)"; fi
 
+# 6. Headings ----------------------------------------------------------------
+step "headings: no bare __dunder__ in lesson headings"
+HD_OUT="$(python3 "$ROOT/scripts/check_headings.py" 2>&1)"; HD_CODE=$?
+printf '%s\n' "$HD_OUT"
+if [ $HD_CODE -eq 0 ]; then pass "$(printf '%s\n' "$HD_OUT" | tail -1)"; else fail "bare dunder in a lesson heading"; fi
+
 # Summary --------------------------------------------------------------------
 printf '\n== Summary\n'
 printf '%s\n' "${SUMMARY[@]}"

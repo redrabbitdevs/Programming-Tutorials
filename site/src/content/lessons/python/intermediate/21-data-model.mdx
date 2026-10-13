@@ -21,7 +21,7 @@ Why does `len(songs)` work on a list, `a + b` on two strings, and `for x in data
 
 You write the dunder methods but almost never call them directly. You write `len(mix)`, and Python calls `mix.__len__()` for you.
 
-## Showing an object: __repr__ and __str__
+## Showing an object: `__repr__` and `__str__`
 
 When you print an instance of a plain class, you get something unhelpful, like `<__main__.Point object at 0x7f...>`. Define `__repr__` to say what the object is. By convention it looks like the code that would build it:
 
@@ -79,7 +79,7 @@ total: $19.99
 
 If you write only one, write `__repr__`. `str()` falls back to it when `__str__` is missing.
 
-## Equality: __eq__
+## Equality: `__eq__`
 
 By default `==` on instances means "are these the very same object?":
 
@@ -130,7 +130,7 @@ False
 
 The `isinstance` check handles the case where the other side is a different type. Returning `NotImplemented`, a special built-in value and not an exception, tells Python "I don't know how to compare with that." Python then tries the other operand's `__eq__`, and if neither knows, falls back to identity, so `a == (1, 2)` is `False`. Python also derives `!=` from `__eq__`, so you do not write it yourself.
 
-## Hashing: __hash__
+## Hashing: `__hash__`
 
 Sets and dictionary keys need a hash, a whole number that is the same for equal objects. Here is a rule that surprises most learners: **a class that defines `__eq__` and not `__hash__` becomes unhashable.**
 
@@ -190,7 +190,7 @@ origin
 
 The duplicate point vanished from the set, and a freshly built `Point(0, 0)` found the dictionary entry. This relies on the fields not changing after the object goes into a set or dictionary, because a changed field changes the hash and the entry becomes unreachable. Only define `__hash__` on objects you treat as immutable. The dataclasses lesson shows an easy way to get that.
 
-## Ordering: __lt__
+## Ordering: `__lt__`
 
 `sorted`, `min` and `max` only ever ask "is this one less than that one?", which is `__lt__`:
 
@@ -223,7 +223,7 @@ True
 
 Comparing tuples does the field-by-field work. Notice that `>` worked without a `__gt__` method: when `a > b` has no method, Python tries `b < a` instead. That reflection is why `__lt__` alone is enough for sorting. If you need all six comparison operators, the standard library offers `functools.total_ordering`, and dataclasses can generate them with `order=True`.
 
-## Size and iteration: __len__ and __iter__
+## Size and iteration: `__len__` and `__iter__`
 
 Define `__len__` and your class works with `len()`. Define `__iter__` and it works in `for` loops, in `list()`, and in other places that need to go through its items one by one:
 
@@ -264,7 +264,7 @@ True False
 
 Four more dunder methods cover everyday syntax: `x[i]`, `in`, `if x:` and `x()`. A small `Shelf` class and a `Multiplier` class show them one at a time.
 
-### Indexing: __getitem__
+### Indexing: `__getitem__`
 
 `obj[key]` calls `obj.__getitem__(key)`. The key can be an integer, a negative integer or a slice, and passing it on to the inner list handles all three:
 
@@ -315,7 +315,7 @@ True
 
 For a class that holds a sequence, `__getitem__` alone is enough to be read like one. Add `__len__` as well so that `len(shelf)` works.
 
-### Membership: __contains__
+### Membership: `__contains__`
 
 `item in obj` calls `obj.__contains__(item)` when it exists. Define it when the check should follow your own rule, here ignoring capitals:
 
@@ -342,7 +342,7 @@ True
 
 `not in` needs nothing extra: Python negates the answer of `__contains__`.
 
-### Truth: __bool__
+### Truth: `__bool__`
 
 `if obj:` and `bool(obj)` call `obj.__bool__()`, which must return `True` or `False`. Without it, Python uses `__len__` (zero is falsy), and without that every instance is truthy:
 
@@ -369,7 +369,7 @@ empty
 True
 ```
 
-### Calling: __call__
+### Calling: `__call__`
 
 `obj(args)` calls `obj.__call__(args)`. An instance with `__call__` behaves like a function that also remembers state:
 
@@ -396,7 +396,7 @@ True
 
 `callable(triple)` is `True`, so `triple` can be passed anywhere a function is expected, such as `map` or the `key=` argument of `sorted`. The [decorators lesson](../decorators/) uses this to build decorators from classes.
 
-## Operators: __add__ and friends
+## Operators: `__add__` and friends
 
 Every operator maps to a dunder method: `+` to `__add__`, `*` to `__mul__`, `-` to `__sub__`, `abs()` to `__abs__`, and so on. Implement one and the operator works:
 
