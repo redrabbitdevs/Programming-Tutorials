@@ -15,7 +15,12 @@ export async function getStaticPaths() {
 const { language } = Astro.props;
 const d = language.data;
 const lessons = await getLessonsFor(d.slug);
-const groups = groupLessons(lessons);
+const groups = groupLessons(lessons, d.levels);
+const levelLinks = groups.filter((g) => g.modules.length > 0).map((g) => ({
+  id: g.level.id,
+  label: g.level.label,
+  count: g.modules.reduce((n, m) => n + m.lessons.length, 0),
+}));
 const first = lessons[0];
 const fmtDate = (x: Date) => x.toLocaleDateString('en-GB', { year: 'numeric', month: 'long', timeZone: 'UTC' });
 const overviewOnly = lessons.length === 0;
@@ -69,6 +74,15 @@ const wikipedia = (d as { wikipedia?: string }).wikipedia;
         )}
         <div><dt>Lessons</dt><dd>{lessons.length}</dd></div>
       </dl>
+      {levelLinks.length > 1 && (
+        <nav class="level-jump" aria-label="Jump to a level">
+          <ul>
+            {levelLinks.map((l) => (
+              <li><a href={`#lv-${l.id}`}>{l.label} <span class="n">{l.count}</span></a></li>
+            ))}
+          </ul>
+        </nav>
+      )}
       {first && (
         <div class="hero-actions">
           <a class="btn" href={lessonHref(first)}>Start: {first.data.title}</a>

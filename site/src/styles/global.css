@@ -721,6 +721,15 @@ a:hover { color: var(--accent-hover); text-decoration-thickness: 2px; }
 }
 .expressive-code .frame.ec-output .copy { display: none; }
 
+/* Level jump links under the lesson count on /learn/<lang>/. Plain text links
+   with the count in a muted ink; the row wraps onto a second line at 360px.
+   --accent on --bg is above 4.5:1 in both themes (link colour used site-wide). */
+.level-jump { margin-top: var(--s-4); }
+.level-jump ul { list-style: none; display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-5); padding: 0; margin: 0; }
+.level-jump a { display: inline-block; padding-block: 0.4rem; font-weight: 560; }
+.level-jump .n { margin-left: 0.2em; color: var(--ink-3); font-weight: 500; font-variant-numeric: tabular-nums; }
+.level-block h2 { scroll-margin-top: var(--s-6); }
+
 /* Phones: code scrolls inside its own frame, never the page. */
 .prose, .lesson-main { overflow-wrap: break-word; }
 .expressive-code, .expressive-code .frame { max-width: 100%; }

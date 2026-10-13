@@ -54,15 +54,19 @@ export interface LevelGroup {
 }
 
 /** Level -> module -> lessons, in reading order. Every level is present, even if empty. */
-export function groupLessons(sorted: Lesson[]): LevelGroup[] {
-  return LEVELS.map((level) => {
+export function groupLessons(
+  sorted: Lesson[],
+  overrides: Partial<Record<LevelId, { blurb: string }>> = {},
+): LevelGroup[] {
+  return LEVELS.map((base) => {
+    const level = { ...base, blurb: overrides[base.id]?.blurb ?? base.blurb };
     const modules: ModuleGroup[] = [];
     for (const lesson of sorted.filter((l) => l.data.level === level.id)) {
       let m = modules.find((x) => x.name === lesson.data.module);
       if (!m) modules.push((m = { name: lesson.data.module, lessons: [] }));
       m.lessons.push(lesson);
     }
-    return { level, modules };
+    return { level: level as (typeof LEVELS)[number], modules };
   });
 }
 

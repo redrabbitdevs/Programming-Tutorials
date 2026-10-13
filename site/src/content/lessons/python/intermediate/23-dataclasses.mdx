@@ -123,7 +123,7 @@ Basket(owner='Ben', items=[])
 
 `list` was passed without parentheses. It is the function to call, not a list. Each `Basket` got its own, so `b` stayed empty.
 
-## Checking values: __post_init__
+## Checking values: `__post_init__`
 
 The generated `__init__` copies values in without looking at them. To validate, or to compute extra fields, define `__post_init__`. The generated `__init__` calls it after all fields are set:
 

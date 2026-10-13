@@ -14,6 +14,12 @@ const outputBlocks = () =>
     name: 'output-blocks',
     hooks: {
       preprocessMetadata: ({ codeBlock }) => {
+        // Checker and shell transcripts wrap too, with a hanging indent, so a
+        // long mypy/pyright message never needs sideways scrolling on a phone.
+        if (codeBlock.language === 'console') {
+          codeBlock.props.wrap = true;
+          codeBlock.props.preserveIndent = true;
+        }
         if (!codeBlock.metaOptions.getBoolean('output')) return;
         codeBlock.props.frame = 'none';
         codeBlock.props.wrap = true;
