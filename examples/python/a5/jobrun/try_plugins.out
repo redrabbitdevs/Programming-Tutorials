@@ -1,0 +1,5 @@
+['levels', 'primes', 'wait', 'words']
+words  | [('the', 3), ('and', 2), ('cat', 1)]     | the=3, and=2, cat=1
+levels | Counter({'INFO': 2, 'ERROR': 1, '?': 1}) | INFO=2 ERROR=1 ?=1
+wait   | 0.05                                     | waited 0.05s
+primes | 25                                       | 25 primes below 100

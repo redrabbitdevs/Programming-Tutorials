@@ -1,0 +1,3 @@
+errors  ok       2 found: 09:00:05 ERROR disk full | 09:00:07 ERROR no retry
+1 jobs: 1 ok
+ConfigError: oops: bad pattern: missing ), unterminated subpattern at position 0

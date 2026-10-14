@@ -1,0 +1,4 @@
+Outcome(job_id='backup', status=<Status.OK: 'ok'>, detail='3 files')
+backup: ok
+'sync: timeout\n'
+True [ok       ]

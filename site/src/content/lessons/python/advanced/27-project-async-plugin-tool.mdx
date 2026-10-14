@@ -1,0 +1,1183 @@
+---
+language: python
+level: advanced
+module: Project
+order: 27
+title: "Project: an async plugin job runner"
+description: Build a typed, concurrent job runner in eight checkable steps. Plugins register themselves with __init_subclass__, a JSON config is checked with match, jobs run in a TaskGroup with deadlines, CPU work goes to a process or interpreter pool, and mypy --strict checks the lot.
+minVersion: "3.12"
+objectives:
+  - Design a generic plugin base class whose subclasses register themselves with __init_subclass__
+  - Turn untrusted JSON into typed objects with match, and report bad input clearly
+  - Run many jobs concurrently in an asyncio.TaskGroup, each under its own deadline, with CPU-bound work sent to a process or interpreter pool
+  - Make a whole package pass mypy --strict, and read what the checker found
+  - Test async and pooled code with pytest without slowing the suite down
+estimatedMinutes: 120
+fundamentals: ["fundamentals/beginner/25-testing-mindset"]
+---
+
+This lesson has no new topics. You will build one tool from the four advanced modules: typing, data handling, concurrency and metaprogramming. Each step ends with a result you can check before you move on. When a piece feels shaky, the step that uses it links back to its lesson.
+
+The tool is **jobrun**, a small job runner. It reads a JSON file that lists jobs, runs all of them at once, and prints one line per job. Each kind of job is a *plugin*: a class that registers itself just by being defined. Some jobs wait on (simulated) network calls, so they suit `asyncio`. One does real CPU work, so it runs in a worker pool. Every job has a deadline, and a job that fails or runs late is reported without stopping the others.
+
+## The specification
+
+- `jobrun JOBS.json` runs every job in the file at the same time and prints one line per job, in file order, followed by a summary.
+- A job's line says `ok`, `failed` or `timeout`, with a result or a reason.
+- The exit code is 0 when every job is `ok`, 1 when any job failed or timed out, and 2 when the file itself is unusable.
+- A new kind of job is a new class. Nothing else in the program changes.
+- `--pool interpreter` runs CPU work in subinterpreters instead of processes.
+- The package passes `mypy --strict`, and the code is covered by automated tests.
+
+The jobs file names a deadline for each job (`timeout`, in seconds), the number of pool workers, and the jobs. Each job has an `id`, a `kind`, and whatever settings its kind needs:
+
+```json title="jobs.json"
+{
+  "timeout": 0.5,
+  "workers": 2,
+  "jobs": [
+    {"id": "motto", "kind": "words",
+     "text": "Simple is better than complex. Complex is better than complicated."},
+    {"id": "server-log", "kind": "levels",
+     "log": "09:00:01 INFO start\n09:00:02 WARN disk 91%\n09:00:05 ERROR disk full\nnot a log line\n09:00:09 INFO retry"},
+    {"id": "primes", "kind": "primes", "below": 30000},
+    {"id": "primes-bad", "kind": "primes", "below": 1},
+    {"id": "quick-api", "kind": "wait", "seconds": 0.1},
+    {"id": "slow-api", "kind": "wait", "seconds": 5}
+  ]
+}
+```
+
+Two of the jobs are meant to go wrong: `primes-bad` asks for an impossible count, and `slow-api` takes ten times longer than the deadline allows. The finished program must report both and still finish the other four, in about half a second in total.
+
+The finished project has this layout. You will create each file in the step that needs it.
+
+```text
+jobrun/
+├── pyproject.toml
+├── jobs.json
+├── src/
+│   └── jobrun/
+│       ├── __init__.py
+│       ├── models.py      step 1
+│       ├── plugin.py      step 2
+│       ├── builtin.py     step 3
+│       ├── config.py      steps 4 and 7
+│       ├── runner.py      step 5
+│       ├── cli.py         step 6
+│       └── __main__.py    step 6
+└── tests/                 step 8
+```
+
+## Step 0: the project shell
+
+The project uses the src layout and the `pyproject.toml` from the [intermediate project](../../intermediate/project-tested-cli/). Two tables are new. `[tool.mypy]` and `[tool.pyright]` tell both checkers which Python to check against, so that 3.14 names such as `InterpreterPoolExecutor` are known to them even if the checker itself runs on an older interpreter.
+
+```toml title="pyproject.toml"
+[project]
+name = "jobrun"
+version = "0.1.0"
+description = "Run typed plugin jobs concurrently, each with a deadline"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+jobrun = "jobrun.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest", "mypy", "pyright"]
+
+[tool.mypy]
+python_version = "3.15"
+
+[tool.pyright]
+pythonVersion = "3.15"
+```
+
+`requires-python` is 3.12 because the code uses the type parameter syntax from [generics](../generics-pep695/). Create the folders, put a one-line docstring in `src/jobrun/__init__.py`, make a virtual environment and run `python -m pip install -e .` as in the intermediate project. **Check:** `python -c "import jobrun"` prints nothing and fails with nothing.
+
+## Step 1: the shared types
+
+Start with the vocabulary every other module uses. A job ends with an `Outcome`: which job, a `Status`, and a line of detail. A `Context` carries what a running job may use, which for now is a worker pool. A `Sink` is anything the report can be written to.
+
+```python title="src/jobrun/models.py"
+from concurrent.futures import Executor
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Protocol
+
+
+class ConfigError(ValueError):
+    """The jobs file does not have the expected shape."""
+
+
+class Status(StrEnum):
+    OK = "ok"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+
+
+@dataclass(frozen=True)
+class Outcome:
+    job_id: str
+    status: Status
+    detail: str
+```
+
+`Context.pool` is typed as `concurrent.futures.Executor`, the base class of every pool, so a process pool, an interpreter pool and a thread pool all fit. `Sink` is a [protocol](../protocols-structural/): any object with a matching `write` method satisfies it, without inheriting from anything. The `/` makes `text` positional-only, which matches how `sys.stdout.write` is declared, and the return type `object` accepts methods that return a count (as `TextIO.write` does) or nothing.
+
+```python title="src/jobrun/models.py (continued)"
+@dataclass(frozen=True)
+class Context:
+    """What every job may use while it runs."""
+
+    pool: Executor
+
+
+class Sink(Protocol):
+    """Anything with a write(str) method: sys.stdout, io.StringIO, a file."""
+
+    def write(self, text: str, /) -> object: ...
+```
+
+Try the types in a scratch file in the project folder:
+
+```python title="try_models.py"
+import io
+import sys
+
+from jobrun.models import Outcome, Sink, Status
+
+
+def announce(outcome: Outcome, out: Sink) -> None:
+    out.write(f"{outcome.job_id}: {outcome.status}\n")
+
+
+done = Outcome("backup", Status.OK, "3 files")
+print(done)
+announce(done, sys.stdout)
+
+buffer = io.StringIO()
+announce(Outcome("sync", Status.TIMEOUT, "no answer"), buffer)
+print(repr(buffer.getvalue()))
+print(Status("failed") is Status.FAILED, f"[{Status.OK:<9}]")
+```
+
+```text
+Outcome(job_id='backup', status=<Status.OK: 'ok'>, detail='3 files')
+backup: ok
+'sync: timeout\n'
+True [ok       ]
+```
+
+**Check:** the same `announce` wrote to the terminal and to a `StringIO`, and neither class knows about `Sink`. The last line shows two `StrEnum` habits the report relies on: `Status("failed")` looks a member up by value, and a format spec such as `<9` pads the member's text.
+
+## Step 2: a plugin base class that registers its subclasses
+
+Every kind of job will be a subclass of one generic base class, `Plugin[T]`. The type parameter `T` is the type of value the job's `run` produces, and `render` must accept exactly that type. The checker can then prove that each plugin's two halves fit together, which step 7 shows.
+
+Registration uses [`__init_subclass__`](../class-customisation/). Python calls it on the base class whenever a subclass is created, and passes it the keyword arguments from the `class` line. So `class WordCount(Plugin[...], kind="words")` is enough to add `"words"` to the registry.
+
+```python title="src/jobrun/plugin.py"
+from dataclasses import dataclass
+from typing import Any, ClassVar, Self
+
+from .models import Context
+
+
+@dataclass(frozen=True)
+class Plugin[T]:
+    """One job. T is the type of the value that run() produces."""
+
+    kind: ClassVar[str]
+    job_id: str
+
+    def __init_subclass__(cls, /, kind: str, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if kind in REGISTRY:
+            raise TypeError(f"plugin kind {kind!r} is already registered")
+        cls.kind = kind
+        REGISTRY[kind] = cls
+```
+
+The base class also defines the three methods every plugin provides. `from_params` is a class method that builds a plugin from the settings in the jobs file and returns `Self`, so `WordCount.from_params` is known to return a `WordCount`. `kind` is a `ClassVar`, so the dataclass leaves it out of the fields.
+
+```python title="src/jobrun/plugin.py (continued)"
+    @classmethod
+    def from_params(cls, job_id: str, params: dict[str, object]) -> Self:
+        raise NotImplementedError
+
+    async def run(self, ctx: Context) -> T:
+        raise NotImplementedError
+
+    def render(self, value: T) -> str:
+        return str(value)
+
+
+# Defined after the class, because its annotation names the class. Subclasses
+# are created later, so __init_subclass__ always finds it.
+REGISTRY: dict[str, type[Plugin[Any]]] = {}
+```
+
+The comment on `REGISTRY` matters for 3.12 and 3.13, which evaluate module-level annotations at once. There, `type[Plugin[Any]]` above the class would be a `NameError`. Try the registry with a throwaway plugin:
+
+```python title="try_registry.py"
+from dataclasses import dataclass
+from typing import Self
+
+from jobrun.plugin import REGISTRY, Plugin
+
+
+@dataclass(frozen=True)
+class Shout(Plugin[str], kind="shout"):
+    text: str
+
+    @classmethod
+    def from_params(cls, job_id: str, params: dict[str, object]) -> Self:
+        return cls(job_id, str(params["text"]))
+
+    def render(self, value: str) -> str:
+        return value.upper() + "!"
+
+
+print(REGISTRY)
+job = REGISTRY["shout"].from_params("s1", {"text": "hello"})
+print(job, job.kind, job.render("hello"))
+```
+
+Then add two class definitions that should fail:
+
+```python title="try_registry.py (continued)"
+try:
+    class Loud(Plugin[str], kind="shout"): ...
+except TypeError as error:
+    print("Loud:", error)
+
+try:
+    class Quiet(Plugin[str]): ...
+except TypeError as error:
+    print("Quiet:", error)
+```
+
+```text
+{'shout': <class '__main__.Shout'>}
+Shout(job_id='s1', text='hello') shout HELLO!
+Loud: plugin kind 'shout' is already registered
+Quiet: Plugin.__init_subclass__() missing 1 required positional argument: 'kind'
+```
+
+**Check:** four lines. Defining `Shout` registered it, and the registry built a `Shout` from a plain dictionary. Both mistakes were caught when the `class` statement ran, long before any job. A missing `kind` is a `TypeError` because `kind` is a required parameter of `__init_subclass__`.
+
+## Step 3: four plugins
+
+`builtin.py` holds the plugins that ship with the tool. Each one is a frozen dataclass that names its result type in the `class` line, and each `from_params` uses [`match`](../match-advanced/) to check the settings and pull them out in one move. A mapping pattern ignores keys it does not mention, so the `id` and `kind` keys that are still in the settings do no harm.
+
+```python title="src/jobrun/builtin.py"
+import asyncio
+import re
+from collections import Counter
+from dataclasses import dataclass
+from math import isqrt
+from typing import Self
+
+from .models import ConfigError, Context
+from .plugin import Plugin
+
+WORD = re.compile(r"[a-z']+")
+LOG_LINE = re.compile(r"(?P<time>[\d:]{8}) (?P<level>[A-Z]+) (?P<text>.*)")
+```
+
+The first plugin counts words with a [regex](../regex/) and a [`Counter`](../collections-module/). Its `run` does not await anything, which is allowed: an `async def` that never pauses still fits the same interface.
+
+```python title="src/jobrun/builtin.py (continued)"
+@dataclass(frozen=True)
+class WordCount(Plugin[list[tuple[str, int]]], kind="words"):
+    """The three most common words in a text."""
+
+    text: str
+
+    @classmethod
+    def from_params(cls, job_id: str, params: dict[str, object]) -> Self:
+        match params:
+            case {"text": str(text)}:
+                return cls(job_id, text)
+            case _:
+                raise ConfigError(f"{job_id}: 'words' needs a string 'text'")
+
+    async def run(self, ctx: Context) -> list[tuple[str, int]]:
+        return Counter(WORD.findall(self.text.lower())).most_common(3)
+
+    def render(self, value: list[tuple[str, int]]) -> str:
+        return ", ".join(f"{word}={count}" for word, count in value)
+```
+
+The second counts log lines per level. `fullmatch` returns a match or `None`, and a `match` statement on that result reads like the two cases it is. The named group is read with `found["level"]`.
+
+```python title="src/jobrun/builtin.py (continued)"
+@dataclass(frozen=True)
+class LogLevels(Plugin[Counter[str]], kind="levels"):
+    """Log lines per level. A line that does not parse counts as '?'."""
+
+    log: str
+
+    @classmethod
+    def from_params(cls, job_id: str, params: dict[str, object]) -> Self:
+        match params:
+            case {"log": str(log)}:
+                return cls(job_id, log)
+            case _:
+                raise ConfigError(f"{job_id}: 'levels' needs a string 'log'")
+```
+
+```python title="src/jobrun/builtin.py (continued)"
+    async def run(self, ctx: Context) -> Counter[str]:
+        levels = Counter[str]()
+        for line in self.log.splitlines():
+            match LOG_LINE.fullmatch(line):
+                case None:
+                    levels["?"] += 1
+                case found:
+                    levels[found["level"]] += 1
+        return levels
+
+    def render(self, value: Counter[str]) -> str:
+        return " ".join(f"{level}={n}" for level, n in value.most_common())
+```
+
+The third stands in for a slow network call. It is the job that really awaits, so it is the one a deadline can interrupt. The pattern `int() | float() as seconds` accepts both kinds of JSON number, and the guard rejects negative ones.
+
+```python title="src/jobrun/builtin.py (continued)"
+@dataclass(frozen=True)
+class Wait(Plugin[float], kind="wait"):
+    """A stand-in for a slow network call: it sleeps, then reports."""
+
+    seconds: float
+
+    @classmethod
+    def from_params(cls, job_id: str, params: dict[str, object]) -> Self:
+        match params:
+            case {"seconds": int() | float() as seconds} if seconds >= 0:
+                return cls(job_id, float(seconds))
+            case _:
+                raise ConfigError(f"{job_id}: 'wait' needs 'seconds' >= 0")
+
+    async def run(self, ctx: Context) -> float:
+        await asyncio.sleep(self.seconds)
+        return self.seconds
+
+    def render(self, value: float) -> str:
+        return f"waited {value}s"
+```
+
+The fourth does CPU work. Run directly in a coroutine, that work would freeze the event loop and every other job with it ([concurrency models](../concurrency-models/) explained why). So the computation is a plain module-level function, which a [process pool](../multiprocessing/) can find by name in another process.
+
+```python title="src/jobrun/builtin.py (continued)"
+def count_primes(below: int) -> int:
+    """CPU-bound on purpose. It runs in a worker, never on the event loop."""
+    if below < 2:
+        raise ValueError(f"below must be at least 2, got {below}")
+    count = 0
+    for n in range(2, below):
+        for d in range(2, isqrt(n) + 1):
+            if n % d == 0:
+                break
+        else:
+            count += 1
+    return count
+```
+
+The plugin hands the function to the pool with `loop.run_in_executor(executor, function, *args)`. This is the general form of the `asyncio.to_thread` from [asyncio fundamentals](../asyncio-basics/): it submits the call to any executor and gives back something to await, so the event loop keeps running the other jobs while a worker computes.
+
+```python title="src/jobrun/builtin.py (continued)"
+@dataclass(frozen=True)
+class Primes(Plugin[int], kind="primes"):
+    """How many primes are below a number, computed in the worker pool."""
+
+    below: int
+
+    @classmethod
+    def from_params(cls, job_id: str, params: dict[str, object]) -> Self:
+        match params:
+            case {"below": int(below)}:
+                return cls(job_id, below)
+            case _:
+                raise ConfigError(f"{job_id}: 'primes' needs an int 'below'")
+
+    async def run(self, ctx: Context) -> int:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(ctx.pool, count_primes, self.below)
+
+    def render(self, value: int) -> str:
+        return f"{value} primes below {self.below}"
+```
+
+Run each plugin once, in order, with a one-worker process pool. The [main guard](../multiprocessing/) is needed because the pool's workers import this script.
+
+```python title="try_plugins.py"
+import asyncio
+from concurrent.futures import ProcessPoolExecutor
+from typing import Any
+
+from jobrun.builtin import LogLevels, Primes, Wait, WordCount
+from jobrun.models import Context
+from jobrun.plugin import REGISTRY, Plugin
+
+LOG = "09:00:01 INFO up\n09:00:05 ERROR disk full\noops\n09:00:09 INFO retry"
+
+
+async def demo(ctx: Context) -> None:
+    jobs: list[Plugin[Any]] = [
+        WordCount("w", "the cat and the hat and the bat"),
+        LogLevels("l", LOG),
+        Wait("s", 0.05),
+        Primes("p", 100),
+    ]
+    for job in jobs:
+        value = await job.run(ctx)
+        print(f"{job.kind:<7}| {value!r:<41}| {job.render(value)}")
+```
+
+```python title="try_plugins.py (continued)"
+if __name__ == "__main__":
+    print(sorted(REGISTRY))
+    with ProcessPoolExecutor(max_workers=1) as pool:
+        asyncio.run(demo(Context(pool)))
+```
+
+```text
+['levels', 'primes', 'wait', 'words']
+words  | [('the', 3), ('and', 2), ('cat', 1)]     | the=3, and=2, cat=1
+levels | Counter({'INFO': 2, 'ERROR': 1, '?': 1}) | INFO=2 ERROR=1 ?=1
+wait   | 0.05                                     | waited 0.05s
+primes | 25                                       | 25 primes below 100
+```
+
+**Check:** importing `jobrun.builtin` registered four kinds, and nothing called a registration function. The middle column is the raw value of type `T`, the right column what `render` made of it. There are 25 primes below 100, which you can count by hand if you doubt the worker.
+
+## Step 4: reading the jobs file with match
+
+JSON arrives as dictionaries, lists, strings and numbers, with no promises. `config.py` turns it into a frozen `Config` that holds real plugin objects, or raises `ConfigError` with a message that names the problem. The first import matters more than it looks: plugins register when their module is imported, so `config.py` imports `builtin` for that side effect alone.
+
+```python title="step 4, src/jobrun/config.py"
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from . import builtin  # noqa: F401  Importing it registers the plugins.
+from .models import ConfigError
+from .plugin import REGISTRY, Plugin
+
+
+@dataclass(frozen=True)
+class Config:
+    timeout: float
+    workers: int
+    jobs: tuple[Plugin[Any], ...]
+
+
+def parse_job(raw: object) -> Plugin[Any]:
+    match raw:
+        case {"id": str(job_id), "kind": str(kind), **params}:
+            if kind not in REGISTRY:
+                raise ConfigError(f"{job_id}: unknown kind {kind!r}")
+            return REGISTRY[kind].from_params(job_id, params)
+        case _:
+            raise ConfigError(f"a job needs a string id and kind: {raw!r}")
+```
+
+`parse_job` takes `object`, the honest type of something from `json.loads`. One mapping pattern checks that it is a dictionary, that `id` and `kind` are strings, and collects every other key into `params` with `**params`. The registry then picks the class, and the class checks its own settings. `parse_config` does the same for the whole file, with a guard for the two positive numbers:
+
+```python title="step 4, src/jobrun/config.py (continued)"
+def parse_config(data: object) -> Config:
+    match data:
+        case {
+            "timeout": int() | float() as timeout,
+            "workers": int(workers),
+            "jobs": [*raw_jobs],
+        } if timeout > 0 and workers > 0:
+            jobs = tuple(parse_job(raw) for raw in raw_jobs)
+            return Config(float(timeout), workers, jobs)
+        case _:
+            raise ConfigError(
+                "expected positive 'timeout' and 'workers', and a 'jobs' list"
+            )
+
+
+def load_config(path: Path) -> Config:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ConfigError(f"{path} is not valid JSON: {error}") from error
+    return parse_config(data)
+```
+
+Feed it one good file and four bad jobs:
+
+```python title="try_config.py"
+from jobrun.config import parse_config, parse_job
+from jobrun.models import ConfigError
+
+data = {
+    "timeout": 2,
+    "workers": 1,
+    "jobs": [
+        {"id": "w", "kind": "words", "text": "hi there"},
+        {"id": "p", "kind": "primes", "below": 10},
+    ],
+}
+config = parse_config(data)
+print(config.timeout, config.workers)
+for job in config.jobs:
+    print(job)
+```
+
+```python title="try_config.py (continued)"
+bad_jobs: list[object] = [
+    {"id": "x", "kind": "teleport"},
+    {"id": "p", "kind": "primes", "below": "ten"},
+    {"kind": "words", "text": "no id"},
+    ["not", "a", "job"],
+]
+for raw in bad_jobs:
+    try:
+        parse_job(raw)
+    except ConfigError as error:
+        print("ConfigError:", error)
+```
+
+```text
+2.0 1
+WordCount(job_id='w', text='hi there')
+Primes(job_id='p', below=10)
+ConfigError: x: unknown kind 'teleport'
+ConfigError: p: 'primes' needs an int 'below'
+ConfigError: a job needs a string id and kind: {'kind': 'words', 'text': 'no id'}
+ConfigError: a job needs a string id and kind: ['not', 'a', 'job']
+```
+
+**Check:** the integer timeout `2` became the float `2.0`, each job became its plugin class, and each bad job produced one readable sentence. The list in the last case did not crash the mapping pattern: a pattern that does not fit simply fails, and the `case _` reports it.
+
+## Step 5: running every job at once
+
+`runner.py` is short, because the earlier steps did the hard work. `execute` runs one job under a deadline and always returns an `Outcome`. It turns every ordinary exception into a `failed` outcome, so one bad job cannot bring down the others. It is a generic function, `execute[T]`, so the checker knows that the value from `job.run` is exactly what `job.render` accepts.
+
+```python title="src/jobrun/runner.py"
+import asyncio
+
+from .config import Config
+from .models import Context, Outcome, Status
+from .plugin import Plugin
+
+
+async def execute[T](job: Plugin[T], ctx: Context, timeout: float) -> Outcome:
+    try:
+        async with asyncio.timeout(timeout):
+            value = await job.run(ctx)
+    except TimeoutError:
+        detail = f"no result after {timeout}s"
+        return Outcome(job.job_id, Status.TIMEOUT, detail)
+    except Exception as error:
+        detail = f"{type(error).__name__}: {error}"
+        return Outcome(job.job_id, Status.FAILED, detail)
+    return Outcome(job.job_id, Status.OK, job.render(value))
+```
+
+The `try` sits *outside* the `async with`, as [structured concurrency](../asyncio-structured/) taught: `asyncio.timeout` turns the cancellation into `TimeoutError` only when its block exits. `except Exception` does not catch `CancelledError`, which is a `BaseException`, so cancellation still works.
+
+`run_all` starts one task per job in a `TaskGroup`. Leaving the `async with` block waits for all of them, and the list of tasks keeps the order of the file, whatever order the jobs finish in.
+
+```python title="src/jobrun/runner.py (continued)"
+async def run_all(config: Config, ctx: Context) -> list[Outcome]:
+    async with asyncio.TaskGroup() as tg:
+        tasks = [
+            tg.create_task(execute(job, ctx, config.timeout), name=job.job_id)
+            for job in config.jobs
+        ]
+    return [task.result() for task in tasks]
+```
+
+Run the real jobs file:
+
+```python title="try_runner.py"
+import asyncio
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+
+from jobrun.config import load_config
+from jobrun.models import Context
+from jobrun.runner import run_all
+
+if __name__ == "__main__":
+    config = load_config(Path("jobs.json"))
+    with ProcessPoolExecutor(max_workers=config.workers) as pool:
+        outcomes = asyncio.run(run_all(config, Context(pool)))
+    for outcome in outcomes:
+        print(outcome.job_id, outcome.status, outcome.detail, sep=" | ")
+```
+
+```text
+motto | ok | is=2, better=2, than=2
+server-log | ok | INFO=2 WARN=1 ERROR=1 ?=1
+primes | ok | 3245 primes below 30000
+primes-bad | failed | ValueError: below must be at least 2, got 1
+quick-api | ok | waited 0.1s
+slow-api | timeout | no result after 0.5s
+```
+
+**Check:** six lines in file order. The `ValueError` was raised in a worker process, crossed back through the pool, and became a `failed` outcome. The program takes about half a second, the length of one deadline, not the more than 5 seconds that the jobs would take one after another. The `motto` line shows a tie: `is`, `better`, `than` and `complex` all appear twice, and `most_common` keeps the first three it met.
+
+## Step 6: the command
+
+`cli.py` adds the pool choice, the report and the exit code. `make_pool` uses `match` on the pool's name. The interpreter branch imports `InterpreterPoolExecutor` only when asked, so the rest of the tool still runs on 3.12 and 3.13.
+
+```python title="src/jobrun/cli.py"
+import argparse
+import asyncio
+import sys
+from collections import Counter
+from concurrent.futures import Executor, ProcessPoolExecutor
+from pathlib import Path
+
+from .config import load_config
+from .models import ConfigError, Context, Outcome, Sink, Status
+from .runner import run_all
+
+
+def make_pool(kind: str, workers: int) -> Executor:
+    match kind:
+        case "process":
+            return ProcessPoolExecutor(max_workers=workers)
+        case "interpreter":
+            from concurrent.futures import InterpreterPoolExecutor
+
+            return InterpreterPoolExecutor(max_workers=workers)
+        case _:
+            raise ValueError(f"unknown pool kind {kind!r}")
+```
+
+`report` writes to a `Sink`, so the tests can pass a `StringIO`. The column width comes from the longest job id, and a `Counter` of statuses gives the summary line, listed in the enum's order and without zero counts.
+
+```python title="src/jobrun/cli.py (continued)"
+def report(outcomes: list[Outcome], out: Sink) -> None:
+    width = max((len(o.job_id) for o in outcomes), default=0) + 2
+    for o in outcomes:
+        out.write(f"{o.job_id:<{width}}{o.status:<9}{o.detail}\n")
+    counts = Counter(o.status for o in outcomes)
+    parts = [f"{counts[s]} {s}" for s in Status if counts[s]]
+    out.write(f"{len(outcomes)} jobs: {', '.join(parts)}\n")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="jobrun")
+    parser.add_argument("jobs", type=Path, help="JSON file of jobs")
+    parser.add_argument(
+        "--pool", choices=["process", "interpreter"], default="process"
+    )
+    return parser
+```
+
+`main` returns the exit code, which the installed `jobrun` script passes to `sys.exit`. The pool is a context manager, so it shuts down even if `run_all` raises.
+
+```python title="src/jobrun/cli.py (continued)"
+def main(argv: list[str] | None = None, out: Sink | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        config = load_config(args.jobs)
+    except (OSError, ConfigError) as error:
+        print(f"jobrun: {error}", file=sys.stderr)
+        return 2
+    with make_pool(args.pool, config.workers) as pool:
+        outcomes = asyncio.run(run_all(config, Context(pool)))
+    report(outcomes, out if out is not None else sys.stdout)
+    return 0 if all(o.status is Status.OK for o in outcomes) else 1
+```
+
+A `__main__.py` makes `python -m jobrun` work too. Its guard is not decoration: process and interpreter workers may import the main module again.
+
+```python title="src/jobrun/__main__.py"
+from .cli import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+Run the command. <Since v="3.14" /> The second run uses `InterpreterPoolExecutor` from [subinterpreters](../subinterpreters/), and gives the same result. On 3.12 and 3.13 it fails with an `ImportError`.
+
+```console
+$ jobrun jobs.json
+motto       ok       is=2, better=2, than=2
+server-log  ok       INFO=2 WARN=1 ERROR=1 ?=1
+primes      ok       3245 primes below 30000
+primes-bad  failed   ValueError: below must be at least 2, got 1
+quick-api   ok       waited 0.1s
+slow-api    timeout  no result after 0.5s
+6 jobs: 4 ok, 1 failed, 1 timeout
+$ jobrun jobs.json --pool interpreter
+motto       ok       is=2, better=2, than=2
+server-log  ok       INFO=2 WARN=1 ERROR=1 ?=1
+primes      ok       3245 primes below 30000
+primes-bad  failed   ValueError: below must be at least 2, got 1
+quick-api   ok       waited 0.1s
+slow-api    timeout  no result after 0.5s
+6 jobs: 4 ok, 1 failed, 1 timeout
+$ jobrun bad.json
+jobrun: beam-me-up: unknown kind 'teleport'
+$ jobrun missing.json
+jobrun: [Errno 2] No such file or directory: 'missing.json'
+```
+
+`bad.json` holds a good `words` job and a second job of kind `teleport`. **Check:** the first two runs exit with code 1 (`echo $?` shows it), because two jobs did not succeed. The last two exit with code 2, and no job ran at all: the whole file is checked before the pool starts.
+
+## Step 7: what the type checkers say
+
+So far you have trusted your own reading of the types. Now ask the checkers. These transcripts are real, made in October 2026 with mypy 2.3.1 and pyright 1.1.414. Messages change between releases, so yours may be worded differently. (Pyright's absolute paths are shortened to the file name, as everywhere in this level.) With the step 4 version of `config.py`, `mypy --strict` finds one problem, and pyright finds none:
+
+```console title="mypy 2.3.1, pyright 1.1.414"
+$ mypy --strict src
+src/jobrun/config.py:23: error: Argument 2 to "from_params" of "Plugin" has incompatible type "dict[object, object]"; expected "dict[str, object]"  [arg-type]
+Found 1 error in 1 file (checked 8 source files)
+$ pyright src
+0 errors, 0 warnings, 0 informations
+```
+
+Mypy is right in general. `raw` is any `object`, so a mapping that matches the pattern could have keys of any type, and `**params` is typed `dict[object, object]`. Pyright types `params` as `dict[Unknown, Unknown]`. `Unknown` is its name for a type it could not work out, and in its default mode it does not report one, so a clean pyright run is not proof that a value was [narrowed](../narrowing/). JSON object keys are always strings, so the fix is to say so in code, where both the checker and the reader can see it:
+
+```python title="src/jobrun/config.py (changed: parse_job)"
+def parse_job(raw: object) -> Plugin[Any]:
+    match raw:
+        case {"id": str(job_id), "kind": str(kind), **rest}:
+            if kind not in REGISTRY:
+                raise ConfigError(f"{job_id}: unknown kind {kind!r}")
+            params = {str(key): value for key, value in rest.items()}
+            return REGISTRY[kind].from_params(job_id, params)
+        case _:
+            raise ConfigError(f"a job needs a string id and kind: {raw!r}")
+```
+
+```console title="mypy 2.3.1, pyright 1.1.414"
+$ mypy --strict src
+Success: no issues found in 8 source files
+$ pyright src
+0 errors, 0 warnings, 0 informations
+```
+
+Now see what `Plugin[T]` buys. Here is a plugin whose `render` expects a string, although its `run` produces a float. Python runs it without complaint until the last moment:
+
+```python title="broken_plugin.py"
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+
+from jobrun.models import Context
+from jobrun.plugin import Plugin
+
+
+@dataclass(frozen=True)
+class Mean(Plugin[float], kind="mean"):
+    numbers: tuple[float, ...]
+
+    async def run(self, ctx: Context) -> float:
+        return sum(self.numbers) / len(self.numbers)
+
+    def render(self, value: str) -> str:
+        return "mean " + value
+```
+
+```python title="broken_plugin.py (continued)"
+job = Mean("m", (1.0, 2.0, 4.5))
+with ThreadPoolExecutor() as pool:
+    value = asyncio.run(job.run(Context(pool)))
+try:
+    print(job.render(value))
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+TypeError: can only concatenate str (not "float") to str
+```
+
+Both checkers find it without running anything, and point at the definition, not at the crash:
+
+```console title="mypy 2.3.1"
+$ mypy --strict broken_plugin.py
+broken_plugin.py:16: error: Argument 1 of "render" is incompatible with supertype "jobrun.plugin.Plugin"; supertype defines the argument type as "float"  [override]
+broken_plugin.py:16: note: This violates the Liskov substitution principle
+broken_plugin.py:16: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#incompatible-overrides
+broken_plugin.py:24: error: Argument 1 to "render" of "Mean" has incompatible type "float"; expected "str"  [arg-type]
+Found 2 errors in 1 file (checked 1 source file)
+```
+
+```console title="pyright 1.1.414"
+$ pyright broken_plugin.py
+broken_plugin.py
+  broken_plugin.py:16:9 - error: Method "render" overrides class "Plugin" in an incompatible manner
+    Parameter 2 type mismatch: base parameter is type "float", override parameter is type "str"
+      "float" is not assignable to "str" (reportIncompatibleMethodOverride)
+  broken_plugin.py:24:22 - error: Argument of type "float" cannot be assigned to parameter "value" of type "str" in function "render"
+    "float" is not assignable to "str" (reportArgumentType)
+2 errors, 0 warnings, 0 informations
+```
+
+**Check:** `src` passes both checkers with no errors, and `broken_plugin.py` fails both at line 16. Because `Mean` says `Plugin[float]`, the checker substitutes `float` for `T` in the base class's `render` and compares. Mypy also flags `try_registry.py` from step 2: the `Quiet` class is missing its `kind` argument, a mistake it finds from the signature of `__init_subclass__`.
+
+## Step 8: tests
+
+Two choices keep the tests fast. Most tests use a **thread pool**: `Context` accepts any `Executor`, threads start almost at once, and `count_primes` works the same in a thread. And timeouts are tiny, so a test that waits for a deadline waits 0.05 seconds. A fixture in `conftest.py` provides the context:
+
+```python title="tests/conftest.py"
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
+
+from jobrun.models import Context
+
+
+@pytest.fixture
+def ctx() -> Iterator[Context]:
+    """A Context with a thread pool. Any Executor will do, and threads
+    start faster than processes."""
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        yield Context(pool)
+```
+
+The tests are ordinary functions that call `asyncio.run` themselves, so no pytest plugin is needed. The runner tests check the two promises that matter most: failures and timeouts become outcomes, and results keep the file's order even when jobs finish in a different one.
+
+```python title="tests/test_runner.py"
+import asyncio
+
+from jobrun.builtin import Primes, Wait
+from jobrun.config import Config
+from jobrun.models import Context, Status
+from jobrun.runner import run_all
+
+
+def test_failures_and_timeouts_become_outcomes(ctx: Context) -> None:
+    jobs = (Wait("fast", 0), Wait("slow", 5), Primes("bad", 0))
+    outcomes = asyncio.run(run_all(Config(0.05, 1, jobs), ctx))
+    assert [o.status for o in outcomes] == [
+        Status.OK,
+        Status.TIMEOUT,
+        Status.FAILED,
+    ]
+    assert outcomes[2].detail.startswith("ValueError: below must be")
+
+
+def test_results_keep_the_order_of_the_config(ctx: Context) -> None:
+    jobs = (Wait("first", 0.03), Wait("second", 0))
+    outcomes = asyncio.run(run_all(Config(1.0, 1, jobs), ctx))
+    assert [o.job_id for o in outcomes] == ["first", "second"]
+```
+
+The command tests call `main` with a list of arguments and a `StringIO` sink. The first one really starts a process pool, once, so that the whole path is tested end to end.
+
+```python title="tests/test_cli.py"
+import io
+import json
+from pathlib import Path
+
+import pytest
+
+from jobrun.cli import main
+
+
+def write_jobs(folder: Path, jobs: list[dict[str, object]]) -> Path:
+    path = folder / "jobs.json"
+    data = {"timeout": 1.0, "workers": 1, "jobs": jobs}
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+```
+
+```python title="tests/test_cli.py (continued)"
+def test_all_ok_exits_0_and_reports(tmp_path: Path) -> None:
+    path = write_jobs(tmp_path, [
+        {"id": "w", "kind": "words", "text": "to be or not to be"},
+        {"id": "p", "kind": "primes", "below": 20},
+    ])
+    out = io.StringIO()
+    assert main([str(path)], out=out) == 0
+    assert out.getvalue().splitlines() == [
+        "w  ok       to=2, be=2, or=1",
+        "p  ok       8 primes below 20",
+        "2 jobs: 2 ok",
+    ]
+
+
+def test_bad_config_exits_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = write_jobs(tmp_path, [{"id": "x", "kind": "teleport"}])
+    assert main([str(path)]) == 2
+    assert capsys.readouterr().err == "jobrun: x: unknown kind 'teleport'\n"
+```
+
+The finished project also has `tests/test_plugins.py` (the registry, a duplicate kind, and `run` then `render` for each built-in plugin, parametrized) and `tests/test_config.py` (good and bad jobs and files). Run the whole suite:
+
+```console
+$ python -m pytest -q
+....................                                                     [100%]
+20 passed in 0.24s
+```
+
+**Check:** `20 passed`, in well under a second. The timing differs on every machine. The finished project is in the course repository under `examples/python/a5/jobrun/`.
+
+## Where each piece came from
+
+| Piece of the project | Lesson |
+|---|---|
+| `Plugin[T]`, `execute[T]` | [Generics and PEP 695](../generics-pep695/) |
+| `Sink` | [Protocols and structural typing](../protocols-structural/) |
+| `ClassVar`, `Self`, `mypy --strict` | [Typing fundamentals](../typing-fundamentals/), [Narrowing](../narrowing/) |
+| `match` on JSON and on `re.Match` | [Advanced pattern matching](../match-advanced/) |
+| `Counter`, `most_common` | [The collections module](../collections-module/) |
+| `WORD`, `LOG_LINE` | [Regular expressions](../regex/) |
+| `ProcessPoolExecutor`, main guards | [Multiprocessing](../multiprocessing/) |
+| `run_in_executor`, `async def` plugins | [asyncio fundamentals](../asyncio-basics/) |
+| `TaskGroup`, `asyncio.timeout` | [Structured concurrency](../asyncio-structured/) |
+| `InterpreterPoolExecutor` | [Subinterpreters](../subinterpreters/) |
+| `__init_subclass__` registry | [Class customisation](../class-customisation/) |
+
+## Common pitfalls
+
+- **A plugin module nobody imports.** Registration happens when the `class` statement runs, which is when its module is imported. A plugin in a module that nothing imports does not exist as far as the registry knows. That is why `config.py` imports `builtin`.
+- **`@dataclass(slots=True)` on a plugin.** With slots, the decorator builds a *new* class from the old one. Creating that class calls `__init_subclass__` a second time, without the `kind=` keyword, so it fails with the "missing 1 required positional argument: 'kind'" error from step 2. The plugins here leave `slots` off.
+- **`True` is an `int`.** `bool` is a subclass of `int`, so the pattern `int(below)` accepts `{"below": true}` and builds `Primes(below=True)`. Add a `case {"below": bool()}` that raises before the `int` case if that matters.
+- **CPU work in `run` without the pool.** A loop inside an `async def` holds the event loop until it ends. Every other job, and every deadline, waits. `asyncio.timeout` cannot interrupt code that never reaches an `await`.
+- **A deadline does not stop a worker.** When a pooled job times out, the coroutine stops waiting, but the worker process or interpreter keeps computing until the function returns, and the pool's `with` block waits for it at shutdown. Make CPU jobs small, or check a limit inside the function.
+- **Missing main guards with pytest run from a script.** <Since v="3.14" /> On Linux, process pools start workers with `forkserver` by default, and workers import the main module again. When a script runs `pytest.main()` at top level, every worker starts the test suite again, and the test that uses the pool fails. Put the call under `if __name__ == "__main__":`.
+- **Interpreter workers start fresh.** A subinterpreter builds its own `sys.path` at startup, from the environment and the installed packages. A `sys.path.insert` done at run time in the main interpreter does not reach it, and the import of your module fails there. Install the package (`pip install -e .`) instead.
+
+<Exercise title="A grep plugin">
+
+Add a plugin of kind `grep` that keeps the lines of a log that match a regular expression. Its settings are `pattern` and `log`. Compile the pattern in `from_params`, so a bad pattern is a `ConfigError` before any job runs. `render` gives the count and the lines. Define it in a scratch file (defining it is enough to register it), and run it through `parse_config`, `run_all` and `report` with a thread pool. Expected output for the log below with pattern `ERROR`, and then for the pattern `(ERROR`:
+
+```text
+errors  ok       2 found: 09:00:05 ERROR disk full | 09:00:07 ERROR no retry
+1 jobs: 1 ok
+ConfigError: oops: bad pattern: missing ), unterminated subpattern at position 0
+```
+
+<Solution>
+
+```python title="ext_grep.py"
+import asyncio
+import re
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from typing import Self
+
+from jobrun.cli import report
+from jobrun.config import parse_config
+from jobrun.models import ConfigError, Context
+from jobrun.plugin import Plugin
+from jobrun.runner import run_all
+```
+
+```python title="ext_grep.py (continued)"
+@dataclass(frozen=True)
+class Grep(Plugin[list[str]], kind="grep"):
+    """The lines of a log that match a regular expression."""
+
+    pattern: re.Pattern[str]
+    log: str
+
+    @classmethod
+    def from_params(cls, job_id: str, params: dict[str, object]) -> Self:
+        match params:
+            case {"pattern": str(text), "log": str(log)}:
+                try:
+                    return cls(job_id, re.compile(text), log)
+                except re.error as error:
+                    raise ConfigError(f"{job_id}: bad pattern: {error}")
+            case _:
+                raise ConfigError(f"{job_id}: 'grep' needs 'pattern' and 'log'")
+
+    async def run(self, ctx: Context) -> list[str]:
+        lines = self.log.splitlines()
+        return [line for line in lines if self.pattern.search(line)]
+
+    def render(self, value: list[str]) -> str:
+        return f"{len(value)} found: " + " | ".join(value)
+```
+
+```python title="ext_grep.py (continued)"
+LOG = "09:00:01 INFO up\n09:00:05 ERROR disk full\n09:00:07 ERROR no retry"
+data = {
+    "timeout": 1,
+    "workers": 1,
+    "jobs": [{"id": "errors", "kind": "grep", "pattern": "ERROR", "log": LOG}],
+}
+with ThreadPoolExecutor() as pool:
+    report(asyncio.run(run_all(parse_config(data), Context(pool))), sys.stdout)
+
+bad_job = {"id": "oops", "kind": "grep", "pattern": "(ERROR", "log": LOG}
+try:
+    parse_config({**data, "jobs": [bad_job]})
+except ConfigError as error:
+    print("ConfigError:", error)
+```
+
+```text
+errors  ok       2 found: 09:00:05 ERROR disk full | 09:00:07 ERROR no retry
+1 jobs: 1 ok
+ConfigError: oops: bad pattern: missing ), unterminated subpattern at position 0
+```
+
+Not one line of `jobrun` changed: `parse_config` found `grep` in the registry because the class statement ran first. Storing the compiled `re.Pattern` in the dataclass means the pattern is compiled once, at load time. To ship the plugin with the tool, move the class into `builtin.py` and add a parametrized case to `test_plugins.py`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A deadline per job">
+
+Let a job override the global deadline with its own `timeout` key. Write `job_limits(raw_jobs)`, which uses `match` to collect a `dict` from job id to limit, and `run_with_limits(config, ctx, limits)`, a version of `run_all` that passes each job its own limit. With a global timeout of 0.2 seconds and the three jobs below, the expected output is:
+
+```text
+patient    ok       waited 0.3s
+impatient  timeout  no result after 0.05s
+normal     ok       waited 0.05s
+3 jobs: 2 ok, 1 timeout
+```
+
+<Solution>
+
+```python title="ext_job_timeout.py"
+import asyncio
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+from jobrun.cli import report
+from jobrun.config import Config, parse_config
+from jobrun.models import Context, Outcome
+from jobrun.runner import execute
+
+
+def job_limits(raw_jobs: list[object]) -> dict[str, float]:
+    limits = {}
+    for raw in raw_jobs:
+        match raw:
+            case {"id": str(job_id), "timeout": int() | float() as limit}:
+                limits[job_id] = float(limit)
+    return limits
+```
+
+```python title="ext_job_timeout.py (continued)"
+async def run_with_limits(
+    config: Config, ctx: Context, limits: dict[str, float]
+) -> list[Outcome]:
+    async with asyncio.TaskGroup() as tg:
+        tasks = [
+            tg.create_task(
+                execute(job, ctx, limits.get(job.job_id, config.timeout))
+            )
+            for job in config.jobs
+        ]
+    return [task.result() for task in tasks]
+
+
+raw_jobs: list[object] = [
+    {"id": "patient", "kind": "wait", "seconds": 0.3, "timeout": 0.5},
+    {"id": "impatient", "kind": "wait", "seconds": 0.1, "timeout": 0.05},
+    {"id": "normal", "kind": "wait", "seconds": 0.05},
+]
+config = parse_config({"timeout": 0.2, "workers": 1, "jobs": raw_jobs})
+with ThreadPoolExecutor() as pool:
+    ctx = Context(pool)
+    outcomes = asyncio.run(run_with_limits(config, ctx, job_limits(raw_jobs)))
+report(outcomes, sys.stdout)
+```
+
+```text
+patient    ok       waited 0.3s
+impatient  timeout  no result after 0.05s
+normal     ok       waited 0.05s
+3 jobs: 2 ok, 1 timeout
+```
+
+`patient` would have failed the global 0.2-second deadline, and `impatient` would have passed it. The plugins needed no change: the extra `timeout` key reaches `Wait.from_params`, and its mapping pattern ignores it. To build this into the tool, give `Config` a `limits` field filled in by `parse_config`, and pass the limit in `run_all`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fail fast">
+
+<Since v="3.15" /> Write `run_fail_fast(config, ctx)`, which stops the whole group as soon as one job does not succeed, using `TaskGroup.cancel()`. Return a `dict` of the outcomes that did arrive, and print `cancelled` for the jobs that are missing from it. The job that fails must still be reported. With a word count, the impossible prime count and a 5-second wait, the program must end at once, not after 5 seconds, and print:
+
+```text
+motto: ok
+primes-bad: failed
+slow-api: cancelled
+```
+
+<Solution>
+
+```python title="ext_fail_fast.py"
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
+
+from jobrun.config import Config, parse_config
+from jobrun.models import Context, Outcome, Status
+from jobrun.plugin import Plugin
+from jobrun.runner import execute
+
+
+async def run_fail_fast(config: Config, ctx: Context) -> dict[str, Outcome]:
+    finished: dict[str, Outcome] = {}
+    async with asyncio.TaskGroup() as tg:
+
+        async def guarded(job: Plugin[Any]) -> None:
+            outcome = await execute(job, ctx, config.timeout)
+            finished[job.job_id] = outcome
+            if outcome.status is not Status.OK:
+                tg.cancel()
+
+        for job in config.jobs:
+            tg.create_task(guarded(job))
+    return finished
+```
+
+```python title="ext_fail_fast.py (continued)"
+config = parse_config({"timeout": 10, "workers": 1, "jobs": [
+    {"id": "motto", "kind": "words", "text": "Now is better than never."},
+    {"id": "primes-bad", "kind": "primes", "below": 1},
+    {"id": "slow-api", "kind": "wait", "seconds": 5},
+]})
+with ThreadPoolExecutor() as pool:
+    finished = asyncio.run(run_fail_fast(config, Context(pool)))
+for job in config.jobs:
+    outcome = finished.get(job.job_id)
+    print(job.job_id, outcome.status if outcome else "cancelled", sep=": ")
+```
+
+```text
+motto: ok
+primes-bad: failed
+slow-api: cancelled
+```
+
+The outcome is stored *before* `tg.cancel()`, and that order matters. `cancel()` cancels every task in the group that is not done, including the one that calls it, so a task that returned its outcome after cancelling could lose it. The group then exits normally, with no `CancelledError` to catch. Before 3.15 you would raise a private exception in the task and catch it with `except*` around the group.
+
+</Solution>
+</Exercise>
+
+## What you can now do
+
+You have finished the advanced level. Look at what the last eight steps asked of you:
+
+- Design an API with generics and protocols, and let `mypy --strict` and pyright prove that its parts fit, including in code you have not written yet.
+- Turn untrusted, nested data into typed objects with `match`, and give each kind of bad input its own message.
+- Choose the right kind of concurrency for each piece of work: coroutines for waiting, a process or interpreter pool for computing, and a `TaskGroup` with deadlines to keep all of it supervised.
+- Use class creation hooks to make a program extensible without editing it.
+- Test all of that quickly and deterministically.
+
+## Where next
+
+The [expert level](../../) is about Python in production and Python from the inside. **Performance** measures and profiles programs like this one, and finds out what `count_primes` really costs. **CPython internals** opens up bytecode, memory management, the GIL and the import system that makes plugin registration work. **Production Python** covers packaging and publishing a tool like `jobrun`, command-line applications with subcommands, configuration and observability. Back to the [Python curriculum](../../) for the full lesson list.

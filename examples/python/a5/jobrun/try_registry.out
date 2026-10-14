@@ -1,0 +1,4 @@
+{'shout': <class '__main__.Shout'>}
+Shout(job_id='s1', text='hello') shout HELLO!
+Loud: plugin kind 'shout' is already registered
+Quiet: Plugin.__init_subclass__() missing 1 required positional argument: 'kind'

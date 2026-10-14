@@ -1,0 +1,22 @@
+[project]
+name = "jobrun"
+version = "0.1.0"
+description = "Run typed plugin jobs concurrently, each with a deadline"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+jobrun = "jobrun.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest", "mypy", "pyright"]
+
+[tool.mypy]
+python_version = "3.15"
+
+[tool.pyright]
+pythonVersion = "3.15"
