@@ -1,0 +1,281 @@
+---
+language: python
+level: expert
+module: CPython internals
+order: 9
+title: The GIL and free-threading internals
+description: What the global interpreter lock actually protects, why removing it needed new reference counting, per-object locks and a new collector design, how extensions declare they are ready, and where PEP 779 leaves the free-threaded build.
+minVersion: "3.14"
+objectives:
+  - Explain what the GIL protects and when a thread gives it up
+  - Describe biased reference counting, immortalisation and deferred reference counting
+  - Explain per-object locks and critical sections, and what they do not guarantee
+  - Declare free-threading support in an extension with Py_mod_gil
+  - State the PEP 779 phases and the current status accurately
+estimatedMinutes: 45
+fundamentals: []
+---
+
+[Free-threaded Python](../../advanced/free-threading/) showed how to install and use the build without the GIL, and why your own shared state still needs locks. This lesson looks underneath: what the lock was protecting, and what [PEP 703](https://peps.python.org/pep-0703/) had to build so that it could go.
+
+## What the GIL protects
+
+The global interpreter lock is a mutex that a thread must hold to run bytecode or touch any Python object. Since 3.12 an [isolated subinterpreter](../../advanced/subinterpreters/) can have its own; otherwise there is one for the whole process. That one rule made a lot of CPython simple:
+
+- **Reference counts.** The [previous lesson's](../memory-model/) counts are plain integers, changed with ordinary non-atomic instructions. Two threads incrementing one count at once would lose an update and free a live object.
+- **Object internals.** A `dict` resize or a `list` append moves memory around. Nobody else can look while it happens.
+- **Interpreter state.** Caches, the specialising interpreter's rewritten instructions and the allocator all assume one thread at a time.
+
+A running thread gives the GIL up when it blocks (I/O, `time.sleep`, a lock) and otherwise when asked to, after the **switch interval**:
+
+```python title="switch_interval.py"
+import sys
+
+print("switch interval:", sys.getswitchinterval(), "seconds")
+
+old = sys.getswitchinterval()
+sys.setswitchinterval(0.001)
+print("now:", sys.getswitchinterval())
+sys.setswitchinterval(old)
+```
+
+```text
+switch interval: 0.005 seconds
+now: 0.001
+```
+
+The switch happens between bytecode instructions. That is why the GIL never made your code thread-safe: `count += 1` is several instructions, and another thread can run between any two of them.
+
+```python title="not_atomic.py"
+import dis
+
+count = 0
+
+
+def bump():
+    global count
+    count += 1
+
+
+steps = [
+    ins.opname
+    for ins in dis.get_instructions(bump)
+    if ins.opname in ("LOAD_GLOBAL", "BINARY_OP", "STORE_GLOBAL")
+]
+print(" -> ".join(steps))
+```
+
+```text
+LOAD_GLOBAL -> BINARY_OP -> STORE_GLOBAL
+```
+
+## Problem 1: reference counts
+
+Making every increment atomic would work, but atomic read-modify-write instructions are slow, and every object touch would pay. PEP 703 uses three techniques instead.
+
+**Biased reference counting.** Most objects are only ever used by the thread that created them, so the object header records an owner thread and keeps two counts: a local one the owner updates with fast non-atomic instructions, and a shared one other threads update atomically. In the PEP's design the header looks like this:
+
+```c
+struct _object {
+  _PyObject_HEAD_EXTRA
+  uintptr_t ob_tid;         // owning thread id
+  uint16_t __padding;
+  PyMutex ob_mutex;         // per-object mutex (1 byte)
+  uint8_t ob_gc_bits;       // GC flags
+  uint32_t ob_ref_local;    // local reference count
+  Py_ssize_t ob_ref_shared; // shared reference count and state bits
+  PyTypeObject *ob_type;
+};
+```
+
+**Immortalisation.** `None`, small ints, interned strings and static types never change their counts at all, so threads never contend on them. This is the same idea as the default build's immortal objects, with a different bit layout.
+
+**Deferred reference counting.** Top-level functions, code objects, modules and methods are hammered by every thread but are not immortal. For these, the interpreter skips the count updates when pushing them on and off its stack. Their true count is only computed by the garbage collector, while all threads are paused.
+
+That last sentence is the cost: `sys.getrefcount` means even less on this build.
+
+## Problem 2: object internals
+
+Each object has a one-byte `ob_mutex`. Built-in types such as `list`, `dict` and `set` take it internally, so concurrent use cannot corrupt them. C code uses it through **critical sections**:
+
+```c
+/* Pop the last item of a list, or return None if it is empty. */
+static PyObject *
+pop_or_none(PyObject *module, PyObject *list)
+{
+    PyObject *item = NULL;
+    Py_BEGIN_CRITICAL_SECTION(list);          /* lock this list only */
+    Py_ssize_t n = PyList_GET_SIZE(list);
+    if (n > 0) {
+        item = Py_NewRef(PyList_GET_ITEM(list, n - 1));
+        PyList_SetSlice(list, n - 1, n, NULL); /* check, then act */
+    }
+    Py_END_CRITICAL_SECTION();
+    return item ? item : Py_NewRef(Py_None);
+}
+```
+
+A critical section is not a plain lock. If the code inside blocks, for example on I/O or another lock, all of the thread's critical sections are suspended and their locks released, then reacquired afterwards. That avoids deadlocks, at a price: nesting two critical sections does not lock two objects at once. Use `Py_BEGIN_CRITICAL_SECTION2` for that. On the default build all of these macros are no-ops ([C API extension support](https://docs.python.org/3/howto/free-threading-extensions.html)).
+
+Reads avoid the lock where they can. `lst[i]` is an atomic, lock-free read; PEP 703 made this safe with changes to the memory allocator (the build uses mimalloc), so that a reader racing with a resize never sees freed memory. The [thread safety guarantees](https://docs.python.org/3/builtins/threadsafety.html) page lists, per type, which operations are atomic.
+
+## Problem 3: the garbage collector
+
+The cyclic collector relied on reference counts staying still while it worked. On the free-threaded build it **stops the world**: it pauses every thread running Python code while it finds cycles, then resumes them before running finalisers. PEP 703 also specified a non-generational collector for this build.
+
+## Extensions: Py_mod_gil
+
+A C extension may keep global state that assumes the GIL. So on the free-threaded build, importing an extension that has not declared support turns the GIL back on. An extension declares support with a slot:
+
+```c
+PySlot_DATA(Py_mod_gil, Py_MOD_GIL_NOT_USED),
+```
+
+Single-phase modules call `PyUnstable_Module_SetGIL(module, Py_MOD_GIL_NOT_USED)` instead. Here is a small extension built without the slot, imported on `python3.15t`:
+
+```console
+$ python3.15t -c "import sys, tally; print(sys._is_gil_enabled())"
+<frozen importlib._bootstrap>:549: RuntimeWarning: The global interpreter lock (GIL) has been enabled to load module 'tally', which has not declared that it can run safely without the GIL. To override this behavior and keep the GIL disabled (at your own risk), run with PYTHON_GIL=0 or -Xgil=0.
+True
+```
+
+With the slot added and rebuilt, the same command prints `False`. On the default build the slot is ignored. The slot is a promise, not a check: declaring it on code that is not thread-safe gives you crashes instead of a warning.
+
+## The phases
+
+The Steering Council's acceptance of PEP 703 set three phases, which [PEP 779](https://peps.python.org/pep-0779/) made concrete:
+
+- **Phase I** (3.13): the free-threaded build is available but explicitly experimental.
+- **Phase II** (3.14 onward): officially supported, still optional. This is where 3.15 is. <Since v="3.15" /> It added `abi3t`, a stable ABI for free-threaded builds ([PEP 803](https://peps.python.org/pep-0803/)).
+- **Phase III**: free-threading as the default build. What's New in 3.14 says any decision to transition "is still undecided".
+
+## Common pitfalls
+
+**"The GIL makes my code atomic."** It made single bytecode instructions atomic, and only by accident.
+
+**Trusting nested critical sections.** The outer one may be suspended. Lock two objects with the two-object form.
+
+**Declaring `Py_MOD_GIL_NOT_USED` without auditing.** Static C globals, caches and borrowed references from shared containers all need review first.
+
+**Reading the PEP's struct as an API.** Field names are internal. Use `Py_INCREF`, `Py_DECREF` and the public API.
+
+<Exercise title="Read the bug report">
+Explain the race in this report, then fix `record` so that the program prints `{'/home': 40000}` on every run, on both builds.
+
+> **Hit counts too low on 3.15t.** Our access log counter loses most updates on the free-threaded build. On the default build it was always exact. Repro: `python3.15t hit_counter.py` printed `{'/home': 22589}`, then `{'/home': 16616}`. Expected 40000. Is `dict` broken without the GIL?
+
+```python
+import threading
+
+hits = {}
+
+
+def record(path):
+    hits[path] = hits.get(path, 0) + 1
+
+
+def worker():
+    for _ in range(10_000):
+        record("/home")
+
+
+threads = [threading.Thread(target=worker) for _ in range(4)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+print(hits)
+```
+
+<Solution>
+
+`dict` is fine: `get` and the item assignment are each safe. The bug is that `record` is a read-modify-write of two separate operations. Two threads read the same old value, both add 1, both store, and one update is lost. With the GIL, a switch between those steps was rare, because switches only happen every 5 ms; that is luck, not a guarantee. Without the GIL the threads really overlap, so it happens constantly. Hold one lock across the read and the write:
+
+```python title="hit_counter_fixed.py"
+import threading
+
+hits = {}
+hits_lock = threading.Lock()
+
+
+def record(path):
+    with hits_lock:
+        hits[path] = hits.get(path, 0) + 1
+
+
+def worker():
+    for _ in range(10_000):
+        record("/home")
+
+
+threads = [threading.Thread(target=worker) for _ in range(4)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+print(hits)
+```
+
+```text
+{'/home': 40000}
+```
+
+</Solution>
+</Exercise>
+
+<Exercise title="Atomic or not?">
+Without running anything, classify each operation on a shared list `lst` on the free-threaded build as atomic or not atomic, using the thread safety guarantees page. Expected result: two are atomic and three are not.
+
+1. `lst.append(x)`
+2. `lst[i] = lst[i] + 1`
+3. `lst.pop()`
+4. `if lst: item = lst.pop()`
+5. `for item in lst: process(item)` while another thread appends
+
+<Solution>
+
+Atomic: 1 (`append` needs no shifting) and 3 (`pop()` from the end). Not atomic: 2 is read-modify-write, 4 is check-then-act (the list can empty between the check and the pop), and 5 is iteration, which is never atomic. Each single call is protected by the list's own lock; anything made of two calls needs your lock.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Did an import turn the GIL on?">
+Write `gil_report(modules)` that returns `"default build: the GIL is always on"` on a default build. On a free-threaded build it imports each module in turn and returns `"GIL re-enabled by NAME"` for the first one that switched the GIL back on, or `"GIL still off"`. Call it with `["json", "decimal", "sqlite3"]`. Expected output: on `python3.15`, `default build: the GIL is always on`; on `python3.15t`, `GIL still off`, because these standard library extensions declare support.
+
+<Solution>
+
+```python title="gil_guard.py"
+import importlib
+import sys
+import sysconfig
+
+
+def gil_report(modules):
+    if not sysconfig.get_config_var("Py_GIL_DISABLED"):
+        return "default build: the GIL is always on"
+    for name in modules:
+        importlib.import_module(name)
+        if sys._is_gil_enabled():
+            return f"GIL re-enabled by {name}"
+    return "GIL still off"
+
+
+print(gil_report(["json", "decimal", "sqlite3"]))
+```
+
+```text
+default build: the GIL is always on
+```
+
+Run it at the end of your application's startup in CI on the free-threaded build, and fail the job if a dependency switches the GIL back on.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- The GIL protected reference counts, object internals and interpreter state. Threads switch between bytecode instructions, every 5 ms by default.
+- PEP 703 replaced it with biased, immortal and deferred reference counting, per-object locks with critical sections, lock-free reads backed by the allocator, and a stop-the-world collector.
+- Extensions opt in with `Py_mod_gil`; one that does not re-enables the GIL with a warning.
+- The free-threaded build is in phase II: supported, optional. Phase III is undecided.
+- Next: [the import system](../import-system/), from `import` statement to module object.

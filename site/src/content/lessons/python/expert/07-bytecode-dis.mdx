@@ -1,0 +1,410 @@
+---
+language: python
+level: expert
+module: CPython internals
+order: 7
+title: Bytecode and dis
+description: Read CPython bytecode with dis, take code objects apart, map instructions back to source lines and columns with co_lines() and positions, and watch the specialising interpreter rewrite hot code.
+minVersion: "3.12"
+objectives:
+  - Name the parts of a code object and say what each one holds
+  - Read dis output for loops, arithmetic and returns
+  - Map an instruction to its source line with co_lines() and to its columns with positions
+  - Recognise specialised instructions in dis(adaptive=True) output
+  - Replace code that used the removed co_lnotab attribute
+estimatedMinutes: 45
+fundamentals: []
+---
+
+[Introspection and the AST](../../advanced/introspection-ast/) ended with a first look at `dis.dis`. This lesson opens the box properly. CPython compiles every function body to a **code object**: a compact array of instructions plus the tables needed to run and debug them. The interpreter's main loop executes those instructions one at a time on a value stack.
+
+Bytecode is an implementation detail. It changes in every minor release, and other Pythons (PyPy, GraalPy) have none of it. Read it to understand performance and tooling. Never make your program's behaviour depend on it.
+
+## Code objects
+
+Every function carries its code object in `__code__`:
+
+```python title="code_attrs.py"
+def total(prices):
+    result = 0
+    for p in prices:
+        result += p
+    return result
+
+
+code = total.__code__
+print(type(code).__name__, code.co_name, code.co_argcount)
+print(code.co_varnames)
+print(code.co_firstlineno)
+print(total([3, 4, 5]))
+```
+
+```text
+code total 1
+('prices', 'result', 'p')
+1
+12
+```
+
+The attributes you will use most:
+
+| Attribute | Holds |
+|---|---|
+| `co_code` | the raw instruction bytes (2 bytes per instruction unit) |
+| `co_consts` | constants the code loads |
+| `co_names` | global and attribute names |
+| `co_varnames` | parameters first, then other local variables |
+| `co_firstlineno` | the line of the `def` |
+| `co_qualname` | the qualified name, such as `Cart.total` (3.11+) |
+
+Locals are not looked up by name at run time. `result` is slot 1 in `co_varnames`, and the instruction that loads it carries the number 1. That is why local variables are faster than globals.
+
+## Reading dis output
+
+```python title="dis_total.py"
+import dis
+
+
+def total(prices):
+    result = 0
+    for p in prices:
+        result += p
+    return result
+
+
+dis.dis(total)
+```
+
+```console
+$ python3.15 dis_total.py
+  4           RESUME                   0
+
+  5           LOAD_SMALL_INT           0
+              STORE_FAST               1 (result)
+
+  6           LOAD_FAST                0 (prices)
+              GET_ITER                 0
+      L1:     FOR_ITER                11 (to L2)
+              STORE_FAST               2 (p)
+
+  7           LOAD_FAST_BORROW_LOAD_FAST_BORROW 18 (result, p)
+              BINARY_OP               13 (+=)
+              STORE_FAST               1 (result)
+              JUMP_BACKWARD           13 (to L1)
+
+  6   L2:     END_FOR
+              POP_ITER
+
+  8           LOAD_FAST_BORROW         1 (result)
+              RETURN_VALUE
+```
+
+Read it column by column: the source line, an optional jump label, the instruction name, its argument, and a human-readable gloss of the argument in parentheses.
+
+- `RESUME` does nothing visible. The interpreter uses it for internal tracing, debugging and optimisation checks.
+- `LOAD_*` pushes a value onto the stack; `STORE_FAST` pops one into a local slot.
+- The loop is `GET_ITER`, then `FOR_ITER` at label `L1`, which either pushes the next item or jumps to `L2` when the iterator is exhausted. `JUMP_BACKWARD` closes the loop.
+- `BINARY_OP 13` is `+=`. One opcode covers every binary operator; the argument picks which.
+- `LOAD_FAST_BORROW_LOAD_FAST_BORROW` is a **superinstruction**: two loads fused into one. <Since v="3.14" /> The `BORROW` variants push a *borrowed* reference, skipping a reference count increment, which the next lesson explains.
+
+This is the 3.15 output. On 3.14 you will see a different `co_lines()` layout and `LOAD_FAST_BORROW` for `prices`; on 3.12 there is no `LOAD_SMALL_INT` or `BORROW` at all. The shape (load, operate, store, jump) stays the same. The command line works too: `python -m dis dis_total.py` disassembles a whole file, and `-S` shows specialised bytecode.
+
+When you need facts rather than a listing, iterate over `dis.get_instructions()`. Each item is an `Instruction` with `opname`, `arg`, `argval`, `offset` and `positions`. Opcode names are stable enough to test for presence:
+
+```python title="opnames.py"
+import dis
+
+
+def total(prices):
+    result = 0
+    for p in prices:
+        result += p
+    return result
+
+
+names = {ins.opname for ins in dis.get_instructions(total)}
+for op in ["FOR_ITER", "JUMP_BACKWARD", "BINARY_OP", "RETURN_VALUE"]:
+    print(f"{op:<14}{op in names}")
+```
+
+```text
+FOR_ITER      True
+JUMP_BACKWARD True
+BINARY_OP     True
+RETURN_VALUE  True
+```
+
+## From offsets to lines: co_lines()
+
+Tracebacks, debuggers and coverage tools all need to know which source line an instruction came from. `code.co_lines()` yields `(start, end, line)` triples: the bytes from offset `start` up to `end` belong to `line`. The offsets differ between versions, but the sequence of lines does not:
+
+```python title="line_table.py"
+import dis
+
+
+def total(prices):
+    result = 0
+    for p in prices:
+        result += p
+    return result
+
+
+def line_at(code, offset):
+    for start, end, line in code.co_lines():
+        if start <= offset < end:
+            return line
+    return None
+
+
+code = total.__code__
+first = code.co_firstlineno
+print([line - first for _start, _end, line in code.co_lines()])
+for ins in dis.get_instructions(total):
+    if ins.opname in ("FOR_ITER", "BINARY_OP"):
+        line = line_at(code, ins.offset) - first
+        print(f"{ins.opname} is on line +{line}")
+```
+
+```text
+[0, 1, 2, 3, 2, 4]
+FOR_ITER is on line +2
+BINARY_OP is on line +3
+```
+
+The line goes back from +3 to +2 because the loop's exit (`END_FOR`, `POP_ITER`) is attributed to the `for` line. `line` can also be `None`, for instructions the compiler generated with no source line; skip those.
+
+<Since v="3.15" /> The old `co_lnotab` attribute is gone. It was a packed byte string of line increments, deprecated in 3.12 by [PEP 626](https://peps.python.org/pep-0626/) and removed in 3.15 ([What's New in 3.15](https://docs.python.org/3/whatsnew/3.15.html)). Code that still reads it now fails with `AttributeError`. `co_lines()` has existed since 3.10 and is the replacement.
+
+## Columns: positions
+
+Since 3.11 each instruction also knows its columns, which is how tracebacks draw `~~~^^^` under the exact sub-expression:
+
+```python title="positions.py"
+import dis
+
+
+def ratio(a, b):
+    return a / b
+
+
+first = ratio.__code__.co_firstlineno
+for ins in dis.get_instructions(ratio):
+    if ins.opname == "BINARY_OP":
+        pos = ins.positions
+        print(f"line +{pos.lineno - first}")
+        print("columns", pos.col_offset, "to", pos.end_col_offset)
+
+try:
+    ratio(1, 0)
+except ZeroDivisionError as exc:
+    print(type(exc).__name__)
+```
+
+```text
+line +1
+columns 11 to 16
+ZeroDivisionError
+```
+
+Columns 11 to 16 are `a / b` inside `    return a / b`. `code.co_positions()` gives the same data for every instruction at once.
+
+## The specialising interpreter
+
+Since 3.11, CPython rewrites hot instructions in place. After a few executions, a generic `BINARY_OP` that keeps seeing two `int`s becomes `BINARY_OP_ADD_INT`, with a guard that falls back if the types change. `dis(..., adaptive=True)` shows the rewritten form:
+
+```python title="specialise.py"
+import dis
+
+
+def total(prices):
+    result = 0
+    for p in prices:
+        result += p
+    return result
+
+
+for _ in range(1000):
+    total([1, 2, 3])
+
+dis.dis(total, adaptive=True)
+```
+
+```console
+$ python3.15 specialise.py
+  4           RESUME_CHECK             0
+  ...
+      L1:     FOR_ITER_LIST           11 (to L2)
+              STORE_FAST               2 (p)
+
+  7           LOAD_FAST_BORROW_LOAD_FAST_BORROW 18 (result, p)
+              BINARY_OP_ADD_INT       13 (+=)
+              STORE_FAST               1 (result)
+              JUMP_BACKWARD_NO_JIT    13 (to L1)
+  ...
+```
+
+`FOR_ITER_LIST` is `FOR_ITER` specialised for lists. `BINARY_OP_ADD_INT` skips the operator dispatch. `JUMP_BACKWARD_NO_JIT` is the backward jump you see when the experimental JIT is off, which is the default. The names and the thresholds are internal and change between releases, so treat this as a window, not an API. The practical lesson: code whose types stay stable at each site gets the fast paths.
+
+## Common pitfalls
+
+**Benchmarking by counting instructions.** One specialised instruction can cost less than one generic one. Measure with `timeit`, not `dis`.
+
+**Comparing raw offsets across versions.** Offsets, opcode numbers and even opcode names change in every minor release. Compare lines, names you have checked, or behaviour.
+
+**Assuming every instruction has a line.** `co_lines()` and `positions` can report `None`.
+
+**Using `co_lnotab` or `co_code` indexing by hand.** Use `co_lines()`, `co_positions()` and `dis.get_instructions()`, which follow the format for you.
+
+<Exercise title="Explain three loops">
+Write `three_loops.py` with three functions that each count to `n`: one with `while`, one with `for i in range(n)`, and one returning a list comprehension `[i * i for i in range(n)]`. For each function, print its name and whether its bytecode contains `FOR_ITER`, `JUMP_BACKWARD` and `MAKE_FUNCTION`. Then run `dis.dis` on each and explain, in one sentence per function, how the loop is built. Expected output on 3.12 or later:
+
+```text
+with_while
+    FOR_ITER False
+    JUMP_BACKWARD True
+    MAKE_FUNCTION False
+with_for
+    FOR_ITER True
+    JUMP_BACKWARD True
+    MAKE_FUNCTION False
+with_comprehension
+    FOR_ITER True
+    JUMP_BACKWARD True
+    MAKE_FUNCTION False
+```
+
+<Solution>
+
+```python title="three_loops.py"
+import dis
+
+
+def with_while(n):
+    i = 0
+    while i < n:
+        i += 1
+    return i
+
+
+def with_for(n):
+    for i in range(n):
+        pass
+
+
+def with_comprehension(n):
+    return [i * i for i in range(n)]
+
+
+for func in (with_while, with_for, with_comprehension):
+    names = {ins.opname for ins in dis.get_instructions(func)}
+    print(func.__name__)
+    for op in ("FOR_ITER", "JUMP_BACKWARD", "MAKE_FUNCTION"):
+        print("   ", op, op in names)
+```
+
+The `while` loop is a compare, a conditional jump out, the body, and `JUMP_BACKWARD`; there is no iterator, so no `FOR_ITER`. The `for` loop calls `range`, gets an iterator with `GET_ITER`, and lets `FOR_ITER` decide when to stop. The comprehension has the same `FOR_ITER` loop plus `BUILD_LIST` and `LIST_APPEND`, and no `MAKE_FUNCTION`: since 3.12 comprehensions are inlined into the enclosing function ([PEP 709](https://peps.python.org/pep-0709/)). On 3.11 it would be a hidden nested function, created with `MAKE_FUNCTION` and called once.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix the line counter">
+<Since v="3.15" /> This helper worked on 3.14 (with a `DeprecationWarning`), and fails on 3.15 with `AttributeError: 'code' object has no attribute 'co_lnotab'`. Rewrite `lines_of` with `co_lines()` so it prints `[0, 1, 2]` on every version from 3.10 on.
+
+```python
+def lines_of(func):
+    code = func.__code__
+    line = code.co_firstlineno
+    lines = {line}
+    for step in code.co_lnotab[1::2]:
+        line += step if step < 128 else step - 256
+        lines.add(line)
+    return sorted(n - code.co_firstlineno for n in lines)
+
+
+def sample(x):
+    y = x + 1
+    return y * 2
+
+
+print(lines_of(sample))
+```
+
+<Solution>
+
+```python title="lnotab_fixed.py"
+def lines_of(func):
+    code = func.__code__
+    lines = {line for _s, _e, line in code.co_lines() if line is not None}
+    return sorted(n - code.co_firstlineno for n in lines)
+
+
+def sample(x):
+    y = x + 1
+    return y * 2
+
+
+print(lines_of(sample))
+```
+
+```text
+[0, 1, 2]
+```
+
+No decoding of signed byte increments, and the `None` filter handles instructions without a line.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Where are the returns?">
+Predict, then check: for this function, which lines (relative to the `def`) hold a return instruction? Write a program that finds them with `dis.get_instructions` and `positions`. Match on names that start with `RETURN`, because 3.12 and 3.13 also have `RETURN_CONST`. Expected output: `[2, 4, 5]`.
+
+```python
+def classify(n):
+    if n < 0:
+        return "negative"
+    if n == 0:
+        return "zero"
+    return "positive"
+```
+
+<Solution>
+
+```python title="return_lines.py"
+import dis
+
+
+def classify(n):
+    if n < 0:
+        return "negative"
+    if n == 0:
+        return "zero"
+    return "positive"
+
+
+code = classify.__code__
+first = code.co_firstlineno
+found = [
+    ins.positions.lineno - first
+    for ins in dis.get_instructions(classify)
+    if ins.opname.startswith("RETURN")
+]
+print(found)
+```
+
+```text
+[2, 4, 5]
+```
+
+Each `return` statement compiles to its own return instruction; the compiler does not merge them into one exit.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- A code object holds the instructions (`co_code`), constants, names, local slots and line tables of one function.
+- `dis.dis` prints bytecode; `dis.get_instructions` gives you `Instruction` objects to test.
+- `co_lines()` maps byte ranges to lines and `positions` adds columns. <Since v="3.15" /> `co_lnotab` is removed.
+- Since 3.11 the interpreter specialises hot instructions; `dis(adaptive=True)` shows them.
+- Bytecode changes every release: compare behaviour and names, never offsets.
+- Next: [memory management](../memory-model/), what those reference count increments are for.

@@ -1,0 +1,12 @@
+with_while
+    FOR_ITER False
+    JUMP_BACKWARD True
+    MAKE_FUNCTION False
+with_for
+    FOR_ITER True
+    JUMP_BACKWARD True
+    MAKE_FUNCTION False
+with_comprehension
+    FOR_ITER True
+    JUMP_BACKWARD True
+    MAKE_FUNCTION False

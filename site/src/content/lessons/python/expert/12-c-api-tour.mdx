@@ -1,0 +1,321 @@
+---
+language: python
+level: expert
+module: CPython internals
+order: 12
+title: A tour of the C API
+description: Read and write a small CPython extension in C - PyObject pointers, owned and borrowed references, error returns, a method table, and the new PyModExport export hook of Python 3.15 - then build it for the stable ABIs abi3 and abi3t.
+minVersion: "3.15"
+objectives:
+  - Explain what a PyObject pointer is and what the object header holds
+  - Apply the rules for new, borrowed and stolen references
+  - Follow the C API error convention of NULL or -1 with an exception set
+  - Define a module with PySlot entries and a PyModExport_ hook
+  - Choose between the version-specific ABI, abi3 and abi3t
+estimatedMinutes: 50
+fundamentals: []
+---
+
+Every lesson in this module has pointed at C: the reference counts of [memory management](../memory-model/), the `Py_mod_gil` slot of [free-threading internals](../gil-internals/), the extension loaders of [the import system](../import-system/). This lesson reads and writes a complete small extension. You need a C compiler and the Python headers to build it, but you can follow the code without one.
+
+## PyObject
+
+In C, every Python object is reached through a `PyObject *`. The object starts with a header: on the default build, its reference count and a pointer to its type; on the free-threaded build, the larger header from the previous lessons. Everything else depends on the type. A `PyLongObject` continues with digits, a `PyListObject` with an array of `PyObject *` items.
+
+You never read the header fields directly. Use `Py_TYPE(op)`, `Py_INCREF(op)`, `Py_DECREF(op)` and `Py_NewRef(op)` (increment and return), which do the right thing on every build, including for immortal objects.
+
+## Owning references
+
+The C API speaks of owning **references**, not objects. If you own a reference, you must eventually release it with `Py_DECREF`, or hand that duty to someone else. Each function's documentation says which of three things happens:
+
+- **New reference**: the function hands you ownership. Almost every function that returns an object does this, including all `PyObject_*`, `PyNumber_*`, `PySequence_*` and `PyMapping_*` calls.
+- **Borrowed reference**: you may use the object, but you do not own it and must not release it. `PyList_GetItem` is the classic case. It is only safe while something else keeps the object alive, which on the free-threaded build another thread can break, so prefer `PyList_GetItemRef` and `PyDict_GetItemRef`, which return new references.
+- **Stolen reference**: you pass an object and the function takes over your ownership. `PyList_SetItem` and `PyTuple_SetItem` do this.
+
+Errors follow one convention: a function that fails sets an exception and returns `NULL` (for pointer results) or `-1` (for `int` results). Your function must check every call, release what it owns, and return `NULL` itself, which makes Python raise the exception.
+
+## A function in C
+
+`count_true(iterable)` counts the truthy items. Notice how each new reference is released on every path:
+
+```c
+#include <Python.h>
+
+/* tally.count_true(iterable) -> int: how many items are truthy. */
+static PyObject *
+count_true(PyObject *module, PyObject *iterable)
+{
+    PyObject *it = PyObject_GetIter(iterable);    /* new reference */
+    if (it == NULL) {
+        return NULL;                              /* exception is set */
+    }
+    long total = 0;
+    PyObject *item;
+    while ((item = PyIter_Next(it)) != NULL) {    /* new reference */
+        int truth = PyObject_IsTrue(item);
+        Py_DECREF(item);                          /* done with item */
+        if (truth < 0) {
+            Py_DECREF(it);
+            return NULL;
+        }
+        total += truth;
+    }
+```
+
+`PyIter_Next` returns `NULL` both at the end and on an error, so the end of the loop has to ask which one it was:
+
+```c
+    Py_DECREF(it);
+    if (PyErr_Occurred()) {                       /* iteration failed */
+        return NULL;
+    }
+    return PyLong_FromLong(total);                /* new reference */
+}
+```
+
+The returned `int` is a new reference, and ownership passes to the caller, the interpreter.
+
+## The module: slots and an export hook
+
+A module is described by an array of `PySlot` entries, and the shared library exports one function, `PyModExport_<name>`, that returns it ([PEP 793](https://peps.python.org/pep-0793/)):
+
+```c
+static PyMethodDef tally_methods[] = {
+    {"count_true", count_true, METH_O, "Count the truthy items."},
+    {NULL, NULL, 0, NULL}
+};
+
+PyABIInfo_VAR(abi_info);
+
+static PySlot tally_slots[] = {
+    PySlot_STATIC_DATA(Py_mod_abi, &abi_info),
+    PySlot_STATIC_DATA(Py_mod_name, "tally"),
+    PySlot_STATIC_DATA(Py_mod_doc, "Count things, in C."),
+    PySlot_STATIC_DATA(Py_mod_methods, tally_methods),
+    PySlot_DATA(Py_mod_gil, Py_MOD_GIL_NOT_USED),
+    PySlot_END
+};
+
+PyMODEXPORT_FUNC PyModExport_tally(void);
+
+PyMODEXPORT_FUNC
+PyModExport_tally(void)
+{
+    return tally_slots;
+}
+```
+
+- `METH_O` means the C function takes exactly one argument. `METH_NOARGS`, `METH_VARARGS` and `METH_FASTCALL` cover the other shapes.
+- `Py_mod_abi` with `PyABIInfo_VAR` lets Python refuse an extension compiled for an incompatible ABI instead of crashing.
+- `Py_mod_gil` is the free-threading promise from the GIL lesson. `count_true` keeps no shared state, so the promise holds.
+- Everything is `static` except the hook, so nothing clashes with other extensions.
+
+Before 3.15, the export was `PyInit_<name>`, returning a `PyModuleDef`. It still works, and is now soft deprecated: no new features, no plans for removal. If a library exports both, `PyInit_<name>` is ignored, so you can ship one source that supports older versions with `PyInit_` and 3.15 with `PyModExport_`. The [extension modules reference](https://docs.python.org/3/c-api/extension-modules.html) has both forms.
+
+The hook name is derived from the module name, with a Punycode form for non-ASCII names:
+
+```python title="export_hook_name.py"
+def hook_name(name):
+    try:
+        suffix = b"_" + name.encode("ascii")
+    except UnicodeEncodeError:
+        suffix = b"U_" + name.encode("punycode").replace(b"-", b"_")
+    return (b"PyModExport" + suffix).decode("ascii")
+
+
+for module in ["spam", "tally", "café"]:
+    print(f"{module:<6} {hook_name(module)}")
+```
+
+```text
+spam   PyModExport_spam
+tally  PyModExport_tally
+café   PyModExportU_caf_dma
+```
+
+## Building and importing
+
+Real projects build with meson-python, scikit-build-core or setuptools. For a one-file experiment on Linux, the compiler is enough:
+
+```console
+$ gcc -shared -fPIC $(python3.15-config --includes) tally.c \
+      -o tally$(python3.15-config --extension-suffix)
+$ python3.15 -c "import tally; print(tally.count_true([0, 1, 'a', '', None, 3]))"
+3
+$ python3.15 -c "import tally; tally.count_true(5)"
+Traceback (most recent call last):
+  ...
+TypeError: 'int' object is not iterable
+```
+
+The `TypeError` was set by `PyObject_GetIter`; `count_true` only passed the `NULL` on.
+
+## Stable ABIs: abi3 and abi3t
+
+A normal build, `tally.cpython-315-x86_64-linux-gnu.so`, works on 3.15 only. Defining a target ABI before including `Python.h` limits you to the **Limited API**, and in exchange the binary works on that version and every later one:
+
+- `Py_LIMITED_API` targets **abi3**, the stable ABI for builds with a GIL (since 3.2).
+- `Py_TARGET_ABI3T` targets **abi3t**, the stable ABI for free-threaded builds ([PEP 803](https://peps.python.org/pep-0803/)). Defining both gives one binary for both kinds of build, which the [stable ABI documentation](https://docs.python.org/3/c-api/stable.html) recommends naming with the `abi3t` tag.
+
+Each takes a version in hex, `0x030f0000` for 3.15:
+
+```console
+$ gcc -shared -fPIC $(python3.15-config --includes) \
+      -DPy_LIMITED_API=0x030f0000 -DPy_TARGET_ABI3T=0x030f0000 \
+      tally.c -o tally.abi3t.so
+$ python3.15 -c "import tally; print(tally.count_true([1, 0, 2]))"
+2
+$ python3.15t -c "import sys, tally; print(tally.count_true([1, 0, 2]), sys._is_gil_enabled())"
+2 False
+```
+
+The suffixes each interpreter accepts, in the order it tries them:
+
+```console
+$ python3.15 -c "import importlib.machinery as m; print(m.EXTENSION_SUFFIXES)"
+['.cpython-315-x86_64-linux-gnu.so', '.abi3-x86_64-linux-gnu.so', '.abi3.so', '.abi3t-x86_64-linux-gnu.so', '.abi3t.so', '.so']
+$ python3.15t -c "import importlib.machinery as m; print(m.EXTENSION_SUFFIXES)"
+['.cpython-315t-x86_64-linux-gnu.so', '.abi3t-x86_64-linux-gnu.so', '.abi3t.so', '.so']
+```
+
+The Limited API costs some speed: macros such as `PyList_GET_ITEM` are unavailable, and calls that would be inlined become function calls. You can ship both: a faster version-specific build alongside a stable-ABI one as the fallback.
+
+## When not to write C by hand
+
+Write raw C API code to learn how CPython works, to maintain an existing extension, or for a small hot function with no dependencies. For new bindings to a C library, `ctypes` or cffi need no compiler at install time. For new compiled code, Cython or Rust with PyO3 manage reference counts for you. A single forgotten `Py_DECREF` is a leak; a single extra one is a crash, possibly much later.
+
+## Common pitfalls
+
+**Releasing a borrowed reference.** `Py_DECREF(PyList_GetItem(...))` frees an object the list still uses.
+
+**Missing a release on an error path.** Every early `return NULL` must first release what you own.
+
+**Ignoring return values.** `PyObject_IsTrue` returns `-1` on error; treating that as "true" hides exceptions.
+
+**Declaring `Py_MOD_GIL_NOT_USED` for code with static state.** That is a data race waiting for the free-threaded build.
+
+<Exercise title="A minimal extension">
+Write a module `hello` with one function, `greet(name)`, that returns `"Hello, NAME!"` and raises `TypeError` with the message `name must be a str` for anything that is not a `str`. Use a `PyModExport_hello` hook, declare `Py_mod_gil`, and build it as `hello.abi3t.so`. Expected results:
+
+```console
+$ python3.15 -c "import hello; print(hello.greet('Ada'))"
+Hello, Ada!
+$ python3.15 -c "import hello; hello.greet(3)"
+Traceback (most recent call last):
+  ...
+TypeError: name must be a str
+$ python3.15t -c "import sys, hello; print(hello.greet('Ada'), sys._is_gil_enabled())"
+Hello, Ada! False
+```
+
+<Solution>
+
+```c
+#include <Python.h>
+
+static PyObject *
+greet(PyObject *module, PyObject *name)
+{
+    if (!PyUnicode_Check(name)) {
+        PyErr_SetString(PyExc_TypeError, "name must be a str");
+        return NULL;
+    }
+    return PyUnicode_FromFormat("Hello, %U!", name);  /* new reference */
+}
+
+static PyMethodDef hello_methods[] = {
+    {"greet", greet, METH_O, "Return a greeting."},
+    {NULL, NULL, 0, NULL}
+};
+```
+
+```c
+PyABIInfo_VAR(abi_info);
+
+static PySlot hello_slots[] = {
+    PySlot_STATIC_DATA(Py_mod_abi, &abi_info),
+    PySlot_STATIC_DATA(Py_mod_name, "hello"),
+    PySlot_STATIC_DATA(Py_mod_methods, hello_methods),
+    PySlot_DATA(Py_mod_gil, Py_MOD_GIL_NOT_USED),
+    PySlot_END
+};
+
+PyMODEXPORT_FUNC PyModExport_hello(void);
+
+PyMODEXPORT_FUNC
+PyModExport_hello(void)
+{
+    return hello_slots;
+}
+```
+
+Build with the abi3t command above, replacing `tally` with `hello`. `%U` in `PyUnicode_FromFormat` inserts a `str` object. No reference is released because the function owns none: `name` is borrowed from the caller.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Find the leak">
+A colleague's version of `count_true` passes every test, but a long-running service that calls it grows without limit. This check, run against their build, prints `1000`; against a correct build it prints `0`:
+
+```python
+import sys, tally
+
+token = object()
+items = [token] * 1000
+before = sys.getrefcount(token)
+tally.count_true(items)
+print(sys.getrefcount(token) - before)
+```
+
+Their loop is below. Find the bug and fix it.
+
+```c
+    while ((item = PyIter_Next(it)) != NULL) {
+        int truth = PyObject_IsTrue(item);
+        if (truth < 0) {
+            Py_DECREF(it);
+            return NULL;
+        }
+        total += truth;
+    }
+```
+
+<Solution>
+
+`PyIter_Next` returns a **new** reference, and the loop never releases it, so every item gains one reference per call: 1000 items, 1000 extra. Release the item as soon as you are done with it, before the error check so that the error path does not leak either:
+
+```c
+    while ((item = PyIter_Next(it)) != NULL) {
+        int truth = PyObject_IsTrue(item);
+        Py_DECREF(item);
+        if (truth < 0) {
+            Py_DECREF(it);
+            return NULL;
+        }
+        total += truth;
+    }
+```
+
+The test used `object()` on purpose: an immortal object such as `None` or `True` would hide the leak, because its count never changes.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Which file loads?">
+A wheel directory contains `tally.abi3.so`, `tally.abi3t.so` and `tally.cpython-315-x86_64-linux-gnu.so`. Using the suffix lists above, predict which file `import tally` loads on `python3.15` and on `python3.15t`, and which file a free-threaded interpreter can never load.
+
+<Solution>
+
+`python3.15` tries `.cpython-315-x86_64-linux-gnu.so` first, so it loads the version-specific build. `python3.15t` has neither that suffix nor `.abi3.so` in its list, so it loads `tally.abi3t.so`. It can never load `tally.abi3.so`: abi3 is only compatible with builds that have a GIL, and free-threaded interpreters recognise only the `abi3t` tag. That is why a project that supports both builds with one binary names it with the `abi3t` tag.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Every object is a `PyObject *` with a header you access through macros.
+- Know, for every call, whether you get a new or a borrowed reference, and whether you pass one in to be stolen. Release what you own on every path.
+- Failures set an exception and return `NULL` or `-1`; pass them on.
+- Modules are `PySlot` arrays returned by a `PyModExport_<name>` hook; `PyInit_` is soft deprecated.
+- `Py_LIMITED_API` builds abi3; `Py_TARGET_ABI3T` builds abi3t, which loads on both kinds of build.
+- This completes the CPython internals module.

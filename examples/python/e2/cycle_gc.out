@@ -1,0 +1,4 @@
+alive after del: True
+start generation 2
+stop generation 2
+alive after collect: False
