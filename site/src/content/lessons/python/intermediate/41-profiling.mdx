@@ -398,3 +398,4 @@ A high `ncalls` like this is what repeated work looks like in a profile.
 - `python -m cProfile -s cumulative script.py` shows where a program spends its time. Look at `ncalls` and `tottime` to find the hot function, change one thing, and measure again, with a test for correctness.
 - Python 3.15 adds the `profiling` package: `profiling.tracing` (the deterministic profiler, which `cProfile` now aliases) and the low-overhead `profiling.sampling`. The `profile` module is deprecated.
 - This ends the module and the intermediate level. You can now test, debug, log and measure your code, and you have the vocabulary for the advanced level.
+- Going further: the advanced lesson [Concurrency models](../../advanced/concurrency-models/) shows what to try when a profile says the program is waiting or CPU-bound.

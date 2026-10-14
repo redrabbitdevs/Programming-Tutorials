@@ -523,3 +523,4 @@ False
 - `__post_init__` runs after the generated `__init__`, which makes it the place to validate.
 - `order=True` adds comparisons. `frozen=True` makes the instance immutable and hashable. `dataclasses.replace` makes a changed copy, and `copy.replace()` <Since v="3.13" /> does the same.
 - `slots=True` and `kw_only=True` reduce memory and clarify calls.
+- Going further: the advanced lesson [Annotations at runtime](../../advanced/annotations-runtime/) shows how the field annotations are stored and read and the advanced lesson [Class customisation](../../advanced/class-customisation/) covers the hooks that run when a class is created.
