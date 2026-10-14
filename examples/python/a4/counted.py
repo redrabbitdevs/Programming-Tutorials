@@ -12,14 +12,3 @@ def counted(cls):
     cls.created = 0
     cls.__init__ = __init__
     return cls
-
-
-@counted
-class Job:
-    def __init__(self, name):
-        self.name = name
-
-
-Job("a")
-Job("b")
-print(Job.created, Job("c").name, Job.created)

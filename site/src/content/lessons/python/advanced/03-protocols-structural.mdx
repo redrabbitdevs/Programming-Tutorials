@@ -253,7 +253,7 @@ logged_check.py:23: error: Argument 1 to "scale" has incompatible type "str"; ex
 Found 2 errors in 1 file (checked 1 source file)
 ```
 
-The checker knows `scale` still takes `(value: float, factor: float = ...)`, so it catches both mistakes. Python caught only the misspelt keyword, and only when the line ran. `inspect.signature` reports the original signature too, because `wraps` set `__wrapped__`.
+The checker knows `scale` still takes `(value: float, factor: float = ...)`, so it catches both mistakes. Python caught only the misspelt keyword, and only when the line ran. `inspect.signature` reports the original signature too, because `wraps` set `__wrapped__`; [Introspection and the AST](../introspection-ast/) covers `inspect.signature` in depth. Decorators can wrap classes as well as functions, which [Customising classes](../class-customisation/) uses to add methods to a class.
 
 ## Adding or removing an argument: Concatenate
 
@@ -296,6 +296,10 @@ Success: no issues found in 1 source file
 ```
 
 The decorated `handle` has the signature `(path: str) -> str`. Calling `handle(5, "/")` is now a checker error, because the decorator consumed the `int`. `Concatenate` must come first in the parameter list and can only add positional parameters at the front.
+
+## Choosing: protocol, ABC or concrete class
+
+Use a protocol when the code that consumes values should not care where they come from: callbacks, plug-in points, or classes from libraries you cannot change. Use an abstract base class when you own the hierarchy and want shared method implementations, or an error at instantiation time when a method is missing. When there is only one implementation, annotate with that class and skip both; a protocol written for a single class is an extra name to keep in sync. The same thinking applies to `ParamSpec`: it is worth it for decorators that many functions share, and a decorator on one function can simply repeat that function's signature.
 
 ## Common pitfalls
 

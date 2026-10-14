@@ -16,7 +16,7 @@ estimatedMinutes: 50
 fundamentals: []
 ---
 
-Tim Peters described metaclasses as "deeper magic than 99% of users should ever worry about". That is still true, and this lesson ends by showing how to avoid them. But they are worth understanding: `ABC`, `Enum` and many frameworks are built on them, and once you see the machinery, the hooks from [customising classes](../class-customisation/) stop being magic.
+Tim Peters described metaclasses as "deeper magic than 99% of users should ever worry about". That is still true, and this lesson ends by showing how to avoid them. But they are worth understanding: `ABC`, `Enum` and many frameworks are built on them, and once you see the machinery, the hooks from [customising classes](../class-customisation/) stop being magic. For changing what happens when an attribute is read, rather than when a class is made, [Descriptors](../descriptors/) covers descriptors, `__getattr__` and `__getattribute__`.
 
 ## Classes are objects made by type
 
@@ -79,7 +79,7 @@ Tracing
 
 `Web` never mentions `Tracing`, but its parent does, so `Tracing.__new__` ran for it as well. That inheritance is the one thing a class decorator cannot give you.
 
-## __new__ and __init__ on a metaclass
+## `__new__` and `__init__` on a metaclass
 
 These are the same methods you know from ordinary classes, one level up. `__new__` runs before the class exists, so it can still change the namespace, the bases or the name. `__init__` receives the finished class and can only adjust it:
 
@@ -108,9 +108,9 @@ initialised Config 3
 3 db False
 ```
 
-The `{... for k, v in ns.items()}` is a dictionary comprehension that renames every non-dunder key. The class is built from the new dictionary, so `retries` no longer exists on it. Work that needs to change what goes into the class belongs in `__new__`. Work that only needs to look at it, like registering, fits in `__init__`, or better, in `__init_subclass__`.
+The comprehension renames every non-dunder key. The class is built from the new dictionary, so `retries` no longer exists on it. Work that needs to change what goes into the class belongs in `__new__`. Work that only needs to look at it, like registering, fits in `__init__`, or better, in `__init_subclass__`.
 
-## __prepare__: choosing the namespace
+## `__prepare__`: choosing the namespace
 
 Before the body runs, Python asks the metaclass for the dictionary the body will write into. `__prepare__` can return any mapping, including one that checks every assignment. This one catches the classic bug of defining a method twice, where the second silently replaces the first:
 
@@ -146,7 +146,7 @@ TypeError: 'on_save' defined twice
 
 The error happens while the class body is still running, at the second `def`. `__prepare__` is a class method, and it receives the same keyword arguments as `__new__`. It is the one hook that has no lighter alternative, which makes it a legitimate reason to write a metaclass.
 
-## __call__: controlling instance creation
+## `__call__`: controlling instance creation
 
 `Settings()` calls the class, and calling an object runs `__call__` on its type. For a class, that type is the metaclass, so a metaclass can decide what instantiation means. The default `type.__call__` runs `__new__` and `__init__`. This one returns the same instance every time:
 
@@ -266,9 +266,12 @@ If the reader of your code has to know about metaclasses to understand a plain `
 - **Reading `ns["__annotations__"]`.** <Since v="3.14" /> It is not there. Use `annotationlib.get_annotate_from_class_namespace`.
 
 <Exercise title="A metaclass that enforces method names">
-Write a metaclass `SnakeCase` that refuses any class with a callable attribute whose name contains upper-case letters. With it, this code:
+Write a metaclass `SnakeCase` that refuses any class with a callable attribute whose name contains upper-case letters. Put it in `snake_meta.py`. With it, this code:
 
 ```python title="snake_check.py"
+from snake_meta import SnakeCase
+
+
 class Good(metaclass=SnakeCase):
     def load_data(self):
         return []
@@ -301,46 +304,18 @@ class SnakeCase(type):
         return super().__new__(mcls, name, bases, ns)
 ```
 
-```python title="snake_meta.py (continued)"
-class Good(metaclass=SnakeCase):
-    def load_data(self):
-        return []
-
-
-try:
-    class Bad(metaclass=SnakeCase):
-        def loadData(self):
-            return []
-except TypeError as error:
-    print("TypeError:", error)
-print(Good.__name__)
-```
-
-```text
-TypeError: Bad.loadData is not snake_case
-Good
-```
-
-The check must happen before the class exists, so it lives in `__new__` and reads the namespace. `key != key.lower()` is true when the name has any upper-case letter. Dunder names such as `__init__` are already lower case.
+With it, `snake_check.py` prints the two expected lines. The check must happen before the class exists, so it lives in `__new__` and reads the namespace. `key != key.lower()` is true when the name has any upper-case letter. Dunder names such as `__init__` are already lower case.
 
 </Solution>
 </Exercise>
 
 <Exercise title="Now without the metaclass">
-Rewrite `SnakeCase` as an ordinary base class that uses `__init_subclass__`. Change the class lines to `class Good(SnakeCase):` and `class Bad(SnakeCase):`. The output must stay the same.
+Write the same rule without a metaclass: `SnakeCase` in `snake_subclass.py` is an ordinary base class that uses `__init_subclass__`, and refuses any subclass with a callable attribute whose name contains upper-case letters. This code:
 
-<Solution>
+```python title="snake_subclass_check.py"
+from snake_subclass import SnakeCase
 
-```python title="snake_subclass.py"
-class SnakeCase:
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        for key, value in vars(cls).items():
-            if callable(value) and key != key.lower():
-                raise TypeError(f"{cls.__name__}.{key} is not snake_case")
-```
 
-```python title="snake_subclass.py (continued)"
 class Good(SnakeCase):
     def load_data(self):
         return []
@@ -355,12 +330,25 @@ except TypeError as error:
 print(Good.__name__)
 ```
 
+prints:
+
 ```text
 TypeError: Bad.loadData is not snake_case
 Good
 ```
 
-The rule is the same, applied to `vars(cls)` after the class is built. `Good` can now also inherit from an `ABC` without a conflict. The one difference is that the bad class did exist for a moment before the error was raised, which does not matter here.
+<Solution>
+
+```python title="snake_subclass.py"
+class SnakeCase:
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        for key, value in vars(cls).items():
+            if callable(value) and key != key.lower():
+                raise TypeError(f"{cls.__name__}.{key} is not snake_case")
+```
+
+With it, `snake_subclass_check.py` prints the same two lines. The rule is the same, applied to `vars(cls)` after the class is built. `Good` can now also inherit from an `ABC` without a conflict. The one difference is that the bad class did exist for a moment before the error was raised, which does not matter here.
 
 </Solution>
 </Exercise>

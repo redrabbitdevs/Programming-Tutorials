@@ -12,7 +12,8 @@ objectives:
   - Choose between get_annotations and typing.get_type_hints
   - Recognise from __future__ import annotations and know it is no longer needed
   - Attach metadata with Annotated and read it at run time
-estimatedMinutes: 45
+  - Break a circular import with TYPE_CHECKING, and know what it costs at run time
+estimatedMinutes: 50
 fundamentals: []
 ---
 
@@ -149,7 +150,7 @@ Use `get_type_hints` when you want "the types of this class's fields, as a check
 
 `Annotated[T, x, y]` means "type `T`, plus some extra objects `x` and `y`". Checkers see plain `T` and ignore the rest. At run time the extras are in `__metadata__`, as the last line above showed. That is how libraries attach constraints, units or documentation to a type without inventing new syntax. You will build a small validator on it in the second exercise.
 
-## from __future__ import annotations
+## `from __future__ import annotations`
 
 You will meet this line at the top of many existing modules. It turns every annotation in the module into a string, which was the old fix for forward references:
 
@@ -174,7 +175,74 @@ print(typing.get_type_hints(Point))
 {'x': <class 'int'>, 'y': <class 'int'>, 'nearest': __main__.Point | None}
 ```
 
-`__annotations__` now holds strings, and `get_type_hints` turns them back into types. In 3.14 and later the import is unnecessary, because deferred evaluation already allows forward references. It still works, and the `annotationlib` documentation says the stringified behaviour will eventually be removed. Drop the import from code that only needs to run on 3.14 or later, and keep it in code that must also support older versions.
+`__annotations__` now holds strings, and `get_type_hints` turns them back into types. In 3.14 and later the import is unnecessary, because deferred evaluation already allows forward references. It still works, but [PEP 749](https://peps.python.org/pep-0749/) plans to deprecate it some time after Python 3.13 reaches its end of life, and to remove it at least two releases later. Drop the import from code that only needs to run on 3.14 or later, and keep it in code that must also support older versions.
+
+## Imports only the checker needs: TYPE_CHECKING
+
+Two modules that annotate with each other's classes would import each other, and a circular import fails at run time. `typing.TYPE_CHECKING` is `False` when the program runs and treated as `True` by checkers, so an import inside `if TYPE_CHECKING:` is seen by the checker and skipped by Python:
+
+```python title="customers.py"
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from orders import Order
+
+
+class Customer:
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.orders: list[Order] = []
+
+    def add(self, order: Order) -> None:
+        self.orders.append(order)
+```
+
+```python title="orders.py"
+from customers import Customer
+
+
+class Order:
+    def __init__(self, customer: Customer, total: float) -> None:
+        self.customer = customer
+        self.total = total
+        customer.add(self)
+```
+
+`orders` needs `Customer` at run time, so it imports it normally. `customers` needs `Order` only in annotations. Lazy annotations make that safe without quotes, until someone reads them:
+
+```python title="shop.py"
+from annotationlib import Format, get_annotations
+from typing import TYPE_CHECKING
+
+from customers import Customer
+from orders import Order
+
+ada = Customer("ada")
+Order(ada, 9.5)
+print(TYPE_CHECKING, [order.total for order in ada.orders])
+print(get_annotations(Customer.add, format=Format.STRING))
+try:
+    get_annotations(Customer.add)
+except NameError as error:
+    print("NameError:", error)
+```
+
+```text
+False [9.5]
+{'order': 'Order', 'return': 'None'}
+NameError: name 'Order' is not defined
+```
+
+```console title="mypy 2.3.1"
+$ mypy shop.py
+Success: no issues found in 1 source file
+```
+
+The program runs and the checker is satisfied. With a plain `from orders import Order` in `customers.py`, running `shop.py` fails with `ImportError: cannot import name 'Customer'`. The `NameError` is the price: `Order` does not exist in `customers` at run time, so any tool that evaluates those annotations, such as `get_type_hints` or a validator, fails. Use `TYPE_CHECKING` imports for names that only checkers read, and the `STRING` or `FORWARDREF` format when you must inspect such annotations. Before 3.14, annotations that use these names had to be written in quotes.
+
+## When not to read annotations at run time
+
+Reading annotations is how dataclasses and validation libraries work, and they handle unions, generics, forward references and inheritance that a home-made reader gets wrong. Use one of them for real data. Write your own reader for small internal tools, and keep it to simple hints. Annotations read during class creation, in a metaclass, follow extra rules that [Metaclasses](../metaclasses/) covers.
 
 ## Common pitfalls
 
@@ -346,3 +414,4 @@ Defining and calling `area` never touches its annotations, so both work. The fir
 - `typing.get_type_hints` merges base classes, strips `Annotated` unless asked, and evaluates strings.
 - `Annotated[T, ...]` attaches run-time metadata that checkers ignore.
 - `from __future__ import annotations` is unnecessary in 3.14+ code, and its string behaviour is slated for eventual removal.
+- Imports inside `if TYPE_CHECKING:` are seen only by checkers. They break circular imports, but tools that evaluate those annotations at run time get a `NameError`.

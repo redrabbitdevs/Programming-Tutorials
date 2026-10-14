@@ -12,8 +12,3 @@ def redact(template: Template, *secrets: str) -> str:
             case Interpolation(value, _, conversion, spec):
                 out.append(format(convert(value, conversion), spec))
     return "".join(out)
-
-
-user, password = "ada", "hunter2"
-print(redact(t"login {user} with {password}", "password"))
-print(redact(t"user={user!r} token={password}", "password"))

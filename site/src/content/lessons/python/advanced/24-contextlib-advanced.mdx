@@ -272,10 +272,12 @@ Before writing a manager, check the standard library: `tempfile.TemporaryDirecto
 - **Expecting a callback to suppress errors.** Only managers and `push()` exit functions can. `callback()` functions just run.
 
 <Exercise title="A temporary environment">
-Write a context manager `temp_env(**changes)` that sets environment variables for the duration of a block. A value of `None` removes the variable. On exit, every variable must be restored to its earlier value, or removed if it did not exist, even after an exception. This code:
+Write a context manager `temp_env(**changes)` that sets environment variables for the duration of a block. A value of `None` removes the variable. On exit, every variable must be restored to its earlier value, or removed if it did not exist, even after an exception. Put it in `temp_env.py`. This code:
 
 ```python title="temp_env_check.py"
 import os
+
+from temp_env import temp_env
 
 os.environ["MODE"] = "prod"
 os.environ.pop("DEBUG", None)
@@ -325,29 +327,7 @@ def temp_env(**changes):
                 os.environ[name] = value
 ```
 
-```python title="temp_env.py (continued)"
-os.environ["MODE"] = "prod"
-os.environ.pop("DEBUG", None)
-with temp_env(MODE="test", DEBUG="1"):
-    print(os.environ["MODE"], os.environ["DEBUG"])
-print(os.environ["MODE"], "DEBUG" in os.environ)
-try:
-    with temp_env(MODE=None):
-        print("MODE" in os.environ)
-        raise RuntimeError("boom")
-except RuntimeError:
-    pass
-print(os.environ["MODE"])
-```
-
-```text
-test 1
-prod False
-False
-prod
-```
-
-`saved` records each variable's old value, with `None` meaning "did not exist", before anything changes. The `finally` block restores from it whether the body finished or raised. The changes are inside the `try` as well, so a failure halfway through still restores the variables already set.
+With it, `temp_env_check.py` prints the four expected lines. `saved` records each variable's old value, with `None` meaning "did not exist", before anything changes. The `finally` block restores from it whether the body finished or raised. The changes are inside the `try` as well, so a failure halfway through still restores the variables already set.
 
 </Solution>
 </Exercise>

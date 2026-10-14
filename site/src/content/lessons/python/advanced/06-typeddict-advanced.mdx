@@ -52,7 +52,7 @@ Success: no issues found in 1 source file
 
 The class records which keys are which, in `__required_keys__` and `__optional_keys__`. These are frozensets, so the example sorts them for stable output.
 
-Reading an optional key with `d["key"]` is a `KeyError` waiting to happen. Checkers differ here: pyright reports it by default, and mypy 2.3.1 does not.
+Reading an optional key with `d["key"]` is a `KeyError` waiting to happen. Checkers differ here: as of pyright 1.1.414 and mypy 2.3.1 (October 2026), pyright reports it by default and mypy does not. (As in every lesson of this module, pyright's absolute paths are shortened to the file name.)
 
 ```python title="td_optional_access.py"
 from typing import NotRequired, TypedDict
@@ -222,7 +222,11 @@ td_closed.py:14:55 - error: Type "dict[str, str | int]" is not assignable to dec
 2 errors, 0 warnings, 0 informations
 ```
 
-At run time the options are recorded in `__closed__` and `__extra_items__`, and `__closed__` is `None` when the class did not say. `extra_items` suits dicts such as labels, headers or environment variables: a few known keys, plus any number of string-valued others. The output above is from pyright, because mypy 2.3.1 does not yet accept the `extra_items` argument. Checker support for new typing features lags the release, so check your checker's changelog before relying on them.
+At run time the options are recorded in `__closed__` and `__extra_items__`, and `__closed__` is `None` when the class did not say. `extra_items` suits dicts such as labels, headers or environment variables: a few known keys, plus any number of string-valued others. The output above is from pyright, because mypy 2.3.1, the version used here (October 2026), does not accept the `extra_items` argument. Checker support for new typing features lags the release, so check your checker's changelog before relying on them.
+
+## Choosing: TypedDict or dataclass
+
+A `TypedDict` describes data that really is a dict and stays one: parsed JSON, keyword arguments, rows handed to a library that expects mappings. Once the data is inside your program and has behaviour, convert it to a [dataclass](../../intermediate/dataclasses/): you get attribute access, methods, `__eq__`, and a constructor that rejects missing fields at run time. A common shape is a `TypedDict` at the boundary and a dataclass everywhere else. Avoid the 3.15 options in libraries that support older Pythons, where `closed` and `extra_items` are not available.
 
 ## Common pitfalls
 
