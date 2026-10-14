@@ -1,3 +1,0 @@
-ThreadPoolExecutor       [3, 0, 4]
-ProcessPoolExecutor      [3, 0, 4]
-InterpreterPoolExecutor  [3, 0, 4]

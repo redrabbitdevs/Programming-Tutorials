@@ -1,0 +1,2 @@
+NAME:rate OP:= NUMBER:2.5 OP:* OP:( NAME:x OP:+ NUMBER:10 OP:)
+SyntaxError: unexpected '$' at 10

@@ -135,7 +135,7 @@ The view was taken before `register` ran, and it still shows the new plugin: a p
 
 ## frozendict as a key
 
-<Since v="3.15" /> The rest of this section needs Python 3.15, which added `frozendict` as a built-in ([PEP 814](https://peps.python.org/pep-0814/)). The beginner lesson showed the basics. Its real use is as a key: a dictionary of options can now be an argument to a cached function, which a plain `dict` never could:
+<Since v="3.15" /> The rest of this section needs Python 3.15, which added `frozendict` as a built-in ([PEP 814](https://peps.python.org/pep-0814/)). The beginner lesson showed the basics, and [modern typing](../modern-typing-315/) covers `sentinel`, the other new built-in in 3.15. Its real use is as a key: a dictionary of options can now be an argument to a cached function, which a plain `dict` never could:
 
 ```python title="frozendict_cache.py"
 from functools import cache
@@ -222,7 +222,7 @@ The last line shows that `|` on a `frozendict` builds a new one, as do `|=` and 
 - **`isinstance(x, dict)` checks.** They reject `frozendict` and `MappingProxyType`. Check against `collections.abc.Mapping`.
 
 <Exercise title="Queries as cache keys">
-This script raises `TypeError: unhashable type: 'Query'`. Change only the class so that the two equal queries share one cache entry. Callers must still be able to pass lists and sets. Expected output:
+This script cannot cache a `Query` at all. Change only the class so that the two equal queries share one cache entry. Callers must still be able to pass lists and sets. Expected output:
 
 ```text
 running users ('id', 'name') ['active', 'admin']
@@ -250,8 +250,16 @@ def run(query):
 
 q1 = Query("users", ["id", "name"], ["active", "admin"])
 q2 = Query("users", ("id", "name"), {"admin", "active"})
-print(run(q1), run(q2), q1 == q2)
+try:
+    print(run(q1), run(q2), q1 == q2)
+except TypeError as error:
+    print("TypeError:", error)
 print("cache hits:", run.cache_info().hits)
+```
+
+```text
+TypeError: unhashable type: 'Query'
+cache hits: 0
 ```
 
 <Solution>
@@ -281,7 +289,10 @@ def run(query):
 
 q1 = Query("users", ["id", "name"], ["active", "admin"])
 q2 = Query("users", ("id", "name"), {"admin", "active"})
-print(run(q1), run(q2), q1 == q2)
+try:
+    print(run(q1), run(q2), q1 == q2)
+except TypeError as error:
+    print("TypeError:", error)
 print("cache hits:", run.cache_info().hits)
 ```
 
@@ -324,9 +335,11 @@ TypeError: 'tuple' object does not support item assignment
 </Exercise>
 
 <Exercise title="A read-only stock view">
-Write a class `Inventory` with a method `add(item, count)` and an attribute `stock` that callers can read but not change, and that always shows the current counts. With the class in place, this code prints the output below.
+In `inventory_view.py`, write a class `Inventory` with a method `add(item, count)` and an attribute `stock` that callers can read but not change, and that always shows the current counts. With the class in place, this code prints the output below.
 
-```python title="inventory_check.py"
+```python title="stock_check.py"
+from inventory_view import Inventory
+
 inventory = Inventory()
 stock = inventory.stock
 inventory.add("pen", 3)
@@ -356,23 +369,6 @@ class Inventory:
 
     def add(self, item, count):
         self._stock[item] = self._stock.get(item, 0) + count
-```
-
-```python title="inventory_view.py (continued)"
-inventory = Inventory()
-stock = inventory.stock
-inventory.add("pen", 3)
-inventory.add("pen", 2)
-print(stock["pen"], dict(stock))
-try:
-    stock["pen"] = 0
-except TypeError as error:
-    print("TypeError:", error)
-```
-
-```text
-5 {'pen': 5}
-TypeError: 'mappingproxy' object does not support item assignment
 ```
 
 The proxy is created once, in `__init__`, around the dictionary that `add` changes. `stock` was fetched before the two calls to `add` and still shows the total of 5.

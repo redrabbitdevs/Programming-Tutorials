@@ -17,4 +17,7 @@ def show(money):
 
 
 for money in [Money(0, "USD"), Money(5, "EUR"), Money(7, "GBP")]:
-    print(show(money))
+    try:
+        print(show(money))
+    except TypeError as error:
+        print("TypeError:", error)

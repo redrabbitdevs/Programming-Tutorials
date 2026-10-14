@@ -1,0 +1,4 @@
+server: listening
+main: server is ready
+server: shutting down
+main: done

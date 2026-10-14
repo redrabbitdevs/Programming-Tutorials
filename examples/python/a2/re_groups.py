@@ -14,3 +14,6 @@ prices = "tea 2.50, cake 3.75, water 1"
 print(re.findall(r"(\w+) (\d+(?:\.\d+)?)", prices))
 for m in re.finditer(r"(\w+) (\d+(?:\.\d+)?)", prices):
     print(m.group(1), m.span())
+
+doubled = "it is is a a test"
+print(re.sub(r"\b(?P<word>\w+) (?P=word)\b", r"\g<word>", doubled))

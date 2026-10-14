@@ -4,23 +4,24 @@ level: advanced
 module: Concurrency and parallelism
 order: 18
 title: Structured concurrency
-description: Run many asyncio tasks safely with TaskGroup, put deadlines on them with asyncio.timeout, handle cancellation and grouped errors correctly, and inspect a running program with python -m asyncio ps.
+description: Run many asyncio tasks safely with TaskGroup, feed workers through an asyncio.Queue, put deadlines on them with asyncio.timeout, handle cancellation and grouped errors correctly, and inspect a running program with python -m asyncio ps.
 minVersion: "3.11"
 objectives:
   - Start tasks in an asyncio.TaskGroup and explain what leaving the block guarantees
   - Handle failures from several tasks with except*
   - Put a deadline on async work with asyncio.timeout and catch TimeoutError in the right place
+  - Build a producer and consumers around a bounded asyncio.Queue
   - Cancel a task and clean up correctly when cancelled
   - Stop a whole task group early, and inspect running tasks from outside
 estimatedMinutes: 45
-fundamentals: []
+fundamentals: ["fundamentals/beginner/12-errors-and-exceptions"]
 ---
 
 `create_task` and `gather` from [asyncio fundamentals](../asyncio-basics/) have a weakness. When one task fails, the others keep running, unsupervised, and their errors can go unnoticed. **Structured concurrency** fixes this with one rule: tasks live inside a block, and the block does not end until every task in it has finished. In Python that block is `asyncio.TaskGroup`, added in 3.11.
 
 ## async with
 
-A `TaskGroup` is an **asynchronous context manager**. It works like the context managers from [the intermediate level](../../intermediate/context-managers/), except that entering and leaving can pause, so you write `async with`. It is only allowed inside `async def`.
+A `TaskGroup` is an **asynchronous context manager**. It works like the context managers from [the intermediate level](../../intermediate/context-managers/), except that entering and leaving can pause, so you write `async with`. It is only allowed inside `async def`. [Advanced contextlib](../contextlib-advanced/) shows how to write your own with `@asynccontextmanager`.
 
 ## TaskGroup
 
@@ -169,6 +170,51 @@ The `try` goes **around** the `async with`. Inside the block the code sees `Canc
 
 A timeout around a `TaskGroup` puts one deadline on all its tasks. A timeout inside each task gives each its own deadline, as the first exercise shows.
 
+## Producers and consumers with asyncio.Queue
+
+`asyncio.Queue` is the async counterpart of the `queue.Queue` from [Threads](../threading/): `await queue.put(item)` and `await queue.get()` pause instead of blocking a thread. With `maxsize`, `put` waits while the queue is full, so a fast producer cannot run far ahead of slow consumers. That is **backpressure**. A `TaskGroup` holds the producer and a fixed number of workers, which also caps how many fetches run at once:
+
+```python title="async_queue.py"
+import asyncio
+
+PAGES = {"/": 13, "/about": 15, "/blog": 40, "/contact": 18, "/shop": 27}
+WORKERS = 2
+
+
+async def producer(queue):
+    for url in PAGES:
+        await queue.put(url)  # waits while the queue is full
+    for _ in range(WORKERS):
+        await queue.put(None)  # one stop signal per worker
+
+
+async def worker(queue, sizes):
+    while (url := await queue.get()) is not None:
+        await asyncio.sleep(0.01)  # fetch the page
+        sizes[url] = PAGES[url]
+
+
+async def main():
+    queue = asyncio.Queue(maxsize=2)
+    sizes = {}
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(producer(queue))
+        for _ in range(WORKERS):
+            tg.create_task(worker(queue, sizes))
+    print(sorted(sizes.items()))
+    print("total:", sum(sizes.values()))
+
+
+asyncio.run(main())
+```
+
+```text
+[('/', 13), ('/about', 15), ('/blog', 40), ('/contact', 18), ('/shop', 27)]
+total: 113
+```
+
+The producer finishes with one `None` per worker, the same sentinel pattern as with threads, and the group ends when every worker has returned. If a worker raised, the group would cancel the producer and the other workers. <Since v="3.13" /> `queue.shutdown()` is the alternative to sentinels: after it, `get` on an empty queue raises `asyncio.QueueShutDown`. To cap concurrency without a queue, wrap the work in `async with asyncio.Semaphore(n):`.
+
 ## Stopping a group early
 
 <Since v="3.15" /> Sometimes the group's job is done before every task is: you asked three mirrors for the same file and one answered. `TaskGroup.cancel()` cancels all remaining tasks and leaves the block normally, without raising:
@@ -212,7 +258,10 @@ Before 3.15 the usual workaround was to raise a private exception from the winni
 <Since v="3.14" /> When an async program hangs, `python -m asyncio ps PID` and `python -m asyncio pstree PID` show its tasks from another terminal, without changing the program. Here `pstree` inspects a program whose `TaskGroup` is still waiting for a task called `stuck` (paths shortened):
 
 ```console
-$ python3.15 -m asyncio pstree 19348
+python3.15 -m asyncio pstree 19348
+```
+
+```text
 └── (T) Task-1
     └──  main stuck.py:11
         └──  TaskGroup.__aexit__ .../asyncio/taskgroups.py:75
@@ -223,6 +272,10 @@ $ python3.15 -m asyncio pstree 19348
 ```
 
 Each `(T)` is a task, and below it is the stack where it is paused. Naming tasks, with `tg.create_task(coro, name="stuck")`, makes this output far easier to read. `ps` prints the same information as a flat table. These tools may need extra permissions to inspect another process. <Since v="3.15" /> A `--retries N` option retries when the target changes while it is being read.
+
+## When not to use a TaskGroup
+
+Use a `TaskGroup` whenever tasks belong together and one failure should stop the rest. When you want every result, failures included, `asyncio.gather(..., return_exceptions=True)` collects them without cancelling anything. A background task that should outlive the request that started it, such as a cache refresher, belongs in a group owned by something longer-lived, like the application's main coroutine, not in the request handler. And for one coroutine, plain `await` is enough.
 
 ## Common pitfalls
 
@@ -408,4 +461,6 @@ Trace the event loop's queue. `check_disk` runs first and pauses at `sleep(0)`, 
 - Cancellation arrives as `CancelledError` at an `await`. Clean up in `finally`, and re-raise.
 - `asyncio.timeout(delay)` raises `TimeoutError` at the block's exit, so put the `try` around the block.
 - <Since v="3.15" /> `tg.cancel()` stops a whole group early without an error.
+- A bounded `asyncio.Queue` connects producers and consumers and applies backpressure.
 - <Since v="3.14" /> `python -m asyncio ps` and `pstree` show the tasks of a running program.
+- Next: [free-threaded Python](../free-threading/), threads without the GIL.

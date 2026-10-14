@@ -18,7 +18,7 @@ fundamentals: []
 
 A Python process normally contains one **interpreter**: the complete runtime state, with its own modules, builtins, `sys` and `__main__`. CPython has been able to host several of them in one process for a long time, but only through the C API. Python 3.14 added a standard library module for it, `concurrent.interpreters` ([PEP 734](https://peps.python.org/pep-0734/)), and `InterpreterPoolExecutor` on top.
 
-Two facts make interpreters interesting for concurrency. They are **isolated**, almost like processes, so there is no shared state to race on. And since Python 3.12 each one can have **its own GIL**, so threads running in different interpreters run in parallel, even on the default build. The cost: data has to be copied between them, and some extension modules do not support them yet.
+Two facts make interpreters interesting for concurrency, as [the models lesson](../concurrency-models/) outlined. They are **isolated**, almost like processes, so there is no shared state to race on. And since Python 3.12 each one can have **its own GIL**, so threads running in different interpreters run in parallel, even on the default build. The cost: data has to be copied between them, and some extension modules do not support them yet.
 
 ## Creating an interpreter
 
@@ -120,7 +120,7 @@ The script's top level ran a second time, inside the other interpreter, under th
 
 ## What can cross
 
-The documentation calls this "sharing" in quotes, because mostly it is copying:
+Objects cross between interpreters in one of three ways, and mostly they are copied rather than shared:
 
 - `None`, `bool`, `int`, `float`, `str`, `bytes`, and tuples of these are shared directly or copied efficiently.
 - `memoryview` and interpreter queues **really share** their data.
@@ -191,7 +191,7 @@ Three threads, three interpreters, three GILs. The items put on the queue were c
 
 ## InterpreterPoolExecutor
 
-Most of the time you want none of this plumbing. `concurrent.futures.InterpreterPoolExecutor` is a `ThreadPoolExecutor` in which each worker thread has its own interpreter. Its docs put the benefit plainly: "code run with this executor has true multi-core parallelism".
+Most of the time you want none of this plumbing. `concurrent.futures.InterpreterPoolExecutor` is a `ThreadPoolExecutor`, as in [Threads](../threading/), in which each worker thread has its own interpreter, so code run with it executes on several cores at once.
 
 ```python title="interp_pool.py"
 from concurrent.futures import InterpreterPoolExecutor
@@ -230,7 +230,7 @@ cause: ExecutionFailed
 
 The worker re-raised the original `ValueError` and attached an `ExecutionFailed` summary as its `__cause__`, so your existing `except` clauses work unchanged.
 
-## Interpreters, processes or threads?
+## Choosing interpreters, processes or threads
 
 | | Threads | Interpreters | Processes |
 |---|---|---|---|
@@ -240,7 +240,12 @@ The worker re-raised the original `ValueError` and attached an `ExecutionFailed`
 | A crash in C code kills | Everything | Everything | One worker |
 | Extension module support | All | Not all yet | All |
 
-Interpreters sit between the other two. They are cheaper than processes, and free of data races because nothing mutable is shared. Two warnings from the docs: isolation is best-effort inside one process, so "do not use multiple interpreters in security-sensitive situations". And not all PyPI packages support them yet. Modules that are not ready fail with an `ImportError` when imported in a sub-interpreter.
+Interpreters sit between the other two. They are cheaper than processes, and free of data races because nothing mutable is shared. Do not use them when:
+
+- **Security matters.** Isolation is best-effort inside one process: "do not use multiple interpreters in security-sensitive situations" ([`concurrent.interpreters`](https://docs.python.org/3/library/concurrent.interpreters.html)). Use separate processes or a sandbox.
+- **A dependency is not ready.** Not all PyPI packages support them yet. Modules that are not ready fail with an `ImportError` when imported in a sub-interpreter.
+- **Threads need to share large mutable data.** Everything is copied. The [free-threaded build](../free-threading/) shares memory instead.
+- **The work is mostly waiting.** Threads or `asyncio` are simpler and cheaper.
 
 ## Common pitfalls
 
@@ -386,3 +391,4 @@ Each call receives a fresh copy of `stock` with two items and appends to that co
 - Immutable built-ins cross efficiently, queues and `memoryview` really share, and `call()` pickles everything else. A failure arrives as `ExecutionFailed`.
 - Functions that use globals make the other interpreter import your script, so keep the main guard.
 - `InterpreterPoolExecutor` gives parallel CPU-bound Python behind the familiar executor interface, and re-raises workers' exceptions.
+- This ends the module. Next: [descriptors](../descriptors/), the start of the metaprogramming module.

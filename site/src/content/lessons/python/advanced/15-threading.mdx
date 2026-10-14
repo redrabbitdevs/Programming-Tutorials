@@ -4,16 +4,17 @@ level: advanced
 module: Concurrency and parallelism
 order: 15
 title: Threads
-description: Start and join threads, see a race condition happen on purpose, fix it with a lock, pass work through a queue, and run I/O-bound jobs with ThreadPoolExecutor.
-minVersion: "3.8"
+description: Start and join threads, see a race condition happen on purpose, fix it with locks, coordinate threads with queues, events, semaphores and conditions, and run I/O-bound jobs with ThreadPoolExecutor.
+minVersion: "3.11"
 objectives:
   - Start threads and wait for them with join
   - Explain a race condition as an interleaving of read and write steps
-  - Protect shared state with threading.Lock
+  - Protect shared state with threading.Lock, and know when an RLock is needed
   - Hand work between threads with queue.Queue
+  - Stop, limit and coordinate threads with Event, Semaphore and Condition
   - Run I/O-bound jobs with ThreadPoolExecutor and collect results and errors
 estimatedMinutes: 45
-fundamentals: ["fundamentals/beginner/16-stacks-queues-linked"]
+fundamentals: ["fundamentals/beginner/16-stacks-queues-linked", "fundamentals/beginner/25-testing-mindset"]
 ---
 
 A thread is a separate line of execution inside your program. All threads share the same objects, which makes them easy to start and easy to get wrong. On the default build of CPython they take turns running Python code, as [the previous lesson](../concurrency-models/) explained, so use them for work that waits: network calls, disk access, slow APIs.
@@ -123,7 +124,52 @@ expected 200000, got 200000
 
 The read and the write now happen together, as one **critical section**. Every piece of code that touches `balance` must take the same lock. A lock that only some code paths use protects nothing.
 
-Keep critical sections short and never call unknown code while holding a lock. If thread A holds lock 1 and waits for lock 2 while thread B holds lock 2 and waits for lock 1, both wait forever. That is a **deadlock**. Taking locks in one fixed order everywhere avoids it.
+Keep critical sections short and never call unknown code while holding a lock. If thread A holds lock 1 and waits for lock 2 while thread B holds lock 2 and waits for lock 1, both wait forever. That is a **deadlock**. Taking locks in one fixed order everywhere avoids it. On the [free-threaded build](../free-threading/), threads really run at the same time, so a missing lock shows up far sooner.
+
+## Re-entrant locks: RLock
+
+A `Lock` does not know who holds it. If the thread that holds it tries to take it again, it waits for itself forever. A `threading.RLock` (re-entrant lock) counts how many times its owner has taken it, and is free again only after the same number of releases:
+
+```python title="rlock_account.py"
+import threading
+
+plain = threading.Lock()
+with plain:
+    print("Lock taken again:", plain.acquire(timeout=0.1))
+
+reentrant = threading.RLock()
+with reentrant:
+    print("RLock taken again:", reentrant.acquire(timeout=0.1))
+    reentrant.release()
+
+
+class Account:
+    def __init__(self):
+        self.balance = 0
+        self._lock = threading.RLock()
+
+    def deposit(self, amount):
+        with self._lock:
+            self.balance += amount
+
+    def deposit_twice(self, amount):
+        with self._lock:  # holds the lock while deposit takes it again
+            self.deposit(amount)
+            self.deposit(amount)
+
+
+account = Account()
+account.deposit_twice(5)
+print("balance:", account.balance)
+```
+
+```text
+Lock taken again: False
+RLock taken again: True
+balance: 10
+```
+
+`acquire(timeout=0.1)` gave up and returned `False` on the plain lock, instead of hanging. An `RLock` suits a class whose public methods lock and call each other. It is slightly slower than a `Lock`, and it hides the question of which method really owns the lock, so prefer a `Lock` and private helpers that assume it is held.
 
 ## Queues
 
@@ -160,7 +206,125 @@ print(sorted(done.get() for _ in range(done.qsize())))
 ['FIG', 'KIWI', 'LIME', 'PEAR', 'PLUM']
 ```
 
-`jobs.get()` blocks until an item arrives, so idle workers cost nothing. Each worker stops when it receives the `STOP` sentinel, so put one sentinel per worker.
+`jobs.get()` blocks until an item arrives, so idle workers cost nothing. Each worker stops when it receives the `STOP` sentinel, so put one sentinel per worker. <Since v="3.13" /> `jobs.shutdown()` is the alternative: after it, `get` on an empty queue raises `queue.ShutDown` in every waiting worker.
+
+## Signalling with Event
+
+A `threading.Event` is a flag that threads can wait on. `set()` raises it, `wait()` blocks until it is raised, and `wait(timeout)` returns `False` if the time ran out first. That makes it the clean way to say "I am ready" and "please stop", instead of a global variable that a loop polls:
+
+```python title="event_stop.py"
+import threading
+
+ready = threading.Event()
+stop = threading.Event()
+
+
+def server():
+    print("server: listening")
+    ready.set()
+    while not stop.wait(timeout=0.05):
+        pass  # check for work here, then wait again
+    print("server: shutting down")
+
+
+thread = threading.Thread(target=server)
+thread.start()
+ready.wait()
+print("main: server is ready")
+stop.set()
+thread.join()
+print("main: done")
+```
+
+```text
+server: listening
+main: server is ready
+server: shutting down
+main: done
+```
+
+The order is guaranteed: the main thread cannot pass `ready.wait()` until the server has printed and set the flag. `stop.wait(timeout=0.05)` also serves as the loop's pause, and it returns as soon as `stop` is set, rather than after a fixed `sleep`.
+
+## Limiting with Semaphore
+
+A `threading.Semaphore(n)` is a lock that `n` threads can hold at once, for limiting how many downloads or database connections run in parallel. A `BoundedSemaphore` also raises `ValueError` when it is released more often than acquired, which catches a common bug:
+
+```python title="semaphore_limit.py"
+import threading
+import time
+
+slots = threading.BoundedSemaphore(2)  # at most two downloads at once
+lock = threading.Lock()
+active = peak = 0
+
+
+def download(url):
+    global active, peak
+    with slots:
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.05)  # the download itself
+        with lock:
+            active -= 1
+
+
+threads = [threading.Thread(target=download, args=(n,)) for n in range(6)]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+print("most at once:", peak)
+
+try:
+    slots.release()  # one release too many
+except ValueError as error:
+    print("ValueError:", error)
+```
+
+```text
+most at once: 2
+ValueError: Semaphore released too many times
+```
+
+Six threads started, but no more than two were ever inside the `with slots:` block. Use `BoundedSemaphore` unless you have a reason not to. With a thread pool, `max_workers` does the same job for you.
+
+## Waiting for a state: Condition
+
+A `threading.Condition` combines a lock with waiting. A thread holds the condition, checks some shared state, and if it is not ready, `wait()` releases the lock and sleeps until another thread calls `notify_all()`. `wait_for(predicate)` does the check-and-wait loop for you:
+
+```python title="condition_basket.py"
+import threading
+
+basket = []
+changed = threading.Condition()
+
+
+def picker(fruit):
+    with changed:
+        basket.append(fruit)
+        changed.notify_all()  # wake everyone waiting on this condition
+
+
+def packer():
+    with changed:
+        changed.wait_for(lambda: len(basket) >= 3)
+        print("packing", sorted(basket))
+
+
+threads = [threading.Thread(target=packer)]
+threads += [threading.Thread(target=picker, args=(f,)) for f in ["fig", "kiwi", "lime"]]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+```
+
+```text
+packing ['fig', 'kiwi', 'lime']
+```
+
+The packer may start first or last. Either way, it sleeps until the basket holds three items, and it reads the basket while holding the lock. `queue.Queue` is built on conditions, so reach for a queue first, and for a `Condition` when threads wait for a state that is not "an item arrived".
 
 ## Thread pools
 
@@ -194,7 +358,7 @@ with ThreadPoolExecutor(max_workers=3) as pool:
 /contact    18 bytes
 ```
 
-Leaving the `with` block waits for all jobs and shuts the pool down.
+Leaving the `with` block waits for all jobs and shuts the pool down. From async code, [`asyncio.to_thread`](../asyncio-basics/) runs a blocking function on a thread like this one.
 
 For more control, `submit` schedules one call and returns a **future**, an object that will hold the result. `as_completed` yields futures as they finish. `future.result()` returns the value, or raises the exception the call raised:
 
@@ -269,6 +433,10 @@ print(len(everything), everything == list(range(1, 301)))
 ```
 
 How the 300 tickets are split between the threads changes from run to run. That none is lost or duplicated does not. The same release added the `@threading.synchronized_iterator` decorator and `threading.concurrent_tee()`. On older versions, use a queue.
+
+## When not to use threads
+
+Threads share everything, so every shared object needs a reason to be safe. For CPU-bound pure Python on the default build they give no speed-up: use [processes](../multiprocessing/) or [interpreters](../subinterpreters/). For thousands of concurrent connections, [asyncio](../asyncio-basics/) is cheaper than thousands of threads. And when a job is fast already, a thread only adds a place for bugs. Threads are the right tool for a handful to a few dozen blocking calls, through a `ThreadPoolExecutor`, with data passed in and results passed back.
 
 ## Common pitfalls
 
@@ -446,6 +614,9 @@ All four calls run, but `map` hands back results in input order. The exception f
 - `Thread(target=..., args=...)`, then `start()` all threads, then `join()` them all.
 - A race condition is a result that depends on how threads interleave. Read-modify-write and check-then-act are the usual culprits, and the GIL does not prevent them.
 - A `Lock` used as `with lock:` makes a block a critical section. Every access to the shared state must take it.
+- `RLock` can be taken again by the thread that holds it. `Lock` cannot.
 - `queue.Queue` passes work between threads without shared state. Send one sentinel per worker to stop them.
+- `Event` signals readiness or a stop, `BoundedSemaphore` caps concurrency, and `Condition` waits for a state.
 - `ThreadPoolExecutor.map` returns results in input order. `submit` with `as_completed` gives results as they finish, and `result()` re-raises a worker's exception.
 - <Since v="3.15" /> `threading.serialize_iterator` lets several threads share one iterator safely.
+- Next: [processes](../multiprocessing/), for CPU-bound work.

@@ -21,5 +21,8 @@ def run(query):
 
 q1 = Query("users", ["id", "name"], ["active", "admin"])
 q2 = Query("users", ("id", "name"), {"admin", "active"})
-print(run(q1), run(q2), q1 == q2)
+try:
+    print(run(q1), run(q2), q1 == q2)
+except TypeError as error:
+    print("TypeError:", error)
 print("cache hits:", run.cache_info().hits)
