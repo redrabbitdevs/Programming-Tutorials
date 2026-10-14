@@ -178,13 +178,15 @@ The `<b>` tags survived, and the `&` in the data was escaped.
 
 ## Parameterised SQL
 
-SQL injection happens when data is pasted into a query. Database drivers avoid it with placeholders such as `?` and a separate tuple of parameters. A t-string processor can produce both from one readable literal:
+SQL injection happens when data is pasted into a query. Database drivers avoid it with placeholders such as `?` and a separate tuple of parameters. A t-string processor can produce both from one readable literal.
+
+The example runs the query with `sqlite3`, the database module in the standard library, and uses only four things from it. `sqlite3.connect(":memory:")` opens a database that lives in memory and disappears when the program ends. `db.execute(sql, params)` runs one SQL statement, and fills each `?` with the next item of `params` as a *value*, never as SQL text. `executemany` runs a statement once per tuple of parameters, and `fetchall()` returns the result rows as a list of tuples. The [sqlite3 documentation](https://docs.python.org/3/library/sqlite3.html) has the rest.
 
 ```python title="sql_params.py"
 from string.templatelib import Interpolation, Template
 
 
-def sql(template: Template) -> tuple[str, tuple]:
+def sql(template: Template) -> tuple[str, tuple[object, ...]]:
     query = []
     for part in template:
         if isinstance(part, Interpolation):
@@ -205,14 +207,17 @@ name = "nobody' OR '1'='1"
 query, params = sql(t"SELECT name FROM users WHERE name = {name}")
 print(query, params)
 print(db.execute(query, params).fetchall())
+unsafe = f"SELECT name FROM users WHERE name = '{name}'"
+print(db.execute(unsafe).fetchall())
 ```
 
 ```text
 SELECT name FROM users WHERE name = ? ("nobody' OR '1'='1",)
 []
+[('ada',), ('ben',)]
 ```
 
-The hostile `name` arrived as a parameter, not as SQL, so it matched nothing. Note that `{name}` is not in quotes in the template: it becomes a placeholder, and the driver handles the quoting.
+The hostile `name` arrived as a parameter, not as SQL, so it matched nothing. The f-string on the last two lines pastes the same text into the query, where `OR '1'='1'` becomes SQL that is always true, and every row comes back. Note that `{name}` is not in quotes in the template: it becomes a placeholder, and the driver handles the quoting.
 
 ## Building templates in code
 
@@ -252,9 +257,11 @@ For text that only you will read, such as a debug message or a file name, an f-s
 - **Running on older Pythons.** `t"..."` is a syntax error before 3.14, so the whole file fails to compile, not just the line.
 
 <Exercise title="Redacting secrets">
-Write `redact(template, *secrets)` that renders a template like an f-string, but prints `***` for every interpolation whose expression is one of the names in `secrets`. This code:
+Write `redact(template, *secrets)` that renders a template like an f-string, but prints `***` for every interpolation whose expression is one of the names in `secrets`. Put it in `redact.py`. This code:
 
 ```python title="redact_check.py"
+from redact import redact
+
 user, password = "ada", "hunter2"
 print(redact(t"login {user} with {password}", "password"))
 print(redact(t"user={user!r} token={password}", "password"))
@@ -286,18 +293,7 @@ def redact(template: Template, *secrets: str) -> str:
     return "".join(out)
 ```
 
-```python title="redact.py (continued)"
-user, password = "ada", "hunter2"
-print(redact(t"login {user} with {password}", "password"))
-print(redact(t"user={user!r} token={password}", "password"))
-```
-
-```text
-login ada with ***
-user='ada' token=***
-```
-
-The guard `if expr in secrets` checks the source text of the expression, which only a t-string gives you. Cases are tried in order, so secrets are caught before the general rendering case.
+With it, `redact_check.py` prints the two expected lines. The guard `if expr in secrets` checks the source text of the expression, which only a t-string gives you. Cases are tried in order, so secrets are caught before the general rendering case.
 
 </Solution>
 </Exercise>

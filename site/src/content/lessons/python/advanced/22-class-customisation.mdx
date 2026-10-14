@@ -5,7 +5,7 @@ module: Metaprogramming
 order: 22
 title: Customising classes
 description: Hook into class creation with class decorators, __init_subclass__ and __set_name__, make a class subscriptable with __class_getitem__, and fix an instance's attributes with __slots__.
-minVersion: "3.8"
+minVersion: "3.9"
 objectives:
   - Write a class decorator that adds behaviour to a class
   - Build a plugin registry with __init_subclass__ and class keyword arguments
@@ -16,7 +16,7 @@ estimatedMinutes: 45
 fundamentals: []
 ---
 
-A `class` statement is code that runs. Python executes the body, builds a class object, and then gives several hooks a chance to look at it or change it. This lesson covers the hooks you should reach for first. They handle almost everything people once wrote metaclasses for, and the [next lesson](../metaclasses/) shows the rest.
+A `class` statement is code that runs. Python executes the body, builds a class object, and then gives several hooks a chance to look at it or change it. This lesson covers the hooks you should reach for first. They handle almost everything people once wrote metaclasses for, and the [next lesson](../metaclasses/) shows the rest. Hooks on individual attribute reads, `__getattr__` and `__getattribute__`, were in [Descriptors](../descriptors/).
 
 ## Class decorators
 
@@ -50,7 +50,7 @@ Point(x=1, y=2)
 
 `@dataclass` is the most famous class decorator: it reads the annotations and writes `__init__`, `__repr__` and `__eq__` onto the class. Class decorators are explicit and local, which is their strength. They are also their limit: a decorator applies to one class only, and subclasses do not inherit it.
 
-## __init_subclass__: a hook for every subclass
+## `__init_subclass__`: a hook for every subclass
 
 When a class is created, Python calls `__init_subclass__` on its parent. The parent can then register, check or modify each new subclass. Keyword arguments in the class line, other than `metaclass`, are passed to it:
 
@@ -153,7 +153,7 @@ class Model(Base):
 
 The body runs first, as ordinary code, and fills a namespace. Then `type` builds the class, calls `__set_name__` on each attribute that has one, calls the parent's `__init_subclass__`, and finally the decorators run, bottom-up. A decorator therefore sees a class whose fields and parent hooks are already set up.
 
-## __class_getitem__: subscripting a class
+## `__class_getitem__`: subscripting a class
 
 `list[int]` works because `list` defines `__class_getitem__`. Like `__init_subclass__`, it is implicitly a class method. The usual return value is a `types.GenericAlias`, which remembers the class and the arguments and can still be called to create instances:
 
@@ -180,9 +180,9 @@ __main__.Box[int] Box (<class 'int'>,)
 Box 5
 ```
 
-This hook exists for type hints. The documentation discourages using it for anything else, such as a lookup table keyed by class. For your own generic classes, write `class Box[T]:` as in [generics with type parameter syntax](../generics-pep695/), which gives you subscripting and type checker support without writing the hook yourself.
+This hook exists for type hints, and should not be used for anything else, such as a lookup table keyed by class. `types.GenericAlias` was added in Python 3.9, which is why this lesson needs 3.9. For your own generic classes, write `class Box[T]:` as in [generics with type parameter syntax](../generics-pep695/), which gives you subscripting and type checker support without writing the hook yourself.
 
-## __slots__: a fixed set of attributes
+## `__slots__`: a fixed set of attributes
 
 A class with `__slots__` lists its instance attributes up front. Python then gives instances no `__dict__`, which saves memory and turns typos into errors:
 
@@ -246,9 +246,12 @@ Every hook in this lesson runs at import time and acts at a distance: a reader o
 - **Defaults as class attributes next to `__slots__`.** `x = 0` in the class body clashes with a slot named `x` and raises `ValueError`. Set defaults in `__init__`.
 
 <Exercise title="A command registry">
-Write a base class `Command` with a dictionary `commands`. Each subclass registers itself under the `name` given in its class line, or under its class name in lower case when there is none. With your class, this code:
+Write a base class `Command` with a dictionary `commands`. Each subclass registers itself under the `name` given in its class line, or under its class name in lower case when there is none. Put it in `command_registry.py`. With your class, this code:
 
 ```python title="commands_check.py"
+from command_registry import Command
+
+
 class Hello(Command):
     def run(self):
         return "hello!"
@@ -283,29 +286,7 @@ class Command:
         Command.commands[name or cls.__name__.lower()] = cls
 ```
 
-```python title="command_registry.py (continued)"
-class Hello(Command):
-    def run(self):
-        return "hello!"
-
-
-class Bye(Command, name="exit"):
-    def run(self):
-        return "goodbye"
-
-
-print(sorted(Command.commands))
-print(Command.commands["hello"]().run())
-print(Command.commands["exit"]().run())
-```
-
-```text
-['exit', 'hello']
-hello!
-goodbye
-```
-
-`name=None` makes the keyword optional, and `or` falls back to the class name. Writing `Command.commands` rather than `cls.commands` makes it explicit that every subclass shares one dictionary, even if a subclass later defines its own `commands` attribute.
+With this file next to it, `commands_check.py` prints the three expected lines. `name=None` makes the keyword optional, and `or` falls back to the class name. Writing `Command.commands` rather than `cls.commands` makes it explicit that every subclass shares one dictionary, even if a subclass later defines its own `commands` attribute.
 
 </Solution>
 </Exercise>
@@ -380,9 +361,12 @@ Python calls `__init_subclass__` once, on the next class in `Job`'s method resol
 </Exercise>
 
 <Exercise title="Counting instances">
-Write a class decorator `counted` that adds a class attribute `created`, starting at 0, and increases it each time an instance is initialised. This code:
+Write a class decorator `counted` that adds a class attribute `created`, starting at 0, and increases it each time an instance is initialised. Put it in `counted.py`. This code:
 
 ```python title="counted_check.py"
+from counted import counted
+
+
 @counted
 class Job:
     def __init__(self, name):
@@ -415,23 +399,7 @@ def counted(cls):
     return cls
 ```
 
-```python title="counted.py (continued)"
-@counted
-class Job:
-    def __init__(self, name):
-        self.name = name
-
-
-Job("a")
-Job("b")
-print(Job.created, Job("c").name, Job.created)
-```
-
-```text
-2 c 3
-```
-
-The decorator keeps the original `__init__`, installs a wrapper that calls it and then counts, and returns the same class. `wraps` keeps the name and docstring of the original method. Arguments are evaluated left to right, so the first `Job.created` is read before `Job("c")` runs.
+With it, `counted_check.py` prints `2 c 3`. The decorator keeps the original `__init__`, installs a wrapper that calls it and then counts, and returns the same class. `wraps` keeps the name and docstring of the original method. Arguments are evaluated left to right, so the first `Job.created` is read before `Job("c")` runs.
 
 </Solution>
 </Exercise>

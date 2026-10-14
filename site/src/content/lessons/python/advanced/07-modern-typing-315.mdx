@@ -18,7 +18,7 @@ fundamentals: []
 
 This lesson ends the module with the newest pieces. Two of them, `Self` and `@override`, have been around since 3.11 and 3.12 and belong in every codebase. Three arrived in Python 3.15.0, released on 9 October 2026: the `sentinel` builtin ([PEP 661](https://peps.python.org/pep-0661/)), `typing.TypeForm` ([PEP 747](https://peps.python.org/pep-0747/)) and `@typing.disjoint_base` ([PEP 800](https://peps.python.org/pep-0800/)). All three PEPs are Final, and all three appear in [What's New in Python 3.15](https://docs.python.org/3/whatsnew/3.15.html).
 
-Checkers adopt new features at their own pace. Of the two used in this module, pyright 1.1.414 understood all three 3.15 features. mypy 2.3.1 understood `TypeForm` and `@disjoint_base`, but did not yet accept a sentinel in a type hint.
+Checkers adopt new features at their own pace, so treat what follows about checker support as a snapshot, not a lasting fact. As of mypy 2.3.1 and pyright 1.1.414, in October 2026, pyright understood all three 3.15 features, and mypy understood `TypeForm` and `@disjoint_base` but did not accept a sentinel in a type hint. Newer releases may differ; the typing specification's [conformance results](https://github.com/python/typing/tree/main/conformance) track each checker's support.
 
 ## Self: methods that return their own class
 
@@ -118,7 +118,7 @@ False
 int | MISSING
 ```
 
-A sentinel prints as its name, is always truthy, keeps its identity through `copy` and `pickle`, and is equal only to itself: a second `sentinel("MISSING")` is a different object. Pickling works for sentinels assigned to a module-level name that matches their name, as here. And `int | MISSING` is a valid union, which is the point of the next example.
+A sentinel prints as its name, is always truthy, keeps its identity through `copy` and `pickle`, and is equal only to itself: a second `sentinel("MISSING")` is a different object. Pickling works for sentinels assigned to a module-level name that matches their name, as here. And `int | MISSING` is a valid union, which is the point of the next example. Why identity through `copy` matters is the subject of [Copying and references](../copying-references/), and 3.15's other new builtin, `frozendict`, is in [Immutability](../immutability/).
 
 The sentinel's name can appear directly in a type hint, and `is` narrows it away:
 
@@ -157,7 +157,7 @@ sentinel_default.py:13:17 - information: Type of "default" is "int"
 0 errors, 0 warnings, 1 information
 ```
 
-After `if default is MISSING: raise`, pyright knows `default` is an `int`. mypy 2.3.1 does not yet support this:
+After `if default is MISSING: raise`, pyright knows `default` is an `int`. mypy 2.3.1 did not support this:
 
 ```console title="mypy 2.3.1"
 $ mypy sentinel_default.py
@@ -167,7 +167,7 @@ sentinel_default.py:13: note: Revealed type is "int | MISSING?"
 Found 1 error in 1 file (checked 1 source file)
 ```
 
-Until your checker catches up, code can still use `sentinel` for its run-time benefits.
+If your checker does not support sentinels in hints yet, code can still use `sentinel` for its run-time benefits.
 
 ## TypeForm: types as arguments
 
@@ -258,6 +258,10 @@ disjoint.py:21:11 - error: Base classes have incompatible disjoint bases: "int",
 ```
 
 For `Vector` and `Matrix`, nothing happened at run time: the decorator only informs the checker. For `int` and `str`, the run-time `TypeError` is real, and the checker now reports it before the program runs. The practical benefit is sharper reasoning: if no class can be both a `Vector` and a `Matrix`, an `isinstance(x, Matrix)` branch after `x` was narrowed to `Vector` is unreachable, and the checker can say so. Most application code will never write `@disjoint_base`; you will see it in stubs for built-in and compiled types.
+
+## When not to adopt them yet
+
+`Self` and `@override` cost nothing and need only 3.11 and 3.12, so use them freely. The three 3.15 features are different. A library that supports older Pythons cannot use them without a fallback. An application can, but its team then depends on checker support that may lag, as the mypy output above showed. Adopt `sentinel` first, since it works at run time whatever the checker thinks. Leave `@disjoint_base` to stub and library authors, and add `TypeForm` when you write a function that really takes type expressions.
 
 ## Common pitfalls
 
@@ -437,3 +441,4 @@ sentinel UNSET
 - `TypeForm[T]` annotates parameters that receive type expressions such as `list[str]` or `int | None`.
 - `@disjoint_base` tells checkers that no class may inherit from it and another unrelated disjoint base, mirroring CPython's solid bases.
 - Check your type checker's support before relying on brand-new typing features.
+- That completes the typing module. Next: [pattern matching in depth](../match-advanced/), the first lesson on advanced data handling.

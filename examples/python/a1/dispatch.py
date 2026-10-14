@@ -14,5 +14,6 @@ def calc(op: Op, a: int, b: int) -> int:
     return OPERATIONS[op](a, b)
 
 
-for name in get_args(Op):
+NAMES: tuple[Op, ...] = get_args(Op)
+for name in NAMES:
     print(name, calc(name, 6, 3))

@@ -9,7 +9,7 @@ minVersion: "3.12"
 objectives:
   - Write generic functions with def f[T](...) and explain what a type variable buys over Any
   - Write a generic class such as Stack[T] and parametrise it at the call site
-  - Restrict a type parameter with a bound or a set of constraints
+  - Restrict a type parameter with a bound or a set of constraints, and use @overload when the return type depends on an argument
   - Declare type aliases with the type statement, including recursive ones
   - Give a type parameter a default, and read type parameters at run time
 estimatedMinutes: 50
@@ -141,7 +141,7 @@ ada
 stack.Stack[int] Stack
 ```
 
-At run time `Stack[int]` is a thin alias that creates a plain `Stack`: the object does not remember `int`. The checker does, and enforces it:
+At run time `Stack[int]` is a thin alias that creates a plain `Stack`: the object does not remember `int`. The bracket syntax makes `Stack` inherit from `typing.Generic`, whose `__class_getitem__` hook builds that alias; [Customising classes](../class-customisation/) shows the hook written by hand. The checker does remember `int`, and enforces it:
 
 ```python title="stack_wrong.py"
 from stack import Stack
@@ -255,6 +255,43 @@ Success: no issues found in 1 source file
 ```
 
 Prefer a bound in most code. Constraints suit the few functions that genuinely work on a small closed set of unrelated types, like `str` and `bytes`.
+
+## When the return type depends on an argument: @overload
+
+Sometimes the return type follows from an argument's *value*, not its type: a flag that switches between returning a string and a list. A type parameter cannot express that. `@overload` can: you write one signature per case, each with a body of `...`, followed by the single real implementation.
+
+```python title="overload_load.py"
+from typing import Literal, get_overloads, overload, reveal_type
+
+
+@overload
+def load(text: str, *, as_list: Literal[True]) -> list[str]: ...
+@overload
+def load(text: str, *, as_list: Literal[False] = False) -> str: ...
+def load(text: str, *, as_list: bool = False) -> list[str] | str:
+    lines = text.strip().splitlines()
+    return lines if as_list else " ".join(lines)
+
+
+reveal_type(load("a\nb"))
+reveal_type(load("a\nb", as_list=True))
+print(load("a\nb"), load("a\nb", as_list=True))
+print(len(get_overloads(load)), load.__name__)
+```
+
+```text
+a b ['a', 'b']
+2 load
+```
+
+```console title="mypy 2.3.1"
+$ mypy overload_load.py
+overload_load.py:13: note: Revealed type is "str"
+overload_load.py:14: note: Revealed type is "list[str]"
+Success: no issues found in 1 source file
+```
+
+Without the overloads, every caller would get `list[str] | str` and have to narrow it. With them, the checker picks the first signature that matches the call. At run time only the last definition exists, so the overloads cost nothing per call. `typing.get_overloads` returns the registered signatures, which documentation tools use. The standard library's type stubs use `@overload` heavily: `open()` returns a text or binary file depending on its `mode` argument in exactly this way.
 
 ## Type aliases with the type statement
 
@@ -393,6 +430,10 @@ Success: no issues found in 1 source file
 ```
 
 It means the same as `class Box[T]` and `def unwrap[T]`. With the new syntax you never declare `T` separately, and its scope is clear. Use the bracket syntax in new code.
+
+## When not to make it generic
+
+A type parameter is worth adding when it connects an input to an output, or two inputs to each other, and callers would otherwise lose a type. A function that only ever handles `str` should say `str`. A class with one real use does not need `[T]` for a future that may never come, and three type parameters on one class usually mean it does too much. Overloads follow the same rule: two or three cases help callers, ten are a sign that the function should be split.
 
 ## Common pitfalls
 
@@ -567,6 +608,7 @@ A protocol with `__gt__` would accept any comparable type instead of three. [Pro
 
 - `def f[T](x: T) -> T` and `class C[T]` declare type parameters, available from Python 3.12. Each lives in `__type_params__` and is scoped to its function or class.
 - `[S: Bound]` restricts a parameter to a type and its subtypes. `[S: (A, B)]` restricts it to exactly one of a list.
+- `@overload` lists one signature per case when the return type depends on an argument's value.
 - `type Name[T] = ...` creates a lazily evaluated `TypeAliasType`, which can be recursive but cannot be used with `isinstance`.
 - `list` is invariant. Accept `Sequence` or `Iterable` when you only read.
 - `[T = int]` gives a default, available from 3.13.

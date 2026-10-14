@@ -9,16 +9,17 @@ minVersion: "3.11"
 objectives:
   - Use reveal_type to see what a type checker infers
   - Annotate functions that take functions, with collections.abc.Callable
-  - Restrict values with Literal and protect constants with Final
+  - Restrict values with Literal, protect constants with Final, and mark class attributes with ClassVar
   - Describe the shape of a dict with TypedDict
   - Choose between Any and object, and use cast only where you can justify it
-estimatedMinutes: 45
+  - Keep values of the same run-time type apart with NewType
+estimatedMinutes: 55
 fundamentals: ["fundamentals/beginner/03-values-and-types"]
 ---
 
 You already annotate parameters with `int`, `list[str]` and `X | None`, from the [type hints lesson](../../beginner/type-hints-intro/), and you have run a checker in [Linting, formatting and type checking](../../intermediate/ruff-and-type-checking/). This module goes further: it is about making the checker understand real code, not toy functions. The general idea of static versus dynamic typing is in the [fundamentals lesson on values and types](../../../fundamentals/beginner/values-and-types/).
 
-Every checker run in this module was done with mypy 2.3.1 or pyright 1.1.414, targeting Python 3.15. Other versions word their messages a little differently.
+Every checker run in this module was done in October 2026 with mypy 2.3.1 or pyright 1.1.414, targeting Python 3.15, and each output block names the version it came from. Other versions word their messages a little differently. pyright prints absolute file paths; they are shortened here to the file name.
 
 ## Ask the checker what it sees
 
@@ -177,6 +178,47 @@ Found 1 error in 1 file (checked 1 source file)
 
 `MAX_RETRIES: Final = 3` lets the checker infer `int`. Write `Final[int]` only when you want a wider type than the value suggests. In a class body, `Final` marks an attribute that subclasses and instances may not replace.
 
+## Shared class attributes: ClassVar
+
+An annotation in a class body normally declares an instance attribute. `ClassVar[T]` says the opposite: the value belongs to the class, and instances only read it. Dataclasses act on that at run time, by leaving `ClassVar` names out of the fields:
+
+```python title="classvar_count.py"
+from dataclasses import dataclass, fields
+from typing import ClassVar
+
+
+@dataclass
+class Connection:
+    host: str
+    port: int = 5432
+    opened: ClassVar[int] = 0
+
+    def __post_init__(self) -> None:
+        Connection.opened += 1
+
+
+a = Connection("db1")
+b = Connection("db2", 6543)
+print([f.name for f in fields(Connection)], Connection.opened)
+a.opened = 99
+print(Connection.opened, a.opened)
+```
+
+```text
+['host', 'port'] 2
+2 99
+```
+
+`opened` is not a parameter of `__init__`, and the counter is shared. The last two lines show the usual mistake: `a.opened = 99` did not change the counter, it created an instance attribute that hides it. The checker reports it:
+
+```console title="mypy 2.3.1"
+$ mypy classvar_count.py
+classvar_count.py:18: error: Cannot assign to class variable "opened" via instance  [misc]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+Registries and counters on a base class, like the plugin registry in [Customising classes](../class-customisation/), are class variables, so annotate them with `ClassVar`.
+
 ## The shape of a dict: TypedDict
 
 JSON, configuration and many APIs hand you dicts with known keys. `dict[str, object]` loses all that knowledge. A `TypedDict` lists each key and its value type.
@@ -319,6 +361,47 @@ A1 8
 ```
 
 `json.loads` returns `Any`, so the cast to `Item` lets the rest of the code use precise key types. The second cast shows the danger: the checker now believes `wrong` is an `int`, and nothing at run time disagrees until something breaks far away. Every `cast` is an unchecked claim, so keep them few, close to the source of the data, and preferably replaced by a real check or by narrowing, which [Type narrowing](../narrowing/) covers.
+
+## Distinct types for the same value: NewType
+
+User IDs and order IDs are both `int`, and passing one where the other belongs is a classic bug. `NewType("UserId", int)` creates a type that the checker treats as a separate subtype of `int`. At run time it costs nothing: calling `UserId(42)` returns `42` unchanged.
+
+```python title="newtype_ids.py"
+from typing import NewType
+
+UserId = NewType("UserId", int)
+OrderId = NewType("OrderId", int)
+
+
+def cancel(order: OrderId) -> str:
+    return f"cancelled order {order}"
+
+
+uid = UserId(42)
+print(uid, type(uid).__name__, uid + 1)
+print(UserId)
+print(cancel(OrderId(7)))
+print(cancel(uid))
+```
+
+```text
+42 int 43
+__main__.UserId
+cancelled order 7
+cancelled order 42
+```
+
+```console title="mypy 2.3.1"
+$ mypy newtype_ids.py
+newtype_ids.py:15: error: Argument 1 to "cancel" has incompatible type "UserId"; expected "OrderId"  [arg-type]
+Found 1 error in 1 file (checked 1 source file)
+```
+
+The value is a plain `int`, so arithmetic works and gives an `int`. Only the checker keeps the two kinds of ID apart. A `NewType` is not a class: you cannot subclass it or use it with `isinstance`. When you need run-time behaviour, write a real class.
+
+## When not to type more precisely
+
+Precision has a cost in reading time. A `Literal` alias for three option strings pays for itself; a `NewType` for every integer in a program does not. Add a precise type where a mix-up is likely and expensive, such as IDs, units or option names, and where the checker can then catch it. Leave short scripts, notebooks and throwaway code with plain annotations or none. And do not type around a design problem: if a function needs several casts and a page of annotations to describe, a simpler signature is usually the better fix.
 
 ## Common pitfalls
 
@@ -490,7 +573,8 @@ def calc(op: Op, a: int, b: int) -> int:
     return OPERATIONS[op](a, b)
 
 
-for name in get_args(Op):
+NAMES: tuple[Op, ...] = get_args(Op)
+for name in NAMES:
     print(name, calc(name, 6, 3))
 ```
 
@@ -504,6 +588,8 @@ mul 18
 $ mypy dispatch.py
 Success: no issues found in 1 source file
 ```
+
+`get_args` returns `tuple[Any, ...]`, so looping over it directly would make `name` an `Any`, and `calc(name, ...)` would pass for the wrong reason. Annotating `NAMES` states once that the tuple holds `Op` values, and every call after that is checked.
 
 With the alias in place, a bad name is caught before the program runs. At run time it would have been a `KeyError`:
 
@@ -548,7 +634,8 @@ Found 1 error in 1 file (checked 1 source file)
 - `reveal_type(expr)` shows what the checker inferred. Remove it when you are done.
 - `Callable[[int], int]` from `collections.abc` types a function argument by its positional parameters and return type.
 - `Literal[...]` restricts a value to a fixed set, and `get_args` reads that set at run time.
-- `Final` forbids rebinding a name, but does not freeze the object.
+- `Final` forbids rebinding a name, but does not freeze the object. `ClassVar` marks an attribute that belongs to the class, and dataclasses leave it out of the fields.
 - `TypedDict` describes dict shapes for checkers. At run time the values are plain dicts.
 - `object` accepts everything and allows little. `Any` accepts everything and checks nothing.
 - `cast` changes only what the checker believes. Use it sparingly, at data boundaries.
+- `NewType` gives one run-time type, such as `int`, several names that the checker keeps apart.

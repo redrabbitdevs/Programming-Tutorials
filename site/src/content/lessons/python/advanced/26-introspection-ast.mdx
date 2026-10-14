@@ -16,7 +16,7 @@ estimatedMinutes: 50
 fundamentals: []
 ---
 
-The previous lessons changed how classes and strings behave. This one treats code itself as data. `inspect` looks at live objects: what a function's parameters are, where its source is. `ast` looks at source text before it runs: the same structure the compiler sees, which linters, formatters and refactoring tools are built on. The [fundamentals lesson on reading code](../../../fundamentals/beginner/reading-docs-and-code/) covers the human side of this; here the reader is a program.
+The previous lessons changed how classes behave, with [descriptors](../descriptors/), [class hooks](../class-customisation/) and [metaclasses](../metaclasses/), and how strings are built, with [template strings](../template-strings/). This one treats code itself as data, as [Annotations at runtime](../annotations-runtime/) did for annotations with `annotationlib`. `inspect` looks at live objects: what a function's parameters are, where its source is. `ast` looks at source text before it runs: the same structure the compiler sees, which linters, formatters and refactoring tools are built on. The [fundamentals lesson on reading code](../../../fundamentals/beginner/reading-docs-and-code/) covers the human side of this; here the reader is a program.
 
 ## Signatures with inspect
 
@@ -268,9 +268,11 @@ Everything in this module makes code harder to follow, debug and type-check. Che
 - **`eval` for parsing.** Use `ast.literal_eval`, `json` or `int()`/`float()`.
 
 <Exercise title="A linter rule for print">
-Write `find_prints(source)` that returns the sorted line numbers of every call to `print` in `source`. This code:
+Write `find_prints(source)` that returns the sorted line numbers of every call to `print` in `source`. Put it in `print_linter.py`. This code:
 
 ```python title="lint_check.py"
+from print_linter import find_prints
+
 source = """
 import logging
 print("start")
@@ -307,26 +309,7 @@ def find_prints(source):
     return sorted(lines)
 ```
 
-```python title="print_linter.py (continued)"
-source = """
-import logging
-print("start")
-def run(items):
-    for item in items:
-        print(item)
-    logging.info("done")
-    return len(items)
-"""
-for line in find_prints(source):
-    print(f"line {line}: avoid print(), use logging")
-```
-
-```text
-line 3: avoid print(), use logging
-line 6: avoid print(), use logging
-```
-
-`ast.walk` reaches every node, nested or not. A call to `print` is a `Call` whose `func` is a `Name` with id `"print"`. `logging.info(...)` is a call too, but its `func` is an `Attribute`, so it is skipped. Line 1 is the empty line after the opening quotes, which is why the first `print` is on line 3.
+With it, `lint_check.py` prints the two expected lines. `ast.walk` reaches every node, nested or not. A call to `print` is a `Call` whose `func` is a `Name` with id `"print"`. `logging.info(...)` is a call too, but its `func` is an `Attribute`, so it is skipped. Line 1 is the empty line after the opening quotes, which is why the first `print` is on line 3.
 
 </Solution>
 </Exercise>
@@ -417,4 +400,4 @@ log(f(log('x')))
 - `NodeVisitor` analyses, `NodeTransformer` rewrites, `ast.walk` finds. Always call `generic_visit` to reach nested nodes.
 - `ast.unparse` turns a tree back into source, and `compile` turns it into runnable code.
 - Never `eval` or `exec` untrusted text. Use `ast.literal_eval` or a real data format.
-- That completes the metaprogramming module.
+- That completes the metaprogramming module and the advanced level. Back to the [Python curriculum](../../) for the full lesson list.

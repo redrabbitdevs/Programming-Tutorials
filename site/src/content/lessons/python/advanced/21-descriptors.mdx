@@ -4,18 +4,19 @@ level: advanced
 module: Metaprogramming
 order: 21
 title: Descriptors
-description: See how Python looks up an attribute, write descriptors with __get__, __set__ and __set_name__, and recognise properties and methods as descriptors in disguise.
+description: See how Python looks up an attribute, write descriptors with __get__, __set__ and __set_name__, recognise properties and methods as descriptors in disguise, and hook the end of lookup with __getattr__.
 minVersion: "3.8"
 objectives:
   - Explain what happens when Python evaluates obj.attr, including the lookup order
   - Write a data descriptor that validates values, using __set_name__ to learn its name
   - Tell data descriptors from non-data descriptors, and use the difference for caching
   - Recognise property, methods and cached_property as descriptors
-estimatedMinutes: 45
+  - Handle missing attributes with __getattr__ on a class or a module, and know when __getattribute__ runs
+estimatedMinutes: 55
 fundamentals: []
 ---
 
-Metaprogramming is code that works on code: classes that shape other classes, functions that read other functions. This module covers the tools Python gives you for it, starting with the one you have used most without seeing it. `@property` from [methods and properties](../../intermediate/methods-properties/), every method call, and `functools.cached_property` all run through the same small protocol: descriptors.
+Metaprogramming is code that works on code: classes that shape other classes, functions that read other functions. This module covers the tools Python gives you for it, starting with the one you have used most without seeing it. `@property` from [methods and properties](../../intermediate/methods-properties/), every method call, and `functools.cached_property` all run through the same small protocol: descriptors. You need the [data model lesson](../../intermediate/data-model/) and [decorators](../../intermediate/decorators/) for this module; [Annotations at runtime](../annotations-runtime/) helps for the later lessons.
 
 ## A property is an object in the class
 
@@ -79,7 +80,7 @@ __get__(obj=None, objtype=Thing)
 
 Most descriptors return `self` when `obj` is `None`, so that `Thing.answer` gives back the descriptor object for inspection. You will see that line in every descriptor below.
 
-## A validated field with __set_name__
+## A validated field with `__set_name__`
 
 A descriptor that also defines `__set__` controls assignment. That makes it a reusable version of a property setter: write the check once and use it on any number of attributes.
 
@@ -129,11 +130,13 @@ ValueError: price must be > 0, got -1
 
 ## The lookup order
 
-When you read `obj.name`, Python looks in three places, in this order:
+When you read `obj.name`, Python calls `type(obj).__getattribute__(obj, "name")`. The default version, `object.__getattribute__`, looks in three places, in this order:
 
 1. A **data descriptor** on the class (one with `__set__` or `__delete__`).
 2. The instance's own `__dict__`.
 3. A **non-data descriptor** (only `__get__`) or a plain class attribute.
+
+If all three fail with `AttributeError`, there is a fourth step: Python calls the class's `__getattr__`, if it has one. That fallback is the subject of a later section.
 
 So a data descriptor wins over the instance dictionary, and the instance dictionary wins over a non-data descriptor:
 
@@ -241,21 +244,142 @@ True
 
 The second read found `total` in the instance dictionary and skipped the descriptor. The standard library ships this as `functools.cached_property`, so use that in real code. Since it stores into `__dict__`, it does not work on classes with `__slots__` and no `__dict__`.
 
+## When lookup fails: `__getattr__`
+
+`__getattr__(self, name)` runs only after normal lookup has failed. Attributes that exist are found as usual and never reach it. That makes it the tool for proxies that forward unknown names to another object:
+
+```python title="proxy_getattr.py"
+class Recorder:
+    def __init__(self, target):
+        self._target = target
+        self.calls = []
+
+    def __getattr__(self, name):
+        self.calls.append(name)
+        return getattr(self._target, name)
+
+
+words = Recorder(["b", "a"])
+words.append("c")
+words.sort()
+print(words._target, words.calls)
+try:
+    words.missing
+except AttributeError as error:
+    print("AttributeError:", error)
+try:
+    len(words)
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+['a', 'b', 'c'] ['append', 'sort']
+AttributeError: 'list' object has no attribute 'missing'
+TypeError: object of type 'Recorder' has no len()
+```
+
+`append` and `sort` went through `__getattr__` and were recorded. `_target` and `calls` did not, because normal lookup found them. A name the list lacks still raises `AttributeError`, as it should. The last line shows the limit: `len()` looks up `__len__` on the class directly, skipping both `__getattribute__` and `__getattr__`, so a proxy must define the special methods it supports.
+
+## Every lookup: `__getattribute__`
+
+Overriding `__getattribute__` itself puts your code in front of every attribute read, including methods and attributes that exist:
+
+```python title="getattribute_trace.py"
+class Traced:
+    def __init__(self):
+        self.x = 21
+
+    def __getattribute__(self, name):
+        print("looking up", name)
+        return object.__getattribute__(self, name)
+
+    def double(self):
+        return self.x * 2
+
+
+t = Traced()
+print(t.double())
+print(type(t).__name__)
+```
+
+```text
+looking up double
+looking up x
+42
+Traced
+```
+
+Inside the method, any `self.something` would call `__getattribute__` again and recurse forever, so it delegates to `object.__getattribute__`. `type(t)` does not look up an attribute, so it was not traced. Every attribute read now costs a Python function call. Use `__getattr__` when you only need the missing names, which is almost always.
+
+## Module attributes: `__getattr__` on a module
+
+A module can define a function named `__getattr__` too ([PEP 562](https://peps.python.org/pep-0562/), Python 3.7). It runs when `module.name` is not found, which is the standard way to keep an old name working while warning that it is deprecated:
+
+```python title="units.py"
+import warnings
+
+
+def kilometres(miles):
+    return miles * 1.609344
+
+
+_RENAMED = {"to_km": "kilometres"}
+
+
+def __getattr__(name):
+    if name in _RENAMED:
+        new = _RENAMED[name]
+        warnings.warn(f"{name} is deprecated, use {new}",
+                      DeprecationWarning, stacklevel=2)
+        return globals()[new]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+```
+
+```python title="units_use.py"
+import warnings
+
+import units
+
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter("always")
+    print(units.to_km(10))
+print(caught[0].category.__name__, caught[0].message)
+print(units.kilometres(1))
+try:
+    units.to_metres
+except AttributeError as error:
+    print("AttributeError:", error)
+```
+
+```text
+16.09344
+DeprecationWarning to_km is deprecated, use kilometres
+1.609344
+AttributeError: module 'units' has no attribute 'to_metres'
+```
+
+`kilometres` exists, so it is found directly. `to_km` does not, so the module's `__getattr__` warns and returns the new function. `from units import to_km` takes the same path. Code inside `units` that uses a bare `to_km` is not covered: the hook only handles attribute access on the module object. The warning is recorded here so that it can be printed; normally Python writes it to standard error.
+
 ## When not to use a descriptor
 
-Write a descriptor when the same attribute logic repeats across fields or classes. For one attribute in one class, `@property` is clearer. If you are validating many fields of a record, a [dataclass](../../intermediate/dataclasses/) with a `__post_init__` check, or a validation library, is often less code than a descriptor and easier for colleagues to follow.
+Write a descriptor when the same attribute logic repeats across fields or classes. For one attribute in one class, `@property` is clearer. The same goes for `__getattr__`: a proxy or a deprecation shim is a good use, but a class whose attributes appear from nowhere defeats autocompletion, `dir()` and type checkers. If you are validating many fields of a record, a [dataclass](../../intermediate/dataclasses/) with a `__post_init__` check, or a validation library, is often less code than a descriptor and easier for colleagues to follow.
 
 ## Common pitfalls
 
 - **Storing values on the descriptor.** `self.value = value` in `__set__` shares one value across every instance. Store it on `obj`.
 - **Forgetting `obj is None`.** Without the check, `Class.attr` calls your getter with `None` and usually fails with a confusing `AttributeError`.
 - **Expecting a non-data descriptor to validate.** Without `__set__`, assignment just writes to the instance dictionary and the descriptor is bypassed from then on.
+- **Recursing in `__getattr__`.** If `__getattr__` reads an attribute that is not set yet, such as `self._target` during unpickling or before `__init__` assigns it, the read calls `__getattr__` again. Guard against it, or raise `AttributeError` for names starting with `_`.
 - **Defining the descriptor after the class exists.** `__set_name__` only runs during class creation. `Class.x = Positive()` later needs a manual `Class.x.__set_name__(Class, "x")`.
 
 <Exercise title="A typed field">
-Write a data descriptor `Typed(kind)` that only accepts instances of `kind`. With it, this code prints the output below:
+Write a data descriptor `Typed(kind)` that only accepts instances of `kind`, in `typed_field.py`. With it, this code prints the output below:
 
 ```python title="typed_check.py"
+from typed_field import Typed
+
+
 class Product:
     name = Typed(str)
     price = Typed(float)
@@ -302,32 +426,7 @@ class Typed:
         obj.__dict__[self.name] = value
 ```
 
-```python title="typed_field.py (continued)"
-class Product:
-    name = Typed(str)
-    price = Typed(float)
-
-    def __init__(self, name, price):
-        self.name = name
-        self.price = price
-
-
-p = Product("pen", 1.5)
-print(p.name, p.price)
-try:
-    p.price = "cheap"
-except TypeError as error:
-    print("TypeError:", error)
-print(Product.price.kind.__name__)
-```
-
-```text
-pen 1.5
-TypeError: price must be float, got str
-float
-```
-
-`Typed` stores the value in the instance dictionary under the attribute's own name. That is safe for a data descriptor, which always takes priority over the instance dictionary, so reads still go through `__get__`. The last line works because `__get__` returns the descriptor when it is read from the class.
+With it, `typed_check.py` prints the expected three lines. `Typed` stores the value in the instance dictionary under the attribute's own name. That is safe for a data descriptor, which always takes priority over the instance dictionary, so reads still go through `__get__`. The last line works because `__get__` returns the descriptor when it is read from the class.
 
 </Solution>
 </Exercise>
@@ -456,4 +555,6 @@ There is one `NonNegative` object for the whole `Account` class, so `self.value`
 - A descriptor is a class attribute with `__get__`, and optionally `__set__` or `__delete__`. `__get__` receives `obj=None` when read from the class.
 - `__set_name__` tells a descriptor its attribute name when the class is created. Keep per-instance data on the instance, never on the descriptor.
 - Properties, methods, `classmethod`, `staticmethod` and `cached_property` are all descriptors.
+- `__getattr__` runs only when normal lookup fails, on a class or (PEP 562) on a module. `__getattribute__` runs for every read. Special methods used by built-ins such as `len()` bypass both.
+- Descriptors and `__set_name__` are how many tools read class fields; [Annotations at runtime](../annotations-runtime/) shows the other half, reading the annotations themselves, and [Metaclasses](../metaclasses/) shows the machinery that calls `__set_name__`.
 - Next: [customising classes](../class-customisation/), with hooks that run when a class is created.

@@ -285,7 +285,11 @@ $ mypy status_never.py
 Success: no issues found in 1 source file
 ```
 
-This is the main reason to type a closed set of cases as a union or `Literal`: adding a case turns every incomplete handler into a checker error.
+This is the main reason to type a closed set of cases as a union or `Literal`: adding a case turns every incomplete handler into a checker error. [Pattern matching in depth](../match-advanced/) covers the rest of `match`: mapping patterns, guards and more class patterns.
+
+## When not to write a predicate
+
+Inline `isinstance` and `is None` checks narrow without any help, and a reader sees the test where it happens. Write a `TypeIs` function only when the same check repeats in several places, or is too long to read inline. `assert_never` belongs where the set of cases is closed and will grow, like message types or states. For an open set, such as arbitrary user input, a final `else` that reports the bad value is more honest than claiming exhaustiveness.
 
 ## Common pitfalls
 
