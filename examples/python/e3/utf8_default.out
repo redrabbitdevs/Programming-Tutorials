@@ -1,0 +1,7 @@
+(no flags)
+    utf8_mode = 1
+-X utf8=0
+    utf8_mode = 0
+-X warn_default_encoding
+    utf8_mode = 1
+    <string>:4: EncodingWarning: 'encoding' argument not specified

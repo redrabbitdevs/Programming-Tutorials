@@ -1,0 +1,5 @@
+tinyclock 0.1.0  py3   none   any
+fastgeo   2.1.0  cp315 cp315  manylinux_2_28_x86_64
+fastgeo   2.1.0  cp315 cp315t manylinux_2_28_x86_64
+fastgeo   2.1.0  cp312 abi3   win_amd64
+fastgeo   2.1.0  cp312 abi3   win_amd64

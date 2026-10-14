@@ -1,0 +1,4 @@
+usage: shop [--help]
+loaded: []
+to ana@example.com: Your order: 4.50 EUR
+loaded: ['sqlite3', 'shop.adapters']

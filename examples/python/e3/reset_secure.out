@@ -1,0 +1,3 @@
+43
+mail to ana@example.com; echo pwned
+PermissionError: admins only

@@ -1,0 +1,5 @@
+req-7f3a shop.web: GET /cart
+req-7f3a shop.web: 200 OK
+req-91bc shop.web: GET /checkout
+req-91bc shop.web: 200 OK
+- shop.web: idle

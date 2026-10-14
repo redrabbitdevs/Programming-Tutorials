@@ -1,0 +1,434 @@
+---
+language: python
+level: expert
+module: Production Python
+order: 13
+title: Building and publishing packages
+description: Turn a pyproject.toml project into a source distribution and a wheel, read what is inside them, choose version numbers, publish through TestPyPI and trusted publishing, and pin whole environments with the standard pylock.toml lock file.
+minVersion: "3.11"
+objectives:
+  - Explain what a source distribution and a wheel contain, and read a wheel's compatibility tags
+  - Build both with a PEP 517 build frontend and test the wheel before it leaves your machine
+  - Choose version numbers that installers order the way you intend
+  - Publish to TestPyPI, then to PyPI from CI with trusted publishing instead of a stored token
+  - Record and verify an exact environment with pylock.toml (PEP 751)
+estimatedMinutes: 50
+fundamentals: []
+---
+
+The [pyproject.toml lesson](../../intermediate/pyproject-uv/) stopped at an editable install: your package worked inside your own environment. Publishing means producing files that work in somebody else's environment, on a machine you will never see, and getting them onto an index without leaking a credential on the way. This lesson follows a small project, `tinyclock`, from source folder to PyPI.
+
+## Two kinds of distribution
+
+A build turns your source tree into two files:
+
+- A **source distribution** (sdist), `tinyclock-0.1.0.tar.gz`. It holds your source and `pyproject.toml`. Installing it means *building* it first, so the installer needs your build backend and, for C extensions, a compiler.
+- A **wheel**, `tinyclock-0.1.0-py3-none-any.whl`. It is a zip file laid out exactly as it will sit in `site-packages`. Installing it is unpacking it, so nothing runs.
+
+Any PEP 517 frontend reads the `[build-system]` table and calls the backend it names. The two common commands are `python -m build` (the `build` package) and `uv build`. Here is a real run of `uv build` on the project, with hatchling as the backend:
+
+```console
+$ uv build
+Building source distribution...
+Building wheel from source distribution...
+Successfully built dist/tinyclock-0.1.0.tar.gz
+Successfully built dist/tinyclock-0.1.0-py3-none-any.whl
+```
+
+Notice the order: the wheel was built *from the sdist*, not from your folder. A file that the sdist leaves out is missing from the wheel too, which catches packaging mistakes early. `python -m zipfile -l` lists the wheel's six members:
+
+```text
+tinyclock/__init__.py
+tinyclock/cli.py
+tinyclock-0.1.0.dist-info/METADATA
+tinyclock-0.1.0.dist-info/WHEEL
+tinyclock-0.1.0.dist-info/entry_points.txt
+tinyclock-0.1.0.dist-info/RECORD
+```
+
+## What an installer reads
+
+The `.dist-info` folder is the package's identity card. `METADATA` holds the fields from your `[project]` table, `entry_points.txt` holds `[project.scripts]`, and `RECORD` lists every file with its hash so it can be uninstalled cleanly. After installation, `importlib.metadata` reads these same files. This example writes what the wheel would unpack into a temporary folder and queries it:
+
+```python title="dist_metadata.py"
+import sys
+import tempfile
+from importlib.metadata import distributions
+from pathlib import Path
+
+# What an installer unpacks from tinyclock-0.1.0-py3-none-any.whl
+FILES = {
+    "tinyclock-0.1.0.dist-info/METADATA": (
+        "Name: tinyclock\nVersion: 0.1.0\n"
+        "License-Expression: MIT\nRequires-Python: >=3.11\n"
+    ),
+    "tinyclock-0.1.0.dist-info/entry_points.txt": (
+        "[console_scripts]\ntinyclock = tinyclock.cli:main\n"
+    ),
+    "tinyclock/__init__.py": "",
+    "tinyclock/cli.py": "def main():\n    print('noon')\n",
+}
+```
+
+```python title="dist_metadata.py (continued)"
+with tempfile.TemporaryDirectory() as site:
+    for name, text in FILES.items():
+        path = Path(site, name)
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    (dist,) = distributions(path=[site])
+    print(dist.name, dist.version, dist.metadata["Requires-Python"])
+    print("license:", dist.metadata["License-Expression"])
+    for script in dist.entry_points.select(group="console_scripts"):
+        print(script.name, "->", script.value)
+        sys.path.insert(0, site)
+        script.load()()
+```
+
+```text
+tinyclock 0.1.0 >=3.11
+license: MIT
+tinyclock -> tinyclock.cli:main
+noon
+```
+
+The last line is what the generated `tinyclock` command does: load the entry point and call it. `License-Expression` comes from `license = "MIT"` in `pyproject.toml`, an SPDX expression defined by [PEP 639](https://peps.python.org/pep-0639/). Use it instead of the older `License ::` classifiers. At run time, `importlib.metadata.version("tinyclock")` gives your own version from the same file, so you never have to keep a `__version__` string in sync by hand.
+
+## Reading a wheel's filename
+
+A wheel's name is `{name}-{version}(-{build})?-{python}-{abi}-{platform}.whl`, and installers decide compatibility from the last three tags alone:
+
+```python title="wheel_tags.py"
+def parse_wheel(filename):
+    """Split a wheel filename into name, version and its three tags."""
+    stem = filename.removesuffix(".whl")
+    name, version, *_build, python, abi, platform = stem.split("-")
+    return name, version, python, abi, platform
+
+
+FILES = [
+    "tinyclock-0.1.0-py3-none-any.whl",
+    "fastgeo-2.1.0-cp315-cp315-manylinux_2_28_x86_64.whl",
+    "fastgeo-2.1.0-cp315-cp315t-manylinux_2_28_x86_64.whl",
+    "fastgeo-2.1.0-cp312-abi3-win_amd64.whl",
+    "fastgeo-2.1.0-1-cp312-abi3-win_amd64.whl",
+]
+for filename in FILES:
+    name, version, python, abi, platform = parse_wheel(filename)
+    print(f"{name:<10}{version:<7}{python:<6}{abi:<7}{platform}")
+```
+
+```text
+tinyclock 0.1.0  py3   none   any
+fastgeo   2.1.0  cp315 cp315  manylinux_2_28_x86_64
+fastgeo   2.1.0  cp315 cp315t manylinux_2_28_x86_64
+fastgeo   2.1.0  cp312 abi3   win_amd64
+fastgeo   2.1.0  cp312 abi3   win_amd64
+```
+
+The starred `*_build` swallows the optional build tag, which is why the last two lines agree. `py3-none-any` is pure Python: one wheel for every platform. `cp315-cp315` contains compiled code for CPython 3.15 only. A `t` in the ABI tag marks the free-threaded build ([PEP 703](https://peps.python.org/pep-0703/)). `abi3` is the stable ABI: built against 3.12, it loads on 3.12 and every later version. `manylinux_2_28` promises it runs on any Linux with glibc 2.28 or newer. If you ship compiled code, you publish one wheel per combination you support, plus an sdist for everyone else.
+
+## Version numbers
+
+Versions follow the [version specifiers specification](https://peps.python.org/pep-0440/), not string order. A release cycle sorts like this:
+
+| Version | Meaning |
+|---|---|
+| `1.2.0.dev1` | development snapshot |
+| `1.2.0a1`, `1.2.0b1`, `1.2.0rc1` | alpha, beta, release candidate |
+| `1.2.0` | final release |
+| `1.2.0.post1` | fixes to packaging or notes only, never code |
+
+Installers skip pre-releases unless you ask for one with `--pre` or an exact pin, so you can put `2.0.0rc1` on PyPI without existing users receiving it. Pick a scheme, semantic (`MAJOR.MINOR.PATCH`) or calendar (`2026.10`), and say in your changelog what a bump means. Never re-use a version number for different code: users' caches and lock files already hold the first file and its hash.
+
+## Testing before you upload
+
+Always test the built wheel, not the editable install, because an editable install reads your source folder and hides files the wheel forgot:
+
+```console
+$ python -m venv /tmp/smoke
+$ /tmp/smoke/bin/python -m pip install dist/tinyclock-0.1.0-py3-none-any.whl
+$ /tmp/smoke/bin/tinyclock
+noon
+```
+
+TestPyPI is a separate index for rehearsals, with its own accounts. Upload there first, then install from it as a stranger would:
+
+```console
+$ python -m twine upload --repository testpypi dist/*
+$ python -m pip install --no-deps \
+    --index-url https://test.pypi.org/simple/ tinyclock
+```
+
+`uv publish --publish-url https://test.pypi.org/legacy/` does the same upload. Delete old files from `dist/` before each build, since `dist/*` uploads everything in it.
+
+## Trusted publishing
+
+Uploading from a laptop needs an API token, and a token is a long-lived secret that can leak. **Trusted publishing** removes it. On PyPI you register a *trusted publisher*: "the workflow `publish.yml` in repository `you/tinyclock`, running in the environment `pypi`, may upload this project". When that workflow runs, the CI system issues it a signed OpenID Connect identity, PyPI checks it against the registration and hands back a token that is scoped to the project and expires automatically. Nothing is stored. The Python Packaging User Guide [recommends it](https://packaging.python.org/en/latest/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/) and tells you to delete old token secrets. Here is the publishing job of its sample GitHub Actions workflow, trimmed:
+
+```yaml title=".github/workflows/publish.yml (publish job)"
+  publish-to-pypi:
+    if: startsWith(github.ref, 'refs/tags/')  # only on tag pushes
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    permissions:
+      id-token: write  # mandatory for trusted publishing
+    steps:
+    - uses: actions/download-artifact@v6
+      with:
+        name: python-package-distributions
+        path: dist/
+    - uses: pypa/gh-action-pypi-publish@release/v1
+```
+
+Three details matter. Building happens in a separate `build` job, so the job holding upload rights never runs your build scripts. `id-token: write` is the only permission it needs. And the guide asks you to require manual approval for the `pypi` environment. The action also uploads signed attestations of where each file was built ([PEP 740](https://peps.python.org/pep-0740/)) by default.
+
+## Lock files: pylock.toml
+
+Your library's `dependencies` should be ranges, so it can live alongside other packages. An *application* or a deployment needs the opposite: the exact files. [PEP 751](https://peps.python.org/pep-0751/), accepted on 31 March 2025, defines `pylock.toml`, a lock format that any installer can read without resolving dependencies again. Before it, each tool had its own (`uv.lock`, `poetry.lock`). The PEP leaves it to each tool whether to adopt it. In the versions installed for this lesson (checked 14 October 2026), pip 26.2.1 writes one with `pip lock`, which it still labels experimental, and uv 0.13.0 exports one with `uv export --format pylock.toml` and installs one with `uv pip sync`. Here is what pip wrote for a single package (URL shortened):
+
+```console
+$ python -m pip lock iniconfig==2.3.1 -o -
+lock-version = "1.0"
+created-by = "pip"
+
+[[packages]]
+name = "iniconfig"
+version = "2.3.1"
+
+[[packages.wheels]]
+name = "iniconfig-2.3.1-py3-none-any.whl"
+url = "https://files.pythonhosted.org/.../iniconfig-2.3.1-py3-none-any.whl"
+
+[packages.wheels.hashes]
+sha256 = "9121e2c1fdb355232495be3194c8dfe87ccc2d5dee45947b78e68f499790d7a7"
+```
+
+The hash is the security feature: an installer refuses a file whose bytes differ from what you locked. This is what that check does:
+
+```python title="lock_verify.py"
+import hashlib
+import tempfile
+import tomllib
+from pathlib import Path
+
+WHEEL = b"pretend these are the bytes of a wheel"
+DIGEST = hashlib.sha256(WHEEL).hexdigest()
+LOCK = f"""\
+lock-version = "1.0"
+created-by = "lesson"
+
+[[packages]]
+name = "tinyclock"
+version = "0.1.0"
+
+[[packages.wheels]]
+path = "tinyclock-0.1.0-py3-none-any.whl"
+
+[packages.wheels.hashes]
+sha256 = "{DIGEST}"
+"""
+```
+
+```python title="lock_verify.py (continued)"
+def verify(lock_text, folder):
+    lock = tomllib.loads(lock_text)
+    for package in lock["packages"]:
+        for wheel in package["wheels"]:
+            data = Path(folder, wheel["path"]).read_bytes()
+            actual = hashlib.sha256(data).hexdigest()
+            ok = actual == wheel["hashes"]["sha256"]
+            print(package["name"], package["version"],
+                  "ok" if ok else "MISMATCH")
+
+
+with tempfile.TemporaryDirectory() as folder:
+    wheel_file = Path(folder, "tinyclock-0.1.0-py3-none-any.whl")
+    wheel_file.write_bytes(WHEEL)
+    verify(LOCK, folder)
+    wheel_file.write_bytes(WHEEL + b" and a backdoor")
+    verify(LOCK, folder)
+```
+
+```text
+tinyclock 0.1.0 ok
+tinyclock 0.1.0 MISMATCH
+```
+
+## When not to publish
+
+Not all code belongs on PyPI. Internal code is better on a private index or installed from a Git URL. A name on PyPI is public and permanent, so publishing under a company's name invites confusion. And do not ship a lock file inside a library, or pin it with `==`: your users must be able to resolve your package together with theirs. Lock applications and deployments. Leave libraries flexible, and test them against the oldest and newest versions they claim to support.
+
+## Common pitfalls
+
+- **Testing only the editable install.** Data files missing from the wheel go unnoticed until a user installs it.
+- **Uploading a stale `dist/`.** Clean the folder before you build.
+- **Building inside the publishing job.** That gives every build step the upload token.
+- **Forgetting `requires-python`.** Without it, an old interpreter installs your wheel and fails on the first `match` statement.
+
+<Exercise title="Predict: which wheels install?">
+
+You are on CPython 3.15, the default (GIL) build, on x86-64 Linux with glibc 2.39. For each file, say whether pip can install it, and why:
+
+1. `tinyclock-0.1.0-py3-none-any.whl`
+2. `fastgeo-2.1.0-cp315-cp315-manylinux_2_28_x86_64.whl`
+3. `fastgeo-2.1.0-cp315-cp315t-manylinux_2_28_x86_64.whl`
+4. `fastgeo-2.1.0-cp312-abi3-manylinux_2_28_x86_64.whl`
+5. `fastgeo-2.1.0-cp314-cp314-manylinux_2_28_x86_64.whl`
+
+Expected: five yes or no answers, each with the tag that decides it.
+
+<Solution>
+
+1. Yes: `py3-none-any` is pure Python.
+2. Yes: CPython 3.15 ABI, and glibc 2.39 is at least 2.28.
+3. No: the `t` ABI is the free-threaded build, and you are on the default build.
+4. Yes: `abi3` built for 3.12 loads on 3.12 and every later CPython.
+5. No: `cp314` is the 3.14 ABI. Compiled code for one minor version does not load on another unless it uses `abi3`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Pins from a pylock.toml">
+
+Use `tomllib` to read the lock file that `pip lock` wrote (shown above; shorten the URL if you like). Print who wrote it, then one `name==version` line per package followed by the first 12 hex digits of each wheel hash.
+
+Expected output:
+
+```text
+written by pip
+iniconfig==2.3.1 ['9121e2c1fdb3']
+```
+
+<Solution>
+
+```python title="pylock_pins.py"
+import tomllib
+
+# Written by `pip lock iniconfig==2.3.1` (pip 26.2.1); the URL is shortened.
+PYLOCK = """\
+lock-version = "1.0"
+created-by = "pip"
+
+[[packages]]
+name = "iniconfig"
+version = "2.3.1"
+
+[[packages.wheels]]
+name = "iniconfig-2.3.1-py3-none-any.whl"
+url = "https://files.pythonhosted.org/.../iniconfig-2.3.1-py3-none-any.whl"
+
+[packages.wheels.hashes]
+sha256 = "9121e2c1fdb355232495be3194c8dfe87ccc2d5dee45947b78e68f499790d7a7"
+"""
+
+lock = tomllib.loads(PYLOCK)
+print("written by", lock["created-by"])
+for package in lock["packages"]:
+    hashes = [w["hashes"]["sha256"][:12] for w in package["wheels"]]
+    print(f"{package['name']}=={package['version']}", hashes)
+```
+
+```text
+written by pip
+iniconfig==2.3.1 ['9121e2c1fdb3']
+```
+
+`[[packages]]` and `[[packages.wheels]]` are TOML arrays of tables, so both arrive as lists of dicts. A package built only from source would have an `sdist` table instead of `wheels`; a complete tool would handle both.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix: the check that always passes">
+
+This hash check is meant to catch a tampered wheel, but it lets the backdoored file through:
+
+```python title="lock_check_bug.py"
+import hashlib
+import tempfile
+from pathlib import Path
+
+WHEEL = b"pretend these are the bytes of a wheel"
+NAME = "tinyclock-0.1.0-py3-none-any.whl"
+LOCK = {NAME: hashlib.sha256(WHEEL).hexdigest()}
+
+
+def check(path):
+    expected = LOCK.get(str(path))
+    if expected is None:
+        return "ok (no hash recorded)"
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    return "ok" if actual == expected else "MISMATCH"
+
+
+with tempfile.TemporaryDirectory() as folder:
+    wheel = Path(folder, NAME)
+    wheel.write_bytes(WHEEL)
+    print(check(wheel))
+    wheel.write_bytes(WHEEL + b" and a backdoor")
+    print(check(wheel))
+```
+
+```text
+ok (no hash recorded)
+ok (no hash recorded)
+```
+
+Find both bugs. After the fix, add a third call for a file that is not in the lock at all, `evil-1.0-py3-none-any.whl`. The output should be:
+
+```text
+ok
+MISMATCH
+MISMATCH: not in the lock file
+```
+
+<Solution>
+
+```python title="lock_check_fixed.py"
+import hashlib
+import tempfile
+from pathlib import Path
+
+WHEEL = b"pretend these are the bytes of a wheel"
+NAME = "tinyclock-0.1.0-py3-none-any.whl"
+LOCK = {NAME: hashlib.sha256(WHEEL).hexdigest()}
+
+
+def check(path):
+    expected = LOCK.get(path.name)
+    if expected is None:
+        return "MISMATCH: not in the lock file"
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    return "ok" if actual == expected else "MISMATCH"
+
+
+with tempfile.TemporaryDirectory() as folder:
+    wheel = Path(folder, NAME)
+    wheel.write_bytes(WHEEL)
+    print(check(wheel))
+    wheel.write_bytes(WHEEL + b" and a backdoor")
+    print(check(wheel))
+    print(check(Path(folder, "evil-1.0-py3-none-any.whl")))
+```
+
+```text
+ok
+MISMATCH
+MISMATCH: not in the lock file
+```
+
+The first bug looked the file up by its full path, while the lock is keyed by file name, so no hash was ever found. The second turned that silence into a pass. A security check must *fail closed*: anything it cannot verify is a failure.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- An sdist is source that must be built; a wheel is a zip that is only unpacked. Its `.dist-info` carries the metadata and entry points that `importlib.metadata` reads.
+- The python, ABI and platform tags in a wheel's name decide where it installs. `abi3` spans versions; `t` marks free-threaded builds.
+- Test the built wheel in a fresh environment, rehearse on TestPyPI, and publish from CI with trusted publishing, building in a job that cannot upload.
+- `pylock.toml` (PEP 751) is the standard lock file: exact files with hashes, for applications rather than libraries.
+- Next: [command-line applications](../cli-apps/).

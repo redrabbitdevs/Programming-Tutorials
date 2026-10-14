@@ -1,0 +1,4 @@
+The profile module is deprecated and will be removed in Python 3.17
+Bitwise inversion '~' on bool is deprecated and will be removed in Python 3.16
+'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16
+program output: -2 False

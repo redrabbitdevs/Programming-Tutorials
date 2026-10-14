@@ -1,0 +1,477 @@
+---
+language: python
+level: expert
+module: Production Python
+order: 17
+title: Architecture for large codebases
+description: Keep a growing Python application changeable - layers with one-way dependencies, dependency injection through constructors and Protocols, a composition root, boundaries enforced by a checker, typing as documentation, monorepos, and lazy imports for start-up time.
+minVersion: "3.11"
+objectives:
+  - Split an application into domain, service and adapter layers whose imports point one way
+  - Inject dependencies through constructors typed with Protocols, and wire them in one composition root
+  - Enforce layer boundaries automatically with an ast-based import check
+  - Use types, public names and packages to document a codebase's contracts
+  - Break import cycles, and use lazy imports (3.15) to keep start-up fast
+estimatedMinutes: 45
+fundamentals: []
+---
+
+Small programs survive any structure. Large ones die of the same disease: everything imports everything, so a change to the e-mail code breaks the price calculation, tests need a real database, and nobody can say which module may depend on which. This lesson is about the few rules that prevent that, and the Python tools that let you check them rather than hope.
+
+## Layers and the dependency rule
+
+Split the code by how likely it is to change and how much it touches the outside world:
+
+```text
+shop/
+├── domain.py     business rules: pure functions and data, no I/O
+├── service.py    use cases: "place an order", in terms of the domain
+└── adapters.py   the outside world: database, e-mail, HTTP
+shop_main.py      the composition root: builds and connects everything
+```
+
+The rule is that **imports point inward**. `domain` imports nothing from the application. `service` imports `domain`. `adapters` may import `domain` for its data types. Nothing imports `adapters` except the composition root. The domain is the code you most want to test and least want to break, so it depends on nothing that can break it:
+
+```python title="shop/domain.py"
+"""Business rules. Imports nothing from the rest of the application."""
+from dataclasses import dataclass
+from decimal import Decimal
+
+
+@dataclass(frozen=True)
+class Line:
+    sku: str
+    price: Decimal
+    quantity: int
+
+
+def order_total(lines, discount_code=None):
+    total = sum((line.price * line.quantity for line in lines),
+                Decimal("0"))
+    if discount_code == "WELCOME10":
+        total = total * Decimal("0.9")
+    return total.quantize(Decimal("0.01"))
+```
+
+## Dependency injection with Protocols
+
+The service needs prices and a way to notify customers, but must not import the database or the mailer. It states what it needs as [Protocols](../../advanced/protocols-structural/), structural interfaces that any class with the right methods satisfies:
+
+```python title="shop/service.py"
+"""Use cases. Depend on the domain and on interfaces, not on adapters."""
+from decimal import Decimal
+from typing import Protocol
+
+from .domain import Line, order_total
+
+
+class Catalogue(Protocol):
+    def price_of(self, sku: str) -> Decimal: ...
+
+
+class Notifier(Protocol):
+    def send(self, to: str, text: str) -> None: ...
+```
+
+The collaborators arrive through the constructor. That is all **dependency injection** means; Python needs no framework for it:
+
+```python title="shop/service.py (continued)"
+class Checkout:
+    def __init__(self, catalogue: Catalogue, notifier: Notifier) -> None:
+        self.catalogue = catalogue
+        self.notifier = notifier
+
+    def place(self, email: str, items: dict[str, int],
+              discount_code: str | None = None) -> Decimal:
+        lines = [Line(sku, self.catalogue.price_of(sku), quantity)
+                 for sku, quantity in items.items()]
+        total = order_total(lines, discount_code)
+        self.notifier.send(email, f"Your order: {total} EUR")
+        return total
+```
+
+The adapters implement those Protocols without mentioning them:
+
+```python title="shop/adapters.py"
+"""Talk to the outside world: a database and a way to send messages."""
+from decimal import Decimal
+
+
+class SqliteCatalogue:
+    def __init__(self, connection):
+        self.db = connection
+
+    def price_of(self, sku):
+        row = self.db.execute(
+            "SELECT price FROM products WHERE sku = ?", (sku,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(sku)
+        return Decimal(row[0])
+
+
+class ConsoleNotifier:
+    def send(self, to, text):
+        print(f"to {to}: {text}")
+```
+
+## The composition root
+
+One function, near `main`, chooses the real implementations and connects them. It is the only code that knows about every layer:
+
+```python title="shop_main.py"
+import sqlite3
+
+from shop.adapters import ConsoleNotifier, SqliteCatalogue
+from shop.service import Checkout
+
+PRODUCTS = [("tea", "4.50"), ("mug", "12.00")]
+
+
+def build_checkout():
+    """The composition root: the one place that picks real adapters."""
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE products (sku TEXT PRIMARY KEY, price TEXT)")
+    db.executemany("INSERT INTO products VALUES (?, ?)", PRODUCTS)
+    return Checkout(SqliteCatalogue(db), ConsoleNotifier())
+
+
+checkout = build_checkout()
+total = checkout.place("ana@example.com", {"tea": 2, "mug": 1}, "WELCOME10")
+print("charged", total)
+```
+
+```text
+to ana@example.com: Your order: 18.90 EUR
+charged 18.90
+```
+
+The payoff comes in tests and in change. A test passes a dictionary-backed catalogue and a notifier that records messages, and runs in microseconds (the first exercise). Moving from SQLite to PostgreSQL means a new adapter and one changed line in `build_checkout`; `service.py` and `domain.py` do not change. Settings from the [configuration lesson](../config-observability/) belong here too: the root reads them once and passes plain values down.
+
+## Enforcing the boundaries
+
+A rule that lives only in a document is broken by the first deadline. Check it in CI instead. Import statements are syntax, so the [ast module](../../advanced/introspection-ast/) can find them without running anything:
+
+```python title="check_layers.py"
+import ast
+import sys
+from pathlib import Path
+
+# Which other layers each layer may import.
+ALLOWED = {"domain": set(), "service": {"domain"}, "adapters": {"domain"}}
+
+
+def imported_layer(node):
+    """The shop layer an import statement points at, or None."""
+    if isinstance(node, ast.ImportFrom) and node.module:
+        if node.level == 1:
+            return node.module.split(".")[0]
+        if node.module.startswith("shop."):
+            return node.module.split(".")[1]
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            if alias.name.startswith("shop."):
+                return alias.name.split(".")[1]
+    return None
+```
+
+```python title="check_layers.py (continued)"
+def check(package):
+    problems = 0
+    for path in sorted(Path(package).glob("*.py")):
+        layer = path.stem
+        if layer not in ALLOWED:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            target = imported_layer(node)
+            if target and target != layer and target not in ALLOWED[layer]:
+                print(f"{path.name}:{node.lineno}: "
+                      f"{layer} must not import {target}")
+                problems += 1
+    print(f"{package}: {problems} problem(s)")
+    return problems
+
+
+if __name__ == "__main__":
+    package = sys.argv[1] if len(sys.argv) > 1 else "shop"
+    sys.exit(1 if check(package) else 0)
+```
+
+```text
+shop: 0 problem(s)
+```
+
+The exit code makes it a CI gate. For real projects, the third-party `import-linter` does the same from a configuration file, including indirect imports through other modules, which this sketch does not follow.
+
+## Types and names as documentation
+
+In a large codebase, a function's signature is read far more often than its body. Annotate every public function and keep the layers that matter most, usually `domain` and `service`, clean under `mypy --strict` (see [linting and type checking](../../intermediate/ruff-and-type-checking/)). A Protocol is a contract written in code: the checker verifies every adapter against it, and a new developer learns from it what an adapter must do. Mark what is private with a leading underscore (`_pricing.py`, `_helper()`), and state a package's public names in `__all__`. A library that ships type hints adds an empty `py.typed` file ([PEP 561](https://peps.python.org/pep-0561/)) so that type checkers use them.
+
+Avoid modules named `utils` or `common`. They have no reason to exist except convenience, so everything ends up in them and everything imports them.
+
+## Monorepos
+
+When one repository holds several deployable parts, give each its own package with its own `pyproject.toml`: `shop-domain`, `shop-api`, `shop-worker`. Dependencies between them are then declared, versioned and visible, rather than implied by `sys.path`. Workspace features in project managers, such as uv's, install the local packages together in one environment for development. Even inside a single package, subpackages per business area (`shop.orders`, `shop.billing`), each with its own layers, scale better than one giant `domain.py`.
+
+## Start-up time
+
+Large applications import a great deal before they do anything, and a command that prints its `--help` should not wait for the database driver. <Since v="3.15" /> [Lazy imports](../../intermediate/lazy-imports/) fit the composition root well, because it is the module that imports the heaviest adapters:
+
+```python title="lazy_root.py"
+import sys
+
+lazy import sqlite3
+lazy from shop.adapters import ConsoleNotifier, SqliteCatalogue
+from shop.service import Checkout
+
+
+def loaded():
+    return [m for m in ("sqlite3", "shop.adapters") if m in sys.modules]
+
+
+def main(argv):
+    if argv == ["--help"]:
+        print("usage: shop [--help]")
+    else:
+        db = sqlite3.connect(":memory:")
+        db.execute("CREATE TABLE products (sku TEXT, price TEXT)")
+        db.execute("INSERT INTO products VALUES ('tea', '4.50')")
+        checkout = Checkout(SqliteCatalogue(db), ConsoleNotifier())
+        checkout.place("ana@example.com", {"tea": 1})
+    print("loaded:", loaded())
+
+
+main(["--help"])
+main([])
+```
+
+```text
+usage: shop [--help]
+loaded: []
+to ana@example.com: Your order: 4.50 EUR
+loaded: ['sqlite3', 'shop.adapters']
+```
+
+The help path loaded neither module. An application can go further with `sys.set_lazy_imports("all")` and refine it with `sys.set_lazy_imports_filter()`, a function that decides per import. The documentation reserves those global switches for applications: a library that flips them changes the behaviour of every program that imports it. Measure first with `python -X importtime`, and see [the import system](../import-system/) for how lazy imports are resolved.
+
+## When not to do all this
+
+Layers cost files and indirection, and they repay that only when there is something to protect. A 300-line script, a notebook or a one-off migration should stay one module. Do not add a Protocol for a dependency with one implementation that no test replaces; do not add a dependency-injection container when a twenty-line composition root works; and do not split into separate services to get clean boundaries. Packages and a checker give you the boundaries without the network calls.
+
+## Common pitfalls
+
+- **Adapters leaking upward.** A service that catches `sqlite3.Error` already depends on SQLite. Translate adapter errors into your own exceptions in the adapter.
+- **Domain objects that save themselves.** `order.save()` pulls the database into the domain layer.
+- **Import cycles.** Two modules that import each other fail as soon as one needs a name the other has not defined yet. The last exercise fixes one.
+- **Configuration read at import time.** It runs in every test, before any test can change it.
+
+<Exercise title="Test the service with fakes">
+
+Write a `unittest` file for `Checkout` that uses no database and prints nothing. Give it a fake catalogue backed by a dictionary and a notifier that records `(to, text)` pairs. Test that `WELCOME10` on one mug (12.00) gives `Decimal("10.80")`, and that ordering three teas (4.50) sends `("b@example.com", "Your order: 13.50 EUR")`.
+
+Expected, from `python -m unittest -v test_checkout.py`:
+
+```text
+test_customer_is_told_the_total (test_checkout.CheckoutTest.test_customer_is_told_the_total) ... ok
+test_discount_code_takes_ten_percent (test_checkout.CheckoutTest.test_discount_code_takes_ten_percent) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+OK
+```
+
+<Solution>
+
+```python title="test_checkout.py"
+import unittest
+from decimal import Decimal
+
+from shop.service import Checkout
+
+
+class FakeCatalogue:
+    def __init__(self, prices):
+        self.prices = prices
+
+    def price_of(self, sku):
+        return Decimal(self.prices[sku])
+
+
+class RecordingNotifier:
+    def __init__(self):
+        self.sent = []
+
+    def send(self, to, text):
+        self.sent.append((to, text))
+```
+
+```python title="test_checkout.py (continued)"
+class CheckoutTest(unittest.TestCase):
+    def setUp(self):
+        self.notifier = RecordingNotifier()
+        catalogue = FakeCatalogue({"tea": "4.50", "mug": "12.00"})
+        self.checkout = Checkout(catalogue, self.notifier)
+
+    def test_discount_code_takes_ten_percent(self):
+        total = self.checkout.place("b@example.com", {"mug": 1}, "WELCOME10")
+        self.assertEqual(total, Decimal("10.80"))
+
+    def test_customer_is_told_the_total(self):
+        self.checkout.place("b@example.com", {"tea": 3})
+        self.assertEqual(self.notifier.sent,
+                         [("b@example.com", "Your order: 13.50 EUR")])
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+```text
+test_customer_is_told_the_total (test_checkout.CheckoutTest.test_customer_is_told_the_total) ... ok
+test_discount_code_takes_ten_percent (test_checkout.CheckoutTest.test_discount_code_takes_ten_percent) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+OK
+```
+
+The fakes are ordinary classes: no mocking library, no patching of import paths. Because they match the Protocols, `mypy` checks them too. A fake that records what happened is often clearer than a mock that asserts how it was called.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict: what the checker reports">
+
+A colleague's `bad_shop` package has a domain that sends its own notifications:
+
+```python title="bad_shop/domain.py"
+from decimal import Decimal
+
+from .adapters import ConsoleNotifier
+
+
+def order_total(prices):
+    total = sum(prices, Decimal("0"))
+    ConsoleNotifier().send("ops@example.com", f"new order: {total}")
+    return total
+```
+
+and a service that writes the import in two styles:
+
+```python title="bad_shop/service.py"
+import shop.adapters
+from shop.domain import order_total
+
+from .domain import Decimal
+
+
+def checkout(prices):
+    total = order_total(prices)
+    shop.adapters.ConsoleNotifier().send("ana@example.com", str(total))
+    return Decimal(total)
+```
+
+What does `check("bad_shop")` print?
+
+<Solution>
+
+```python title="check_bad.py"
+from check_layers import check
+
+check("bad_shop")
+```
+
+```text
+domain.py:3: domain must not import adapters
+service.py:1: service must not import adapters
+bad_shop: 2 problem(s)
+```
+
+The domain's relative import breaks the rule. In the service, `import shop.adapters` is caught as an absolute import, while `from shop.domain ...` and `from .domain import Decimal` are allowed. That last line is still a smell: `Decimal` belongs to the standard library, and importing it through `domain` couples the two modules for no reason. The fix for the domain is to return the total and let the service send the notification.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Debug: the import cycle">
+
+In the `cyclic` package, customers create orders and orders refer to customers:
+
+```python title="cyclic/orders.py"
+from .customers import Customer
+
+
+class Order:
+    def __init__(self, customer: Customer, total):
+        self.customer = customer
+        self.total = total
+```
+
+```python title="cyclic/customers.py"
+from .orders import Order
+
+
+class Customer:
+    def __init__(self, name):
+        self.name = name
+        self.orders = []
+
+    def place(self, total):
+        order = Order(self, total)
+        self.orders.append(order)
+        return order
+```
+
+Running `python -c "from cyclic.customers import Customer"` ends with `ImportError: cannot import name 'Customer' from partially initialized module 'cyclic.customers' (most likely due to a circular import)`.
+
+Explain the order of events, then restructure the package so that the dependency runs one way and `place(Customer("Ana"), 9).total` prints `9`.
+
+<Solution>
+
+Importing `customers` starts running it; its first line imports `orders`, whose first line asks `customers` for `Customer`. But `customers` is still on line 1, so `Customer` does not exist yet. Make the dependency one-way: customers know nothing about orders, and placing an order becomes a function of the `orders` module.
+
+```python title="acyclic/customers.py"
+class Customer:
+    def __init__(self, name):
+        self.name = name
+        self.orders = []
+```
+
+```python title="acyclic/orders.py"
+from .customers import Customer
+
+
+class Order:
+    def __init__(self, customer: Customer, total):
+        self.customer = customer
+        self.total = total
+
+
+def place(customer: Customer, total):
+    order = Order(customer, total)
+    customer.orders.append(order)
+    return order
+```
+
+```console
+$ python -c "from acyclic.customers import Customer
+from acyclic.orders import place
+print(place(Customer('Ana'), 9).total)"
+9
+```
+
+On 3.15, `lazy from .orders import Order` in `customers.py` also breaks this cycle, because `Order` is not looked up until `place` runs. That hides the cycle rather than removing it, so prefer the structural fix; a cycle usually means two modules are one concept or a third module is missing.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Organise code in layers whose imports point inward: domain, then services, then adapters, wired together in one composition root.
+- Inject collaborators through constructors typed with Protocols; test with small fakes.
+- Enforce boundaries with a checker in CI. Annotate public APIs and mark private modules.
+- Split a monorepo into packages with their own `pyproject.toml`.
+- Lazy imports (3.15) in the composition root keep start-up fast; global lazy modes are for applications, not libraries.
+- Next: [upgrading to Python 3.15](../migrating-to-315/).

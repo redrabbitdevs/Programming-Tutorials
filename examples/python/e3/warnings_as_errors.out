@@ -1,0 +1,5 @@
+(no flags) -> exit 0
+    stdout: coroutine function? True
+    stderr: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16
+-W error::DeprecationWarning -> exit 1
+    stderr: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16

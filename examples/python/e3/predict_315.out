@@ -1,0 +1,5 @@
+import sre_parse                   exit 1 ModuleNotFoundError
+x = ~True                          exit 0 DeprecationWarning
+import re; re.match('a', 'abc')    exit 0 silent
+import profile                     exit 0 DeprecationWarning
+import tempfile                    exit 0 silent

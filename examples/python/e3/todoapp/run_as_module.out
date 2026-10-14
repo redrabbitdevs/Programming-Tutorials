@@ -1,0 +1,14 @@
+usage: todo [-h] [--file FILE] {add,list,done} ...
+
+Keep a small list of tasks.
+
+positional arguments:
+  {add,list,done}
+    add            add a task
+    list           show all tasks
+    done           mark a task as done
+
+options:
+  -h, --help       show this help message and exit
+  --file FILE      where the tasks are stored
+[exit 0]

@@ -1,0 +1,3 @@
+allowed: uploads/report.txt
+refused: '../secrets.env' is outside the upload folder
+refused: '../uploads-old/a.db' is outside the upload folder

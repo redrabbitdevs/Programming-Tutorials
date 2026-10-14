@@ -1,0 +1,3 @@
+usage: todo [-h] [--file FILE] {add,list,done} ...
+todo: error: argument command: invalid choice: 'lst', maybe you meant 'list'? (choose from 'add', 'list', 'done')
+[exit 2]

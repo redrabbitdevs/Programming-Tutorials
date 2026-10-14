@@ -1,0 +1,477 @@
+---
+language: python
+level: expert
+module: Production Python
+order: 15
+title: Secure Python
+description: The Python-specific ways programs get compromised and their fixes - secrets instead of random, password hashing, subprocess without a shell, why pickle runs code, path traversal, unsafe parsing and archives, and auditing dependencies.
+minVersion: "3.11"
+objectives:
+  - Generate tokens with secrets and store passwords with a slow, salted hash
+  - Run other programs without shell injection, and quote correctly when a shell is unavoidable
+  - Explain how unpickling runs code, and restrict or replace pickle
+  - Keep user-supplied paths inside a folder
+  - Recognise the other standard-library traps and audit third-party dependencies
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/28-clean-code-and-security-basics"]
+---
+
+The [fundamentals lesson on security basics](../../../fundamentals/beginner/clean-code-and-security-basics/) set out the principles: never trust input, never build commands out of it, keep secrets out of code. This lesson is about where Python specifically makes those mistakes easy, and the standard-library tools that fix them. Every demonstration here is harmless: the "attacks" only print text.
+
+## Randomness for secrets
+
+`random` is a simulation tool. Its generator is designed to be reproducible, and its future output can be predicted from enough past output. Anything an attacker must not guess, such as a reset link, a session ID or an API key, comes from `secrets`, which reads the operating system's cryptographic source:
+
+```python title="tokens.py"
+import random
+import secrets
+
+# random is a simulation tool: the same seed gives the same "secret".
+random.seed(2026)
+first = random.getrandbits(64)
+random.seed(2026)
+print("random repeats itself:", first == random.getrandbits(64))
+
+# secrets reads the operating system's cryptographic source.
+token = secrets.token_urlsafe(32)
+print("token_urlsafe(32):", len(token), "characters")
+print("token_hex(16):", len(secrets.token_hex(16)), "characters")
+
+# Compare secrets in constant time, never with ==.
+sent = "Z3k9-reset-code"
+print(secrets.compare_digest(sent, "Z3k9-reset-code"))
+print(secrets.compare_digest(sent, "Z3k9-reset-codX"))
+```
+
+```text
+random repeats itself: True
+token_urlsafe(32): 43 characters
+token_hex(16): 32 characters
+True
+False
+```
+
+32 random bytes is what the `secrets` documentation considers sufficient for typical use. `==` on strings stops at the first difference, so its timing leaks how much of a guess was right; `compare_digest` takes the same time either way.
+
+## Passwords
+
+Never store a password, and never store a plain fast hash such as `sha256(password)` either: an attacker with your database can try billions of guesses per second. Use a deliberately slow, salted key-derivation function. The standard library has `hashlib.scrypt`:
+
+```python title="passwords.py"
+import hashlib
+import os
+import secrets
+
+
+def hash_password(password, salt=None):
+    """Return (salt, digest). A new random salt unless one is given."""
+    salt = salt or os.urandom(16)
+    digest = hashlib.scrypt(password.encode(), salt=salt,
+                            n=2**14, r=8, p=1)
+    return salt, digest
+
+
+def check_password(password, salt, digest):
+    _, candidate = hash_password(password, salt)
+    return secrets.compare_digest(candidate, digest)
+
+
+salt, digest = hash_password("correct horse")
+print(len(salt), len(digest))
+print(check_password("correct horse", salt, digest))
+print(check_password("correct hors", salt, digest))
+print(hash_password("correct horse")[1] == digest)
+```
+
+```text
+16 64
+True
+False
+False
+```
+
+The last line shows why the salt matters: the same password hashed twice gives different digests, so one precomputed table cannot crack every account. Store the salt and the cost parameters next to the digest. In a web framework, use its password hasher, which does all this and can raise the cost over time.
+
+## Running other programs
+
+`subprocess` with a list of arguments never involves a shell: each list item reaches the program as exactly one argument, whatever characters it contains. `shell=True` hands one string to `/bin/sh`, which interprets `;`, `|`, `$( )` and the rest. This demonstration (for Linux and macOS) runs `echo` three ways with a hostile file name:
+
+```python title="shell_injection.py"
+import shlex
+import subprocess
+
+# Imagine this came from a web form. The payload only runs `echo`.
+name = "report.txt; echo INJECTED: a second command ran"
+
+
+def show(label, **kwargs):
+    result = subprocess.run(capture_output=True, text=True, **kwargs)
+    print(label)
+    print("   ", result.stdout.rstrip().replace("\n", "\n    "))
+
+
+show("list of arguments, no shell:", args=["echo", name])
+show("shell=True and an f-string:", args=f"echo {name}", shell=True)
+show("shell=True and shlex.quote:",
+     args=f"echo {shlex.quote(name)}", shell=True)
+```
+
+```text
+list of arguments, no shell:
+    report.txt; echo INJECTED: a second command ran
+shell=True and an f-string:
+    report.txt
+    INJECTED: a second command ran
+shell=True and shlex.quote:
+    report.txt; echo INJECTED: a second command ran
+```
+
+In the middle case the shell ran a second command chosen by the "user". Here it was `echo`; in an attack it is whatever the attacker likes. Use the list form. If you truly need a shell feature, quote every value with `shlex.quote`, which is correct for POSIX shells only. `os.system` and `os.popen` always use a shell, so avoid them for anything that includes input. A value starting with `-` can still be read as an option by the target program, so put `--` before user-supplied file names where the program supports it.
+
+## Why pickle runs code
+
+`pickle` does not store data; it stores instructions for rebuilding objects, and an object chooses those instructions through `__reduce__`. Any callable will do:
+
+```python title="pickle_risk.py"
+import pickle
+
+
+class Surprise:
+    def __reduce__(self):
+        # "To rebuild me, call print with this argument."
+        return (print, ("unpickling ran code chosen by the sender",))
+
+
+data = pickle.dumps(Surprise())
+print("the payload names a function:", b"print" in data)
+print("loading it...")
+result = pickle.loads(data)
+print("loads returned", result)
+```
+
+```text
+the payload names a function: True
+loading it...
+unpickling ran code chosen by the sender
+loads returned None
+```
+
+The receiving program never mentions `Surprise`. The payload alone decided to call `print`, and an attacker would choose `os.system` instead. Hence the warning in the [pickle documentation](https://docs.python.org/3/library/pickle.html): never unpickle data that could have come from an untrusted source or been tampered with. For data that crosses a trust boundary, use JSON or another format that can only describe data. If you must read pickles, an allow-list `Unpickler` restricts which globals can be loaded:
+
+```python title="pickle_allowlist.py"
+import io
+import pickle
+from datetime import date
+
+
+class AllowListUnpickler(pickle.Unpickler):
+    ALLOWED = {("datetime", "date")}
+
+    def find_class(self, module, name):
+        if (module, name) in self.ALLOWED:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(f"{module}.{name} is not allowed")
+
+
+def safe_loads(data):
+    return AllowListUnpickler(io.BytesIO(data)).load()
+```
+
+`find_class` is the one place where a pickle turns a name into a real object, so refusing there stops the payload before anything is called:
+
+```python title="pickle_allowlist.py (continued)"
+class Surprise:
+    def __reduce__(self):
+        return (print, ("this must not run",))
+
+
+print(safe_loads(pickle.dumps({"due": date(2026, 10, 14)})))
+try:
+    safe_loads(pickle.dumps(Surprise()))
+except pickle.UnpicklingError as error:
+    print("refused:", error)
+```
+
+```text
+{'due': datetime.date(2026, 10, 14)}
+refused: builtins.print is not allowed
+```
+
+## Paths from users
+
+A file name from a request can contain `..` or be absolute. Resolve the joined path and check that it is still inside the folder you meant:
+
+```python title="safe_path.py"
+import tempfile
+from pathlib import Path
+
+
+def safe_join(base, user_path):
+    """Resolve user_path inside base, or refuse."""
+    base = base.resolve()
+    target = (base / user_path).resolve()
+    if not target.is_relative_to(base):
+        raise ValueError(f"{user_path!r} is outside the upload folder")
+    return target
+
+
+with tempfile.TemporaryDirectory() as root:
+    uploads = Path(root, "uploads")
+    uploads.mkdir()
+    for request in ["report.txt", "2026/march.csv",
+                    "../secrets.env", "/etc/passwd"]:
+        try:
+            target = safe_join(uploads, request)
+            print("allowed:", target.relative_to(uploads.resolve()))
+        except ValueError as error:
+            print("refused:", error)
+```
+
+```text
+allowed: report.txt
+allowed: 2026/march.csv
+refused: '../secrets.env' is outside the upload folder
+refused: '/etc/passwd' is outside the upload folder
+```
+
+Joining an absolute path replaces the base entirely, which is why `/etc/passwd` needs the check as much as `..` does. `resolve()` also follows symbolic links, so a link inside the folder that points outside it is refused too.
+
+## Other traps in the standard library
+
+| Instead of | Use | Why |
+|---|---|---|
+| `eval(text)` to parse a literal | `ast.literal_eval(text)` or `json.loads` | `eval` runs any expression |
+| `assert user.is_admin` | `if not ...: raise PermissionError` | `python -O` removes asserts |
+| f-strings in SQL | driver placeholders, or [template strings](../../advanced/template-strings/) | SQL injection |
+| `tarfile` `extractall()` on 3.13 and older | `extractall(path, filter="data")` | blocks absolute paths and `..`; the default from 3.14 |
+| `tempfile.mktemp()` | `NamedTemporaryFile`, `mkstemp`, `TemporaryDirectory` | another process can take the name first |
+| `yaml.load` with an unsafe loader (PyYAML) | `yaml.safe_load` | unsafe loaders can build arbitrary objects |
+
+## Your dependencies
+
+Most of the code you run, you did not write. Pin what you deploy with a lock file that records hashes, as in [building and publishing](../packaging-publishing/), so a replaced file is refused. Scan the pinned set for known vulnerabilities with an auditing tool such as the PyPA's `pip-audit`, in CI, on a schedule, not only when you change dependencies. Check a new dependency's name letter by letter before installing it, since typo-squatted names are a common attack, and prefer projects that publish with trusted publishing and attestations.
+
+## When not to reach for more
+
+Security effort should follow risk. A script that only you run on your own files does not need an allow-list unpickler, and `pickle` is fine for a cache your own program writes and reads. What is never fine is inventing primitives: do not write your own hashing scheme, encryption, escaping or sanitiser when `hashlib`, a vetted library or the list form of `subprocess` exists. And do not "sanitise" input for a shell when you can avoid the shell altogether.
+
+## Common pitfalls
+
+- **Checking a path with `str.startswith`.** `/srv/uploads-old` starts with `/srv/uploads`. See the last exercise.
+- **Logging secrets.** The token you generated safely ends up in a log file. The [logging lesson](../../intermediate/logging/) shows a redacting filter.
+- **Catching the injection only at the edge.** Data stored today is input to tomorrow's job. Treat values from your own database as untrusted when they reach a shell, SQL or HTML.
+
+<Exercise title="Audit: four vulnerabilities">
+
+This password-reset helper has four security bugs. Name each one and how to fix it, then write a fixed version.
+
+```python title="reset_insecure.py"
+import os
+import pickle
+import random
+import string
+
+
+def reset_token():
+    return "".join(random.choices(string.ascii_letters, k=20))
+
+
+def notify(email):
+    os.system(f"mail -s 'Password reset' {email} < reset.txt")
+
+
+def load_session(cookie):
+    return pickle.loads(bytes.fromhex(cookie))
+
+
+def require_admin(session):
+    assert session["admin"], "admins only"
+```
+
+Expected: four findings. A fixed version that replaces the mailer with a child Python process, and is called with a 32-byte token, the address `ana@example.com; echo pwned` and a JSON session for a non-admin, prints:
+
+```text
+43
+mail to ana@example.com; echo pwned
+PermissionError: admins only
+```
+
+<Solution>
+
+1. `random.choices` is predictable: use `secrets.token_urlsafe(32)`.
+2. `os.system` with an f-string lets the address inject shell commands: pass a list to `subprocess.run`.
+3. `pickle.loads` on a cookie runs whatever code the client sent: store JSON (and sign it, or keep sessions server-side).
+4. `assert` disappears under `python -O`: raise `PermissionError` explicitly.
+
+```python title="reset_secure.py"
+import json
+import secrets
+import subprocess
+import sys
+
+MAILER = "import sys; print('mail to', sys.argv[1])"
+
+
+def reset_token():
+    return secrets.token_urlsafe(32)
+
+
+def notify(email):
+    command = [sys.executable, "-c", MAILER, email]
+    result = subprocess.run(command, capture_output=True, text=True,
+                            check=True)
+    return result.stdout.strip()
+```
+
+```python title="reset_secure.py (continued)"
+def load_session(cookie):
+    return json.loads(cookie)
+
+
+def require_admin(session):
+    if not session.get("admin"):
+        raise PermissionError("admins only")
+
+
+print(len(reset_token()))
+print(notify("ana@example.com; echo pwned"))
+session = load_session('{"user": "ana", "admin": false}')
+try:
+    require_admin(session)
+except PermissionError as error:
+    print("PermissionError:", error)
+```
+
+```text
+43
+mail to ana@example.com; echo pwned
+PermissionError: admins only
+```
+
+The hostile address reached the mailer as one harmless argument. Validating that it looks like an e-mail address is still worth doing, but it is a second layer, not the fix.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict: when does the code run?">
+
+In what order are these lines printed? Does `init: hello` appear once or twice?
+
+```python title="pickle_predict.py"
+import pickle
+
+
+class Note:
+    def __init__(self, text):
+        print("init:", text)
+        self.text = text
+
+    def __reduce__(self):
+        return (print, ("reduce: " + self.text,))
+
+
+data = pickle.dumps(Note("hello"))
+print("dumped")
+copy = pickle.loads(data)
+print("loaded:", copy)
+```
+
+<Solution>
+
+```text
+init: hello
+dumped
+reduce: hello
+loaded: None
+```
+
+`__init__` runs once, when the program creates the note. `dumps` calls `__reduce__` but only *records* `(print, ("reduce: hello",))`, so nothing is printed then. `loads` performs the call, which prints the line and returns `None`, and `None` is the "copy". Unpickling never calls `__init__`; it calls whatever the payload names.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Fix: the prefix check">
+
+This `safe_join` uses string operations. It refuses `../secrets.env` but lets a request into a neighbouring folder:
+
+```python title="safe_path_bug.py"
+import os
+import tempfile
+
+
+def safe_join(base, user_path):
+    target = os.path.normpath(os.path.join(base, user_path))
+    if not target.startswith(base):
+        raise ValueError(f"{user_path!r} is outside the upload folder")
+    return target
+
+
+with tempfile.TemporaryDirectory() as root:
+    uploads = os.path.join(root, "uploads")
+    for request in ["report.txt", "../secrets.env", "../uploads-old/a.db"]:
+        try:
+            target = safe_join(uploads, request)
+            print("allowed:", os.path.relpath(target, root))
+        except ValueError as error:
+            print("refused:", error)
+```
+
+```text
+allowed: uploads/report.txt
+refused: '../secrets.env' is outside the upload folder
+allowed: uploads-old/a.db
+```
+
+Explain the hole, and fix `safe_join` so the output becomes:
+
+```text
+allowed: uploads/report.txt
+refused: '../secrets.env' is outside the upload folder
+refused: '../uploads-old/a.db' is outside the upload folder
+```
+
+<Solution>
+
+```python title="safe_path_fixed.py"
+import os
+import tempfile
+from pathlib import Path
+
+
+def safe_join(base, user_path):
+    base = Path(base).resolve()
+    target = (base / user_path).resolve()
+    if not target.is_relative_to(base):
+        raise ValueError(f"{user_path!r} is outside the upload folder")
+    return target
+
+
+with tempfile.TemporaryDirectory() as root:
+    uploads = os.path.join(root, "uploads")
+    for request in ["report.txt", "../secrets.env", "../uploads-old/a.db"]:
+        try:
+            target = safe_join(uploads, request)
+            print("allowed:", target.relative_to(Path(root).resolve()))
+        except ValueError as error:
+            print("refused:", error)
+```
+
+```text
+allowed: uploads/report.txt
+refused: '../secrets.env' is outside the upload folder
+refused: '../uploads-old/a.db' is outside the upload folder
+```
+
+`"/tmp/x/uploads-old/a.db".startswith("/tmp/x/uploads")` is true: a string prefix is not a folder boundary. `is_relative_to` compares whole path components. `resolve()` also follows symbolic links, which `normpath` does not.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Tokens come from `secrets`; compare them with `compare_digest`. Passwords get a salted, slow hash such as `hashlib.scrypt`.
+- Pass `subprocess` a list. With an unavoidable shell, `shlex.quote` every value.
+- Unpickling calls whatever the data names. Use JSON across trust boundaries, or an allow-list `Unpickler`.
+- Resolve user paths and check them with `is_relative_to`. Prefer `literal_eval`, explicit checks over `assert`, `filter="data"` for tar files, and placeholders for SQL.
+- Lock dependencies with hashes and audit them on a schedule.
+- Next: [configuration and observability](../config-observability/).

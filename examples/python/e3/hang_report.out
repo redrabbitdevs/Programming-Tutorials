@@ -1,0 +1,4 @@
+exit code: 1
+Timeout (0:00:00.500000)!
+  File "<string>", line 9 in wait_for_lock
+  File "<string>", line 12 in <module>
