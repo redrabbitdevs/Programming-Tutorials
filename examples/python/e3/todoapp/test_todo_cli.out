@@ -1,0 +1,8 @@
+test_add_then_list (test_todo_cli.TodoCliTest.test_add_then_list) ... ok
+test_bad_usage_is_exit_2 (test_todo_cli.TodoCliTest.test_bad_usage_is_exit_2) ... ok
+test_unknown_task_is_exit_1_on_stderr (test_todo_cli.TodoCliTest.test_unknown_task_is_exit_1_on_stderr) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+OK

@@ -1,0 +1,7 @@
+test_customer_is_told_the_total (test_checkout.CheckoutTest.test_customer_is_told_the_total) ... ok
+test_discount_code_takes_ten_percent (test_checkout.CheckoutTest.test_discount_code_takes_ten_percent) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+OK

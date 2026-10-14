@@ -1,0 +1,4 @@
+init: hello
+dumped
+reduce: hello
+loaded: None

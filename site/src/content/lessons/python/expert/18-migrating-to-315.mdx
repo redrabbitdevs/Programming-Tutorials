@@ -1,0 +1,358 @@
+---
+language: python
+level: expert
+module: Production Python
+order: 18
+title: Upgrading to Python 3.15
+description: Plan and carry out an upgrade to Python 3.15 - read the porting notes, turn deprecation warnings into errors on the old version, handle the UTF-8 default (PEP 686) and the 3.15 removals, prepare for what goes in 3.16 and 3.17, and test across versions.
+minVersion: "3.15"
+objectives:
+  - Find what an upgrade will break by reading What's New and the deprecation lists
+  - Surface deprecation warnings as errors before you switch versions
+  - Explain what the UTF-8 default changes, who it affects, and how to find affected code
+  - Fix code that relies on APIs removed in 3.15, and plan for removals in 3.16 and 3.17
+  - Test a project on several Python versions and decide when to drop old ones
+estimatedMinutes: 45
+fundamentals: []
+---
+
+Python ships a new version every October, and each one removes some things that were deprecated two or more versions earlier. Python 3.15 was released on 9 October 2026, and 3.10 reached end of life on 1 October, so a project still pinned to an old version is collecting upgrade work it will have to do in a hurry later. An upgrade is a small project: find out what will break, fix it while still on the old version, then switch. The examples in this lesson run on 3.15.
+
+## Read before you change anything
+
+Three pages tell you nearly everything:
+
+- **[What's New in Python 3.15](https://docs.python.org/3/whatsnew/3.15.html)**, especially the "Removed", "Deprecated" and "Porting to Python 3.15" sections. Porting lists the behaviour changes that are not removals.
+- **[Pending removal](https://docs.python.org/3/deprecations/index.html)** pages, one per future version. They are your list for the next two upgrades.
+- **Your dependencies' changelogs.** A dependency with compiled code needs a `cp315` wheel (or an `abi3` one) before you can install it without a compiler; see the wheel tags in [building and publishing](../packaging-publishing/). Pure-Python packages usually just work, unless they use something that was removed.
+
+## Turn warnings into errors first
+
+Deprecated APIs warn for at least two releases before they go. By default most `DeprecationWarning`s are hidden, except in code run directly as `__main__`, so the warnings that predict your upgrade problems are often invisible. Make them fatal in your test run while you are still on the old version:
+
+```python title="warnings_as_errors.py"
+import subprocess
+import sys
+
+LEGACY = """
+import asyncio
+
+async def job():
+    pass
+
+print("coroutine function?", asyncio.iscoroutinefunction(job))
+"""
+
+for flags in ([], ["-W", "error::DeprecationWarning"]):
+    result = subprocess.run([sys.executable, *flags, "-c", LEGACY],
+                            capture_output=True, text=True)
+    print(" ".join(flags) or "(no flags)", "-> exit", result.returncode)
+    if result.stdout:
+        print("    stdout:", result.stdout.strip())
+    warning = result.stderr.strip().splitlines()[-1]
+    print("    stderr:", warning.split("Warning: ")[1].split(";")[0])
+```
+
+```text
+(no flags) -> exit 0
+    stdout: coroutine function? True
+    stderr: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16
+-W error::DeprecationWarning -> exit 1
+    stderr: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16
+```
+
+With `-W error::DeprecationWarning` the program stops at the first deprecated call, which is exactly what you want in CI. In pytest, `filterwarnings = ["error"]` under `[tool.pytest.ini_options]` does the same for the whole suite, and you add narrow `ignore` entries for warnings that come from dependencies you cannot fix yet. `python -X dev` enables the default warnings and several other runtime checks for local runs.
+
+## UTF-8 by default
+
+Until 3.14, `open(path)` without `encoding=` used the *locale* encoding: UTF-8 on most Linux and macOS systems, but often a legacy code page on Windows. So the same program read a file correctly on one machine and produced mojibake or a `UnicodeDecodeError` on another. [PEP 686](https://peps.python.org/pep-0686/) ends that: in 3.15, UTF-8 mode is on by default, and text I/O without an explicit encoding uses UTF-8 everywhere. The PEP notes that the change mostly affects Windows users, where data that was previously written in the locale encoding is now read as UTF-8.
+
+```python title="utf8_default.py"
+import subprocess
+import sys
+
+CHILD = """
+import sys, tempfile
+print("utf8_mode =", sys.flags.utf8_mode)
+with tempfile.TemporaryFile("w+") as f:  # no encoding= given
+    f.write("plain text")
+"""
+
+for flags in ([], ["-X", "utf8=0"], ["-X", "warn_default_encoding"]):
+    result = subprocess.run([sys.executable, *flags, "-c", CHILD],
+                            capture_output=True, text=True)
+    print(" ".join(flags) or "(no flags)")
+    print("   ", result.stdout.strip())
+    if result.stderr:
+        print("   ", result.stderr.strip().splitlines()[-1])
+```
+
+```text
+(no flags)
+    utf8_mode = 1
+-X utf8=0
+    utf8_mode = 0
+-X warn_default_encoding
+    utf8_mode = 1
+    <string>:4: EncodingWarning: 'encoding' argument not specified
+```
+
+Three tools come out of this. `-X utf8=0` or `PYTHONUTF8=0` turns the old behaviour back on, as a stopgap. `-X warn_default_encoding` (or `PYTHONWARNDEFAULTENCODING=1`) makes every call that relies on the default emit an `EncodingWarning`, which finds the code to fix. And the fix is to pass `encoding="utf-8"` explicitly, which also behaves identically on older versions; use `encoding="locale"` (available since 3.10) where you really mean the system's encoding, such as output for an old Windows program.
+
+## What 3.15 removed
+
+Most removals are things that warned for years. The ones most likely to appear in application code:
+
+| Removed in 3.15 | Use instead |
+|---|---|
+| `datetime.strptime()` with `%d` but no year: now `ValueError` | include a year in the text and the format |
+| `NamedTuple("P", x=int)` keyword form | `class P(NamedTuple)` or `NamedTuple("P", [("x", int)])` |
+| `TypedDict("TD")` with no fields | `class TD(TypedDict): pass` or `TypedDict("TD", {})` |
+| `sre_compile`, `sre_parse`, `sre_constants` | `re` |
+| `http.server.CGIHTTPRequestHandler`, `--cgi` | a WSGI or ASGI server |
+| `load_module()` on import loaders | `exec_module()`; see [the import system](../import-system/) |
+| `PurePath.is_reserved()` | `os.path.isreserved()` |
+| `glob.glob0()`, `glob.glob1()` | `glob.glob(..., root_dir=...)` |
+| `codeobject.co_lnotab` | `co_lines()` |
+
+The `strptime` change catches real bugs. Without a year, Python used 1900, which was not a leap year, so `"02-29"` could never parse:
+
+```python title="strptime_315.py"
+from datetime import datetime
+
+birthday = "03-14"
+try:
+    datetime.strptime(birthday, "%m-%d")
+except ValueError as error:
+    print("ValueError:", str(error).split(".")[0])
+
+# Say which year you mean, and the leap-day problem goes away.
+print(datetime.strptime(f"2026-{birthday}", "%Y-%m-%d").date())
+print(datetime.strptime("2028-02-29", "%Y-%m-%d").date())
+```
+
+```text
+ValueError: Day of month directive '%d' may not be used without a year directive
+2026-03-14
+2028-02-29
+```
+
+## What goes next: 3.16 and 3.17
+
+Fix these now, while they are warnings, so the next upgrade is uneventful:
+
+| Removal in | Item | Use instead |
+|---|---|---|
+| 3.16 | `asyncio` policies (`set_event_loop_policy` and related) | `asyncio.run(..., loop_factory=...)`, `asyncio.Runner` |
+| 3.16 | `asyncio.iscoroutinefunction()` | `inspect.iscoroutinefunction()` |
+| 3.16 | `~True`, `~False` | `not x` (or `~int(x)` if you mean it) |
+| 3.16 | logging handlers taking `strm=` | `stream=` |
+| 3.16 | `array` type code `'u'` | `'w'` |
+| 3.17 | the `profile` module | `profiling.tracing`; see [profiling](../profiling/) |
+| 3.17 | `typing.ByteString`, `collections.abc.ByteString` | `collections.abc.Buffer`, or `bytes \| bytearray \| memoryview` |
+| 3.17 | `strptime()` with `%e` and no year | include a year |
+
+Not everything that is deprecated will be removed. `re.match()` is *soft* deprecated in 3.15 in favour of `re.prefixmatch()`: it emits no warning and stays.
+
+## Testing across versions
+
+Run your test suite on every version you claim to support, in CI, as a matrix. Locally, `uv run --python 3.11 python -m pytest` and the same with `3.15` run the suite under each interpreter, and tox or nox automate the matrix. Add the free-threaded build (`3.15t`) as an extra, allowed-to-fail entry if your users might run it. Declare the range in `requires-python`, so installers refuse versions you have not tested.
+
+When code must differ by version, prefer testing for the feature, or catching `ImportError`, over comparing `sys.version_info`. The test then stays correct on other implementations and on versions you have not thought about:
+
+```python title="version_gate.py"
+import re
+
+# re.prefixmatch is new in 3.15; re.match does the same job everywhere.
+prefixmatch = getattr(re, "prefixmatch", re.match)
+
+print(bool(prefixmatch(r"\d+", "42 apples")))
+print(bool(prefixmatch(r"\d+", "apples 42")))
+```
+
+```text
+True
+False
+```
+
+No runtime check can gate new *syntax*. A file containing `lazy import` or a `t"..."` string fails to compile on an older version before any `if` runs. For syntax, use `__lazy_modules__` as the [lazy imports lesson](../../intermediate/lazy-imports/) showed, or keep the new syntax in a module that only new versions import.
+
+## When not to upgrade yet
+
+An application can move as soon as its dependencies install and its tests pass, ideally within a few months of a release. A library should not drop a version just because a newer one exists: support every version that still receives security fixes (3.11 to 3.15 today) and drop the oldest when it reaches end of life. And do not upgrade production on release day: wait for the first bugfix release, and for your dependencies to publish wheels.
+
+## Common pitfalls
+
+- **Upgrading the interpreter and the dependencies in one step.** When something breaks, you cannot tell which change did it.
+- **Silencing deprecation warnings globally** instead of with a narrow filter for the one dependency that causes them.
+- **Testing only on the newest version.** Your `requires-python` claims the oldest one works too.
+- **Assuming the UTF-8 change is harmless because tests pass on Linux.** Test on Windows if you have Windows users.
+
+<Exercise title="Fix: a report from 3.12">
+
+This script worked on 3.12. On 3.15 it fails before printing anything:
+
+```python title="legacy_report.py"
+from datetime import datetime
+from typing import NamedTuple
+
+Payment = NamedTuple("Payment", day=str, amount=float)
+
+rows = [("03-14", 12.5), ("03-02", 40.0)]
+payments = [Payment(*row) for row in rows]
+for payment in sorted(payments):
+    day = datetime.strptime(payment.day, "%m-%d")
+    print(f"{day:%d %b}: {payment.amount:6.2f}")
+```
+
+The error is `TypeError: NamedTuple() got an unexpected keyword argument 'day'`, and once that is fixed, the `strptime` call raises `ValueError`. Fix both. The data comes from 2026. Expected output:
+
+```text
+02 Mar:  40.00
+14 Mar:  12.50
+```
+
+<Solution>
+
+```python title="legacy_report_fixed.py"
+from datetime import datetime
+from typing import NamedTuple
+
+
+class Payment(NamedTuple):
+    day: str
+    amount: float
+
+
+rows = [("2026-03-14", 12.5), ("2026-03-02", 40.0)]
+payments = [Payment(*row) for row in rows]
+for payment in sorted(payments):
+    day = datetime.strptime(payment.day, "%Y-%m-%d")
+    print(f"{day:%d %b}: {payment.amount:6.2f}")
+```
+
+```text
+02 Mar:  40.00
+14 Mar:  12.50
+```
+
+The class syntax works on every supported version. Putting the year into the data rather than only into the format also fixes the sort: ISO dates sort correctly as strings across years, while `"03-14"` would have put next January before this March. On 3.14, both problems were already printed as `DeprecationWarning`s, which is why running tests with warnings as errors pays off.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict: five lines on 3.15">
+
+Run each line on its own with `python -W default -c "..."` on 3.15. Which fail, which warn, and which are silent?
+
+1. `import sre_parse`
+2. `x = ~True`
+3. `import re; re.match('a', 'abc')`
+4. `import profile`
+5. writing `'é'` to `tempfile.TemporaryFile('w+')` without `encoding=`
+
+Expected: for each, "error", "warning" or "silent", with the exception or warning class.
+
+<Solution>
+
+```python title="predict_315.py"
+import re
+import subprocess
+import sys
+
+SNIPPETS = [
+    "import sre_parse",
+    "x = ~True",
+    "import re; re.match('a', 'abc')",
+    "import profile",
+    "import tempfile\nwith tempfile.TemporaryFile('w+') as f: f.write('é')",
+]
+
+for code in SNIPPETS:
+    result = subprocess.run([sys.executable, "-W", "default", "-c", code],
+                            capture_output=True, text=True)
+    found = re.findall(r"\b(\w+(?:Error|Warning))\b", result.stderr)
+    first_line = code.splitlines()[0]
+    print(f"{first_line:<34} exit {result.returncode}",
+          found[-1] if found else "silent")
+```
+
+```text
+import sre_parse                   exit 1 ModuleNotFoundError
+x = ~True                          exit 0 DeprecationWarning
+import re; re.match('a', 'abc')    exit 0 silent
+import profile                     exit 0 DeprecationWarning
+import tempfile                    exit 0 silent
+```
+
+`sre_parse` is gone. `~True` (removal in 3.16) and `profile` (removal in 3.17) still work but warn. `re.match` is only soft deprecated, so it is silent. The `é` is written as UTF-8 on every platform now, so nothing can go wrong and nothing is reported; with `-X warn_default_encoding` you would see an `EncodingWarning`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="List the deprecations in a module">
+
+Write a script that runs this legacy code in a child process with `-W always::DeprecationWarning`, prints the first sentence of each warning, and then the program's own output:
+
+```python title="legacy_snippet.py"
+import asyncio
+import profile
+
+flag = True
+print(~flag, asyncio.iscoroutinefunction(print))
+```
+
+Expected output:
+
+```text
+The profile module is deprecated and will be removed in Python 3.17
+Bitwise inversion '~' on bool is deprecated and will be removed in Python 3.16
+'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16
+program output: -2 False
+```
+
+<Solution>
+
+```python title="find_deprecations.py"
+import subprocess
+import sys
+
+LEGACY = """
+import asyncio
+import profile
+
+flag = True
+print(~flag, asyncio.iscoroutinefunction(print))
+"""
+
+result = subprocess.run(
+    [sys.executable, "-W", "always::DeprecationWarning", "-c", LEGACY],
+    capture_output=True, text=True,
+)
+for line in result.stderr.splitlines():
+    if "DeprecationWarning" in line:
+        message = line.split("DeprecationWarning: ")[1]
+        print(message.split(";")[0].split(". ")[0])
+print("program output:", result.stdout.strip())
+```
+
+```text
+The profile module is deprecated and will be removed in Python 3.17
+Bitwise inversion '~' on bool is deprecated and will be removed in Python 3.16
+'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16
+program output: -2 False
+```
+
+The warnings appear in the order the code runs: `import profile` before the `print` line. `always` shows a warning every time it is triggered, rather than once per location, which matters when you count them. On a real codebase, run the test suite this way, or with `error`, rather than a single file.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Read What's New (Removed, Deprecated, Porting) and the pending-removal pages; check your dependencies have wheels for the new version.
+- Make `DeprecationWarning` an error in tests while still on the old version, and fix what it finds.
+- 3.15 uses UTF-8 for text I/O everywhere (PEP 686). Find reliance on the old default with `-X warn_default_encoding`; write `encoding="utf-8"` explicitly.
+- 3.15 removed, among others, `strptime` `%d` without a year, the `NamedTuple` keyword form and the `sre_*` modules. The asyncio policy system and `~bool` go in 3.16; `profile` and `ByteString` in 3.17.
+- Test every supported version in CI, and upgrade applications promptly but libraries conservatively.
+- This completes the Production Python module and the expert level.

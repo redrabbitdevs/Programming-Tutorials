@@ -1,0 +1,7 @@
+list of arguments, no shell:
+    report.txt; echo INJECTED: a second command ran
+shell=True and an f-string:
+    report.txt
+    INJECTED: a second command ran
+shell=True and shlex.quote:
+    report.txt; echo INJECTED: a second command ran

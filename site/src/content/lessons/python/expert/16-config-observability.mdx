@@ -1,0 +1,398 @@
+---
+language: python
+level: expert
+module: Production Python
+order: 16
+title: Configuration and observability
+description: Run a Python service in production - typed configuration read once from the environment, logging set up with dictConfig, structured JSON logs with request IDs, health checks, and faulthandler for crashes and hangs.
+minVersion: "3.11"
+objectives:
+  - Load configuration from the environment into a typed, validated, immutable object at start-up
+  - Configure logging for a whole application with logging.config.dictConfig
+  - Emit structured JSON logs with extra fields and a per-request ID from a context variable
+  - Write a health check that reports each dependency separately
+  - Use faulthandler to get Python stacks from crashes and hangs
+estimatedMinutes: 45
+fundamentals: []
+---
+
+A service in production runs on a machine you cannot step through with a debugger, with settings someone else chose, and its logs are read by a search engine before they are read by a person. Two habits make that bearable. Configuration is read once, checked, and fails loudly at start-up. And the program describes what it is doing in a form machines can query. The [intermediate logging lesson](../../intermediate/logging/) covered loggers, handlers and formatters; this lesson builds on it.
+
+## Configuration from the environment
+
+Deployment platforms pass settings as environment variables, so the same build can run in testing and production. Read them in one place, convert them to the right types, and turn the result into an immutable object. Everything else in the program receives that object and never touches `os.environ`:
+
+```python title="settings.py"
+from dataclasses import dataclass, field
+
+TRUE = {"1", "true", "yes", "on"}
+
+
+class ConfigError(Exception):
+    """The environment does not describe a runnable service."""
+
+
+@dataclass(frozen=True)
+class Settings:
+    port: int
+    debug: bool
+    database_url: str
+    api_key: str = field(repr=False)
+```
+
+The class method does the parsing. It takes the environment as a parameter, so tests pass a plain dictionary:
+
+```python title="settings.py (continued)"
+    @classmethod
+    def from_env(cls, env):
+        try:
+            port = int(env.get("SHOP_PORT", "8000"))
+        except ValueError:
+            raise ConfigError("SHOP_PORT must be a whole number") from None
+        if "SHOP_API_KEY" not in env:
+            raise ConfigError("SHOP_API_KEY is required")
+        return cls(
+            port=port,
+            debug=env.get("SHOP_DEBUG", "").lower() in TRUE,
+            database_url=env.get("SHOP_DATABASE_URL", "sqlite:///shop.db"),
+            api_key=env["SHOP_API_KEY"],
+        )
+```
+
+```python title="settings.py (continued)"
+print(Settings.from_env({"SHOP_API_KEY": "k-91f2", "SHOP_DEBUG": "yes"}))
+for env in ({"SHOP_PORT": "80a", "SHOP_API_KEY": "k"}, {}):
+    try:
+        Settings.from_env(env)
+    except ConfigError as error:
+        print("ConfigError:", error)
+```
+
+```text
+Settings(port=8000, debug=True, database_url='sqlite:///shop.db')
+ConfigError: SHOP_PORT must be a whole number
+ConfigError: SHOP_API_KEY is required
+```
+
+`field(repr=False)` keeps the API key out of the representation, so logging the settings at start-up, which is a good habit, cannot leak it. Booleans need care: `bool("false")` is `True`, so compare against a set of accepted words. In `main`, call `Settings.from_env(os.environ)` once and exit with a clear message on `ConfigError`. A service that refuses to start with a bad setting is much easier to debug than one that starts and fails on the first request. If you also want a configuration file, read it with `tomllib` first and let the environment override it, in that order and in that one function.
+
+## Logging for a whole application
+
+`basicConfig` suits scripts. An application with several destinations and per-module levels describes its logging as data and hands it to `logging.config.dictConfig`. That dictionary can itself come from a TOML or JSON file. First, a formatter that writes one JSON object per record, which log platforms can index field by field:
+
+```python title="json_logging.py"
+import json
+import logging
+import logging.config
+
+# Attribute names every LogRecord has; anything else came from extra=.
+STANDARD = set(vars(logging.makeLogRecord({}))) | {"message"}
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        entry = {
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        for key, value in vars(record).items():
+            if key not in STANDARD:
+                entry[key] = value
+        if record.exc_info:
+            entry["error"] = repr(record.exc_info[1])
+        return json.dumps(entry)
+```
+
+Fields passed with `extra=` become attributes of the record. Comparing against the attributes of an empty record finds them without a hard-coded list. A real formatter would also add `"time": self.formatTime(record)`; it is left out here so the output can be shown exactly. Now the configuration:
+
+```python title="json_logging.py (continued)"
+CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"json": {"()": JsonFormatter}},
+    "handlers": {
+        "stdout": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+            "formatter": "json",
+        },
+    },
+    "loggers": {"shop.db": {"level": "WARNING"}},
+    "root": {"level": "INFO", "handlers": ["stdout"]},
+}
+```
+
+`"()"` names a factory for the formatter, `ext://sys.stdout` refers to an object by import path, and `loggers` quietens one noisy module without touching its code. Records from every module flow up to the root logger's single handler:
+
+```python title="json_logging.py (continued)"
+logging.config.dictConfig(CONFIG)
+log = logging.getLogger("shop.orders")
+log.info("order placed", extra={"order_id": 42, "total": "19.90"})
+logging.getLogger("shop.db").info("query took 3 ms")
+try:
+    1 / 0
+except ZeroDivisionError:
+    log.exception("refund failed", extra={"order_id": 42})
+```
+
+```text
+{"level": "INFO", "logger": "shop.orders", "message": "order placed", "order_id": 42, "total": "19.90"}
+{"level": "ERROR", "logger": "shop.orders", "message": "refund failed", "order_id": 42, "error": "ZeroDivisionError('division by zero')"}
+```
+
+The `shop.db` message was below that logger's `WARNING` level and was dropped. Now a search for `order_id:42` finds both lines, with no regular expression over free text. Services usually log to stdout and let the platform collect the stream, rather than managing files themselves.
+
+## A request ID in every line
+
+When fifty requests are handled at once, their log lines interleave. Tag each line with the request it belongs to. A `contextvars.ContextVar` holds a value per thread and per `asyncio` task, and a filter copies it onto every record:
+
+```python title="request_id.py"
+import contextvars
+import logging
+import sys
+
+request_id = contextvars.ContextVar("request_id", default="-")
+
+
+class RequestIdFilter(logging.Filter):
+    def filter(self, record):
+        record.request_id = request_id.get()
+        return True
+
+
+handler = logging.StreamHandler(sys.stdout)
+handler.addFilter(RequestIdFilter())
+handler.setFormatter(
+    logging.Formatter("%(request_id)s %(name)s: %(message)s"))
+logging.basicConfig(level=logging.INFO, handlers=[handler])
+log = logging.getLogger("shop.web")
+```
+
+```python title="request_id.py (continued)"
+def handle(rid, path):
+    token = request_id.set(rid)
+    try:
+        log.info("GET %s", path)
+        log.info("200 OK")
+    finally:
+        request_id.reset(token)
+
+
+handle("req-7f3a", "/cart")
+handle("req-91bc", "/checkout")
+log.info("idle")
+```
+
+```text
+req-7f3a shop.web: GET /cart
+req-7f3a shop.web: 200 OK
+req-91bc shop.web: GET /checkout
+req-91bc shop.web: 200 OK
+- shop.web: idle
+```
+
+None of the code that logs had to pass the ID along. This is the seed of **distributed tracing**: if the ID also travels in a header to the services you call, one search shows a request's whole path. Tracing libraries such as OpenTelemetry standardise those headers and add timings for each step, which you then view in a tracing system.
+
+## Health checks
+
+A load balancer or orchestrator asks a service "are you able to serve?" through a health endpoint. Report each dependency separately, so the answer says *what* is wrong. The last exercise builds one.
+
+## When the process crashes or hangs
+
+A segmentation fault in an extension module kills the process without a Python traceback, and a deadlock produces no output at all. `faulthandler` covers both. Enable it at start-up with `faulthandler.enable()`, `python -X faulthandler` or `PYTHONFAULTHANDLER=1`, and a fatal signal prints every thread's Python stack (and, from 3.14, the C stack too). For hangs, `dump_traceback_later` acts as a watchdog:
+
+```python title="hang_report.py"
+import subprocess
+import sys
+
+# A child process that hangs. faulthandler dumps its stack after 0.5 s.
+CHILD = """
+import faulthandler
+import time
+
+faulthandler.dump_traceback_later(0.5, exit=True)
+
+
+def wait_for_lock():
+    time.sleep(30)
+
+
+wait_for_lock()
+"""
+
+result = subprocess.run([sys.executable, "-c", CHILD],
+                        capture_output=True, text=True)
+print("exit code:", result.returncode)
+for line in result.stderr.splitlines():
+    if line.startswith(("Timeout", "  File")):
+        print(line)
+```
+
+```text
+exit code: 1
+Timeout (0:00:00.500000)!
+  File "<string>", line 9 in wait_for_lock
+  File "<string>", line 12 in <module>
+```
+
+The dump names the function it was stuck in. In a real service, call `dump_traceback_later(timeout)` before a step that should finish quickly and `cancel_dump_traceback_later()` after it. faulthandler writes directly to a file descriptor without allocating memory, which is why it still works when the interpreter is broken. To inspect a live process instead, attach with `python -m pdb -p PID` (3.14).
+
+## When not to build this yourself
+
+Do not configure logging in a library: emit records and let the application decide, as the intermediate lesson explained. Do not ship JSON logs from a command-line tool that a person reads; plain lines are kinder. And do not grow your own metrics, tracing or log-shipping system inside the application. Emit structured events and let the platform's collector and a standard library such as OpenTelemetry move them. Your job is to make the events accurate.
+
+## Common pitfalls
+
+- **Leaving `disable_existing_loggers` at its default of `True`.** Loggers created before `dictConfig` ran are silenced. The first exercise shows it.
+- **Reading `os.environ` all over the code.** Settings become impossible to list, test or validate.
+- **Logging a secret through `extra=`.** Structured logs are copied everywhere; redact before logging.
+- **Health checks that only return "ok".** A check that cannot fail tells the balancer nothing.
+
+<Exercise title="Predict: the silent logger">
+
+Which of the three messages are printed?
+
+```python title="dictconfig_predict.py"
+import logging
+import logging.config
+
+early = logging.getLogger("shop.early")  # created before configuration
+
+logging.config.dictConfig({
+    "version": 1,
+    "handlers": {
+        "out": {"class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout"},
+    },
+    "root": {"level": "INFO", "handlers": ["out"]},
+})
+
+late = logging.getLogger("shop.late")
+early.warning("A from shop.early")
+late.warning("B from shop.late")
+logging.getLogger("shop").warning("C from shop")
+```
+
+<Solution>
+
+```text
+B from shop.late
+C from shop
+```
+
+`disable_existing_loggers` defaults to `True`, so `dictConfig` disables every logger that already existed and is not named in the configuration. `shop.early` existed; `shop.late` and `shop` did not, because `getLogger("shop.early")` only creates a placeholder for its parent. In real code, modules create their loggers at import time, before `main` configures logging, so this default silences most of an application. Set it to `False`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A validated integer setting">
+
+Write `read_workers(env)` for a `SHOP_WORKERS` setting: a whole number from 1 to 32, defaulting to 4. Raise `ConfigError` with a message that names the variable and the bad value. Called with `{}`, `{"SHOP_WORKERS": "8"}`, `{"SHOP_WORKERS": "0"}` and `{"SHOP_WORKERS": "many"}`, printing each result or error, it should print:
+
+```text
+4
+8
+ConfigError: SHOP_WORKERS must be 1 to 32, not 0
+ConfigError: SHOP_WORKERS must be a whole number, not 'many'
+```
+
+<Solution>
+
+```python title="workers_setting.py"
+class ConfigError(Exception):
+    pass
+
+
+def read_workers(env):
+    text = env.get("SHOP_WORKERS", "4")
+    try:
+        workers = int(text)
+    except ValueError:
+        raise ConfigError(f"SHOP_WORKERS must be a whole number, "
+                          f"not {text!r}") from None
+    if not 1 <= workers <= 32:
+        raise ConfigError(f"SHOP_WORKERS must be 1 to 32, not {workers}")
+    return workers
+
+
+for env in ({}, {"SHOP_WORKERS": "8"}, {"SHOP_WORKERS": "0"},
+            {"SHOP_WORKERS": "many"}):
+    try:
+        print(read_workers(env))
+    except ConfigError as error:
+        print("ConfigError:", error)
+```
+
+```text
+4
+8
+ConfigError: SHOP_WORKERS must be 1 to 32, not 0
+ConfigError: SHOP_WORKERS must be a whole number, not 'many'
+```
+
+`from None` hides the `ValueError` from `int()`, because the new message already says everything. Range checks belong in the same function as type conversion, so an operator sees every rule for a variable in one place.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A health check">
+
+Write `health(checks)`, where `checks` maps names to functions that raise if their dependency is unhealthy. Return `{"status": ..., "checks": {...}}` with `"ok"` or `"failed: <message>"` per check, and an overall status of `"ok"` or `"degraded"`. Test it with a database check (`SELECT 1` on an in-memory `sqlite3` connection), then add a disk check that raises `OSError("only 2% free")`. Printed with `json.dumps`:
+
+```text
+{"status": "ok", "checks": {"database": "ok"}}
+{"status": "degraded", "checks": {"database": "ok", "disk": "failed: only 2% free"}}
+```
+
+<Solution>
+
+```python title="health.py"
+import json
+import sqlite3
+
+
+def health(checks):
+    """Run each check; any exception marks that check as failed."""
+    results = {}
+    for name, check in checks.items():
+        try:
+            check()
+            results[name] = "ok"
+        except Exception as error:
+            results[name] = f"failed: {error}"
+    healthy = all(result == "ok" for result in results.values())
+    return {"status": "ok" if healthy else "degraded", "checks": results}
+```
+
+```python title="health.py (continued)"
+db = sqlite3.connect(":memory:")
+
+
+def disk_space():
+    raise OSError("only 2% free")
+
+
+checks = {"database": lambda: db.execute("SELECT 1")}
+print(json.dumps(health(checks)))
+checks["disk"] = disk_space
+print(json.dumps(health(checks)))
+```
+
+```text
+{"status": "ok", "checks": {"database": "ok"}}
+{"status": "degraded", "checks": {"database": "ok", "disk": "failed: only 2% free"}}
+```
+
+Catching `Exception` is right here, and rare elsewhere: a health check must report every failure rather than crash. Your web framework maps `"degraded"` to an HTTP 503 status. Give each check a timeout in a real service, or a hung database makes the health endpoint hang too.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Parse the environment once into a frozen, typed settings object; fail at start-up on bad values; hide secrets from `repr`.
+- `dictConfig` describes an application's logging as data. Set `disable_existing_loggers: False`.
+- Structured logs are one JSON object per line, with `extra=` fields; a `ContextVar` filter adds a request ID to every record.
+- Health checks report each dependency. `faulthandler` turns crashes and hangs into Python stacks.
+- Next: [architecture for large codebases](../large-codebases/).

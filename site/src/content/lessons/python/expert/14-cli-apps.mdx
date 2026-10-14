@@ -1,0 +1,434 @@
+---
+language: python
+level: expert
+module: Production Python
+order: 14
+title: Command-line applications
+description: Build a command-line tool with argparse subcommands, keep results on stdout and problems on stderr, return meaningful exit codes, run it with python -m or an installed command, and test it in-process.
+minVersion: "3.11"
+objectives:
+  - Structure a CLI as a main(argv) function that returns an exit code
+  - Dispatch subcommands with add_subparsers and set_defaults
+  - Follow the stdout, stderr and exit-code conventions that scripts and shells rely on
+  - Run a package with python -m and install it as a command
+  - Use colour help (3.14) and error suggestions (3.15) and know how to turn them off
+  - Test a CLI by calling main in-process
+estimatedMinutes: 45
+fundamentals: []
+---
+
+A command-line tool has two audiences. A person types it and reads the help. A shell script runs it, pipes its output into something else and checks whether it succeeded. The [intermediate project](../../intermediate/project-tested-cli/) built `spend`, a tool with flat options and a `main` that returned an exit code. This lesson adds what larger tools need: subcommands, a consistent error policy, `python -m` entry points and tests. The [stdlib tour](../../intermediate/stdlib-tour/) covered the basics of `argparse`, so they are not repeated here.
+
+## The shape of a CLI module
+
+The `todo` tool below keeps a task list in a JSON file. Its module has three layers: functions that do the work, a parser, and a `main` that connects them. First the storage and a single exception type for problems the user can fix:
+
+```python title="todo/cli.py"
+import argparse
+import json
+import sys
+from pathlib import Path
+
+
+class TodoError(Exception):
+    """A problem the user can fix. Reported in one line, no traceback."""
+
+
+def load(path):
+    if not path.exists():
+        return []
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def save(path, tasks):
+    path.write_text(json.dumps(tasks, indent=1), encoding="utf-8")
+```
+
+Each subcommand is a function that receives the parsed arguments. Results go to standard output with `print`. A handler never calls `sys.exit` and never prints an error itself: it raises `TodoError` and lets `main` decide.
+
+```python title="todo/cli.py (continued)"
+def cmd_add(args):
+    tasks = load(args.file)
+    tasks.append({"text": args.text, "done": False})
+    save(args.file, tasks)
+    print(f"added #{len(tasks)}")
+
+
+def cmd_list(args):
+    for number, task in enumerate(load(args.file), start=1):
+        mark = "x" if task["done"] else " "
+        print(f"{number:>2} [{mark}] {task['text']}")
+
+
+def cmd_done(args):
+    tasks = load(args.file)
+    if not 1 <= args.number <= len(tasks):
+        raise TodoError(f"there is no task #{args.number}")
+    tasks[args.number - 1]["done"] = True
+    save(args.file, tasks)
+```
+
+## Subcommands
+
+`add_subparsers` returns an object whose `add_parser` creates one parser per subcommand, each with its own arguments and help. `set_defaults(handler=...)` stores the function to call in the parsed namespace, so dispatch needs no `if` chain:
+
+```python title="todo/cli.py (continued)"
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="todo", description="Keep a small list of tasks."
+    )
+    parser.add_argument("--file", type=Path, default=Path("todo.json"),
+                        help="where the tasks are stored")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    add = sub.add_parser("add", help="add a task")
+    add.add_argument("text", help="what needs doing")
+    add.set_defaults(handler=cmd_add)
+
+    show = sub.add_parser("list", help="show all tasks")
+    show.set_defaults(handler=cmd_list)
+
+    done = sub.add_parser("done", help="mark a task as done")
+    done.add_argument("number", type=int, help="the task's number")
+    done.set_defaults(handler=cmd_done)
+    return parser
+```
+
+Options defined on the main parser, such as `--file`, go *before* the subcommand: `todo --file work.json list`. `required=True` matters, as the debugging exercise shows.
+
+## Exit codes and the two output streams
+
+`main` takes the argument list as a parameter, defaulting to `None`, which makes `argparse` read `sys.argv`. It returns an integer instead of exiting, which keeps it callable from tests:
+
+```python title="todo/cli.py (continued)"
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    try:
+        args.handler(args)
+    except TodoError as error:
+        print(f"todo: {error}", file=sys.stderr)
+        return 1
+    return 0
+```
+
+The conventions it follows are the ones every Unix tool shares:
+
+| Exit code | Meaning | Who produces it |
+|---|---|---|
+| `0` | success | `main` |
+| `1` | the command was valid but failed | `main`, from `TodoError` |
+| `2` | the command line itself was wrong | `argparse`, by raising `SystemExit(2)` |
+
+Normal output goes to stdout, so `todo list | grep Tag` works. Errors go to stderr, so they reach the person even when stdout is piped elsewhere, prefixed with the program name so that a long pipeline still says who complained. An unexpected exception is not caught: a traceback with exit code 1 is the right result for a bug.
+
+To see all of this at once, a small driver runs command lines the way a shell would and prints each exit code. It sends stderr to stdout so that the output below shows both:
+
+```python title="todo_demo.py"
+import contextlib
+import shlex
+import sys
+import tempfile
+
+from todo.cli import main
+
+
+def run(command_line):
+    """Run one command line as a shell would, and show its exit code."""
+    print("$", command_line)
+    argv = shlex.split(command_line)[1:]
+    with contextlib.redirect_stderr(sys.stdout):
+        try:
+            code = main(argv)
+        except SystemExit as exit_request:
+            code = exit_request.code
+    print(f"[exit {code}]")
+```
+
+```python title="todo_demo.py (continued)"
+with tempfile.TemporaryDirectory() as folder, contextlib.chdir(folder):
+    run("todo add 'Write the release notes'")
+    run("todo add 'Tag v1.0'")
+    run("todo done 1")
+    run("todo list")
+    run("todo done 7")
+    run("todo done one")
+    run("todo")
+```
+
+```text
+$ todo add 'Write the release notes'
+added #1
+[exit 0]
+$ todo add 'Tag v1.0'
+added #2
+[exit 0]
+$ todo done 1
+[exit 0]
+$ todo list
+ 1 [x] Write the release notes
+ 2 [ ] Tag v1.0
+[exit 0]
+$ todo done 7
+todo: there is no task #7
+[exit 1]
+$ todo done one
+usage: todo done [-h] number
+todo done: error: argument number: invalid int value: 'one'
+[exit 2]
+$ todo
+usage: todo [-h] [--file FILE] {add,list,done} ...
+todo: error: the following arguments are required: command
+[exit 2]
+```
+
+`todo done 1` prints nothing on success, the Unix habit for commands that change state. `type=int` turned `one` into a usage error before any handler ran.
+
+## Running it: python -m and installed commands
+
+A `__main__.py` file in a package makes `python -m todo` work. Keep it to three lines, so that importing `todo.cli` (in tests, say) never runs the program:
+
+```python title="todo/__main__.py"
+import sys
+
+from .cli import main
+
+sys.exit(main())
+```
+
+Running it prints the help that `argparse` generated from the parser:
+
+```console
+$ python -m todo --help
+usage: todo [-h] [--file FILE] {add,list,done} ...
+
+Keep a small list of tasks.
+
+positional arguments:
+  {add,list,done}
+    add            add a task
+    list           show all tasks
+    done           mark a task as done
+
+options:
+  -h, --help       show this help message and exit
+  --file FILE      where the tasks are stored
+```
+
+For an installed command, add `todo = "todo.cli:main"` under `[project.scripts]`, as in the [pyproject lesson](../../intermediate/pyproject-uv/). The generated script passes `main`'s return value to `sys.exit`, so the same exit codes come out.
+
+## Colour and suggestions
+
+<Since v="3.14" /> `argparse` prints help and error messages in colour when the output is a terminal. Pass `color=False` to `ArgumentParser` to switch it off for one program. Users can switch it off for all programs with the `NO_COLOR` environment variable, or force it with `FORCE_COLOR`. `PYTHON_COLORS=0` or `1` overrides both. Unless it is forced, colour is not written into a pipe or a file, which is why the outputs in this lesson are plain.
+
+<Since v="3.15" /> Mistyped subcommands and choices now get a suggestion by default (the `suggest_on_error` parameter, added in 3.14, now defaults to `True`):
+
+```python title="todo_suggest.py"
+import contextlib
+import sys
+
+from todo.cli import build_parser
+
+parser = build_parser()
+with contextlib.redirect_stderr(sys.stdout):
+    try:
+        parser.parse_args(["lst"])
+    except SystemExit as exit_request:
+        print("[exit", str(exit_request.code) + "]")
+```
+
+```text
+usage: todo [-h] [--file FILE] {add,list,done} ...
+todo: error: argument command: invalid choice: 'lst', maybe you meant 'list'? (choose from 'add', 'list', 'done')
+[exit 2]
+```
+
+Also new in 3.15: text in backticks inside `description`, `epilog` or `help` strings is highlighted when colour is on, and printed as is when it is off. When you retire an option, `add_argument(..., deprecated=True)` <Since v="3.13" /> keeps it working and prints a warning each time it is used.
+
+## When not to use argparse like this
+
+For a ten-line script you run yourself, `sys.argv[1]` is fine. Do not add subcommands to a tool that does one thing: three flags are simpler than three verbs. For large tools with nested command groups, shell completion or rich prompts, third-party libraries such as Click or Typer save code, though they are another dependency. And if the "CLI" is really a configuration file in disguise, with twenty options on every run, accept a TOML file instead.
+
+## Common pitfalls
+
+- **Calling `sys.exit` deep inside handlers.** It makes them untestable. Raise an exception and translate it in `main`.
+- **Printing errors to stdout.** They end up in the next program's input.
+- **Exit code 0 on failure.** Scripts and CI check the code, not the words.
+- **Heavy imports at the top of the CLI module.** `--help` pays for them. See [lazy imports](../../intermediate/lazy-imports/).
+
+<Exercise title="Predict: streams and exit codes">
+
+With an empty task file, what does each command print, to which stream, and with which exit code?
+
+1. `todo list`
+2. `todo add`
+3. `todo done 0`
+4. `todo --file tasks.json add Buy milk`
+
+Expected: four answers of the form "stream: text, exit N".
+
+<Solution>
+
+1. Nothing at all, exit 0. An empty list is not an error.
+2. Usage for `todo add` and "the following arguments are required: text" on stderr, exit 2.
+3. `todo: there is no task #0` on stderr, exit 1. The parser accepted `0` as an `int`; the handler's range check rejected it.
+4. Usage error, exit 2: the shell passes `Buy` and `milk` as two arguments and `add` takes one, so argparse reports "unrecognized arguments: milk". Quote it: `todo add 'Buy milk'`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Test the CLI in-process">
+
+Write a `unittest` file that calls `main` directly. Use a temporary folder for the task file. Test three things: `add` then `list` prints ` 1 [ ] Ship it` with nothing on stderr; `done 3` on an empty list exits 1 with the message on stderr; `done` with no number exits 2.
+
+Expected, from `python -m unittest -v test_todo_cli.py`:
+
+```text
+test_add_then_list (test_todo_cli.TodoCliTest.test_add_then_list) ... ok
+test_bad_usage_is_exit_2 (test_todo_cli.TodoCliTest.test_bad_usage_is_exit_2) ... ok
+test_unknown_task_is_exit_1_on_stderr (test_todo_cli.TodoCliTest.test_unknown_task_is_exit_1_on_stderr) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.001s
+
+OK
+```
+
+<Solution>
+
+```python title="test_todo_cli.py"
+import contextlib
+import io
+import tempfile
+import unittest
+from pathlib import Path
+
+from todo.cli import main
+
+
+def run(*argv):
+    """Call main() in-process and return (exit code, stdout, stderr)."""
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        try:
+            code = main(list(argv))
+        except SystemExit as exit_request:
+            code = exit_request.code
+    return code, out.getvalue(), err.getvalue()
+```
+
+```python title="test_todo_cli.py (continued)"
+class TodoCliTest(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.file = str(Path(folder.name, "todo.json"))
+
+    def test_add_then_list(self):
+        run("--file", self.file, "add", "Ship it")
+        code, out, err = run("--file", self.file, "list")
+        self.assertEqual((code, out, err), (0, " 1 [ ] Ship it\n", ""))
+
+    def test_unknown_task_is_exit_1_on_stderr(self):
+        code, out, err = run("--file", self.file, "done", "3")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("no task #3", err)
+
+    def test_bad_usage_is_exit_2(self):
+        code, _, err = run("--file", self.file, "done")
+        self.assertEqual(code, 2)
+        self.assertIn("usage: todo done", err)
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+The `run` helper is the whole trick: because `main` takes `argv` and returns a code, a test needs no subprocess. Catching `SystemExit` covers argparse's usage errors. Keep one or two subprocess tests as well, to check the installed command and `__main__.py`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Debug: the missing handler">
+
+This tool works with `show`, but crashes when run with no arguments:
+
+```python title="notes_cli.py"
+import argparse
+
+
+def show(args):
+    print("showing notes")
+
+
+parser = argparse.ArgumentParser(prog="notes")
+sub = parser.add_subparsers(dest="command")
+sub.add_parser("show").set_defaults(handler=show)
+
+for argv in (["show"], []):
+    args = parser.parse_args(argv)
+    args.handler(args)
+```
+
+```text
+showing notes
+Traceback (most recent call last):
+  File "notes_cli.py", line 14, in <module>
+    args.handler(args)
+    ^^^^^^^^^^^^
+AttributeError: 'Namespace' object has no attribute 'handler'
+```
+
+Explain the crash and fix it so that the empty command line is a usage error with exit code 2. Print the exit code instead of letting `SystemExit` end the loop. Expected output, with stderr shown:
+
+```text
+showing notes
+usage: notes [-h] {show} ...
+notes: error: the following arguments are required: command
+[exit 2]
+```
+
+<Solution>
+
+```python title="notes_cli_fixed.py"
+import argparse
+import contextlib
+import sys
+
+
+def show(args):
+    print("showing notes")
+
+
+parser = argparse.ArgumentParser(prog="notes")
+sub = parser.add_subparsers(dest="command", required=True)
+sub.add_parser("show").set_defaults(handler=show)
+
+with contextlib.redirect_stderr(sys.stdout):
+    for argv in (["show"], []):
+        try:
+            args = parser.parse_args(argv)
+            args.handler(args)
+        except SystemExit as exit_request:
+            print("[exit", str(exit_request.code) + "]")
+```
+
+```text
+showing notes
+usage: notes [-h] {show} ...
+notes: error: the following arguments are required: command
+[exit 2]
+```
+
+Subcommands are optional unless you say otherwise. With no subcommand, no subparser ran, so no `set_defaults` ever put `handler` into the namespace. `required=True` makes the missing subcommand a usage error. It needs `dest=` as well, or the message has no name to report.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Write `main(argv=None) -> int`. Handlers raise; `main` turns known errors into one line on stderr and an exit code.
+- `add_subparsers(dest=..., required=True)` with `set_defaults(handler=...)` gives clean subcommand dispatch.
+- Exit 0 for success, 1 for failure, 2 for bad usage. Results on stdout, problems on stderr.
+- `__main__.py` enables `python -m pkg`; `[project.scripts]` installs a command.
+- Help is coloured from 3.14 (`color=False`, `NO_COLOR`), and 3.15 suggests corrections for typos.
+- Next: [secure Python](../security-python/).

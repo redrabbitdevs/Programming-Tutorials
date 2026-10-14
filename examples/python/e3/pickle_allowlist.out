@@ -1,0 +1,2 @@
+{'due': datetime.date(2026, 10, 14)}
+refused: builtins.print is not allowed

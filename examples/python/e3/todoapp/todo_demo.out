@@ -1,0 +1,23 @@
+$ todo add 'Write the release notes'
+added #1
+[exit 0]
+$ todo add 'Tag v1.0'
+added #2
+[exit 0]
+$ todo done 1
+[exit 0]
+$ todo list
+ 1 [x] Write the release notes
+ 2 [ ] Tag v1.0
+[exit 0]
+$ todo done 7
+todo: there is no task #7
+[exit 1]
+$ todo done one
+usage: todo done [-h] number
+todo done: error: argument number: invalid int value: 'one'
+[exit 2]
+$ todo
+usage: todo [-h] [--file FILE] {add,list,done} ...
+todo: error: the following arguments are required: command
+[exit 2]

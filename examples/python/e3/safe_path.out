@@ -1,0 +1,4 @@
+allowed: report.txt
+allowed: 2026/march.csv
+refused: '../secrets.env' is outside the upload folder
+refused: '/etc/passwd' is outside the upload folder

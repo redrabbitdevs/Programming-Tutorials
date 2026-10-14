@@ -1,0 +1,4 @@
+tinyclock 0.1.0 >=3.11
+license: MIT
+tinyclock -> tinyclock.cli:main
+noon

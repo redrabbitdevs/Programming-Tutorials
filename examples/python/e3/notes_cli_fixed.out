@@ -1,0 +1,4 @@
+showing notes
+usage: notes [-h] {show} ...
+notes: error: the following arguments are required: command
+[exit 2]

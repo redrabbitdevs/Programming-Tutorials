@@ -1,0 +1,2 @@
+{"level": "INFO", "logger": "shop.orders", "message": "order placed", "order_id": 42, "total": "19.90"}
+{"level": "ERROR", "logger": "shop.orders", "message": "refund failed", "order_id": 42, "error": "ZeroDivisionError('division by zero')"}
