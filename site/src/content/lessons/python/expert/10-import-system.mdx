@@ -1,0 +1,384 @@
+---
+language: python
+level: expert
+module: CPython internals
+order: 10
+title: The import system
+description: Follow an import statement through sys.modules, meta path finders, specs and loaders, write finders and loaders of your own, see how lazy imports defer the search, and replace .pth import lines with .start files.
+minVersion: "3.11"
+objectives:
+  - Trace an import through sys.modules, sys.meta_path, the spec and the loader
+  - Write a meta path finder that observes or serves imports
+  - Write a loader with create_module and exec_module, and port one that used load_module
+  - Explain when a lazy import reaches the finders
+  - Use .start files instead of import lines in .pth files
+estimatedMinutes: 45
+fundamentals: []
+---
+
+You have used `import` since [Modules and imports](../../intermediate/modules-imports/), and deferred it with [lazy imports](../../intermediate/lazy-imports/). This lesson follows one `import` statement through the machinery in `importlib`, which is written in Python and which you can extend.
+
+## The path of an import
+
+`import colorsys` does this:
+
+1. **Check `sys.modules`.** If the name is there, bind it and stop. This cache is why a module runs once.
+2. **Ask each finder on `sys.meta_path`**, in order, `find_spec(name, path, target)`. The first one that returns a **module spec** wins. `None` means "not mine".
+3. **Create the module** from the spec: the spec's loader may build it in `create_module`, or return `None` for a default module object.
+4. **Insert it into `sys.modules`**, before running it, so circular imports find the half-built module.
+5. **Run it** with the loader's `exec_module(module)`.
+
+The default finders, and the spec they produce for a package:
+
+```python title="meta_path_list.py"
+import importlib.util
+import sys
+
+for finder in sys.meta_path:
+    print(getattr(finder, "__name__", type(finder).__name__))
+
+spec = importlib.util.find_spec("json")
+print(spec.name, type(spec.loader).__name__)
+print(spec.submodule_search_locations is not None)
+print(spec.origin.endswith("__init__.py"))
+```
+
+```text
+BuiltinImporter
+FrozenImporter
+PathFinder
+json SourceFileLoader
+True
+True
+```
+
+`BuiltinImporter` handles modules compiled into the interpreter, `FrozenImporter` handles modules frozen into it at build time, and `PathFinder` searches `sys.path`. `PathFinder` itself delegates to a **path entry finder** per directory or zip file, created by `sys.path_hooks` and cached in `sys.path_importer_cache`. A spec with `submodule_search_locations` set is a package.
+
+## Watching imports with a finder
+
+A finder that always returns `None` sees every search and changes nothing:
+
+```python title="import_spy.py"
+import importlib.abc
+import sys
+
+
+class ImportSpy(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path, target=None):
+        print("looking for", name)
+        return None          # not mine: let the next finder try
+
+
+sys.meta_path.insert(0, ImportSpy())
+
+import colorsys              # not loaded yet: the spy sees it
+import colorsys              # cached in sys.modules: no search
+import os                    # loaded at startup: no search either
+
+print(colorsys.rgb_to_hsv(1.0, 0.0, 0.0))
+```
+
+```text
+looking for colorsys
+(0.0, 1.0, 1.0)
+```
+
+Insert at position 0 to see everything first; append to act only as a fallback.
+
+## Serving modules: a finder and a loader
+
+A spec names a loader. Since Python 3.4, a loader has two methods: `create_module(spec)` returns a module object or `None` for the default, and `exec_module(module)` fills it in. This importer serves modules from source strings in a dictionary:
+
+```python title="dict_importer.py"
+import importlib.abc
+import importlib.util
+import sys
+
+SOURCES = {
+    "greetings": "def hello(name):\n    return f'Hello, {name}!'\n",
+}
+
+
+class DictImporter(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    def find_spec(self, name, path, target=None):
+        if name in SOURCES:
+            return importlib.util.spec_from_loader(
+                name, self, origin=f"<dict:{name}>")
+        return None
+
+    def create_module(self, spec):
+        return None          # use the default module object
+
+    def exec_module(self, module):
+        code = compile(SOURCES[module.__name__], module.__spec__.origin, "exec")
+        exec(code, module.__dict__)
+```
+
+Install it, then import from it:
+
+```python title="dict_importer.py (continued)"
+sys.meta_path.insert(0, DictImporter())
+
+import greetings
+
+print(greetings.hello("Ada"))
+print(greetings.__spec__.origin, type(greetings.__loader__).__name__)
+```
+
+```text
+Hello, Ada!
+<dict:greetings> DictImporter
+```
+
+The import system set `__spec__`, `__loader__` and `__name__` before `exec_module` ran, and put the module in `sys.modules`. The loader only runs code. Passing `origin` to `compile` makes tracebacks name `<dict:greetings>`. The same pattern serves modules from a database, a zip in memory, or a network share.
+
+## load_module is gone
+
+<Since v="3.15" /> The old single-step protocol, `load_module(fullname)`, in which the loader created, registered and filled the module itself, has been deprecated since 3.4 and is removed in 3.15: the import system no longer calls it, and `Loader` no longer defines it ([What's New in 3.15](https://docs.python.org/3/whatsnew/3.15.html)). `zipimport.zipimporter.load_module()` is removed too. A loader with only `load_module` now fails:
+
+```python title="old_loader.py"
+import importlib.util
+import sys
+import types
+
+
+class OldLoader:
+    def load_module(self, fullname):          # the pre-3.4 protocol
+        module = types.ModuleType(fullname)
+        module.answer = 42
+        sys.modules[fullname] = module
+        return module
+```
+
+A finder hands it out:
+
+```python title="old_loader.py (continued)"
+class OldFinder:
+    def find_spec(self, name, path, target=None):
+        if name == "legacy":
+            return importlib.util.spec_from_loader(name, OldLoader())
+        return None
+
+
+sys.meta_path.insert(0, OldFinder())
+try:
+    import legacy
+    print("imported, answer =", legacy.answer)
+except AttributeError as exc:
+    print("AttributeError:", exc)
+```
+
+```text
+AttributeError: 'OldLoader' object has no attribute 'exec_module'
+```
+
+On 3.14 the same program prints `imported, answer = 42`. The second exercise ports it.
+
+## Lazy imports and finders
+
+<Since v="3.15" /> A `lazy import` binds a proxy and does no searching at all. The finders run on first use of the name:
+
+```python title="lazy_spy.py"
+import importlib.abc
+import sys
+
+
+class ImportSpy(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path, target=None):
+        print("looking for", name)
+        return None
+
+
+sys.meta_path.insert(0, ImportSpy())
+
+lazy import colorsys
+
+print("past the import line")
+print(colorsys.rgb_to_hsv(1.0, 0.0, 0.0))
+```
+
+```text
+past the import line
+looking for colorsys
+(0.0, 1.0, 1.0)
+```
+
+So an import hook in a lazy world must cope with being called late: from any line of code, in any thread, after configuration has changed. A hook that installs itself after a lazy import statement still sees that import.
+
+## Startup code: .pth and .start files
+
+At startup the `site` module reads `.pth` files in site-packages. Each line names a directory to add to `sys.path`, except lines starting with `import`, which are executed. Packages use those lines to run code at every interpreter start, which is hard to audit.
+
+<Since v="3.15" /> [PEP 829](https://peps.python.org/pep-0829/) adds **`.start` files**: one `package.module:callable` entry point per line, called with no arguments at startup. If `name.start` exists next to `name.pth`, the `import` lines in that `.pth` are ignored, so one package can ship both and work on old and new Pythons:
+
+```python title="start_files.py"
+import site
+import sys
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as tmp:
+    sitedir = Path(tmp)
+    (sitedir / "lib").mkdir()
+    (sitedir / "lib" / "acme_boot.py").write_text(
+        "def configure():\n    print('acme startup hook ran')\n",
+        encoding="utf-8")
+    (sitedir / "acme.pth").write_text(
+        "lib\nimport sys; print('acme import line ran')\n",
+        encoding="utf-8")
+    (sitedir / "acme.start").write_text(
+        "acme_boot:configure\n", encoding="utf-8")
+
+    site.addsitedir(tmp)
+    print("lib on sys.path:", str(sitedir / "lib") in sys.path)
+```
+
+```text
+acme startup hook ran
+lib on sys.path: True
+```
+
+On 3.14, which ignores `.start` files, the same program prints `acme import line ran` instead. All path lines are applied before any entry point runs, which is why `acme_boot` can be found in `lib`. The PEP's timeline: `import` lines keep working through 3.17 (with a warning under `-v`), are silently ignored in 3.18 and 3.19, and produce a warning from 3.20.
+
+## Choosing a hook
+
+Prefer the least powerful tool. To find modules somewhere new, append a directory to `sys.path` or ship a `.pth` path line. To change how files of one kind load, add a path hook. Use a meta path finder only to observe or redirect imports by name, and keep `find_spec` fast: it runs for every import that misses `sys.modules`.
+
+## Common pitfalls
+
+**Returning a spec for names you do not own.** Return `None` and let the next finder try.
+
+**Doing work in `find_spec`.** Find, do not load. Loading belongs in `exec_module`.
+
+**Registering the module yourself.** The import system inserts it into `sys.modules` and removes it again if `exec_module` raises.
+
+**Expecting `.start` files with `python -S`.** `-S` disables the `site` module, and with it both kinds of file.
+
+<Exercise title="Log where each import came from">
+Write a meta path finder that delegates to `importlib.machinery.PathFinder.find_spec(name, path, target)`, prints `NAME <- FILENAME` (the last part of `spec.origin`) for every spec that has a file location (`spec.has_location`), and returns the spec. Install it first on `sys.meta_path`, then import `colorsys` and `graphlib` and print their names. Expected output on 3.15 (graphlib imports `types` itself):
+
+```text
+colorsys <- colorsys.py
+graphlib <- graphlib.py
+types <- types.py
+colorsys graphlib
+```
+
+<Solution>
+
+```python title="origin_logger.py"
+import importlib.abc
+import importlib.machinery
+import sys
+from pathlib import Path
+
+
+class OriginLogger(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path, target=None):
+        finder = importlib.machinery.PathFinder
+        spec = finder.find_spec(name, path, target)
+        if spec is not None and spec.has_location:
+            print(f"{name} <- {Path(spec.origin).name}")
+        return spec
+
+
+sys.meta_path.insert(0, OriginLogger())
+
+import colorsys
+import graphlib
+
+print(colorsys.__name__, graphlib.__name__)
+```
+
+```text
+colorsys <- colorsys.py
+graphlib <- graphlib.py
+types <- types.py
+colorsys graphlib
+```
+
+Returning `PathFinder`'s spec means the regular finder is never asked a second time. Built-in modules get `None` from `PathFinder`, so they fall through to `BuiltinImporter` unlogged.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Port the load_module loader">
+Rewrite `OldLoader` from this lesson so that `import legacy` works on 3.15. It should subclass `importlib.abc.Loader`, and must not touch `sys.modules`. Print the answer, and whether `sys.modules["legacy"]` is the imported module. Expected output:
+
+```text
+imported, answer = 42
+True
+```
+
+<Solution>
+
+```python title="legacy_fixed.py"
+import importlib.abc
+import importlib.util
+import sys
+
+
+class NewLoader(importlib.abc.Loader):
+    def create_module(self, spec):
+        return None                   # default module object
+
+    def exec_module(self, module):    # fill in the module
+        module.answer = 42
+```
+
+The finder only changes the loader it names:
+
+```python title="legacy_fixed.py (continued)"
+class NewFinder:
+    def find_spec(self, name, path, target=None):
+        if name == "legacy":
+            return importlib.util.spec_from_loader(name, NewLoader())
+        return None
+
+
+sys.meta_path.insert(0, NewFinder())
+
+import legacy
+
+print("imported, answer =", legacy.answer)
+print(sys.modules["legacy"] is legacy)
+```
+
+The import system now creates the module, sets its attributes, registers it and cleans up on failure. The loader shrinks to the part that is really its job.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the lazy failure">
+<Since v="3.15" /> Predict the output of this program on 3.15, line by line. When is the missing module noticed?
+
+```python title="lazy_missing.py"
+lazy import no_such_module
+
+print("A")
+try:
+    no_such_module.run()
+except ModuleNotFoundError as exc:
+    print("B", exc.name)
+print("C")
+```
+
+<Solution>
+
+```text
+A
+B no_such_module
+C
+```
+
+The `lazy import` line only binds a proxy, so it cannot fail. The search runs on first use, `no_such_module.run`, and the `ModuleNotFoundError` is raised there, which is why the `try` around the use catches it. With an eager `import`, the program would stop on line 1 before printing anything.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- An import checks `sys.modules`, asks each `sys.meta_path` finder for a spec, creates the module, registers it, then runs `exec_module`.
+- Meta path finders observe or serve imports; loaders implement `create_module` and `exec_module`.
+- <Since v="3.15" /> `load_module` is removed. Lazy imports reach the finders on first use. `.start` files replace `import` lines in `.pth` files.
+- Next: [monitoring and remote debugging](../monitoring-debugging/), watching code while it runs.

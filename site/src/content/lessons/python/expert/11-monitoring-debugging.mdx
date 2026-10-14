@@ -1,0 +1,402 @@
+---
+language: python
+level: expert
+module: CPython internals
+order: 11
+title: Monitoring and remote debugging
+description: Instrument running code with sys.monitoring, build a call counter and a coverage tool that switch themselves off, attach pdb to a live process, run code in another process with sys.remote_exec, and see why 3.15 builds with frame pointers.
+minVersion: "3.14"
+objectives:
+  - Register a sys.monitoring tool, turn events on globally or per code object, and release it
+  - Use DISABLE to make a monitoring tool almost free once it has its answer
+  - Attach pdb to a running process with python -m pdb -p
+  - Run a script inside another process with sys.remote_exec, and know its limits
+  - Explain what frame pointers give native profilers
+estimatedMinutes: 45
+fundamentals:
+  - fundamentals/beginner/debugging
+---
+
+Debuggers, profilers and coverage tools all need the interpreter to tell them what is happening. For most of Python's history that meant `sys.settrace`: a callback on every line of every traced function, paid whether the tool still needed it or not. This lesson covers the modern replacements: an event API with per-location switches, a safe way to attach to a process that is already running, and native stacks that system profilers can read.
+
+## sys.monitoring
+
+`sys.monitoring` ([PEP 669](https://peps.python.org/pep-0669/), 3.12+) is a namespace in `sys`, not a module you import. A tool:
+
+1. claims one of the **tool ids** 0 to 5 with `use_tool_id(id, name)`. Ids 0, 1, 2 and 5 have names by convention: `DEBUGGER_ID`, `COVERAGE_ID`, `PROFILER_ID`, `OPTIMIZER_ID`;
+2. registers a callback per event with `register_callback(id, event, func)`;
+3. turns events on, either **globally** with `set_events(id, events)` or for one code object with `set_local_events(id, code, events)`;
+4. releases the id with `free_tool_id(id)`.
+
+Several tools can be active at once, each with its own id. They are completely independent: one tool cannot monitor another. A call counter:
+
+```python title="call_counter.py"
+import sys
+from collections import Counter
+
+mon = sys.monitoring
+TOOL = mon.PROFILER_ID
+calls = Counter()
+
+
+def on_start(code, instruction_offset):
+    calls[code.co_qualname] += 1
+
+
+def fib(n):
+    return n if n < 2 else fib(n - 1) + fib(n - 2)
+
+
+mon.use_tool_id(TOOL, "call-counter")
+mon.register_callback(TOOL, mon.events.PY_START, on_start)
+mon.set_events(TOOL, mon.events.PY_START)
+try:
+    fib(10)
+finally:
+    mon.set_events(TOOL, mon.events.NO_EVENTS)
+    mon.free_tool_id(TOOL)
+print(calls.most_common())
+```
+
+```text
+[('fib', 177)]
+```
+
+`PY_START` fires when a Python function starts. Other events include `PY_RETURN`, `CALL`, `LINE`, `JUMP`, `RAISE`, `EXCEPTION_HANDLED`, and, since 3.14, `BRANCH_LEFT` and `BRANCH_RIGHT`, which replace the deprecated `BRANCH`. Each event passes different arguments; `LINE` passes `(code, line_number)`.
+
+## DISABLE: pay once per location
+
+A callback can return `sys.monitoring.DISABLE`. For local events such as `LINE`, that switches the event off **for that one location**. The interpreter then runs the location at full speed. For coverage this is exactly right: once a line has run, it is covered, and you never need to hear about it again.
+
+```python title="line_coverage.py"
+import sys
+
+mon = sys.monitoring
+TOOL = mon.COVERAGE_ID
+hit = set()
+
+
+def on_line(code, line_number):
+    hit.add((code, line_number))
+    return mon.DISABLE        # this line is covered: stop reporting it
+
+
+def grade(score):
+    if score >= 50:
+        return "pass"
+    return "fail"
+
+
+mon.use_tool_id(TOOL, "tiny-coverage")
+mon.register_callback(TOOL, mon.events.LINE, on_line)
+mon.set_local_events(TOOL, grade.__code__, mon.events.LINE)
+print(grade(70), grade(80))
+mon.free_tool_id(TOOL)
+```
+
+Then compare the lines that ran with the lines that exist:
+
+```python title="line_coverage.py (continued)"
+code = grade.__code__
+body = {line for _s, _e, line in code.co_lines() if line is not None}
+body.discard(code.co_firstlineno)
+missed = sorted(n - code.co_firstlineno for n in body if (code, n) not in hit)
+print("missed lines:", missed)
+```
+
+```text
+pass pass
+missed lines: [3]
+```
+
+Line +3, `return "fail"`, never ran. The second call to `grade` produced no callbacks at all. `co_lines()` from [the bytecode lesson](../bytecode-dis/) supplies the set of lines that could have run. `sys.monitoring.restart_events()` turns every disabled location back on, for tools that measure in rounds.
+
+<Since v="3.15" /> Events that are not tied to one location, such as `RAISE` and `PY_UNWIND`, can now also be set per code object, and returning `DISABLE` turns them off for that whole code object.
+
+## Attaching a debugger to a running process
+
+A server is stuck, and it was not started under a debugger. Since 3.14 ([PEP 768](https://peps.python.org/pep-0768/)), you can attach `pdb` to it by process id:
+
+```console
+$ python3.15 -m pdb -p 48211
+> server.py(8)handle_job()
+-> time.sleep(0.2)
+(Pdb) where
+  server.py(13)<module>()
+-> handle_job()
+> server.py(8)handle_job()
+-> time.sleep(0.2)
+(Pdb) p jobs_done
+6
+(Pdb) quit
+```
+
+(Paths shortened to the file name.) The target must run the same Python version. The debugger stops the target at its next bytecode instruction, so a process blocked in a system call attaches once it returns or receives a signal. `quit` detaches and leaves the server running; only one debugger can be attached at a time.
+
+The building block underneath is `sys.remote_exec(pid, script)`: it asks another CPython process to run a Python file at its next safe point, much like a signal handler. `pdb -p` is built on the same interface. You can use it directly:
+
+```python title="remote_stop.py"
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+WORKER = """
+import time
+running = True
+print("ready", flush=True)
+while running:
+    time.sleep(0.01)
+print("worker stopped cleanly", flush=True)
+"""
+
+worker = subprocess.Popen([sys.executable, "-c", WORKER],
+                          stdout=subprocess.PIPE, text=True)
+print(worker.stdout.readline().strip())       # wait until it runs
+with tempfile.TemporaryDirectory() as tmp:
+    script = Path(tmp, "stop_worker.py")
+    script.write_text("import __main__\n__main__.running = False\n",
+                      encoding="utf-8")
+    sys.remote_exec(worker.pid, str(script))
+    rest, _ = worker.communicate(timeout=10)   # file must outlive the run
+print(rest.strip())
+print("exit code:", worker.returncode)
+```
+
+```text
+ready
+worker stopped cleanly
+exit code: 0
+```
+
+`remote_exec` returns at once, with no way to learn when the script ran, so the file must stay in place until it has. An exception in the script, even `SystemExit`, is printed by the target and swallowed, so this cannot be used to kill a process.
+
+Attaching to another process is privileged, so the operating system limits it. On Linux you can generally attach to your own processes, unless the distribution's "Yama" ptrace restrictions or a container's seccomp profile forbid it. macOS disables debugging other processes by default; the Python binary has to be given a debugging entitlement. A program can opt out entirely with `-X disable_remote_debug` or `PYTHON_DISABLE_REMOTE_DEBUG=1` ([remote debugging HOWTO](https://docs.python.org/3/howto/remote_debugging.html)).
+
+## Frame pointers for native profilers
+
+`sys.monitoring` sees Python frames. System profilers such as `perf` and eBPF tools see native C frames, and to walk a native stack quickly they follow **frame pointers**: a register each function uses to link to its caller. Compilers usually omit them to gain a register, which leaves profilers guessing.
+
+<Since v="3.15" /> CPython is now built with frame pointers by default on platforms that support them ([PEP 831](https://peps.python.org/pep-0831/)), using `-fno-omit-frame-pointer` and `-mno-omit-leaf-frame-pointer`. The flags are exported through `sysconfig`, so extension modules built with Python's flags inherit them; one native library built without them can still break the chain for the whole process. You can check a build:
+
+```python title="frame_pointers.py"
+import sys
+import sysconfig
+
+flags = sysconfig.get_config_var("CFLAGS") or ""
+print(sys.version.split()[0], sys.platform)
+print("frame pointers:", "-fno-omit-frame-pointer" in flags)
+```
+
+```console
+$ python3.15 frame_pointers.py
+3.15.0 linux
+frame pointers: True
+```
+
+Some redistributors enabled them earlier: the 3.14.8 build that `uv` installs prints `True` as well. 3.15 makes it the upstream default; `--without-frame-pointers` opts out when building CPython.
+
+## Choosing a tool
+
+For a tool you write, use `sys.monitoring`, and switch off every location you are done with. Use `sys.settrace` only to support Pythons older than 3.12. To inspect a live process, use `pdb -p` first and `sys.remote_exec` for one-off, scripted actions. For CPU time across Python and native code, use a sampling profiler (the [profiling](https://docs.python.org/3/library/profiling.html) package in 3.15, or `perf`), not an event hook.
+
+## Common pitfalls
+
+**Forgetting to free the tool id.** The next `use_tool_id` raises `ValueError`. Release it in `finally`.
+
+**Heavy callbacks.** The callback runs inside the monitored program. Record and return; analyse later.
+
+**Global events when one function would do.** `set_local_events` limits the cost to the code you care about.
+
+**Expecting `remote_exec` to report back.** It cannot. Have the script write a file or log line you can check.
+
+<Exercise title="Branch coverage">
+Extend the coverage idea to branches. Record `BRANCH_LEFT` and `BRANCH_RIGHT` events for `grade` only (from `line_coverage.py`), returning `DISABLE` from both callbacks. Call `grade(70)` and print the sorted directions seen so far, then call `grade(10)` and print them again. Expected output:
+
+```text
+['left']
+['left', 'right']
+```
+
+<Solution>
+
+```python title="branch_coverage.py"
+import sys
+
+mon = sys.monitoring
+TOOL = mon.COVERAGE_ID
+EVENTS = mon.events.BRANCH_LEFT | mon.events.BRANCH_RIGHT
+taken = set()
+
+
+def recorder(direction):
+    def callback(code, instruction_offset, destination_offset):
+        taken.add((instruction_offset, direction))
+        return mon.DISABLE
+    return callback
+
+
+def grade(score):
+    if score >= 50:
+        return "pass"
+    return "fail"
+```
+
+Register both directions and run each side once:
+
+```python title="branch_coverage.py (continued)"
+mon.use_tool_id(TOOL, "branch-coverage")
+mon.register_callback(TOOL, mon.events.BRANCH_LEFT, recorder("left"))
+mon.register_callback(TOOL, mon.events.BRANCH_RIGHT, recorder("right"))
+mon.set_local_events(TOOL, grade.__code__, EVENTS)
+grade(70)
+print(sorted(d for _off, d in taken))
+grade(10)
+print(sorted(d for _off, d in taken))
+mon.free_tool_id(TOOL)
+```
+
+"Left" is falling through into the `if` body, "right" is jumping past it. Line coverage alone would miss a test suite that never takes one side of an `if` without an `else`; branch coverage does not. Disabling each direction separately is why 3.14 split the old `BRANCH` event in two.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Debug the second run">
+`count_calls(fib, 5)` prints `15`, but the second call fails with `ValueError: tool 2 is already in use`. Find the cause and fix `count_calls` so the program prints `15 25`, even if `func` raises.
+
+```python
+import sys
+
+mon = sys.monitoring
+
+
+def count_calls(func, *args):
+    calls = 0
+
+    def on_start(code, offset):
+        nonlocal calls
+        calls += 1
+
+    mon.use_tool_id(mon.PROFILER_ID, "counter")
+    mon.register_callback(mon.PROFILER_ID, mon.events.PY_START, on_start)
+    mon.set_events(mon.PROFILER_ID, mon.events.PY_START)
+    func(*args)
+    mon.set_events(mon.PROFILER_ID, mon.events.NO_EVENTS)
+    return calls
+```
+
+And the program that calls it twice:
+
+```python
+def fib(n):
+    return n if n < 2 else fib(n - 1) + fib(n - 2)
+
+
+print(count_calls(fib, 5))
+print(count_calls(fib, 6))
+```
+
+<Solution>
+
+The first call switches its events off but never releases the id, so the second `use_tool_id` finds it taken:
+
+```python title="tool_fixed.py"
+import sys
+
+mon = sys.monitoring
+
+
+def count_calls(func, *args):
+    calls = 0
+
+    def on_start(code, offset):
+        nonlocal calls
+        calls += 1
+
+    mon.use_tool_id(mon.PROFILER_ID, "counter")
+    try:
+        mon.register_callback(mon.PROFILER_ID, mon.events.PY_START, on_start)
+        mon.set_events(mon.PROFILER_ID, mon.events.PY_START)
+        func(*args)
+    finally:
+        mon.free_tool_id(mon.PROFILER_ID)   # also clears events, callbacks
+    return calls
+```
+
+The rest of the program is unchanged:
+
+```python title="tool_fixed.py (continued)"
+def fib(n):
+    return n if n < 2 else fib(n - 1) + fib(n - 2)
+
+
+print(count_calls(fib, 5), count_calls(fib, 6))
+```
+
+```text
+15 25
+```
+
+Since 3.14, `free_tool_id` first calls `clear_tool_id`, which unregisters the callbacks and turns the events off. On 3.12 and 3.13, turn the events off yourself before freeing.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Peek inside a worker">
+Start a worker process that holds `jobs = ["resize", "upload", "notify"]` at module level and loops while `running` is true. Use `sys.remote_exec` to run a script inside it that prints `pending jobs:` with the length of `jobs`, then stops the loop. Expected output:
+
+```text
+ready
+pending jobs: 3
+```
+
+<Solution>
+
+```python title="remote_peek.py"
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+WORKER = """
+import time
+jobs = ["resize", "upload", "notify"]
+running = True
+print("ready", flush=True)
+while running:
+    time.sleep(0.01)
+"""
+
+PEEK = """
+import __main__
+print("pending jobs:", len(__main__.jobs), flush=True)
+__main__.running = False
+"""
+```
+
+Start it, wait for `ready`, and inject the script:
+
+```python title="remote_peek.py (continued)"
+worker = subprocess.Popen([sys.executable, "-c", WORKER],
+                          stdout=subprocess.PIPE, text=True)
+print(worker.stdout.readline().strip())
+with tempfile.TemporaryDirectory() as tmp:
+    script = Path(tmp, "peek.py")
+    script.write_text(PEEK, encoding="utf-8")
+    sys.remote_exec(worker.pid, str(script))
+    rest, _ = worker.communicate(timeout=10)
+print(rest.strip())
+```
+
+The script runs in the worker, so its `print` goes to the worker's standard output, which the parent reads back through the pipe. It reaches the worker's globals through `__main__`. If this fails with a permission error, see the HOWTO linked above.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `sys.monitoring` (3.12+): claim a tool id, register callbacks, enable events globally or per code object, free the id.
+- Return `DISABLE` to stop paying for a location you are done with.
+- `python -m pdb -p PID` attaches to a live process; `sys.remote_exec` runs a file inside one. Both need OS permission.
+- <Since v="3.15" /> CPython builds with frame pointers by default, so native profilers can walk Python processes.
+- Next: [a tour of the C API](../c-api-tour/), the other side of `Py_INCREF`.

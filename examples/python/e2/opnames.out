@@ -1,0 +1,4 @@
+FOR_ITER      True
+JUMP_BACKWARD True
+BINARY_OP     True
+RETURN_VALUE  True

@@ -1,0 +1,352 @@
+---
+language: python
+level: expert
+module: CPython internals
+order: 8
+title: Memory management
+description: How CPython frees objects with reference counting, why some objects are immortal, how the cyclic garbage collector finds what reference counting misses, what happened to the 3.14 incremental collector, and how weak references break cycles.
+minVersion: "3.12"
+objectives:
+  - Explain when CPython frees an object and measure reference count changes
+  - Say which objects are immortal and why that matters
+  - Show a reference cycle surviving del and being reclaimed by the cyclic collector
+  - State accurately which garbage collector 3.14 and 3.15 use
+  - Break cycles and build caches with weak references
+estimatedMinutes: 45
+fundamentals:
+  - fundamentals/beginner/memory-and-references
+---
+
+The [fundamentals lesson on memory and references](../../../fundamentals/beginner/memory-and-references/) explained names, objects and garbage collection in general. This lesson is about how CPython specifically does it: two mechanisms working together, plus an exemption for objects that never die.
+
+## Reference counting
+
+Every CPython object starts with a header holding its **reference count** and its type. Binding a name, storing in a container or passing an argument adds a reference; unbinding removes one. When the count reaches zero, the object is freed **at that moment**, not at some later collection.
+
+`sys.getrefcount` reports the count. Its absolute value includes the temporary reference made by the call itself, and it differs between versions (3.14 started avoiding some increments with *borrowed* references). Differences are reliable:
+
+```python title="refcount_delta.py"
+import sys
+
+data = [1, 2, 3]
+before = sys.getrefcount(data)
+
+alias = data
+holder = {"key": data}
+print(sys.getrefcount(data) - before)
+
+del alias
+print(sys.getrefcount(data) - before)
+
+holder.clear()
+print(sys.getrefcount(data) - before)
+```
+
+```text
+2
+1
+0
+```
+
+The immediacy is observable. `weakref.finalize` registers a callback that runs when its object is freed:
+
+```python title="freed_at_once.py"
+import weakref
+
+
+class Buffer:
+    pass
+
+
+buf = Buffer()
+weakref.finalize(buf, print, "buffer freed")
+
+print("dropping the last reference")
+del buf
+print("after del")
+```
+
+```text
+dropping the last reference
+buffer freed
+after del
+```
+
+This is why `with open(...)` matters for portability but plain CPython code often "gets away" without it: the file object is freed, and closed, on the line where its last reference disappears. PyPy uses a tracing collector and does not.
+
+## Immortal objects
+
+Since 3.12, some objects are **immortal** ([PEP 683](https://peps.python.org/pep-0683/)): `None`, `True`, `False`, small integers, the empty tuple, interned strings and other objects the runtime creates at startup. Their reference count is set to a huge value, and increments and decrements leave it alone, so they are never freed.
+
+Why bother? Every `x = None` used to write to `None`'s header. With immortality, read-only objects really are read-only: forked worker processes no longer copy the memory pages that hold them (copy-on-write), and threads in the free-threaded build stop contending on one shared counter.
+
+<Since v="3.14" /> `sys._is_immortal()` tells you directly:
+
+```python title="immortal_check.py"
+import sys
+
+values = [None, True, 7, (), "", 10**6, [1, 2]]
+for value in values:
+    print(f"{value!r:>9}  immortal: {sys._is_immortal(value)}")
+
+print("huge refcount:", sys.getrefcount(None) > 2**30)
+```
+
+```text
+     None  immortal: True
+     True  immortal: True
+        7  immortal: True
+       ()  immortal: True
+       ''  immortal: True
+  1000000  immortal: False
+   [1, 2]  immortal: False
+huge refcount: True
+```
+
+That is the default build of 3.15. On the free-threaded build, `1000000` reports `True` as well, because that build immortalises more objects. Which objects are immortal may change in any version ([`sys._is_immortal`](https://docs.python.org/3/library/sys.html#sys._is_immortal)), so treat immortality as an optimisation you can observe, never as a guarantee you build on.
+
+## Cycles and the cyclic collector
+
+Reference counting cannot free a cycle. Here each `Node` keeps the other alive after both names are gone:
+
+```python title="cycle_gc.py"
+import gc
+import weakref
+
+
+class Node:
+    pass
+
+
+gc.disable()               # only explicit collections from here on
+a, b = Node(), Node()
+a.partner, b.partner = b, a
+probe = weakref.ref(a)
+
+del a, b
+print("alive after del:", probe() is not None)
+```
+
+Now collect explicitly, with a callback that reports each phase:
+
+```python title="cycle_gc.py (continued)"
+def report(phase, info):
+    print(phase, "generation", info["generation"])
+
+
+gc.callbacks.append(report)
+gc.collect()
+gc.callbacks.remove(report)
+print("alive after collect:", probe() is not None)
+gc.enable()
+```
+
+```text
+alive after del: True
+start generation 2
+stop generation 2
+alive after collect: False
+```
+
+The **cyclic garbage collector** handles this. It tracks container objects (lists, dicts, instances, and so on), and when it runs it subtracts the references that come from inside the tracked set. Anything left with no outside references is unreachable garbage, and it is freed. Since 3.4 ([PEP 442](https://peps.python.org/pep-0442/)), objects with `__del__` methods in a cycle are collected too.
+
+It runs automatically, driven by allocation counts, and sorts objects into three **generations**: new objects start in generation 0, and survivors move to older generations, which are examined less often. `gc.collect()` with no argument runs a full collection of generation 2, as the callback shows.
+
+```console
+$ python3.15 -c "import gc; print(gc.get_threshold())"
+(2000, 10, 10)
+```
+
+## What happened to the incremental GC
+
+Python 3.14.0 shipped a new **incremental** collector with only two generations, young and old, designed to cut maximum pause times on large heaps. It did not last. [What's New in 3.14](https://docs.python.org/3/whatsnew/3.14.html) gives the reason: "due to a number of reports of significant memory pressure in production environments, it has been reverted back to the generational GC from 3.13. This is the GC now used in Python 3.14.5 and later." Python 3.15 uses the same generational collector.
+
+So:
+
+- **3.14.0 to 3.14.4**: incremental collector. `gc.collect(1)` ran one increment, and the third threshold was ignored.
+- **3.14.5 and later, and 3.15**: the three-generation collector of 3.13, with `gc.collect(1)` collecting generation 1 again.
+
+If you tuned thresholds for early 3.14, retest on 3.14.5 or 3.15. And note that `gc.get_stats()` <Since v="3.15" /> now also reports `duration` and `candidates` per generation.
+
+## Weak references
+
+A **weak reference** points at an object without keeping it alive. `weakref.ref(obj)` returns a callable that gives back the object, or `None` once it has been freed. Use them to break cycles that are only "back pointers" (child to parent, observer to subject), and for caches that should not keep their entries alive. `weakref.WeakValueDictionary`, `WeakKeyDictionary` and `WeakSet` do the bookkeeping for you. Not every type supports weak references: `list` and `dict` instances do not (subclasses of them do), `int` and `tuple` do not even when subclassed, and instances of your own classes do unless you set `__slots__` without `"__weakref__"`.
+
+## When not to touch the collector
+
+Do not sprinkle `gc.collect()` through application code: a full collection walks every tracked object, so on a large heap it is a noticeable pause, and it frees nothing the automatic collector would not free soon anyway. Do not disable the collector to "go faster" unless you have measured, and have made your data structures cycle-free with weak references. Reach for `gc` when you are diagnosing a leak, writing a test that must prove an object is gone, or tuning a service whose pause times you have profiled.
+
+## Common pitfalls
+
+**Reading absolute refcounts.** They change between versions and builds. Compare differences, or use weak references to see whether an object is alive.
+
+**Relying on immediate freeing.** It is CPython behaviour, and only for objects outside cycles. Close resources with `with`.
+
+**Quoting 3.14's incremental GC as current.** It was reverted in 3.14.5.
+
+**Weak references to temporaries.** `weakref.ref(Image("x"))` is dead immediately, because nothing strong holds the object.
+
+<Exercise title="Fix the leaking tree">
+This service runs with the cyclic collector disabled during request handling. Each request builds a small tree and drops it, but memory grows. Run it: it prints `branch root` then `nodes alive: 3`. Find the cycle and change only `TreeNode` so that, with the collector still disabled, it prints `nodes alive: 0`. Keep `leaf.parent.name` working.
+
+```python
+import gc
+import weakref
+
+alive = weakref.WeakSet()
+
+
+class TreeNode:
+    def __init__(self, name, parent=None):
+        self.name = name
+        self.children = []
+        self.parent = parent
+        if parent:
+            parent.children.append(self)
+        alive.add(self)
+
+
+gc.disable()
+root = TreeNode("root")
+leaf = TreeNode("leaf", TreeNode("branch", root))
+print(leaf.parent.name, leaf.parent.parent.name)
+del root, leaf
+print("nodes alive:", len(alive))
+gc.enable()
+```
+
+<Solution>
+
+Parent and child point at each other: `children` holds the child, `parent` holds the parent. Make the back pointer weak, and expose it through a property:
+
+```python title="tree_weak_parent.py"
+import gc
+import weakref
+
+alive = weakref.WeakSet()
+
+
+class TreeNode:
+    def __init__(self, name, parent=None):
+        self.name = name
+        self.children = []
+        self._parent = weakref.ref(parent) if parent else None
+        if parent:
+            parent.children.append(self)
+        alive.add(self)
+
+    @property
+    def parent(self):
+        return self._parent() if self._parent else None
+```
+
+Build the same tree and drop it:
+
+```python title="tree_weak_parent.py (continued)"
+gc.disable()
+root = TreeNode("root")
+leaf = TreeNode("leaf", TreeNode("branch", root))
+print(leaf.parent.name, leaf.parent.parent.name)
+del root, leaf
+print("nodes alive:", len(alive))
+gc.enable()
+```
+
+```text
+branch root
+nodes alive: 0
+```
+
+Now ownership runs one way, from the root down. Once both names are deleted, the root's count drops to zero, freeing it frees its `children` list, and the rest of the tree follows by plain reference counting. No collector is needed.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the finaliser">
+Predict the exact output of this program, then run it. Explain why `session freed` is not printed right after `step 1`.
+
+```python title="finalize_cycle.py"
+import gc
+import weakref
+
+
+class Session:
+    pass
+
+
+gc.disable()
+s = Session()
+s.me = s
+weakref.finalize(s, print, "session freed")
+
+print("step 1")
+del s
+print("step 2")
+gc.collect()
+print("step 3")
+gc.enable()
+```
+
+<Solution>
+
+```text
+step 1
+step 2
+session freed
+step 3
+```
+
+`s.me = s` is a cycle of one object. `del s` removes the name, but the object still references itself, so its count stays above zero. Only the cyclic collector can free it, and it runs here only at the explicit `gc.collect()`.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A cache that lets go">
+Write `load(path)` that returns the same `Image` object for repeated calls with the same path while someone still uses it, without the cache itself keeping images alive. Load `"cat.png"` twice, print whether both results are the same object and the cache size, then delete both and print the cache size again. Expected output:
+
+```text
+True 1
+0
+```
+
+<Solution>
+
+```python title="weak_cache.py"
+import weakref
+
+
+class Image:
+    def __init__(self, path):
+        self.path = path
+
+
+cache = weakref.WeakValueDictionary()
+
+
+def load(path):
+    image = cache.get(path)
+    if image is None:
+        image = Image(path)
+        cache[path] = image
+    return image
+
+
+a = load("cat.png")
+b = load("cat.png")
+print(a is b, len(cache))
+del a, b
+print(len(cache))
+```
+
+The local `image` holds a strong reference until `load` returns, so the entry cannot vanish between storing and returning it. A plain `dict` would print `1` at the end, and grow forever.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- CPython frees an object as soon as its reference count reaches zero. Measure counts by difference.
+- Immortal objects (3.12+, [PEP 683](https://peps.python.org/pep-0683/)) never change their count and are never freed. Which objects qualify is an implementation detail.
+- The cyclic collector reclaims cycles. 3.15 and 3.14.5+ use the three-generation collector; the incremental collector of 3.14.0 to 3.14.4 was reverted.
+- Weak references break back-pointer cycles and keep caches from leaking.
+- Next: [the GIL and free-threading internals](../gil-internals/), where reference counting meets threads.

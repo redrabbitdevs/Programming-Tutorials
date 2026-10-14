@@ -1,0 +1,8 @@
+     None  immortal: True
+     True  immortal: True
+        7  immortal: True
+       ()  immortal: True
+       ''  immortal: True
+  1000000  immortal: False
+   [1, 2]  immortal: False
+huge refcount: True
