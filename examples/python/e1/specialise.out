@@ -1,0 +1,2 @@
+cold:       ['BINARY_OP']
+after ints: ['BINARY_OP_ADD_INT']

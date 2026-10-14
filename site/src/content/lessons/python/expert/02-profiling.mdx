@@ -1,0 +1,361 @@
+---
+language: python
+level: expert
+module: Performance
+order: 2
+title: Profiling
+description: Choose between tracing and sampling, find who calls a hot function, read flame graphs, and profile a live process with Tachyon, the 3.15 sampling profiler.
+minVersion: "3.15"
+objectives:
+  - Explain how tracing overhead distorts a profile, and when sampling avoids it
+  - Find the callers of a hot function with profiling.tracing and pstats
+  - Choose a sampling mode (wall, cpu, gil, exception) for the question you are asking
+  - Read a flame graph and compute own and total share from collapsed stacks
+  - Profile a running process safely, and know what permissions it needs
+estimatedMinutes: 45
+fundamentals: []
+---
+
+[Measuring speed with timeit and cProfile](../../intermediate/profiling/) showed the basic loop: profile, find the function with the largest `tottime`, change one thing, measure again. It also introduced the `profiling` package from [PEP 799](https://peps.python.org/pep-0799/), with `profiling.tracing` (the deterministic profiler that `cProfile` now aliases) and `profiling.sampling`. This lesson goes further: what each kind of profiler gets wrong, how to read the output of real programs, and how to profile code you cannot restart.
+
+## Tracing distorts what it measures
+
+A tracing profiler runs a hook on every call and return. That gives exact call counts, but the hook costs roughly the same for every call, so code with many small calls is slowed down far more than code that spends its time inside a few big ones.
+
+```python title="tracing_overhead.py"
+import time
+
+import profiling.tracing
+
+
+def tiny(x):
+    return x + 1
+
+
+def many_calls():
+    total = 0
+    for i in range(300_000):
+        total = tiny(total)
+    return total
+```
+
+```python title="tracing_overhead.py (continued)"
+start = time.perf_counter()
+many_calls()
+plain = time.perf_counter() - start
+
+profiler = profiling.tracing.Profile()
+start = time.perf_counter()
+profiler.runcall(many_calls)
+traced = time.perf_counter() - start
+
+print("tracing made it slower:", traced > plain)
+print("at least 2x slower:", traced > 2 * plain)
+```
+
+```text
+tracing made it slower: True
+at least 2x slower: True
+```
+
+On one machine the traced run took about 7 times as long. A loop calling `sorted()` on a big list would hardly slow down at all, so in a mixed program the tracing profile overstates the share of the small-call code. PEP 799 adds that tracing can disable some of the interpreter's own optimisations, such as the specialisation described in [The JIT and the interpreter](../jit-and-interpreter/), and that `cProfile` observes only the main thread. Use tracing for **exact counts** and call graphs, and treat its times as rough proportions.
+
+## Who calls the hot function?
+
+A flat profile tells you that `money` is called 200 times. When you want to cut that number, you need to know where the calls come from. `pstats` keeps a caller table for every function:
+
+```python title="who_calls.py"
+import pstats
+
+import profiling.tracing
+
+
+def money(cents):
+    return f"{cents / 100:.2f}"
+
+
+def invoice_lines(items):
+    return [money(c) for c in items]
+
+
+def invoice_total(items):
+    return money(sum(items))
+```
+
+```python title="who_calls.py (continued)"
+def run():
+    for _ in range(50):
+        invoice_lines([199, 250, 1000])
+        invoice_total([199, 250, 1000])
+
+
+profiler = profiling.tracing.Profile()
+profiler.runcall(run)
+stats = pstats.Stats(profiler).stats
+```
+
+```python title="who_calls.py (continued)"
+# each value is (primitive calls, calls, tottime, cumtime, callers)
+for key, value in stats.items():
+    if key[2] == "money":
+        print("money called", value[1], "times")
+        for caller, counts in sorted(value[4].items()):
+            print(f"  from {caller[2]}: {counts[1]}")
+```
+
+```text
+money called 200 times
+  from invoice_lines: 150
+  from invoice_total: 50
+```
+
+Interactively, `pstats.Stats(profiler).print_callers("money")` prints the same table, and `print_callees` goes the other way. Notice that the comprehension's calls are attributed to `invoice_lines`: since Python 3.12, list comprehensions are inlined into the function that contains them.
+
+## Sampling with Tachyon
+
+`profiling.sampling`, codenamed Tachyon, reads the target's call stack from outside the process at a fixed rate (1 kHz by default). The target runs at full speed, and nothing in it is instrumented. The output is a statistical estimate: a function seen in 5% of samples gets 5% of the time. Here is the report generator you will speed up in exercise 1:
+
+```console
+$ python -m profiling.sampling run report_slow.py
+```
+
+Use `run -m package.module` for a module, and `-r 10khz` or `-d 30` to change the rate or stop after 30 seconds. The default table shows `nsamples` as *direct/cumulative*: direct samples have the function at the top of the stack, actually running, and cumulative ones have it anywhere on the stack. Sort with `--sort` and limit rows with `-l`.
+
+### Choose the mode for your question
+
+The `--mode` option filters which samples count:
+
+- `wall` (the default) counts every sample, including sleeping and waiting. Use it for "why is this request slow?"
+- `cpu` counts only samples where the thread is on a CPU. A function that is large in `wall` and missing in `cpu` is waiting, and faster code will not help it.
+- `gil` counts only samples where the thread holds the GIL, so it shows which Python code is keeping other threads from running.
+- `exception` counts samples while an exception is being raised or handled, which exposes code that uses exceptions for control flow.
+
+Add `-a` to sample all threads, and `--async-aware` to rebuild stacks from asyncio tasks.
+
+### Output formats
+
+- `--flamegraph -o profile.html` writes a self-contained interactive flame graph.
+- `--heatmap` shows sample counts line by line next to the source.
+- `--gecko` writes JSON for the Firefox Profiler.
+- `--collapsed` writes one line per unique stack, for external flame graph tools.
+- `--binary -o base.bin` saves a run, and `--diff-flamegraph base.bin` colours a later run red where it got slower and blue where it got faster.
+
+## Reading a flame graph
+
+In a flame graph each box is a function on the stack, and its width is the share of samples in which it appeared. Callers sit below their callees. A wide box is not necessarily a slow function: `main` is always the widest. What matters is the part of a box that is not covered by boxes above it, its **own** time. The collapsed format makes this concrete. Each line is a stack, from the bottom up, and a sample count:
+
+```python title="flame_math.py"
+from collections import Counter
+
+COLLAPSED = """\
+main;load;parse_row 120
+main;load;read_file 30
+main;report;format_row 40
+main;report 10
+"""
+
+own, total = Counter(), Counter()
+for line in COLLAPSED.splitlines():
+    stack, count = line.rsplit(" ", 1)
+    frames = stack.split(";")
+    own[frames[-1]] += int(count)          # top of the stack is running
+    for frame in set(frames):              # every frame on it is waiting
+        total[frame] += int(count)
+
+samples = total["main"]
+for name, n in total.most_common():
+    print(f"{name:10} total {n / samples:4.0%}  own {own[name] / samples:4.0%}")
+```
+
+```text
+main       total 100%  own   0%
+load       total  75%  own   0%
+parse_row  total  60%  own  60%
+report     total  25%  own   5%
+format_row total  20%  own  20%
+read_file  total  15%  own  15%
+```
+
+`load` is wide, but all its time is spent in what it calls. `parse_row` is where the CPU is. Real stacks have file and line details in each frame, and recursion makes the same function appear twice in one stack, which is why the loop uses `set(frames)`.
+
+## Profiling a live process
+
+`python -m profiling.sampling attach PID` samples a process that is already running, and `dump PID` prints its stacks once, which is useful for a server that seems stuck. The profiler and the target must run the same Python minor version. Reading another process's memory needs privileges. On Linux that means root, `CAP_SYS_PTRACE`, or a relaxed `/proc/sys/kernel/yama/ptrace_scope`. On macOS it needs root, and on Windows administrator rights. Containers often block it entirely. Profile in production with short runs (10 to 30 seconds) under normal load, and get approval before you attach to a process that is not yours.
+
+## When not to profile, and when not to optimise
+
+If a program finishes in under a second, a sampling profile has too few samples to trust: use `profiling.tracing`, or loop the work. If the question is "is A faster than B?", use `timeit`, since profilers answer "where?", not "which?". And if the profile is flat, with no function above a few per cent, there is no hot spot to fix. The remaining wins are architectural (caching, doing less work, batching I/O), or the code is already fast enough. A profile that shows time spent waiting on the network calls for fewer round trips, not faster Python.
+
+## Common pitfalls
+
+**Optimising the widest box.** Total share includes callees. Look for own time.
+
+**Profiling a toy input.** Hot spots move with data size. Profile with realistic data.
+
+**Comparing tracing times across versions.** The overhead differs between releases, so compare call counts or use sampling.
+
+**Forgetting the other threads.** Without `-a`, only the main thread is sampled.
+
+**Reading `wall` mode as CPU time.** A function that sleeps shows up as hot in `wall` mode.
+
+<Exercise title="Speed up the report">
+
+`report_slow.py` builds a top-three customer report from 20,000 orders. Profile it with `python -m profiling.tracing -s tottime report_slow.py` and find the function with the largest own time. Then write `build_report_fast` in a new file `report_fast.py` that changes only that part. Print whether the reports match and whether the fast one is at least 5 times faster. Expected output: `same report: True` and `at least 5x faster: True`.
+
+```python title="report_slow.py"
+import random
+
+random.seed(7)
+CUSTOMERS = [(i, f"customer-{i:04d}") for i in range(2_000)]
+ORDERS = [(random.randrange(2_000), random.randrange(1, 500))
+          for _ in range(20_000)]
+
+
+def customer_name(cid):
+    for key, name in CUSTOMERS:           # linear scan per order
+        if key == cid:
+            return name
+    raise KeyError(cid)
+```
+
+```python title="report_slow.py (continued)"
+def build_report(orders):
+    totals = {}
+    for cid, cents in orders:
+        name = customer_name(cid)
+        totals[name] = totals.get(name, 0) + cents
+    top = sorted(totals.items(), key=lambda kv: -kv[1])[:3]
+    return [f"{name}: {cents / 100:.2f}" for name, cents in top]
+
+
+if __name__ == "__main__":
+    print("\n".join(build_report(ORDERS)))
+```
+
+```text
+customer-1199: 62.91
+customer-0560: 61.47
+customer-0663: 61.31
+```
+
+<Solution>
+
+The profile puts nearly all the own time in `customer_name`, called 20,000 times, each call scanning up to 2,000 tuples. Build a dictionary once:
+
+```python title="report_fast.py"
+import timeit
+
+from report_slow import CUSTOMERS, ORDERS, build_report
+
+NAMES = dict(CUSTOMERS)                   # built once: id -> name
+
+
+def build_report_fast(orders):
+    totals = {}
+    for cid, cents in orders:
+        name = NAMES[cid]                 # one hash lookup
+        totals[name] = totals.get(name, 0) + cents
+    top = sorted(totals.items(), key=lambda kv: -kv[1])[:3]
+    return [f"{name}: {cents / 100:.2f}" for name, cents in top]
+```
+
+```python title="report_fast.py (continued)"
+slow = min(timeit.repeat(lambda: build_report(ORDERS), number=1, repeat=2))
+fast = min(timeit.repeat(lambda: build_report_fast(ORDERS),
+                         number=1, repeat=2))
+print("same report:", build_report_fast(ORDERS) == build_report(ORDERS))
+print("at least 5x faster:", slow > 5 * fast)
+```
+
+```text
+same report: True
+at least 5x faster: True
+```
+
+Profile again afterwards: `customer_name` is gone, and no single function in the report dominates any more. That is the signal to stop.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the flame graph">
+
+Without running anything, predict three things from these collapsed stacks: the function with the most own samples, the widest function directly above `main`, and the own share of `handle` as a percentage of all samples. Then run the script to check.
+
+```python title="flame_predict.py"
+from collections import Counter
+
+COLLAPSED = """\
+main;handle;query_db 300
+main;handle;render;escape 150
+main;handle;render 50
+main;handle 100
+main;log 400
+"""
+
+own, total = Counter(), Counter()
+for line in COLLAPSED.splitlines():
+    stack, count = line.rsplit(" ", 1)
+    frames = stack.split(";")
+    own[frames[-1]] += int(count)
+    for frame in set(frames):
+        total[frame] += int(count)
+
+print("most own samples:", own.most_common(1)[0][0])
+print("widest below main:", [n for n, _ in total.most_common()][1])
+print("handle own share:", f"{own['handle'] / total['main']:.0%}")
+```
+
+<Solution>
+
+```text
+most own samples: log
+widest below main: handle
+handle own share: 10%
+```
+
+`handle` is the widest box above `main` (600 of 1,000 samples), but its work is split across `query_db`, `render` and itself. `log`, with 400 samples of its own, is the single largest consumer. A flame graph shows this as a narrower box with nothing on top of it.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Waiting or working?">
+
+Profile this script twice with Tachyon, once with `--mode wall` and once with `--mode cpu`:
+
+```console
+$ python -m profiling.sampling run --mode wall wait_or_work.py
+$ python -m profiling.sampling run --mode cpu wait_or_work.py
+```
+
+```python title="wait_or_work.py"
+import time
+
+
+def fetch():
+    time.sleep(1)                         # stands in for a network call
+
+
+def crunch():
+    return sum(i * i for i in range(3_000_000))
+
+
+fetch()
+crunch()
+```
+
+Expected result: in `wall` mode `fetch` has the larger share, and in `cpu` mode `fetch` is absent or near 0% while `crunch` dominates. If the profiler reports no samples, your system is blocking it from reading process memory. See "Profiling a live process" above. Which function would you optimise to make the script finish sooner?
+
+<Solution>
+
+Wall mode counts the second spent sleeping, so `fetch` appears to take most of the time. CPU mode discards samples where the thread is not running, so only `crunch` remains. Both are correct answers to different questions. To make the script finish sooner, the wait is the larger target. In a real program you would overlap it with the computation, cache it, or batch the requests, since no change to Python code makes the network faster. Optimising `crunch` saves less, though it is the only option if CPU time is what you pay for.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Tracing (`profiling.tracing`, alias `cProfile`) gives exact counts and callers, but its overhead inflates code with many small calls.
+- Sampling (`profiling.sampling`, Tachyon) estimates shares from stack snapshots, adds no overhead to the target, and can `attach` to a running process if you have the permissions.
+- Pick the mode for the question: `wall`, `cpu`, `gil` or `exception`.
+- In a flame graph, width is total share. Look for the part of a box with nothing above it.
+- Next: [Memory](../memory-profiling/), the other resource a profile can measure.

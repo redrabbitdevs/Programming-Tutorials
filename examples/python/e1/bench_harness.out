@@ -1,0 +1,3 @@
+best <= median: True
+prepend loop slower than join: True
+at least 20x slower: True

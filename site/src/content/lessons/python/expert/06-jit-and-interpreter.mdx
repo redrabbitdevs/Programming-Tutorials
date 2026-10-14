@@ -1,0 +1,266 @@
+---
+language: python
+level: expert
+module: Performance
+order: 6
+title: The JIT and the interpreter
+description: How CPython executes your code in tiers, from the specialising adaptive interpreter to the tail-calling interpreter and the experimental JIT, and what each means for how you write fast Python.
+minVersion: "3.11"
+objectives:
+  - Explain how the specialising adaptive interpreter speeds up type-stable code
+  - Watch an instruction specialise and re-specialise with dis
+  - Describe the tail-calling interpreter, and why it does not optimise Python tail calls
+  - State the status of the JIT in 3.15 accurately, and check whether it is available and enabled
+  - Decide whether to try the JIT for a workload, and measure it fairly
+estimatedMinutes: 40
+fundamentals: []
+---
+
+Since Python 3.11, CPython has changed how it runs code more than in the previous twenty years. Most of the changes are invisible: the same program simply runs faster. Knowing how they work explains some of the results in this module, such as why the [built-in versus loop gap](../optimising-python/) has narrowed, and why type-stable code is fast code. Every release changes these internals, so treat the details below as a description of CPython 3.15.
+
+## The pipeline
+
+CPython compiles your source to **bytecode**, a compact list of instructions for a virtual machine, cached in `.pyc` files. The interpreter then executes that bytecode. Since 3.11 there are up to three tiers:
+
+1. The **specialising adaptive interpreter** (3.11), which rewrites instructions in place as it learns the types they see.
+2. How the interpreter loop itself is compiled: a classic `switch`, computed gotos, or <Since v="3.14" /> the new **tail-calling interpreter**.
+3. The **experimental JIT**, which compiles hot traces to machine code. It is off by default.
+
+## Tier 1: specialisation
+
+[PEP 659](https://peps.python.org/pep-0659/) rests on an observation: although Python is dynamic, most code sees the same types every time it runs. So the interpreter watches each "hot" instruction, and after a short warm-up it replaces a generic instruction such as `BINARY_OP` with a specialised one such as `BINARY_OP_ADD_INT`, which has a fast path for exactly that case. A small inline cache next to the instruction holds what it learned, such as a dictionary version or an attribute offset. With `adaptive=True`, `dis` shows the instructions as they are now, not as they were compiled:
+
+```python title="specialise.py"
+import dis
+
+
+def add(a, b):
+    return a + b
+
+
+def binary_ops(func):
+    return [i.opname for i in dis.get_instructions(func, adaptive=True)
+            if i.opname.startswith("BINARY_OP")]
+
+
+print("cold:      ", binary_ops(add))
+for _ in range(1_000):
+    add(2, 3)                       # warm up with ints
+print("after ints:", binary_ops(add))
+```
+
+```text
+cold:       ['BINARY_OP']
+after ints: ['BINARY_OP_ADD_INT']
+```
+
+If the types change, the specialised instruction's guard fails, it falls back to the generic path, and after a while it re-specialises (exercise 2). Specialisation is the main reason 3.11 was 10 to 60% faster than 3.10, and 1.25 times faster on average on the standard benchmark suite. The practical lesson: **type-stable code is fast**. A variable that holds an `int` on one call and a `str` on the next defeats specialisation. Reading bytecode in depth is covered in the next module.
+
+## The interpreter loop: tail calls
+
+<Since v="3.14" /> CPython can now be built with a new kind of interpreter loop. Instead of one large C `switch` statement over all opcodes, each opcode is a small C function that ends by tail-calling the function for the next opcode. Modern compilers generate better machine code for many small functions than for one huge one. In 3.14 it gave a geometric mean of 3 to 5% on the pyperformance suite. It needs Clang 19 or newer on x86-64 or AArch64, and it is opt-in with `./configure --with-tail-call-interp`. <Since v="3.15" /> The official Windows 64-bit binaries now use it, built with MSVC 18, with a reported speed-up of 15 to 20% on Windows.
+
+The name invites a misunderstanding. This is about how CPython's own C code is compiled. It does **not** add tail-call optimisation for Python functions, so a deeply recursive Python function still hits the recursion limit (exercise 3). It changes nothing about how your programs behave, only how fast the interpreter runs them.
+
+## Tier 2: the experimental JIT
+
+The JIT goes one step further. For hot code it records a **trace**, the path actually taken through the bytecode, translates it into smaller *micro-ops*, optimises them, and turns them into machine code. It uses a technique called *copy-and-patch*: at CPython build time, LLVM compiles a template ("stencil") for each micro-op, and at run time the JIT copies the templates together and patches in the addresses and constants.
+
+Its status in 3.15, stated carefully:
+
+- It is **experimental** and **off by default**. [PEP 744](https://peps.python.org/pep-0744/), which describes it, is still a Draft.
+- <Since v="3.14" /> The official macOS and Windows installers include it, disabled. Set `PYTHON_JIT=1` to turn it on. It is not recommended for production.
+- A source build includes it only with `--enable-experimental-jit`. The value `yes-off` builds it but leaves it off until `PYTHON_JIT=1`. LLVM is needed to build CPython with the JIT, never to run it.
+- <Since v="3.15" /> It was substantially upgraded: a new tracing front end, basic register allocation, and more optimisations. On pyperformance it is 7 to 8% faster than the standard interpreter (geometric mean) on x86-64 Linux, and 11 to 12% faster than the tail-calling interpreter on AArch64 macOS. Individual benchmarks range from about 15% slower to over twice as fast.
+
+<Since v="3.14" /> `sys._jit` reports the JIT's state. The underscore marks it as CPython-specific and experimental. The same script also checks for the tail-calling interpreter, using the build options recorded in `sysconfig` (not available on Windows):
+
+```python title="jit_status.py"
+import sys
+import sysconfig
+
+jit = getattr(sys, "_jit", None)          # added in 3.14, CPython only
+print("JIT built in:", jit is not None and jit.is_available())
+print("JIT enabled:", jit is not None and jit.is_enabled())
+
+args = sysconfig.get_config_var("CONFIG_ARGS") or ""   # None on Windows
+print("tail-calling interpreter:", "--with-tail-call-interp" in args)
+```
+
+The output depends on your interpreter. Here it is for a 3.15 build configured with the JIT set to `yes-off` and the tail-calling interpreter, run without and then with `PYTHON_JIT=1`, and for a distribution build without either:
+
+```console
+$ python3.15 jit_status.py
+JIT built in: True
+JIT enabled: False
+tail-calling interpreter: True
+$ PYTHON_JIT=1 python3.15 jit_status.py
+JIT built in: True
+JIT enabled: True
+tail-calling interpreter: True
+$ python3.13 jit_status.py
+JIT built in: False
+JIT enabled: False
+tail-calling interpreter: False
+```
+
+## When not to reach for the JIT
+
+For almost everyone, the answer today is: do not depend on it. It is experimental, its gains are modest on average and uneven between workloads, and some programs get slower. Programs that spend their time in C code, such as NumPy, regular expressions, I/O or database drivers, gain nothing, because the JIT only speeds up Python bytecode. Try it when you have a CPU-bound, pure-Python workload and a benchmark that represents it. Run with and without `PYTHON_JIT=1` several times, and adopt it only if the gain is clear and the test suite passes. An algorithmic fix from [Optimising Python code](../optimising-python/) almost always beats it.
+
+## Common pitfalls
+
+**Reading "tail-calling interpreter" as tail-call optimisation.** Python recursion depth is unchanged.
+
+**Claiming the JIT is on.** It is off by default everywhere, and present only in some builds.
+
+**Benchmarking the JIT on a short script.** It compiles only hot code, so a run of a few milliseconds measures warm-up, not steady state.
+
+**Writing type-unstable hot loops.** Mixing `int` and `float`, or switching object types, stops specialisation from applying.
+
+**Depending on `sys._jit` or opcode names.** Both are implementation details that change between releases.
+
+<Exercise title="Try the JIT on a benchmark">
+
+Run `jit_bench.py` (below) twice with your Python 3.15, once with `PYTHON_JIT=0` and once with `PYTHON_JIT=1`, three times each. First run `jit_status.py`: if it says `JIT built in: False`, both runs use the interpreter. The python.org installers for macOS and Windows include the JIT. Building CPython yourself with `./configure --enable-experimental-jit=yes-off` is an optional extra and needs LLVM. Expected: every run prints `points inside: 16236`, and the second line says whether the JIT was enabled. Compare the best time of each set.
+
+```python title="jit_bench.py"
+import sys
+import time
+
+
+def mandel_rows(size=250, limit=80):
+    inside = 0
+    for y in range(size):
+        for x in range(size):
+            c = complex(3.0 * x / size - 2.0, 2.0 * y / size - 1.0)
+            z = 0j
+            for _ in range(limit):
+                z = z * z + c
+                if abs(z) > 2.0:
+                    break
+            else:
+                inside += 1
+    return inside
+```
+
+```python title="jit_bench.py (continued)"
+start = time.perf_counter()
+result = mandel_rows()
+elapsed = time.perf_counter() - start
+jit = getattr(sys, "_jit", None)
+print("points inside:", result)
+print("JIT enabled:", jit is not None and jit.is_enabled())
+print(f"seconds: {elapsed:.3f}")
+```
+
+<Solution>
+
+On a Linux x86-64 machine with a JIT-capable 3.15 build, the best of three runs was:
+
+```console
+$ PYTHON_JIT=0 python3.15 jit_bench.py
+points inside: 16236
+JIT enabled: False
+seconds: 0.105
+$ PYTHON_JIT=1 python3.15 jit_bench.py
+points inside: 16236
+JIT enabled: True
+seconds: 0.105
+```
+
+No measurable difference. The inner loop is dominated by `complex` arithmetic and `abs`, which are C functions that the JIT calls rather than speeds up, and a run of a tenth of a second leaves little time for warm-up to pay off. A loop doing integer arithmetic on local variables would be a better candidate. This is the normal experience with the JIT today: some code gains, much does not, and only a measurement of your workload tells you which.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the re-specialisation">
+
+`add` is first warmed up with integers, then called 1,000 times with strings. Predict which `BINARY_OP` instruction `dis` shows at the end, then run it.
+
+```python title="respecialise.py"
+import dis
+
+
+def add(a, b):
+    return a + b
+
+
+def binary_ops(func):
+    return [i.opname for i in dis.get_instructions(func, adaptive=True)
+            if i.opname.startswith("BINARY_OP")]
+
+
+for _ in range(1_000):
+    add(2, 3)
+for _ in range(1_000):
+    add("py", "thon")
+print(binary_ops(add))
+```
+
+<Solution>
+
+```text
+['BINARY_OP_ADD_UNICODE']
+```
+
+The integer specialisation's type guard fails on the first string. After repeated misses, the instruction goes back to the generic form and specialises again for what it now sees, string concatenation. The adaptation is automatic, but each switch costs a warm-up period. A call site that alternates between types on every call cannot stay specialised.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Tail calls, but not that kind">
+
+A colleague says that since the 3.14 tail-calling interpreter, this tail-recursive function can count to 100,000. Predict the output, then rewrite `count` so it prints `100000`.
+
+```python title="tail_recursion.py"
+import sys
+
+
+def count(n, acc=0):
+    if n == 0:
+        return acc
+    return count(n - 1, acc + 1)          # a call in tail position
+
+
+print("recursion limit:", sys.getrecursionlimit())
+try:
+    print(count(100_000))
+except RecursionError as err:
+    print("RecursionError:", err)
+```
+
+<Solution>
+
+```text
+recursion limit: 1000
+RecursionError: maximum recursion depth exceeded
+```
+
+The tail-calling interpreter is about how CPython's C code dispatches opcodes, and Python frames are not reused, so each call still adds one. A tail-recursive function is a loop in disguise. Write it as one:
+
+```python title="tail_loop.py"
+def count(n, acc=0):
+    while n != 0:                         # the tail call, as a loop
+        n, acc = n - 1, acc + 1
+    return acc
+
+
+print(count(100_000))
+```
+
+```text
+100000
+```
+
+Raising the limit with `sys.setrecursionlimit` would also work here, but it only moves the limit. The loop uses constant memory, whatever the size of `n`.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- CPython runs bytecode. Since 3.11 the specialising adaptive interpreter rewrites hot instructions for the types they see, so type-stable code is fast.
+- <Since v="3.14" /> The tail-calling interpreter is a faster way to build the interpreter loop. It does not optimise Python tail calls. <Since v="3.15" /> The official Windows x64 binaries use it.
+- The JIT is experimental and off by default. <Since v="3.15" /> It was upgraded, and averages 7 to 12% on the benchmark suite, with a wide spread. Turn it on with `PYTHON_JIT=1` where it is built in, and check with `sys._jit`.
+- Algorithmic and data-structure changes still beat any interpreter tier. This completes the Performance module.

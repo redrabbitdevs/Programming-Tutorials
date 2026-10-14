@@ -1,0 +1,4 @@
+plus_equals  linear
+prepend      quadratic
+join         linear
+string_io    linear

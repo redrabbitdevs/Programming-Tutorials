@@ -1,0 +1,4 @@
+b'GET /index\n' bytes
+bytearray(b'Host: example\npartial')
+b'Host: example\npartial'
+buffer now empty: True

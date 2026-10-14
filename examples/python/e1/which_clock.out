@@ -1,0 +1,5 @@
+perf_counter monotonic=True adjustable=False
+process_time monotonic=True adjustable=False
+time         monotonic=False adjustable=True
+wall clock saw the sleep: True
+CPU clock ignored it: True
