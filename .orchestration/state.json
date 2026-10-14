@@ -1,6 +1,6 @@
 {
- "updated": "2026-10-12",
- "pr_counter": 47,
+ "updated": "2026-10-14",
+ "pr_counter": 60,
  "phase": "content",
  "decisions": {
   "stack": "Astro + MDX, custom design (no stock docs theme), deployed to GitHub Pages",
@@ -103,8 +103,8 @@
   },
   {
    "id": "M7",
-   "name": "Python: Advanced",
-   "status": "pending"
+   "name": "Python advanced level (27 lessons, audited)",
+   "status": "complete"
   },
   {
    "id": "M8",
@@ -118,7 +118,12 @@
   },
   {
    "id": "M7",
-   "name": "Python advanced level",
+   "name": "Python advanced level (27 lessons, audited)",
+   "status": "complete"
+  },
+  {
+   "id": "M8",
+   "name": "Python expert level",
    "status": "in_progress"
   }
  ],
@@ -300,13 +305,61 @@
   {
    "n": 46,
    "title": "Add Python intermediate end-of-level project (lesson 42) and sync the outline"
+  },
+  {
+   "n": 48,
+   "title": "Add Python advanced module A1: Typing in depth (lessons 1\u20137)"
+  },
+  {
+   "n": 49,
+   "title": "Add Python advanced module A2: Advanced data handling (lessons 8\u201313)"
+  },
+  {
+   "n": 50,
+   "title": "Add Python advanced module A4: Metaprogramming (lessons 21\u201326)"
+  },
+  {
+   "n": 51,
+   "title": "Add Python advanced module A3: Concurrency and parallelism (lessons 14\u201320)"
+  },
+  {
+   "n": 52,
+   "title": "Add W4 gap audit for the Python advanced level"
+  },
+  {
+   "n": 53,
+   "title": "Add W4 Improver review for the Python advanced level"
+  },
+  {
+   "n": 54,
+   "title": "Wrap console blocks, per-language level blurbs, level jump links, dunder heading check"
+  },
+  {
+   "n": 55,
+   "title": "Apply advanced-audit fixes to A1 (01\u201307) and A4 (21\u201326)"
+  },
+  {
+   "n": 56,
+   "title": "Make the dunder heading check fail for advanced lessons too"
+  },
+  {
+   "n": 57,
+   "title": "Apply advanced-audit fixes to A2 and A3 (lessons 08\u201320)"
+  },
+  {
+   "n": 58,
+   "title": "Add forward links from Python intermediate lessons to advanced lessons"
+  },
+  {
+   "n": 59,
+   "title": "Add the advanced capstone: an async plugin job runner (lesson 27)"
   }
  ],
  "next_actions": [
-  "Running: Python A1 'Typing in depth' (Writer on Opus)",
-  "Then: A2 data handling, A3 concurrency, A4 metaprogramming",
-  "Then: W4 advanced audit",
-  "Sync beginner section of research/python/outline.md (37 built, 31 listed)",
+  "Running: Python E1 Performance and E2 CPython internals (Writers on Opus)",
+  "Then: E3 Production Python",
+  "Then: W4 expert audit",
+  "Then: next tier-1 language (JavaScript) via W1 research",
   "Retry W5 batch 3 when Wikipedia allows"
  ],
  "escalations": [],
@@ -452,16 +505,6 @@
   },
   {
    "wf": "W2",
-   "item": "Python I1",
-   "status": "running"
-  },
-  {
-   "wf": "W2",
-   "item": "Fundamentals F4",
-   "status": "running"
-  },
-  {
-   "wf": "W2",
    "item": "Fundamentals F5",
    "status": "complete"
   },
@@ -528,13 +571,63 @@
   {
    "wf": "W2",
    "item": "Python A1",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python A2",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python A3",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python A4",
+   "status": "complete"
+  },
+  {
+   "wf": "W4",
+   "item": "Advanced audit: Gap Finder + Improver",
+   "status": "complete"
+  },
+  {
+   "wf": "W3",
+   "item": "Console wrap, level blurbs, jump links, heading check",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Advanced fixes X and Y",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Forward links",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Advanced capstone",
+   "status": "complete"
+  },
+  {
+   "wf": "W2",
+   "item": "Python E1",
+   "status": "running"
+  },
+  {
+   "wf": "W2",
+   "item": "Python E2",
    "status": "running"
   }
  ],
  "agents": {
   "advisor": {
    "status": "waiting",
-   "task": "Intermediate level complete (#46); waiting on A1 Writer"
+   "task": "Advanced level complete (#59); waiting on E1/E2"
   },
   "researcher": {
    "status": "done",
@@ -546,7 +639,7 @@
   },
   "writer": {
    "status": "working",
-   "task": "W2 (Opus): Python A1 'Typing in depth'"
+   "task": "W2 (Opus) \u00d72: Python E1 Performance, E2 CPython internals"
   },
   "validator": {
    "status": "idle"
@@ -565,8 +658,8 @@
   }
  },
  "lessons": {
-  "written": 107,
-  "planned": 153
+  "written": 134,
+  "planned": 152
  },
  "language_status": {
   "python": "in_progress"
@@ -865,6 +958,12 @@
    "from": "advisor",
    "to": "github",
    "msg": "PRs 38\u201346 merged: I5, dates lesson, W4 intermediate audit and fixes, UI sidebar/output frames, lesson/version checks, intermediate project. Intermediate level complete (42 lessons). A1 typing in progress."
+  },
+  {
+   "t": "09:17",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PRs 48\u201359 merged: Python advanced level complete (27 lessons) and audited; strict heading check; forward links. Expert E1/E2 in progress."
   }
  ],
  "model_review": [
@@ -929,7 +1028,12 @@
    "I3",
    "I4",
    "I5",
-   "I-project"
+   "I-project",
+   "A1",
+   "A2",
+   "A3",
+   "A4",
+   "A-project"
   ],
   "fundamentals": [
    "F1",
@@ -942,6 +1046,9 @@
  "catalog_fixes_needed": [],
  "audit_backlog": [
   "Retry W5 summaries batch 3+ when Wikipedia rate limit clears (545 templated summaries remain)",
-  "Python 3.11 reaches end of life in October 2027: bump OLDEST_SUPPORTED in site/src/lib/versions.ts"
+  "Python 3.11 reaches end of life in October 2027: bump OLDEST_SUPPORTED in site/src/lib/versions.ts",
+  "Advanced follow-ups not done: deadlock demo, threading.local/contextvars, as_completed, checker-transcript verification script",
+  "Catalog: Gap Finder flagged ~30 possibly missing languages in languages.json",
+  "InterpreterPoolExecutor lost module globals in a genexpr on 3.15.0 (unconfirmed; not claimed as a bug)"
  ]
 }
