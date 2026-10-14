@@ -1,0 +1,14 @@
+{
+  "timeout": 0.5,
+  "workers": 2,
+  "jobs": [
+    {"id": "motto", "kind": "words",
+     "text": "Simple is better than complex. Complex is better than complicated."},
+    {"id": "server-log", "kind": "levels",
+     "log": "09:00:01 INFO start\n09:00:02 WARN disk 91%\n09:00:05 ERROR disk full\nnot a log line\n09:00:09 INFO retry"},
+    {"id": "primes", "kind": "primes", "below": 30000},
+    {"id": "primes-bad", "kind": "primes", "below": 1},
+    {"id": "quick-api", "kind": "wait", "seconds": 0.1},
+    {"id": "slow-api", "kind": "wait", "seconds": 5}
+  ]
+}

@@ -1,0 +1,4 @@
+patient    ok       waited 0.3s
+impatient  timeout  no result after 0.05s
+normal     ok       waited 0.05s
+3 jobs: 2 ok, 1 timeout

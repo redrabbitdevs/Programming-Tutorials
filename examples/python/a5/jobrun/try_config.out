@@ -1,0 +1,7 @@
+2.0 1
+WordCount(job_id='w', text='hi there')
+Primes(job_id='p', below=10)
+ConfigError: x: unknown kind 'teleport'
+ConfigError: p: 'primes' needs an int 'below'
+ConfigError: a job needs a string id and kind: {'kind': 'words', 'text': 'no id'}
+ConfigError: a job needs a string id and kind: ['not', 'a', 'job']

@@ -1,0 +1,6 @@
+motto | ok | is=2, better=2, than=2
+server-log | ok | INFO=2 WARN=1 ERROR=1 ?=1
+primes | ok | 3245 primes below 30000
+primes-bad | failed | ValueError: below must be at least 2, got 1
+quick-api | ok | waited 0.1s
+slow-api | timeout | no result after 0.5s
