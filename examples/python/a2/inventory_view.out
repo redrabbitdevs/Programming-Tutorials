@@ -1,2 +1,0 @@
-5 {'pen': 5}
-TypeError: 'mappingproxy' object does not support item assignment

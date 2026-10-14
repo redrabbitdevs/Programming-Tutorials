@@ -4,20 +4,19 @@ level: advanced
 module: Advanced data handling
 order: 12
 title: Regular expressions
-description: Find, validate and extract text patterns with the re module, from character classes and greedy quantifiers to named groups, flags and substitution.
+description: Write regular expressions you can maintain and trust, with named groups, lookaround, verbose patterns, tokenizers, possessive quantifiers and patterns that cannot backtrack catastrophically.
 minVersion: "3.10"
 objectives:
   - Choose between search, fullmatch, findall and finditer, and prefixmatch or match for the start of a string
-  - Read and write character classes, quantifiers and anchors, and tell greedy from lazy matching
-  - Extract fields with numbered and named groups
-  - Compile readable patterns with re.VERBOSE and other flags, and rewrite text with re.sub
-estimatedMinutes: 50
+  - Extract fields with named groups and backreferences, and assert context with lookahead and lookbehind
+  - Build readable patterns with re.VERBOSE, and a tokenizer from named alternatives
+  - Explain catastrophic backtracking, and remove it with an unambiguous pattern, a possessive quantifier or an atomic group
+  - Decide when a regular expression is the wrong tool
+estimatedMinutes: 55
 fundamentals: []
 ---
 
-[String methods](../../beginner/string-methods/) such as `split`, `startswith` and `replace` handle fixed text. When the text varies, "four digits, a space, then two capital letters", you need a **regular expression**: a small pattern language that the `re` module matches against strings. Patterns are written as raw strings, `r"..."`, so that a backslash reaches `re` unchanged instead of starting a Python escape.
-
-Reach for a regular expression to find, validate or pull apart text with a regular shape. For data formats with a real parser, such as JSON, CSV, HTML or dates, use the parser.
+The [standard library tour](../../intermediate/stdlib-tour/#regular-expressions) introduced `re.search`, `re.findall`, groups and `re.sub`. This lesson takes regular expressions to the level you need for parsing logs, tokenizing input and validating text that comes from users: lookaround, verbose patterns, tokenizers, and the backtracking behaviour that can make one pattern freeze a server. Patterns are written as raw strings, `r"..."`, so that a backslash reaches `re` unchanged.
 
 ## Searching versus matching the whole string
 
@@ -40,43 +39,20 @@ print(re.fullmatch(r"\d+", "1042a"))
 None
 ```
 
-`\d+` means "one or more digits". `search` found `1042` at positions 6 to 10. `fullmatch` rejected `"1042a"` because the `a` is left over.
+`fullmatch` rejected `"1042a"` because the `a` is left over. Writing `^...$` with `search` is weaker: `$` also matches before a trailing newline.
 
-## The pattern language
-
-A handful of pieces cover most patterns:
+## The pattern language, in brief
 
 | Piece | Matches |
 |---|---|
 | `\d`, `\w`, `\s` | a digit, a word character (letter, digit or `_`), a whitespace character |
 | `[0-9a-f]`, `[^>]` | one character from a set, or one character *not* in it |
 | `.` | any character except a newline |
-| `*`, `+`, `?` | zero or more, one or more, zero or one of the previous item |
-| `{4}`, `{2,5}` | exactly 4, or between 2 and 5 |
-| `^`, `$` | the start and the end of the string |
-| `a\|b` | either alternative |
+| `*`, `+`, `?`, `{2,5}` | zero or more, one or more, zero or one, between 2 and 5 of the previous item |
+| `^`, `$`, `\b` | the start and the end of the string, a word boundary |
+| `a\|b`, `(?:...)` | either alternative, a group that does not capture |
 
-```python title="re_syntax.py"
-import re
-
-print(re.findall(r"\d{4}", "2026-10-12"))
-print(re.findall(r"[0-9]+", "12/10/2026"))
-print(re.findall(r"\w+", "id_42, x-ray"))
-print(re.findall(r"\s+", "a  b\tc"))
-print(re.findall(r"colou?r", "color colour colouur"))
-print(re.findall(r"^\w+|\w+$", "first middle last"))
-```
-
-```text
-['2026']
-['12', '10', '2026']
-['id_42', 'x', 'ray']
-['  ', '\t']
-['color', 'colour']
-['first', 'last']
-```
-
-To match a character that has a special meaning, such as `.`, `[` or `(`, put a backslash before it: `\.` matches a literal full stop.
+A backslash before a special character matches it literally: `\.` is a full stop.
 
 ## Greedy and lazy quantifiers
 
@@ -97,9 +73,9 @@ print(re.findall(r"<[^>]+>", html))
 ['<b>', '</b>', '<i>', '</i>']
 ```
 
-`<.+>` ran from the first `<` to the last `>`. `<.+?>` stopped at the first `>` each time. The third pattern says what it means, "a `<`, then anything that is not `>`", and is usually the most robust choice.
+The third pattern says what it means, "a `<`, then anything that is not `>`", and is usually the best choice. As the last section shows, it also cannot backtrack badly.
 
-## Groups
+## Groups and backreferences
 
 Parentheses make a **group**. A `Match` object gives back what each group matched, numbered from 1, and group 0 is the whole match:
 
@@ -131,7 +107,7 @@ ERROR disk full
 {'date': '2026-10-12', 'time': '14:03', 'level': 'ERROR', 'msg': 'disk full'}
 ```
 
-When a pattern has groups, `findall` returns the groups instead of the whole match: a tuple per match when there are several. `(?:...)` groups without capturing, for applying `?` to the decimal part here. `finditer` yields full `Match` objects, with positions:
+When a pattern has groups, `findall` returns the groups instead of the whole match, as a tuple per match when there are several. `finditer` yields full `Match` objects, with positions:
 
 ```python title="re_groups.py (continued)"
 prices = "tea 2.50, cake 3.75, water 1"
@@ -147,9 +123,49 @@ cake (10, 19)
 water (21, 28)
 ```
 
+A **backreference** matches the same text a group already matched. `(?P=name)` refers to a named group inside the pattern, and `\g<name>` inserts it in a replacement. Together they remove doubled words:
+
+```python title="re_groups.py (continued)"
+doubled = "it is is a a test"
+print(re.sub(r"\b(?P<word>\w+) (?P=word)\b", r"\g<word>", doubled))
+```
+
+```text
+it is a test
+```
+
+## Looking around without consuming
+
+A **lookaround** checks what comes before or after the current position without making it part of the match. `(?=...)` is a lookahead, `(?!...)` a negative lookahead, `(?<=...)` a lookbehind and `(?<!...)` a negative lookbehind:
+
+```python title="re_lookaround.py"
+import re
+
+bill = "tea $3.50, cake $4, 12 items, water €2"
+print(re.findall(r"(?<=\$)\d+(?:\.\d+)?", bill))
+print(re.findall(r"\d+(?= items)", bill))
+print(re.sub(r"(?<=\d)(?=(?:\d{3})+$)", ",", "1234567"))
+
+
+def strong(password):
+    return re.fullmatch(r"(?=.*\d)(?=.*[A-Z])\S{8,}", password) is not None
+
+
+print([strong(p) for p in ["hunter22", "Hunter22", "Hu2"]])
+```
+
+```text
+['3.50', '4']
+['12']
+1,234,567
+[False, True, False]
+```
+
+The amounts come back without the `$`. The third pattern matches no characters at all: it finds the positions that have a digit behind them and a multiple of three digits ahead, and `sub` inserts a comma at each one. In `strong`, each lookahead tests one rule from the start of the string, and `\S{8,}` then does the matching. A lookbehind must have a fixed width in `re`, so `(?<=\$\d*)` is an error.
+
 ## Compiling, flags and verbose patterns
 
-`re.compile` turns a pattern into a `Pattern` object with the same methods, `search`, `fullmatch` and the rest. Python caches recently used patterns, so compiling is less about speed than about naming a pattern once and reusing it. Flags change how a pattern is read. `re.IGNORECASE` ignores case, and `re.VERBOSE` ignores whitespace in the pattern and allows `#` comments, which turns a dense line into something you can review:
+`re.compile` turns a pattern into a `Pattern` object with the same methods. Python caches recently used patterns, so compiling is less about speed than about naming a pattern once. Flags change how a pattern is read. `re.IGNORECASE` ignores case, `re.MULTILINE` makes `^` and `$` match at every line, and `re.VERBOSE` ignores whitespace in the pattern and allows `#` comments:
 
 ```python title="re_verbose.py"
 import re
@@ -179,24 +195,52 @@ INFO web started
 no match: debug [x] y
 ```
 
-Flags combine with `|`. `re.MULTILINE` makes `^` and `$` match at the start and end of every line, not only of the whole string:
+## A tokenizer from named alternatives
 
-```python title="re_multiline.py"
+One verbose pattern with a named group per kind of token, joined by `|`, turns `finditer` into a **tokenizer**, the first stage of any parser. `m.lastgroup` names the alternative that matched. A final `.` catches anything else, so no character is skipped silently:
+
+```python title="tokenizer.py"
 import re
 
-text = "first line\nsecond line\nthird"
-print(re.findall(r"^\w+", text))
-print(re.findall(r"^\w+", text, re.MULTILINE))
+TOKEN = re.compile(
+    r"""
+    (?P<NUMBER>\d+(?:\.\d+)?)
+  | (?P<NAME>[A-Za-z_]\w*)
+  | (?P<OP>[-+*/()=])
+  | (?P<SKIP>\s+)
+  | (?P<ERROR>.)
+    """,
+    re.VERBOSE,
+)
+
+
+def tokens(text):
+    for m in TOKEN.finditer(text):
+        if m.lastgroup == "SKIP":
+            continue
+        if m.lastgroup == "ERROR":
+            raise SyntaxError(f"unexpected {m.group()!r} at {m.start()}")
+        yield m.lastgroup, m.group()
+```
+
+```python title="tokenizer.py (continued)"
+print(" ".join(f"{kind}:{text}" for kind, text in tokens("rate = 2.5*(x+10)")))
+try:
+    list(tokens("total = 3 $ 4"))
+except SyntaxError as error:
+    print("SyntaxError:", error)
 ```
 
 ```text
-['first']
-['first', 'second', 'third']
+NAME:rate OP:= NUMBER:2.5 OP:* OP:( NAME:x OP:+ NUMBER:10 OP:)
+SyntaxError: unexpected '$' at 10
 ```
+
+Alternatives are tried left to right, so order matters: `NUMBER` comes before `NAME`, and a keyword group would have to come before `NAME` too.
 
 ## Substitution
 
-`re.sub(pattern, replacement, text)` replaces every match. In the replacement, `\1` or `\g<name>` inserts what a group matched:
+In a replacement string, `\1` or `\g<name>` inserts what a group matched. The replacement can also be a function, which receives each `Match` and returns the text to put in its place:
 
 ```python title="re_sub.py"
 import re
@@ -213,8 +257,6 @@ Call 1234-555 or 9876-555.
 Call 555-**** or 555-****.
 ```
 
-The replacement can also be a function. It receives each `Match` and returns the text to put in its place. `\b` is a word boundary, so `\b[a-z]{2}\b` matches two-letter words only:
-
 ```python title="re_sub.py (continued)"
 def shout(m):
     return m.group(0).upper()
@@ -227,11 +269,61 @@ print(re.sub(r"\b[a-z]{2}\b", shout, "go to it or else"))
 GO TO IT OR else
 ```
 
+## Possessive quantifiers and atomic groups
+
+When the rest of a pattern fails, `re` **backtracks**: it makes an earlier quantifier give back characters and tries again. <Since v="3.11" /> Python 3.11 added two ways to forbid that. A **possessive quantifier**, `*+`, `++`, `?+` or `{m,n}+`, never gives back what it took. An **atomic group**, `(?>...)`, does the same for a whole group:
+
+```python title="re_atomic.py"
+import re
+
+print(re.fullmatch(r"\d+5", "12345"))
+print(re.fullmatch(r"\d++5", "12345"))
+print(re.fullmatch(r"(?>\d+)5", "12345"))
+```
+
+```text
+<re.Match object; span=(0, 5), match='12345'>
+None
+None
+```
+
+The greedy `\d+` first takes all five digits, then gives back the `5` so that the literal `5` can match. The possessive and atomic versions keep all five, so the match fails. That is what you want when giving back can never help, as in the next section.
+
+## Backtracking can be exponential
+
+Some patterns can match the same text in a huge number of ways. When the match then fails, `re` tries every one of them. `(\w+\s?)*` is the classic case: with no spaces in the input, a run of letters can be split between the repetitions of `\w+` in 2<sup>n-1</sup> ways. On one laptop with 3.15, `fullmatch` on 24 letters followed by `!` took about a second and a half, and each extra letter roughly doubles the time. A user who can send such a string can stall your program: a **ReDoS** (regular expression denial of service) attack.
+
+The fix is a pattern in which every character can be matched in only one way, or, <Since v="3.11" /> with a possessive quantifier, one that refuses to backtrack:
+
+```python title="redos.py"
+import re
+
+SLOW = re.compile(r"(\w+\s?)*")  # never run this on text you do not control
+FAST = re.compile(r"\w+(?:\s\w+)*")
+ATOMIC = re.compile(r"(?:\w+\s?)*+")
+
+samples = ["two words", "one", "bad!"]
+for pattern in (SLOW, FAST, ATOMIC):
+    print([pattern.fullmatch(s) is not None for s in samples])
+
+hostile = "a" * 100_000 + "!"
+print(FAST.fullmatch(hostile), ATOMIC.fullmatch(hostile))
+```
+
+```text
+[True, True, False]
+[True, True, False]
+[True, True, False]
+None None
+```
+
+All three agree on ordinary input. `FAST` needs a space between two `\w+` runs, so there is only one way to split the text. `ATOMIC` keeps the ambiguous body but never revisits it. Both reject 100,000 hostile characters at once. Warning signs are nested quantifiers such as `(a+)+` or `(\w+\s?)*`, and alternatives that overlap, such as `(a|a)*`. The `re` module has no timeout. The third-party `regex` module offers one, and bindings to Google's RE2 guarantee linear time by leaving out backreferences and lookaround.
+
 ## prefixmatch and match
 
-There is one more way to match: only at the start of the string, without having to cover all of it. For thirty years this was called `re.match`, and the name misled people, because in most other languages `match` means what Python calls `search`.
+Matching only at the start of the string, without covering all of it, was long called `re.match`, a name that misled people: in most other languages `match` means what Python calls `search`.
 
-<Since v="3.15" /> Python 3.15 adds `re.prefixmatch` and `Pattern.prefixmatch` as the clearer name and soft-deprecates `match`. Soft deprecation means the old name keeps working and will not be removed; new code that only targets 3.15 should prefer `prefixmatch`:
+<Since v="3.15" /> Python 3.15 adds `re.prefixmatch` and `Pattern.prefixmatch` as the clearer name and soft-deprecates `match`. Soft deprecation means the old name keeps working and will not be removed:
 
 ```python title="re_prefixmatch.py"
 import re
@@ -251,15 +343,19 @@ print(re.prefixmatch(r"\d+", "7 days").group())
 7
 ```
 
-For code that also runs on older versions, keep using `re.match`, or write `re.search(r"\A...")`, where `\A` anchors at the start of the string on every version.
+For code that also runs on older versions, keep using `re.match`, or write `re.search(r"\A...")`.
+
+## When not to use a regular expression
+
+Use `str` methods for fixed text: `startswith`, `in`, `split` and `replace` are clearer and faster. Use a real parser for formats with nesting or quoting rules, such as HTML, JSON, CSV, dates and URLs: `html.parser`, `json`, `csv`, `datetime.strptime` and `urllib.parse` already handle the cases your pattern would miss. A pattern longer than a line or two without `re.VERBOSE` is a maintenance problem, and code that builds a pattern or a query out of user input belongs with [template strings](../template-strings/), which keep the parts apart.
 
 ## Common pitfalls
 
 - **`search` for validation.** It accepts a valid piece anywhere in the string. Use `fullmatch`.
 - **Forgetting the `r` prefix.** In a normal string `"\b"` is a backspace character, so the pattern silently means something else.
-- **Greedy `.*` across delimiters.** Use a lazy `.*?` or a negated class such as `[^"]*`.
-- **Calling `.group()` on `None`.** When nothing matches, `search` returns `None`, and `None.group()` raises `AttributeError`. Check the result first.
-- **Patterns that can match nothing.** `\d*` matches the empty string at position 0 of `"abc"`. Use `+` when at least one character is required.
+- **Greedy `.*` across delimiters.** Use a negated class such as `[^"]*`.
+- **Calling `.group()` on `None`.** When nothing matches, `search` returns `None`. Check the result first.
+- **Nested quantifiers on untrusted input.** `(\w+\s?)*` and `(a+)+` backtrack exponentially. Make the pattern unambiguous, or possessive.
 
 <Exercise title="A log-line parser">
 Write a compiled, verbose pattern with named groups for the lines below: a date, a time, a level, a module name in brackets and a message. Use `fullmatch`, print each line as time, level, module and message, and skip lines that do not fit. Expected output:
@@ -325,75 +421,58 @@ In verbose mode spaces in the pattern are ignored, so each real space is written
 </Solution>
 </Exercise>
 
-<Exercise title="Predict: greedy, lazy and empty">
-What does this print?
+<Exercise title="Predict: lookaround">
+What does this print? Remember that a lookaround matches a position, not characters.
 
-```python title="predict_regex.py"
+```python title="predict_lookaround.py"
 import re
 
-text = 'name="ada" role="admin"'
-print(re.findall(r'"(.*)"', text))
-print(re.findall(r'"(.*?)"', text))
-print(repr(re.search(r"\d*", "abc123").group()))
+print(re.findall(r"\d+(?=px)", "10px 2em 30px"))
+print(re.findall(r"(?<!-)\b\d+", "-5 7 -12 40"))
+print(re.sub(r"(?=\d{3}$)", ".", "1999"))
 ```
 
 <Solution>
 
 ```text
-['ada" role="admin']
-['ada', 'admin']
-''
+['10', '30']
+['7', '40']
+1.999
 ```
 
-The greedy `.*` runs from the first quote to the last one, taking the text in between with it. The lazy version stops at the next quote, so it finds both values. `\d*` can match zero digits, and `search` returns the first position where the pattern matches: position 0, with an empty match, before it ever reaches `123`.
+The lookahead requires `px` after the digits but leaves it out of the match, and `2` fails because `em` follows it. In the second line, `5` and the `1` of `12` have a minus sign before them. The `2` of `12` has no minus before it, but there is no word boundary between `1` and `2`, so `\b` fails. The last pattern matches only the empty position that has exactly three digits after it, between `1` and `999`, and `sub` inserts a full stop there.
 
 </Solution>
 </Exercise>
 
-<Exercise title="Fix the postcode check">
-This function should accept four digits, an optional space and two capital letters, and nothing else. It currently prints `True` for all four inputs. Fix it so that it prints:
+<Exercise title="Defuse a slow validator">
+A form checks a list of comma-separated numbers with `re.search(r"^(\d+,?)+$", text)`. A user sent 30 digits followed by `x`, and the check took minutes. Write `is_number_list(text)` with `fullmatch` and a pattern that can split the text in only one way. Empty items and a trailing comma are not allowed. For `["1,2,3", "10", "1,,2", "1,2,", "1" * 50_000 + "x"]` it should print, at once:
 
 ```text
-1234 AB True
-1234AB True
-x1234 ABCD False
-12345 AB False
-```
-
-```python title="postcode_broken.py"
-import re
-
-
-def is_postcode(text):
-    return re.search(r"\d{4} ?[A-Z]{2}", text) is not None
-
-
-for code in ["1234 AB", "1234AB", "x1234 ABCD", "12345 AB"]:
-    print(code, is_postcode(code))
+[True, True, False, False, False]
 ```
 
 <Solution>
 
-```python title="postcode_fixed.py"
+```python title="number_list.py"
 import re
 
-
-def is_postcode(text):
-    return re.fullmatch(r"\d{4} ?[A-Z]{2}", text) is not None
+NUMBER_LIST = re.compile(r"\d+(?:,\d+)*")
 
 
-for code in ["1234 AB", "1234AB", "x1234 ABCD", "12345 AB"]:
-    print(code, is_postcode(code))
+def is_number_list(text):
+    return NUMBER_LIST.fullmatch(text) is not None
+
+
+tests = ["1,2,3", "10", "1,,2", "1,2,", "1" * 50_000 + "x"]
+print([is_number_list(t) for t in tests])
 ```
 
 ```text
-1234 AB True
-1234AB True
-x1234 ABCD False
-12345 AB False
+[True, True, False, False, False]
 ```
 
-`search` found a valid postcode inside `"x1234 ABCD"` and inside `"12345 AB"` (as `2345 AB`). `fullmatch` requires the pattern to cover the whole string. Writing `^...$` with `search` also works, but `$` accepts a trailing newline, so `fullmatch` is the stricter tool.
+In `(\d+,?)+` the comma is optional, so a run of digits can be split between repetitions in exponentially many ways. In `\d+(?:,\d+)*`, every repetition after the first starts with a comma, so each digit belongs to exactly one place. The rewrite also rejects the trailing comma, which the original accepted. `(?:\d+,?)++` would also be fast, but would keep accepting `"1,2,"`.
 
 </Solution>
 </Exercise>
@@ -401,8 +480,10 @@ x1234 ABCD False
 ## Summary
 
 - `search` finds a match anywhere, `fullmatch` validates the whole string, and `findall` and `finditer` find every match.
-- Classes (`\d`, `[...]`), quantifiers (`+`, `{m,n}`) and anchors build patterns. Quantifiers are greedy unless followed by `?`.
-- Groups extract parts. Name them with `(?P<name>...)` and read them with `m["name"]` or `groupdict()`.
-- `re.compile` with `re.VERBOSE` makes long patterns readable. `re.sub` rewrites text using groups or a function.
+- Name groups with `(?P<name>...)`, refer back with `(?P=name)` and `\g<name>`.
+- Lookahead and lookbehind check context without consuming it, and can match an empty position.
+- `re.VERBOSE` makes long patterns readable, and named alternatives with `finditer` and `lastgroup` make a tokenizer.
+- <Since v="3.11" /> Possessive quantifiers and atomic groups never give back what they matched.
+- Nested or overlapping quantifiers can backtrack exponentially. Write patterns that match each character in one way.
 - <Since v="3.15" /> `prefixmatch` is the new name for matching at the start, and `match` stays for older versions.
 - Next: [algorithms the Pythonic way](../algorithms-py/).

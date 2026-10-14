@@ -4,19 +4,21 @@ level: advanced
 module: Advanced data handling
 order: 9
 title: The collections module
-description: Count with Counter, group with defaultdict, queue with deque, name tuple fields with namedtuple, and layer settings with ChainMap.
+description: Multiset arithmetic with Counter, grouping with defaultdict, an LRU cache with OrderedDict, records with namedtuple, scopes with ChainMap, and your own mappings with UserDict and the collections.abc classes.
 minVersion: "3.10"
 objectives:
   - Do multiset arithmetic with Counter, and know which operations drop zero and negative counts
   - Group values with defaultdict, and avoid the keys it creates on lookup
-  - Use deque as a queue, a stack, a ring and a bounded buffer
+  - Build an LRU cache with OrderedDict.move_to_end
   - Choose between namedtuple, typing.NamedTuple and a dataclass for small records
-  - Layer configuration sources with ChainMap
-estimatedMinutes: 45
-fundamentals: ["fundamentals/beginner/16-stacks-queues-linked"]
+  - Model layered settings and nested scopes with ChainMap
+  - Write your own mapping with UserDict or collections.abc.Mapping instead of subclassing dict
+  - Flatten and merge with unpacking in comprehensions (3.15)
+estimatedMinutes: 55
+fundamentals: ["fundamentals/beginner/14-maps-and-sets", "fundamentals/beginner/16-stacks-queues-linked"]
 ---
 
-You have met `Counter` in the [standard library tour](../../intermediate/stdlib-tour/) and `deque` in [choosing the right collection](../../beginner/choosing-collections/). The `collections` module holds five containers that each solve one recurring problem better than a plain `dict` or `list`. This lesson goes through what each is for, and the behaviour that trips people up. The general ideas behind stacks and queues are in [stacks, queues and linked lists](../../../fundamentals/beginner/stacks-queues-linked/) in the fundamentals track.
+You have met `Counter` in the [standard library tour](../../intermediate/stdlib-tour/) and `deque` in [choosing the right collection](../../beginner/choosing-collections/), and [abstract base classes](../../intermediate/abc-protocols/) at the intermediate level. This lesson goes further: multiset arithmetic, the containers the earlier lessons skipped, and how to write a mapping of your own. The general ideas behind maps, stacks and queues are in the fundamentals track, in [maps and sets](../../../fundamentals/beginner/maps-and-sets/) and [stacks, queues and linked lists](../../../fundamentals/beginner/stacks-queues-linked/).
 
 ## Counter arithmetic
 
@@ -112,48 +114,47 @@ True 4
 
 `get` does not trigger the factory, so the length stayed at 3. Reading `by_letter["z"]` created an empty list for `"z"`, and now the dictionary has 4 keys. In code that only checks for a key, use `in` or `get`, or convert to a plain `dict` once the grouping is done.
 
-## deque: both ends are cheap
+## OrderedDict for an LRU cache
 
-A `list` is fast at its end but slow at its front: `list.pop(0)` moves every remaining item one place to the left. A `deque` adds and removes at either end in constant time, which makes it the standard queue. Used only at its right end, it is also a stack:
+A plain `dict` keeps insertion order, so `OrderedDict` is no longer needed for that. It survives for two operations a `dict` lacks: `move_to_end(key)` moves a key to the end, or to the front with `last=False`, and `popitem(last=False)` removes the oldest key. Together they make a **least recently used** (LRU) cache: every use moves a key to the end, so the front is always the key to evict:
 
-```python title="deque_queue.py"
-from collections import deque
+```python title="lru_ordered.py"
+from collections import OrderedDict
 
-queue = deque(["ada", "ben"])
-queue.append("cy")
-print(queue.popleft(), queue)
 
-stack = deque()
-for page in ["home", "docs", "faq"]:
-    stack.append(page)
-print(stack.pop(), stack.pop(), stack)
+class LRUCache:
+    def __init__(self, size):
+        self.size = size
+        self.data = OrderedDict()
+
+    def get(self, key):
+        if key not in self.data:
+            return None
+        self.data.move_to_end(key)  # now the most recently used
+        return self.data[key]
+
+    def put(self, key, value):
+        self.data[key] = value
+        self.data.move_to_end(key)
+        if len(self.data) > self.size:
+            self.data.popitem(last=False)  # drop the least recently used
+
+
+cache = LRUCache(2)
+cache.put("a", 1)
+cache.put("b", 2)
+cache.get("a")
+cache.put("c", 3)
+print(list(cache.data), cache.get("b"))
 ```
 
 ```text
-ada deque(['ben', 'cy'])
-faq docs deque(['home'])
+['a', 'c'] None
 ```
 
-Two features have no `list` equivalent. `rotate(n)` moves the last `n` items to the front, or the first ones to the back when `n` is negative. And `maxlen` makes a bounded buffer that drops items from the opposite end as new ones arrive:
+Reading `a` made `b` the oldest key, so adding `c` evicted `b`. Both operations take constant time. For caching a function's results, `functools.lru_cache` already does this. Write your own when the cache needs to hold something other than return values, or to report what it evicts.
 
-```python title="deque_queue.py (continued)"
-ring = deque([1, 2, 3, 4, 5])
-ring.rotate(2)
-print(ring)
-ring.rotate(-1)
-print(ring)
-
-last_three = deque(range(10), maxlen=3)
-print(last_three, last_three[0])
-```
-
-```text
-deque([4, 5, 1, 2, 3])
-deque([5, 1, 2, 3, 4])
-deque([7, 8, 9], maxlen=3) 7
-```
-
-The trade-off is indexing. `d[0]` and `d[-1]` are fast, but reaching the middle of a long deque is slow, and a deque cannot be sliced. If you index into the middle, use a list.
+A `deque` is the other ordered container here. Beyond the queue operations from the beginner lesson, `rotate(n)` moves the last `n` items to the front, and `maxlen` makes a bounded buffer, as the first exercise uses.
 
 ## namedtuple: a tuple with field names
 
@@ -246,13 +247,136 @@ auto never
 
 `defaults` kept `"auto"`: the assignment landed in `from_cli`. Since a `ChainMap` is a view, a later change to `defaults` shows through it immediately.
 
+The same structure models **scopes**, the way Python itself looks up a name: local, then module, then built-in. Each function call adds a child in front, and assignments land in the innermost scope:
+
+```python title="chainmap_scopes.py"
+from collections import ChainMap
+
+builtins = {"print": "<built-in print>", "len": "<built-in len>"}
+module = ChainMap({"x": 1, "len": 3}, builtins)
+function = module.new_child({"y": 2})
+
+print(function["x"], function["y"], function["print"], function["len"])
+function["x"] = 99  # a local assignment shadows the module's x
+print(function["x"], module["x"], function.maps[0])
+print(function.parents == module)
+```
+
+```text
+1 2 <built-in print> 3
+99 1 {'y': 2, 'x': 99}
+True
+```
+
+The module's `len` shadows the built-in one, exactly the bug a module-level `len = 3` causes. `maps` is the list of layers, and `parents` is a new `ChainMap` without the first one, the scope a function returns to.
+
+## UserDict: when you need a custom dict
+
+To change how a mapping stores keys, subclassing `dict` looks natural, but `dict`'s own methods do not call your overrides. `__init__` and `update` write directly into the table, bypassing `__setitem__`. `collections.UserDict` keeps its data in a real dict at `self.data`, and all its methods go through the mapping methods, so one override covers every path:
+
+```python title="userdict_lower.py"
+from collections import UserDict
+
+
+class LowerDict(dict):
+    def __setitem__(self, key, value):
+        super().__setitem__(key.lower(), value)
+
+
+class LowerUserDict(UserDict):
+    def __setitem__(self, key, value):
+        super().__setitem__(key.lower(), value)
+
+
+for cls in (LowerDict, LowerUserDict):
+    d = cls({"Host": "db"})
+    d.update(Port=5432)
+    d["USER"] = "ada"
+    print(cls.__name__, sorted(d))
+```
+
+```text
+LowerDict ['Host', 'Port', 'user']
+LowerUserDict ['host', 'port', 'user']
+```
+
+Only the explicit `d["USER"]` assignment reached the `dict` subclass's override. Subclass `dict` when you only add methods, or override `__missing__`, the hook `defaultdict` uses. When you change behaviour, use `UserDict`.
+
+## Your own mapping from collections.abc
+
+When the data does not live in a dict at all, inherit from `collections.abc.Mapping` and write three methods: `__getitem__`, `__iter__` and `__len__`. The class then gets `get`, `keys`, `items`, `values`, `in`, `==` and the rest for free, and `isinstance(x, Mapping)` is true. `MutableMapping` adds `__setitem__` and `__delitem__` to the list and gives you `update`, `pop` and `setdefault`. Here is a read-only view of environment variables with a prefix:
+
+```python title="mapping_abc.py"
+from collections.abc import Mapping
+
+
+class EnvView(Mapping):
+    """Read-only view of the variables that start with a prefix."""
+
+    def __init__(self, environ, prefix):
+        self._environ = environ
+        self._prefix = prefix
+
+    def __getitem__(self, key):
+        return self._environ[self._prefix + key]
+
+    def __iter__(self):
+        n = len(self._prefix)
+        return (k[n:] for k in self._environ if k.startswith(self._prefix))
+
+    def __len__(self):
+        return sum(1 for _ in self)
+
+
+env = {"APP_HOST": "db", "APP_PORT": "5432", "HOME": "/home/ada"}
+app = EnvView(env, "APP_")
+print(dict(app), len(app))
+print("PORT" in app, app.get("USER", "-"), app == {"HOST": "db", "PORT": "5432"})
+```
+
+```text
+{'HOST': 'db', 'PORT': '5432'} 2
+True - True
+```
+
+`get`, `in` and `==` came from the base class, built on the three methods. If you only need type checkers to accept "anything with `__getitem__`", a [protocol](../protocols-structural/) is lighter than inheriting.
+
+## Flattening and merging
+
+<Since v="3.15" /> Python 3.15 allows `*` and `**` unpacking inside comprehensions ([PEP 798](https://peps.python.org/pep-0798/)). `[*batch for batch in batches]` flattens one level, and `{**d for d in dicts}` merges dictionaries with later keys winning:
+
+```python title="flatten_merge.py"
+from itertools import chain
+
+batches = [["ada", "ben"], [], ["cy"]]
+print([name for batch in batches for name in batch])
+print(list(chain.from_iterable(batches)))
+print([*batch for batch in batches])
+
+layers = [{"width": 80, "colour": "auto"}, {"width": 100}, {"colour": "never"}]
+print({**layer for layer in layers})
+```
+
+```text
+['ada', 'ben', 'cy']
+['ada', 'ben', 'cy']
+['ada', 'ben', 'cy']
+{'width': 100, 'colour': 'never'}
+```
+
+The three lists are the same, but the unpacking form says what it does, and `{*s for s in sets}` and `(*x for x in xs)` work the same way. Code that must run on older versions keeps using `chain.from_iterable`. The merged dictionary is a copy, unlike the live view a `ChainMap` gives.
+
+## When not to reach for collections
+
+A plain `dict` or `list` is the default, and most code needs nothing else. Do not wrap a `dict` in `UserDict` just in case, or write a `Mapping` class for data that is a dictionary anyway. Use `defaultdict` while building a structure, then hand out a plain `dict`. Use `Counter` for counting, not as a general number store, since its operators silently drop negative values. Reach for `namedtuple` only when tuple behaviour is wanted, and a [dataclass](../../intermediate/dataclasses/) otherwise.
+
 ## Common pitfalls
 
 - **Expecting negative counts from `-`.** Counter operators drop zero and negative counts. Use `subtract()` to keep them.
 - **Reading a `defaultdict` with square brackets.** A lookup adds the key. Use `in` or `get` to check.
-- **Using `list.pop(0)` as a queue.** It slows down as the list grows. Use `deque.popleft()`.
-- **Slicing a `deque`.** It raises `TypeError`. Convert with `list(d)` or use `itertools.islice`.
+- **Overriding `__setitem__` on a `dict` subclass.** `__init__`, `update` and `setdefault` bypass it. Use `UserDict`.
 - **Assuming `ChainMap` writes go to the mapping that has the key.** They always go to the first mapping.
+- **Implementing `__len__` and `__iter__` inconsistently.** The `Mapping` mixins trust both. Derive one from the other, as `EnvView` does.
 
 <Exercise title="A recent-files list">
 Write a class `RecentFiles(size)` with `open(name)` and `items()`. It keeps the last `size` distinct names, most recent first, and re-opening a name moves it to the front. Use a `deque` with `maxlen`. Open `a.py`, `b.py`, `c.py`, `a.py`, `d.py`, `e.py` with a size of 3, and print `items()` after each one. Expected output:
@@ -333,52 +457,46 @@ Counter()
 </Solution>
 </Exercise>
 
-<Exercise title="Grade groups">
-Group the students by grade with a `defaultdict`, then find the most common grade with a `Counter`. Print the grades in order, then the most common grade with its count and the total. Expected output:
+<Exercise title="Case-insensitive headers">
+HTTP header names are case-insensitive. Write `Headers`, a `UserDict` in which setting, reading, deleting and `in` all ignore the case of the key, by storing keys in lower case. With it, this code prints the output below:
 
 ```text
-A: ben, eli
-B: ana, cy, fay
-C: dee
-most common: B (3 of 6)
+text/html True */*
+['accept', 'content-type']
 ```
 
-```python title="grades_input.py"
-results = [
-    ("ana", "B"), ("ben", "A"), ("cy", "B"),
-    ("dee", "C"), ("eli", "A"), ("fay", "B"),
-]
+```python title="headers_check.py"
+from case_insensitive import Headers
+
+headers = Headers({"Content-Type": "text/html"})
+headers.update({"X-Trace": "a1"})
+headers["ACCEPT"] = "*/*"
+print(headers["content-type"], "x-trace" in headers, headers.get("Accept"))
+del headers["X-TRACE"]
+print(sorted(headers))
 ```
 
 <Solution>
 
-```python title="grade_groups.py"
-from collections import Counter, defaultdict
+```python title="case_insensitive.py"
+from collections import UserDict
 
-results = [
-    ("ana", "B"), ("ben", "A"), ("cy", "B"),
-    ("dee", "C"), ("eli", "A"), ("fay", "B"),
-]
 
-groups = defaultdict(list)
-for name, grade in results:
-    groups[grade].append(name)
-for grade in sorted(groups):
-    print(f"{grade}: {', '.join(groups[grade])}")
+class Headers(UserDict):
+    def __setitem__(self, key, value):
+        super().__setitem__(key.lower(), value)
 
-counts = Counter(grade for _, grade in results)
-grade, n = counts.most_common(1)[0]
-print(f"most common: {grade} ({n} of {counts.total()})")
+    def __getitem__(self, key):
+        return super().__getitem__(key.lower())
+
+    def __delitem__(self, key):
+        super().__delitem__(key.lower())
+
+    def __contains__(self, key):
+        return key.lower() in self.data
 ```
 
-```text
-A: ben, eli
-B: ana, cy, fay
-C: dee
-most common: B (3 of 6)
-```
-
-`most_common(1)` returns a list with one `(item, count)` pair, which unpacks into two names. `total()` gives the number of students without a separate `len`.
+`UserDict.__init__` and `update` both call `__setitem__`, so the initial header and the updated one are lower-cased too. `get` is built on `in` and `__getitem__`, so it needed no code of its own. `UserDict` defines `__contains__` itself, by looking in `self.data`, which is why it needs an override as well. A `dict` subclass with the same four methods would fail the first line, because `dict.__init__` would store `Content-Type` unchanged.
 
 </Solution>
 </Exercise>
@@ -387,7 +505,9 @@ most common: B (3 of 6)
 
 - `Counter` does multiset arithmetic. Operators keep positive counts only, `subtract()` keeps all, and `total()` sums them. <Since v="3.15" /> `^` gives the symmetric difference.
 - `defaultdict` fills in missing keys from a factory, on every square-bracket lookup.
-- `deque` is the queue and stack of choice, with `rotate` and a `maxlen` buffer.
+- `OrderedDict.move_to_end` and `popitem(last=False)` make an LRU cache.
 - `namedtuple` and `typing.NamedTuple` give tuples field names. Use a dataclass when the record should not behave as a tuple.
-- `ChainMap` layers mappings for lookups and writes only to the first.
+- `ChainMap` layers mappings for settings and scopes, and writes only to the first.
+- Override behaviour with `UserDict`, not a `dict` subclass. For data stored elsewhere, implement `Mapping` with three methods.
+- <Since v="3.15" /> `[*x for x in xs]` flattens and `{**d for d in ds}` merges.
 - Next: [immutability](../immutability/), and how to design data that cannot change under you.

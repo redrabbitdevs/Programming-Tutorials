@@ -17,6 +17,8 @@ fundamentals: []
 
 The [match statements intro](../../beginner/match-intro/) covered literals, wildcards, guards and sequence patterns, which is enough for a command parser. Real data is usually nested: JSON that arrives as dictionaries inside lists, or objects that hold other objects. This lesson covers the patterns that take such data apart in one step: mapping patterns, class patterns, and the rules for dotted names. Everything here needs Python 3.10 or later.
 
+Before you start: you should be comfortable with that beginner lesson, with [dataclasses](../../intermediate/dataclasses/), and with [narrowing](../narrowing/), which shows how a type checker follows each `case` and checks that a `match` is exhaustive.
+
 ## Mapping patterns
 
 A pattern written with braces matches any mapping, such as a `dict`, that has *at least* the keys it lists. Each value in the pattern is itself a pattern, so it can be a literal to compare or a name to capture:
@@ -218,7 +220,7 @@ positional pattern: 21.5
 
 ## Value patterns need a dot
 
-How does `match` know whether a name in a pattern is a value to compare against or a name to capture? By the dot. A dotted name such as `Level.ERROR` is a **value pattern** and is compared with `==`. A bare name is always a **capture pattern**. That makes [enums](../../intermediate/enums/) a natural fit:
+The beginner lesson's rule still applies: a dotted name such as `Level.ERROR` is a **value pattern**, compared with `==`, and a bare name always captures. That makes [enums](../../intermediate/enums/) the natural home for constants you match on:
 
 ```python title="match_values.py"
 from enum import Enum
@@ -245,27 +247,9 @@ print(route(Level.WARNING), route(Level.INFO))
 pager log file
 ```
 
-The trap is a bare constant. This looks like a comparison with `ERROR`, but it captures the subject into a new local variable that happens to be called `ERROR`, so it matches every value:
+## When not to use match
 
-```python title="match_values.py (continued)"
-ERROR = "error"
-
-
-def is_error(level):
-    match level:
-        case ERROR:  # a capture pattern: matches anything
-            return True
-    return False
-
-
-print(is_error("info"))
-```
-
-```text
-True
-```
-
-When a case like that is followed by other cases, Python refuses to compile the code, with `SyntaxError: name capture 'ERROR' makes remaining patterns unreachable`. When it is the last case, there is no warning at all. Keep constants in an enum or a class, or compare in a guard: `case x if x == ERROR`.
+`match` earns its place when the *shape* of the data decides what to do: nested dictionaries from JSON, a tree of dataclasses, a tuple of tokens. When you only compare one value against constants, a dictionary lookup or an `if` chain is shorter. When the behaviour depends on the type of an object you own, a method on each class (polymorphism) keeps the logic next to the data and lets new classes join without editing a central `match`. And for validating external data in depth, a schema library or a [TypedDict](../typeddict-advanced/) checked by a type checker documents the shape better than a long list of mapping patterns.
 
 ## Common pitfalls
 
@@ -273,7 +257,8 @@ When a case like that is followed by other cases, Python refuses to compile the 
 - **Putting `int(n)` before `bool(b)`.** `True` and `False` are integers, so the order of cases decides which one wins.
 - **Expecting a string to match a sequence pattern.** `[a, b]` never matches `"ab"`. Use `str(s)` and then work on the string.
 - **Positional patterns on a class without `__match_args__`.** They raise `TypeError` when tried. Use keywords, or add the attribute.
-- **Bare names as constants.** `case ERROR:` captures. Use a dotted name such as `Level.ERROR`.
+- **Bare names as constants.** `case ERROR:` captures and matches anything. Use a dotted name such as `Level.ERROR`.
+- **Alternatives that bind different names.** `case {"x": x} | {"y": y}:` is a `SyntaxError`, because each side of `|` must bind the same names. Bind the same name on both sides, or split the case.
 
 <Exercise title="A JSON event router">
 Write `route(event)`, which turns each event below into a line of text, using one `match` statement. A purchase reports its number of item lines and its first item. Expected output:
@@ -388,13 +373,7 @@ no match
 </Exercise>
 
 <Exercise title="Fix the money matcher">
-Running this script raises `TypeError: Money() accepts 0 positional sub-patterns (2 given)`. Fix the class, without changing `show`, so that it prints:
-
-```text
-nothing
-5 euro
-7 GBP
-```
+This script prints a `TypeError` for every amount. Fix the class, without changing `show` or the loop, so that it prints `nothing`, `5 euro` and `7 GBP`.
 
 ```python title="money_broken.py"
 class Money:
@@ -414,7 +393,16 @@ def show(money):
 
 
 for money in [Money(0, "USD"), Money(5, "EUR"), Money(7, "GBP")]:
-    print(show(money))
+    try:
+        print(show(money))
+    except TypeError as error:
+        print("TypeError:", error)
+```
+
+```text
+TypeError: Money() accepts 0 positional sub-patterns (2 given)
+TypeError: Money() accepts 0 positional sub-patterns (2 given)
+TypeError: Money() accepts 0 positional sub-patterns (2 given)
 ```
 
 <Solution>
@@ -439,7 +427,10 @@ def show(money):
 
 
 for money in [Money(0, "USD"), Money(5, "EUR"), Money(7, "GBP")]:
-    print(show(money))
+    try:
+        print(show(money))
+    except TypeError as error:
+        print("TypeError:", error)
 ```
 
 ```text

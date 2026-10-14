@@ -1,5 +1,0 @@
-ada deque(['ben', 'cy'])
-faq docs deque(['home'])
-deque([4, 5, 1, 2, 3])
-deque([5, 1, 2, 3, 4])
-deque([7, 8, 9], maxlen=3) 7

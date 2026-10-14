@@ -13,10 +13,12 @@ objectives:
   - State the support status of the free-threaded build in 3.14 and 3.15 accurately
   - Choose a model for a workload and justify the choice
 estimatedMinutes: 35
-fundamentals: []
+fundamentals: ["fundamentals/beginner/20-big-o"]
 ---
 
 A program that waits for a web page, then a database, then a file, spends most of its life doing nothing. A program that resizes ten thousand photos keeps one core busy while the others sit idle. Both get faster by doing several things at once, but they need different tools. This lesson is the map of Python's tools; the rest of the module teaches each one.
+
+Before you start: you should know [functions and closures](../../intermediate/closures/), [context managers](../../intermediate/context-managers/) and [exception groups](../../intermediate/notes-and-groups/), and be able to [profile](../../intermediate/profiling/) a program to see where its time goes.
 
 ## Concurrency and parallelism
 
@@ -38,7 +40,7 @@ Most programs are a mix, so measure first, as in [Profiling](../../intermediate/
 
 ## The global interpreter lock
 
-The standard build of CPython has a **global interpreter lock** (GIL). The glossary in the documentation describes it as the mechanism that ensures "only one thread executes Python bytecode at a time". Two consequences follow:
+The standard build of CPython has a **global interpreter lock** (GIL), a lock that ensures only one thread executes Python bytecode at a time ([glossary](https://docs.python.org/3/glossary.html#term-global-interpreter-lock)). Two consequences follow:
 
 1. Threads in one interpreter cannot run Python code in parallel, so threads do not speed up CPU-bound pure-Python code.
 2. A thread *releases* the GIL while it waits for I/O or sleeps, and many C extensions release it during long computations. So threads *do* overlap waiting.
@@ -81,7 +83,7 @@ With three worker threads, all three waits were in progress at once, even with a
 | `asyncio` | Coroutines taking turns in one thread | No | Every library call must cooperate |
 | Interpreters (`concurrent.interpreters`) | Isolated interpreters in one process, each with its own GIL | Yes | Data is copied, some extensions unsupported |
 
-The fourth row is new in Python 3.14 ([PEP 734](https://peps.python.org/pep-0734/)). The docs for `InterpreterPoolExecutor` sum up the benefit: "Each interpreter has its own Global Interpreter Lock, so code running in one interpreter can run on one CPU core, while code in another interpreter runs unblocked on a different core."
+The fourth row is new in Python 3.14 ([PEP 734](https://peps.python.org/pep-0734/)). Each interpreter has its own GIL, so code in one interpreter runs on one core while code in another runs on a different core, without blocking each other. [Multiple interpreters](../subinterpreters/) covers them.
 
 Three of the four share one interface, `concurrent.futures`. Swapping the executor class switches the model:
 
@@ -115,14 +117,14 @@ ProcessPoolExecutor      [285, 328350, 332833500]
 InterpreterPoolExecutor  [285, 328350, 332833500]
 ```
 
-The answers are the same. What differs is where `sum_of_squares` runs: a thread in this interpreter, a child process, or a thread running its own interpreter. The `if __name__ == "__main__":` guard matters for the last two, and [Processes](../multiprocessing/) explains why. `asyncio` is the odd one out: it needs functions written with `async def`, which [asyncio fundamentals](../asyncio-basics/) introduces.
+The answers are the same. What differs is where `sum_of_squares` runs: a thread in this interpreter, a child process, or a thread running its own interpreter. The `if __name__ == "__main__":` guard matters for the last two, and [Processes](../multiprocessing/) explains why. `asyncio` is the odd one out: it needs functions written with `async def`, which [asyncio fundamentals](../asyncio-basics/) introduces and [structured concurrency](../asyncio-structured/) makes safe.
 
 ## The free-threaded build
 
-There is a fifth option, and it is a different *build* of Python rather than a module. The **free-threaded build** is compiled without the GIL, so plain threads run Python code in parallel. Its status matters, so here it is exactly as the documentation states it:
+There is a fifth option, and it is a different *build* of Python rather than a module. The **free-threaded build** is compiled without the GIL, so plain threads run Python code in parallel. Its status:
 
 - Python 3.13 introduced it as experimental ([PEP 703](https://peps.python.org/pep-0703/)).
-- In 3.14 it became officially supported. What's New in 3.14 says: "The free-threaded build of Python is now supported and no longer experimental. This is the start of phase II where free-threaded Python is officially supported but still optional." ([PEP 779](https://peps.python.org/pep-0779/))
+- In 3.14 it became officially supported and no longer experimental: "phase II", in which free-threaded Python is officially supported but still optional ([PEP 779](https://peps.python.org/pep-0779/), [What's New in 3.14](https://docs.python.org/3/whatsnew/3.14.html)).
 - <Since v="3.15" /> Python 3.15 keeps it supported and optional. It adds a stable ABI for free-threaded extensions (`abi3t`, [PEP 803](https://peps.python.org/pep-0803/)), and the official macOS installer now installs the free-threaded build by default, *alongside* the regular one.
 - It is **not** the default build. Whether it ever becomes the default (phase III) "is still undecided".
 
@@ -138,10 +140,19 @@ print("GIL enabled now:", sys._is_gil_enabled())
 ```
 
 ```console
-$ python3.15 build_check.py
+python3.15 build_check.py
+```
+
+```text
 free-threaded build: False
 GIL enabled now: True
-$ python3.15t build_check.py
+```
+
+```console
+python3.15t build_check.py
+```
+
+```text
 free-threaded build: True
 GIL enabled now: False
 ```
@@ -166,7 +177,7 @@ Work through these questions in order:
 **Treating the free-threaded build as the default.** It is a separate download with a `t` suffix, and third-party extensions may not support it yet.
 
 <Exercise title="Classify eight workloads">
-For each workload, say whether it is I/O-bound or CPU-bound, and pick a model from this lesson. Justify each choice in one sentence.
+For each workload, write one line in the form `number, I/O or CPU, tool, reason`, for example `9, I/O, thread pool, the vendor library only has blocking calls`. The second column has one right answer for workloads 1 to 6. For the tool, more than one answer can often be defended, so compare your reasons with the model answer.
 
 1. Download 500 web pages.
 2. Resize 2,000 JPEG files in pure Python.
@@ -179,76 +190,67 @@ For each workload, say whether it is I/O-bound or CPU-bound, and pick a model fr
 
 <Solution>
 
-1. I/O-bound. `asyncio` with an async HTTP client, or a thread pool with a blocking one.
-2. CPU-bound. A process pool. Interpreters work too if the image code is pure Python.
-3. I/O-bound, with many connections. `asyncio`: thousands of coroutines are cheap, thousands of threads are not.
-4. Mostly CPU-bound, but `hashlib` releases the GIL while it hashes large inputs, so a thread pool can already use several cores. Measure.
-5. I/O-bound with a blocking API. A thread pool, or `asyncio.to_thread` from async code.
-6. CPU-bound. Processes, interpreters, or threads on the free-threaded build.
-7. Isolation of crashes needs separate processes. Interpreters share one process, so a crash in C code takes everything down.
-8. Neither, really: the whole job takes milliseconds. Keep it sequential unless measuring shows otherwise.
+1. I/O, `asyncio` with an async HTTP client, or a thread pool with a blocking one.
+2. CPU, a process pool. Interpreters work too if the image code is pure Python.
+3. I/O, `asyncio`: thousands of coroutines are cheap, thousands of threads are not.
+4. CPU, a thread pool: `hashlib` releases the GIL while it hashes large inputs, so threads can already use several cores. Measure.
+5. I/O, a thread pool, or `asyncio.to_thread` from async code, because the API only blocks.
+6. CPU, processes, interpreters, or threads on the free-threaded build.
+7. CPU or I/O depending on the plugin, separate processes: interpreters share one process, so a crash in C code takes everything down.
+8. I/O on paper, but no tool at all: the whole job takes milliseconds. Keep it sequential unless measuring shows otherwise.
 
 </Solution>
 </Exercise>
 
 <Exercise title="Predict the barrier">
-Change `wait_together.py` so the loop runs `for workers in (2,):` and the barrier still needs 3 parties. Predict the single line it prints, then run it.
+Change `wait_together.py` so the loop runs `for workers in (2,):` and the barrier still needs 3 parties. Predict the single line it prints, and why, then run it.
 
-Expected output:
+<Solution>
 
 ```text
 workers=2: the three waits never overlapped
 ```
-
-<Solution>
 
 Two workers start two waits. The third call is queued until a worker is free, but neither worker becomes free, because both are stuck at the barrier waiting for a third party. After 0.5 seconds the first wait times out and breaks the barrier. The other waits then fail straight away with `BrokenBarrierError`. The program prints the `except` branch.
 
 </Solution>
 </Exercise>
 
-<Exercise title="Same job, three executors">
-Write `vowel_counts.py`. Its function `vowels(word)` returns the number of vowels in a word. Run it over `["banana", "sky", "queue"]` with each of the three executor classes, and print the class name and the list of results, as `same_interface.py` does.
-
-Expected output:
+<Exercise title="Waiting in two pools">
+Write `io_pools.py`. Its function `wait_for_reply(n)` calls `time.sleep(0.2)`, standing in for a network call, and returns `n`. Run it over `range(6)` in a `ThreadPoolExecutor` and then a `ProcessPoolExecutor`, each with `max_workers=3`. Time each `with` block with `time.perf_counter()`, and print the class name, the results, and whether the time was at least 0.4 s and under 1.0 s. Then explain why both pools take about 0.4 s rather than 1.2 s, and why `asyncio` cannot run this function concurrently as written.
 
 ```text
-ThreadPoolExecutor       [3, 0, 4]
-ProcessPoolExecutor      [3, 0, 4]
-InterpreterPoolExecutor  [3, 0, 4]
+ThreadPoolExecutor   [0, 1, 2, 3, 4, 5] True
+ProcessPoolExecutor  [0, 1, 2, 3, 4, 5] True
 ```
 
 <Solution>
 
-```python title="vowel_counts.py"
-from concurrent.futures import (
-    InterpreterPoolExecutor,
-    ProcessPoolExecutor,
-    ThreadPoolExecutor,
-)
+```python title="io_pools.py"
+import time
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
 
-def vowels(word):
-    return sum(letter in "aeiou" for letter in word)
+def wait_for_reply(n):
+    time.sleep(0.2)  # blocking I/O, such as a network call
+    return n
 
 
 if __name__ == "__main__":
-    words = ["banana", "sky", "queue"]
-    for executor_class in (
-        ThreadPoolExecutor,
-        ProcessPoolExecutor,
-        InterpreterPoolExecutor,
-    ):
+    for executor_class in (ThreadPoolExecutor, ProcessPoolExecutor):
+        start = time.perf_counter()
         with executor_class(max_workers=3) as pool:
-            results = list(pool.map(vowels, words))
-        print(f"{executor_class.__name__:24} {results}")
+            results = list(pool.map(wait_for_reply, range(6)))
+        elapsed = time.perf_counter() - start
+        print(f"{executor_class.__name__:20} {results}", 0.4 <= elapsed < 1.0)
 ```
 
 ```text
-ThreadPoolExecutor       [3, 0, 4]
-ProcessPoolExecutor      [3, 0, 4]
-InterpreterPoolExecutor  [3, 0, 4]
+ThreadPoolExecutor   [0, 1, 2, 3, 4, 5] True
+ProcessPoolExecutor  [0, 1, 2, 3, 4, 5] True
 ```
+
+Six jobs on three workers make two rounds of 0.2 s. A sleeping thread releases the GIL, so three threads wait at once, and three processes wait at once anyway. Typical times are about 0.4 s for the threads and 0.5 s for the processes, which pay to start. For waiting, both work, and threads are cheaper. `time.sleep` blocks the thread it runs in, so under `asyncio` the six calls would run one after another, 1.2 s in all. They would need `await asyncio.sleep(0.2)` or `asyncio.to_thread`.
 
 </Solution>
 </Exercise>
@@ -260,3 +262,4 @@ InterpreterPoolExecutor  [3, 0, 4]
 - On the default build, the GIL lets one thread run Python bytecode at a time, but threads release it while they wait.
 - Threads, processes, `asyncio` and interpreters are the four models. Three share the `concurrent.futures` executor interface.
 - The free-threaded build is officially supported but optional. It is not the default, and phase III is undecided.
+- Next: [threads](../threading/), the first of the four models in depth.

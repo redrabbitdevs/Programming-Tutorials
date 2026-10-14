@@ -5,7 +5,7 @@ module: Concurrency and parallelism
 order: 16
 title: Processes
 description: Run CPU-bound Python on every core with ProcessPoolExecutor, and learn the rules that come with separate processes - the main guard, pickling, copied state and start methods.
-minVersion: "3.8"
+minVersion: "3.11"
 objectives:
   - Parallelise CPU-bound work with ProcessPoolExecutor
   - Explain why worker scripts need the if __name__ == "__main__" guard
@@ -54,13 +54,13 @@ if __name__ == "__main__":
  77031 needs 350 steps
 ```
 
-Without `max_workers`, the pool starts one process per CPU this process may use (`os.process_cpu_count()`). Each job is a big chunk of work, which matters: sending a job to another process costs far more than calling a function, so many tiny jobs can make a process pool *slower* than a plain loop. For long lists of small items, pass `chunksize=` to `map` so each message carries a batch.
+Without `max_workers`, the pool starts one process per CPU: <Since v="3.13" /> per CPU this process may use, `os.process_cpu_count()`, rather than every CPU in the machine, `os.cpu_count()`, as before 3.13. Each job is a big chunk of work, which matters: sending a job to another process costs far more than calling a function, so many tiny jobs can make a process pool *slower* than a plain loop. For long lists of small items, pass `chunksize=` to `map` so each message carries a batch.
 
 ## The main guard
 
 Every process example in this module puts its top-level code under `if __name__ == "__main__":`, as you saw in [Modules and imports](../../intermediate/modules-imports/). Here it is required, not just good style.
 
-A worker process does not start as a copy of the running parent. It starts a fresh interpreter, which **imports your main module** to find the function to call. In the worker, the module's `__name__` is not `"__main__"`, so the guarded block does not run. Without the guard, each worker would run the pool-creating code again. Python refuses with a `RuntimeError` inside the worker, and the pool breaks instead of spawning processes forever. Put function and class definitions at module level, and everything that does work under the guard.
+A worker process does not start as a copy of the running parent. It starts a fresh interpreter, which **imports your main module** to find the function to call. In the worker, the module's `__name__` is not `"__main__"`, so the guarded block does not run. Without the guard, each worker would run the pool-creating code again. Python refuses with a `RuntimeError` inside the worker, and the pool breaks instead of spawning processes forever. Put function and class definitions at module level, and everything that does work under the guard. On Windows and macOS, where the start method is always `spawn` by default, a script without the guard cannot use a process pool at all.
 
 ## What can be sent: pickling
 
@@ -139,7 +139,12 @@ if __name__ == "__main__":
 ```
 
 ```console
-$ python3.15 start_method.py      # on Linux
+python3.15 start_method.py
+```
+
+On Linux it prints:
+
+```text
 forkserver
 ['forkserver', 'fork', 'spawn']
 ```
@@ -199,6 +204,10 @@ True
 On 3.14 the second line prints `False`. The traceback names the process: `Process 20998 terminated abruptly with exit code 3`.
 
 `multiprocessing.Pool` is the older interface to the same machinery. Prefer `ProcessPoolExecutor` in new code: it matches the thread and interpreter pools.
+
+## When not to use processes
+
+Processes cost start-up time, memory for a whole interpreter each, and a pickle round trip for every argument and result. For waiting on I/O, [threads](../threading/) or [asyncio](../asyncio-basics/) are cheaper. For jobs that take milliseconds, the overhead can exceed the work. When start-up cost or memory matters and your extension modules support them, [interpreters](../subinterpreters/) give the same isolation inside one process. Keep processes for CPU-bound work in big chunks, and for code that must survive a crash in a C extension. Never unpickle data from an untrusted source, either: loading a pickle can run arbitrary code.
 
 ## Common pitfalls
 
@@ -365,3 +374,4 @@ The worker changed its own copy of the dictionary. The parent's `order` is untou
 - Nothing is shared: pass inputs as arguments and return outputs as results.
 - <Since v="3.14" /> The default start method is `forkserver` on Linux, and `spawn` on macOS and Windows. Use `get_context()` for an explicit choice.
 - <Since v="3.15" /> A crashed worker's exit code appears in the `BrokenProcessPool` error's cause.
+- Next: [asyncio fundamentals](../asyncio-basics/), for many concurrent waits in one thread.

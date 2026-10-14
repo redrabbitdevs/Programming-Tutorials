@@ -16,15 +16,3 @@ def route(level):
 
 
 print(route(Level.WARNING), route(Level.INFO))
-
-ERROR = "error"
-
-
-def is_error(level):
-    match level:
-        case ERROR:  # a capture pattern: matches anything
-            return True
-    return False
-
-
-print(is_error("info"))

@@ -13,7 +13,7 @@ objectives:
   - Write breadth-first and depth-first search, and know which one finds shortest paths
   - Implement Dijkstra's algorithm with heapq
 estimatedMinutes: 50
-fundamentals: ["fundamentals/beginner/21-searching-and-sorting", "fundamentals/beginner/17-trees-and-graphs"]
+fundamentals: ["fundamentals/beginner/21-searching-and-sorting", "fundamentals/beginner/17-trees-and-graphs", "fundamentals/beginner/11-recursion", "fundamentals/beginner/20-big-o"]
 ---
 
 The fundamentals track explains the classic algorithms in general: [searching and sorting](../../../fundamentals/beginner/searching-and-sorting/), and [trees and graphs](../../../fundamentals/beginner/trees-and-graphs/). This lesson is about writing them in Python, where most of the work is already in the standard library. `bisect` does binary search, `heapq` gives you a priority queue, and a `dict` plus the `deque` from [the collections module](../collections-module/) is all a graph search needs. Sorting itself is covered in [sorting and key functions](../../intermediate/sorting-key-functions/).
@@ -255,6 +255,10 @@ print(dfs_iterative(graph, "a"))
 
 DFS is the tool for "can I reach it at all?", finding cycles and ordering dependencies. It does not find shortest paths.
 
+## When not to write it yourself
+
+The algorithms in this lesson are worth knowing, but in production code reach for the library first. `sorted`, `min`, `max` and `heapq.nsmallest` cover most "find the best" problems. `functools.cache` turns a recursive function into dynamic programming. `graphlib.TopologicalSorter` (3.9) orders tasks by their dependencies and reports cycles, which is the most common real graph problem. For anything larger, such as weighted shortest paths on big graphs or centrality, a tested library like NetworkX beats a hand-written Dijkstra. Write your own when the data does not fit a library's model, or when the point is to understand it, as here.
+
 ## Common pitfalls
 
 - **Binary search on an unsorted list.** `bisect` does not check. It returns a meaningless position.
@@ -366,7 +370,7 @@ The three 3s occupy positions 1 to 3, so `bisect_left` gives 1 and `bisect_right
 </Exercise>
 
 <Exercise title="Debug the fewest-hops search">
-This function should return the route from `a` to `f` with the fewest hops, and print `['a', 'e', 'f'] 2 hops`. It prints `['a', 'b', 'c', 'd', 'f'] 4 hops` instead. Find the bug and fix it.
+This function should return the route from `a` to `f` with the fewest hops, and print `['a', 'e', 'f'] 2 hops`. It prints a longer route instead. Find the bug and fix it.
 
 ```python title="fewest_hops_broken.py"
 def fewest_hops(graph, start, goal):
@@ -390,6 +394,10 @@ graph = {"a": ["e", "b"], "b": ["c"], "c": ["d"], "d": ["f"],
          "e": ["f"], "f": []}
 path = fewest_hops(graph, "a", "f")
 print(path, len(path) - 1, "hops")
+```
+
+```text
+['a', 'b', 'c', 'd', 'f'] 4 hops
 ```
 
 <Solution>
@@ -436,4 +444,4 @@ print(path, len(path) - 1, "hops")
 - `heapq` keeps the smallest item at index 0. Push `(priority, counter, item)` tuples for a stable priority queue. <Since v="3.14" /> `heappop_max` and friends handle max-heaps.
 - A graph is a dictionary of neighbour lists. BFS with a `deque` finds the fewest hops, and DFS with recursion or a stack explores reachability.
 - Dijkstra's algorithm is BFS with a heap, for weighted edges.
-- This ends the module. Next up: concurrency and parallelism.
+- This ends the module. Next: [concurrency models](../concurrency-models/), the start of the concurrency and parallelism module.

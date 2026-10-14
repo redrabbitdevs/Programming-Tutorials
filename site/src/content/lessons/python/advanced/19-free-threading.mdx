@@ -20,12 +20,12 @@ The free-threaded build of CPython is compiled without the global interpreter lo
 
 ## Status
 
-From the documentation, for Python 3.14 and 3.15:
+The status in Python 3.14 and 3.15:
 
 - The free-threaded build is **officially supported** since 3.14. What's New in 3.14 calls this "the start of phase II where free-threaded Python is officially supported but still optional" ([PEP 779](https://peps.python.org/pep-0779/)).
 - It is **optional and not the default**. The standard download still has a GIL.
 - Making it the default (phase III) "is still undecided".
-- Single-threaded code runs a little slower on it. The 3.15 documentation gives an average overhead of about 1% on macOS aarch64 to 8% on x86-64 Linux, on the pyperformance suite.
+- Single-threaded code runs a little slower on it: on the pyperformance suite, about 1% slower on macOS aarch64 and 8% on x86-64 Linux, on average ([free-threading HOWTO](https://docs.python.org/3/howto/free-threading-python.html)).
 
 ## Getting it
 
@@ -52,13 +52,28 @@ print("GIL enabled now:", sys._is_gil_enabled())
 ```
 
 ```console
-$ python3.15 build_check.py
+python3.15 build_check.py
+```
+
+```text
 free-threaded build: False
 GIL enabled now: True
-$ python3.15t build_check.py
+```
+
+```console
+python3.15t build_check.py
+```
+
+```text
 free-threaded build: True
 GIL enabled now: False
-$ python3.15t -X gil=1 build_check.py
+```
+
+```console
+python3.15t -X gil=1 build_check.py
+```
+
+```text
 free-threaded build: True
 GIL enabled now: True
 ```
@@ -98,10 +113,10 @@ primes below 200000: 17984
 The answer is the same on every build. The time is not. One run on a 4-core Linux machine:
 
 ```console
-$ time python3.15 cpu_threads.py 1     # real 0.36s
-$ time python3.15 cpu_threads.py 4     # real 0.33s
-$ time python3.15t cpu_threads.py 1    # real 0.37s
-$ time python3.15t cpu_threads.py 4    # real 0.17s
+time python3.15 cpu_threads.py 1     # real 0.36s
+time python3.15 cpu_threads.py 4     # real 0.33s
+time python3.15t cpu_threads.py 1    # real 0.37s
+time python3.15t cpu_threads.py 4    # real 0.17s
 ```
 
 With the GIL, four threads are no faster than one. Without it, four threads take about half the time, and one thread is slightly slower than on the default build. Your numbers will differ, so measure on your own machine with your own workload. Run each case several times, and compare like with like: same Python version, same input, a quiet machine.
@@ -157,17 +172,20 @@ print(count)
 ```
 
 ```console
-$ python3.15 unsafe_counter.py
+python3.15 unsafe_counter.py
+python3.15t unsafe_counter.py
+```
+
+```text
 800000
-$ python3.15t unsafe_counter.py
 281940
 ```
 
-The second number changes on every run. On the default build `800000` is likely but not guaranteed. The fix is the one from [Threads](../threading/): a `Lock` around the update. The docs themselves recommend `threading.Lock` "instead of relying on the internal locks of built-in types, when possible."
+The second number changes on every run. On the default build `800000` is likely but not guaranteed. The fix is the one from [Threads](../threading/): a `Lock` around the update. Prefer your own `threading.Lock` to relying on the internal locks of built-in types, which protect single operations only.
 
-Two more rules from the free-threading documentation:
+Two more rules:
 
-- **Sharing an iterator between threads is not safe**: threads "may see duplicate or missing elements". <Since v="3.15" /> Wrap it with `threading.serialize_iterator`, or decorate the generator function with `@threading.synchronized_iterator`.
+- **Sharing an iterator between threads is not safe**: threads may see duplicate or missing elements. <Since v="3.15" /> Wrap it with `threading.serialize_iterator`, or decorate the generator function with `@threading.synchronized_iterator`.
 - **Threads inherit context.** On the free-threaded build, a new `Thread` starts with a copy of its creator's context variables, so settings made with `warnings.catch_warnings()` or a `decimal` local context carry over. On the default build it starts with an empty context.
 
 ## Extension modules
@@ -180,6 +198,10 @@ A C extension that has not declared free-threading support **re-enables the GIL*
 
 Run your test suite on both builds. Concurrency bugs are timing-dependent, so also add tests that hammer shared objects from many threads at once, and repeat them. A green run on the default build tells you little about the free-threaded one.
 
+## When not to use the free-threaded build
+
+Stay on the default build when your program is single-threaded, since on the free-threaded build it would only run a few per cent slower. Stay there when a dependency has not declared free-threading support, since it turns the GIL back on anyway. And stay there when your threads mostly wait on I/O: the GIL is released while waiting, so removing it gains little. Choose the free-threaded build for CPU-bound work that needs threads sharing large in-memory data, which [processes](../multiprocessing/) or [interpreters](../subinterpreters/) would have to copy, and test it on both builds.
+
 ## Common pitfalls
 
 **Saying the GIL is gone.** It is optional, in a separate build. The default build has it.
@@ -191,9 +213,16 @@ Run your test suite on both builds. Concurrency bugs are timing-dependent, so al
 **Not noticing the GIL came back.** One unprepared extension turns it on for the whole process.
 
 <Exercise title="Benchmark both builds">
-Install `3.15t` (for example with uv), then run `cpu_threads.py` with 1 and 4 workers on both builds, using `time`. Record the four times.
+Install `3.15t` (for example with `uv python install 3.15t`), then run these four commands and record the `real` time of each:
 
-Expected: every run prints `primes below 200000: 17984`. On a machine with 4 or more cores, 4 workers should be clearly faster than 1 on `python3.15t`, and about the same as 1 on `python3.15`. Explain both results in one sentence each.
+```console
+time python3.15 cpu_threads.py 1
+time python3.15 cpu_threads.py 4
+time python3.15t cpu_threads.py 1
+time python3.15t cpu_threads.py 4
+```
+
+Every run must print `primes below 200000: 17984`; that line is the only part with a fixed answer. On a machine with 4 or more cores (check with `python3.15 -c "import os; print(os.cpu_count())"`), the 4-worker time on `python3.15t` should be at most about two thirds of its 1-worker time, and on `python3.15` the two times should be within about 10% of each other. Explain both results in one sentence each.
 
 <Solution>
 
@@ -275,7 +304,7 @@ One lock for the whole cache serialises every lookup. With many currencies, a lo
 </Exercise>
 
 <Exercise title="Share a generator safely">
-Four threads should consume one generator of the numbers 0 to 999, each adding the values it receives to its own slot in `totals`. Use `@threading.synchronized_iterator` so the threads never advance the generator at the same time, then print the sum of `totals` next to `sum(range(1000))`.
+<Since v="3.15" /> Four threads should consume one generator of the numbers 0 to 999, each adding the values it receives to its own slot in `totals`. Use `@threading.synchronized_iterator` so the threads never advance the generator at the same time, then print the sum of `totals` next to `sum(range(1000))`. On 3.14, which lacks the decorator, write a small iterator class whose `__next__` advances the generator while holding a `threading.Lock`.
 
 ```text
 499500 499500
@@ -327,3 +356,4 @@ Each slot of `totals` is written by one thread only, so `totals[slot] += value` 
 - CPU-bound threads run in parallel on it. Measure, repeatedly, against the default build.
 - Built-in types will not be corrupted, but multi-step logic still needs a `Lock`. Races that were rare become common.
 - An extension without free-threading support turns the GIL back on, with a warning. <Since v="3.15" /> `abi3t` gives extension authors a stable ABI for free-threaded builds.
+- Next: [multiple interpreters](../subinterpreters/), parallelism with isolation instead of shared memory.

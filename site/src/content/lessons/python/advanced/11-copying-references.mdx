@@ -215,6 +215,10 @@ Money(7, 'EUR') Money(5, 'EUR')
 
 On older versions, call `dataclasses.replace` or a named tuple's `_replace` directly.
 
+## When not to copy
+
+Copying is a defence against shared mutable state, and often the better fix is to remove the mutation. A function that builds and returns a new list never needs its caller to copy anything. Data built from tuples, `frozenset` and frozen dataclasses, as in [immutability](../immutability/), can be shared freely, so a shallow copy, or none, is enough. Avoid `deepcopy` in hot paths and on large graphs: it visits every object. And never deep copy objects that represent something outside the program, such as a connection or an open file, since the copy would not be a second connection.
+
 ## Common pitfalls
 
 - **Returning a mutated argument.** Callers assume the result is new. Mutate and return `None`, or copy first.
@@ -259,6 +263,16 @@ print(backup)
 history = [[]] * 3
 history[0].append("x")
 print(history)
+```
+
+It currently prints:
+
+```text
+[[1, 0], [1, 0]]
+['a', 'b'] ['a', 'b']
+{'theme': 'dark', 'plugins': ['git', 'lint']}
+[[1, 5], [1, 5]]
+[['x'], ['x'], ['x']]
 ```
 
 <Solution>
@@ -346,9 +360,13 @@ print(b)
 </Exercise>
 
 <Exercise title="A playlist that copies its songs">
-Give `Playlist` a `__copy__` method. A copy gets its own list of songs, so adding to it leaves the original alone, and its name gets ` (copy)` appended. Running this check prints the output below.
+In `playlist_copy.py`, give `Playlist` a `__copy__` method. A copy gets its own list of songs, so adding to it leaves the original alone, and its name gets ` (copy)` appended. Running this check prints the output below.
 
 ```python title="playlist_check.py"
+import copy
+
+from playlist_copy import Playlist
+
 p1 = Playlist("road trip", ["a", "b"])
 p2 = copy.copy(p1)
 p2.songs.append("c")
@@ -374,19 +392,6 @@ class Playlist:
 
     def __copy__(self):
         return Playlist(f"{self.name} (copy)", list(self.songs))
-```
-
-```python title="playlist_copy.py (continued)"
-p1 = Playlist("road trip", ["a", "b"])
-p2 = copy.copy(p1)
-p2.songs.append("c")
-print(p1.name, p1.songs)
-print(p2.name, p2.songs)
-```
-
-```text
-road trip ['a', 'b']
-road trip (copy) ['a', 'b', 'c']
 ```
 
 `list(self.songs)` is a shallow copy of the list: the copy can gain and lose songs independently, while the song objects themselves, strings here, are shared, which is safe because they are immutable.

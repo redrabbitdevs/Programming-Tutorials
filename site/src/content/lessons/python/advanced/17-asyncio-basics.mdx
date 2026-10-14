@@ -4,13 +4,14 @@ level: advanced
 module: Concurrency and parallelism
 order: 17
 title: asyncio fundamentals
-description: Write coroutines with async def and await, run them with asyncio.run and asyncio.Runner, overlap waits with tasks and gather, and push blocking calls to a thread with asyncio.to_thread.
+description: Write coroutines with async def and await, overlap waits with tasks and gather, consume streams with async for and async generators, push blocking calls to a thread with asyncio.to_thread, and run it all with asyncio.run and asyncio.Runner.
 minVersion: "3.11"
 objectives:
   - Explain the difference between a coroutine function, a coroutine object and a task
   - Run async code with asyncio.run and asyncio.Runner
   - Overlap waits with asyncio.gather and asyncio.create_task
   - Explain cooperative scheduling and why a blocking call stalls every task
+  - Consume and produce asynchronous streams with async for, async generators and async comprehensions
   - Call blocking code from async code with asyncio.to_thread
 estimatedMinutes: 45
 fundamentals: []
@@ -152,6 +153,76 @@ got coffee
 
 Both tasks started as soon as `main` paused at `await tea`, so coffee finished first even though we awaited tea first. By the time we awaited `coffee`, its result was waiting. `gather` creates tasks like these for you. [Structured concurrency](../asyncio-structured/) shows `TaskGroup`, a safer way to manage many tasks.
 
+## Async iteration: async for and async generators
+
+A stream that arrives over time, such as messages from a socket or rows from a database, cannot be a normal iterator: fetching the next item must be able to wait. An **asynchronous iterator** has `__aiter__` and an `async def __anext__`, and `async for` awaits each item. The easy way to write one is an **async generator**, an `async def` function that contains `yield`. An **async comprehension** collects one, with `async for` inside the brackets:
+
+```python title="async_gen.py"
+import asyncio
+
+
+async def ticker(count):
+    for n in range(1, count + 1):
+        await asyncio.sleep(0)  # wait for the next message to arrive
+        yield n
+
+
+async def main():
+    stream = ticker(3)
+    print(type(stream).__name__)
+    async for n in stream:
+        print("tick", n)
+
+    squares = [n * n async for n in ticker(4)]
+    evens = {n async for n in ticker(6) if n % 2 == 0}
+    print(squares, sorted(evens))
+
+
+asyncio.run(main())
+```
+
+```text
+async_generator
+tick 1
+tick 2
+tick 3
+[1, 4, 9, 16] [2, 4, 6]
+```
+
+Calling `ticker(3)` returned an async generator without running anything, like a coroutine function. `async for` and async comprehensions are only allowed inside `async def`. Between items the generator can `await`, so other tasks run while it waits. Written as a class, the same protocol needs `__anext__` to raise `StopAsyncIteration` at the end:
+
+```python title="async_iter_class.py"
+import asyncio
+
+
+class Countdown:
+    def __init__(self, start):
+        self.n = start
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self.n == 0:
+            raise StopAsyncIteration
+        await asyncio.sleep(0)
+        self.n -= 1
+        return self.n + 1
+
+
+async def main():
+    print([n async for n in Countdown(3)])
+
+
+asyncio.run(main())
+```
+
+```text
+[3, 2, 1]
+```
+
+Async generators are also the basis of `@asynccontextmanager`, which [advanced contextlib](../contextlib-advanced/) builds on: the code before `yield` is the setup, and the code after it the clean-up.
+
 ## Blocking calls and to_thread
 
 Because switching only happens at `await`, a call that blocks, such as `time.sleep()`, `requests.get()` or a heavy computation, freezes **every** task until it returns. Use the async version of a library when one exists. When it does not, `asyncio.to_thread` runs the blocking function in a worker thread and gives you something to await. The barrier proves the two calls really overlap, as in [the first lesson](../concurrency-models/):
@@ -184,7 +255,7 @@ asyncio.run(main())
 ['kitchen: 21.5', 'garage: 21.5']
 ```
 
-`to_thread` uses threads, so on the default build it helps with waiting, not with CPU-bound work.
+`to_thread` uses the thread pool from [Threads](../threading/), so on the default build it helps with waiting, not with CPU-bound work.
 
 ## asyncio.Runner
 
@@ -219,6 +290,10 @@ same loop: True
 
 `Runner` arrived in Python 3.11, which is why this lesson needs 3.11. Both `asyncio.run` and `Runner` take a `loop_factory` argument to choose an event loop implementation. Older tutorials use `asyncio.set_event_loop_policy()` for that. <Since v="3.14" /> The whole policy system is deprecated and is due for removal in Python 3.16, so use `loop_factory` instead. Older code also calls `asyncio.get_event_loop()` at the top level to create a loop. Since 3.14 that raises `RuntimeError` when no loop is running, so use `asyncio.run` or `Runner`.
 
+## When not to use asyncio
+
+`asyncio` pays off with many concurrent waits, such as hundreds of network connections, and libraries that support it. It is the wrong choice for CPU-bound work, which blocks the loop: use [processes](../multiprocessing/). It is a poor fit when your main libraries only offer blocking calls, since every call then goes through `to_thread` and a thread pool would be simpler. And `async` spreads: every caller of a coroutine must itself be async, so converting a small synchronous program rarely repays the effort.
+
 ## Common pitfalls
 
 **Forgetting `await`.** Calling a coroutine function without `await` gives you a coroutine object, not a result, and the body never runs.
@@ -228,6 +303,8 @@ same loop: True
 **Expecting `await` to run things in the background.** Sequential `await`s run one after another. Use `gather` or tasks to overlap them.
 
 **Calling `asyncio.run` inside a coroutine.** It raises `RuntimeError`, because a loop is already running. Inside async code, just `await`.
+
+**Using `for` on an async iterator.** It raises `TypeError`. Use `async for`, inside `async def`.
 
 <Exercise title="Kitchen timers">
 Write a coroutine `timer(name, seconds)` that waits `seconds`, prints `<name> done` and returns `seconds`. Run timers for tea (0.3 s), toast (0.1 s) and egg (0.2 s) concurrently with `gather`, then print the results and the longest timer. The program should take about 0.3 seconds, not 0.6.
@@ -376,5 +453,7 @@ Calling `slow_square` directly inside `main` would also print the right answer, 
 - `asyncio.run(main())` starts an event loop, runs `main` and closes the loop. `asyncio.Runner` keeps one loop for several calls.
 - `await` runs a coroutine and is the only place a coroutine can pause and let others run.
 - `asyncio.gather` and `asyncio.create_task` run coroutines concurrently. `gather` returns results in argument order.
+- `async for` consumes asynchronous iterators. An `async def` with `yield` is an async generator, and `[x async for x in it]` collects one.
 - A blocking call freezes the whole loop. Use async libraries, or `asyncio.to_thread` for blocking code.
 - <Since v="3.14" /> The event loop policy API is deprecated, with removal planned for 3.16. Use `loop_factory`.
+- Next: [structured concurrency](../asyncio-structured/), for running many tasks safely.
