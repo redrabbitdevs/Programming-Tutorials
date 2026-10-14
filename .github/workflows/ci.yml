@@ -15,6 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # JavaScript examples run on the exact Node the lessons teach (research/javascript/facts.md).
+      # Install it first and record its path; the next setup-node puts Node 22 ahead of it on PATH
+      # for the site build, so only the examples use Node 26.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.11.1
+      - name: Record Node 26 path
+        run: echo "NODE=$(which node)" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -28,4 +36,5 @@ jobs:
         run: |
           export PYTHON="$(uv python find 3.15)"
           "$PYTHON" --version
+          "$NODE" --version
           scripts/validate.sh
