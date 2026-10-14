@@ -1,0 +1,3 @@
+same bytes: True
+bytes() allocated a second copy: True
+take_bytes() allocated almost nothing: True

@@ -1,0 +1,3 @@
+pairs: 9900 -> 4950
+same state (within 1e-9): True
+faster: True

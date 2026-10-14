@@ -1,0 +1,6 @@
+main       total 100%  own   0%
+load       total  75%  own   0%
+parse_row  total  60%  own  60%
+report     total  25%  own   5%
+format_row total  20%  own  20%
+read_file  total  15%  own  15%

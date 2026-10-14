@@ -1,0 +1,2 @@
+sum() beats the loop by over 2x: True
+max() and the loop within 3x: True

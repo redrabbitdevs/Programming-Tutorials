@@ -1,0 +1,4 @@
+pointer bits: 64
+free-threaded build: False
+debug build: False
+extension suffix: .cpython-315-x86_64-linux-gnu.so

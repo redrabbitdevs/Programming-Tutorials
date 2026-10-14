@@ -1,0 +1,355 @@
+---
+language: python
+level: expert
+module: Performance
+order: 4
+title: Optimising Python code
+description: Apply optimisations in the order that pays, from algorithms and data structures to built-ins, caching and vectorised libraries, and check each one with a measurement.
+minVersion: "3.11"
+objectives:
+  - Look for an algorithmic or data-structure change before tuning code
+  - Judge when built-ins and C-implemented loops still beat a Python loop on modern CPython
+  - Cache pure functions with functools.cache, and recognise when caching gives wrong answers
+  - Know which micro-optimisations still matter after the 3.11 interpreter changes
+  - Describe when vectorising with NumPy is the right move
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/20-big-o", "fundamentals/beginner/22-problem-patterns"]
+---
+
+You have [measured](../measuring-performance/) and [profiled](../profiling/), and one function really is the problem. This lesson is about what to change, in the order that usually pays off: the algorithm first, then the data structure, then the use of built-ins, caching, and only then the micro-optimisations. Every change must keep the answer the same and show a measured gain.
+
+## Algorithm first
+
+No amount of tuning makes a quadratic algorithm scale. The [fundamentals lesson on problem patterns](../../../fundamentals/beginner/problem-patterns/) lists the usual escapes. In Python the most common one is replacing a repeated scan with a hash lookup in a `set` or `dict`:
+
+```python title="pair_sum.py"
+import random
+import timeit
+
+random.seed(3)
+NUMBERS = random.sample(range(1_000_000), 3_000)
+
+
+def has_pair_naive(numbers, target):
+    for i, a in enumerate(numbers):
+        for b in numbers[i + 1:]:
+            if a + b == target:
+                return True
+    return False
+
+
+def has_pair_set(numbers, target):
+    seen = set()
+    for a in numbers:
+        if target - a in seen:
+            return True
+        seen.add(a)
+    return False
+```
+
+```python title="pair_sum.py (continued)"
+target = -1                                 # never found: worst case
+slow = min(timeit.repeat(lambda: has_pair_naive(NUMBERS, target),
+                         number=1, repeat=3))
+fast = min(timeit.repeat(lambda: has_pair_set(NUMBERS, target),
+                         number=1, repeat=3))
+print("same answer:", has_pair_naive(NUMBERS, 5) == has_pair_set(NUMBERS, 5))
+print("set version 50x faster:", slow > 50 * fast)
+```
+
+```text
+same answer: True
+set version 50x faster: True
+```
+
+At 3,000 numbers the gap is already more than 50 times, and it keeps growing with the input. Other changes in the same family are sorting once and using [`bisect`](../../advanced/algorithms-py/), using `heapq` for "top k" instead of sorting everything, and using a `deque` for queues.
+
+## Built-ins: still good, by less than you think
+
+A built-in such as `sum`, `max` or `str.join` runs its loop in C. That used to be a reliable 5 to 10 times win over the same loop in Python. Since 3.11 the specialising interpreter has narrowed the gap ([The JIT and the interpreter](../jit-and-interpreter/)), and it is now very uneven:
+
+```python title="builtin_gap.py"
+import timeit
+
+setup = "data = list(range(100_000))"
+
+
+def ratio(loop, builtin):
+    a = min(timeit.repeat(loop, setup, number=20, repeat=5))
+    b = min(timeit.repeat(builtin, setup, number=20, repeat=5))
+    return a / b
+
+
+total = ratio("t = 0\nfor x in data: t += x", "sum(data)")
+biggest = ratio("m = data[0]\nfor x in data:\n    if x > m: m = x",
+                "max(data)")
+print("sum() beats the loop by over 2x:", total > 2)
+print("max() and the loop within 3x:", 1 / 3 < biggest < 3)
+```
+
+```text
+sum() beats the loop by over 2x: True
+max() and the loop within 3x: True
+```
+
+On CPython 3.15, `sum` won by about 5 times on one machine, while `max` was barely faster than the hand-written loop, whose integer comparisons the interpreter specialises. Use built-ins because they are shorter and clearer, and treat any speed gain as a bonus you measure, not one you assume.
+
+## Caching pure functions
+
+`functools.cache` remembers the result for each set of arguments. For a recursive function with overlapping subproblems, it turns exponential work into one call per distinct input:
+
+```python title="cache_calls.py"
+from functools import cache
+
+calls = 0
+
+
+@cache
+def paths(rows, cols):
+    """Number of right/down paths through a rows x cols grid."""
+    global calls
+    calls += 1
+    if rows == 0 or cols == 0:
+        return 1
+    return paths(rows - 1, cols) + paths(rows, cols - 1)
+
+
+print(paths(16, 16))
+print("function bodies run:", calls)
+print(paths.cache_info())
+paths.cache_clear()
+```
+
+```text
+601080390
+function bodies run: 288
+CacheInfo(hits=225, misses=288, maxsize=None, currsize=288)
+```
+
+Without the cache, the same call makes over a billion recursive calls. Caching is correct only for **pure** functions: the result must depend on the arguments alone, and the arguments must be hashable. `cache` never forgets, so for an unbounded stream of distinct arguments use `lru_cache(maxsize=...)`. On methods, both decorators keep `self` alive for as long as the cache does.
+
+## Micro-optimisations that still matter
+
+Some classic tricks have shrunk to almost nothing. Binding a global function to a local name before a loop used to save two lookups per call, but since 3.11 the interpreter specialises global and module-attribute lookups, so the saving is small:
+
+```console
+$ python -m timeit -s "import math; data = list(range(100_000))" \
+    "for x in data: math.sqrt(x)"
+100 loops, best of 5: 3.71 msec per loop
+$ python -m timeit -s "import math; data = list(range(100_000))" \
+    "sqrt = math.sqrt" "for x in data: sqrt(x)"
+100 loops, best of 5: 3.53 msec per loop
+```
+
+About 5% on this machine, which is within the noise of many benchmarks. Changes that still pay in a hot loop:
+
+- **Do less per iteration.** Move invariant work, such as building a constant or compiling a regex, out of the loop.
+- **Avoid repeated work.** Compute `dist ** 3` once per pair, not twice (exercise 1).
+- **Use a comprehension** to build a list rather than `append` in a loop: it is clearer and somewhat faster.
+- **Keep types stable.** A variable that holds an `int` and then a `float` stops the interpreter's specialisations from applying.
+
+## Vectorising with NumPy
+
+When the work is arithmetic on many numbers, the large win is to stop looping in Python altogether. [NumPy](https://numpy.org/) stores numbers in packed arrays and runs whole-array operations in compiled code, so `(a * b).sum()` on a million floats does no per-element bytecode at all. Gains of 10 to 100 times over a Python loop are common for numeric work. NumPy is a third-party package (`pip install numpy`), and it pays off only when the data is numeric and the operations can be expressed on whole arrays. Converting a list to an array and back for each small operation can cost more than it saves. For loops that will not vectorise, the next lesson covers [native extensions](../native-extensions/).
+
+## When not to optimise
+
+Stop when the code meets its target, and do not start without one. Every optimisation in this lesson except the first makes code a little harder to read or a little more fragile. Caching adds invalidation bugs, and local aliases and inlined arithmetic add noise. Keep the clear version unless a profile shows the code is hot **and** a measurement shows the change helps by enough to matter to a user. Keep the test that proves the answer did not change.
+
+## Common pitfalls
+
+**Optimising code that is not hot.** A 10x win in a function that takes 1% of the time saves under 1%.
+
+**Caching impure functions.** If the result depends on a global, a file, or the time, the cache returns stale answers (exercise 2).
+
+**Trusting old advice.** Tricks from the Python 2 era are often neutral now, and sometimes slower.
+
+**Breaking floating-point results.** Reordering arithmetic changes the last bits. Compare floats with a tolerance.
+
+<Exercise title="Optimise an n-body step">
+
+`step` advances 100 bodies by one time step, computing the force for every ordered pair. Write `step_fast` in `nbody_fast.py`, applying three changes: compute each unordered pair once and apply equal and opposite updates (Newton's third law), compute the distance cubed once per pair, and read the body's own values into locals before the inner loop. Return the number of pairs computed. Expected output: `pairs: 9900 -> 4950`, `same state (within 1e-9): True`, `faster: True`.
+
+```python title="nbody_naive.py"
+import random
+
+random.seed(11)
+BODIES = [[random.uniform(-1, 1), random.uniform(-1, 1), 1.0, 0.0, 0.0]
+          for _ in range(100)]                  # x, y, mass, vx, vy
+pairs_done = 0
+
+
+def step(bodies, dt=0.01):
+    global pairs_done
+    for i in range(len(bodies)):
+        for j in range(len(bodies)):
+            if i == j:
+                continue
+            pairs_done += 1
+            dx = bodies[j][0] - bodies[i][0]
+            dy = bodies[j][1] - bodies[i][1]
+            dist = (dx ** 2 + dy ** 2 + 0.01) ** 0.5
+            bodies[i][3] += dx * bodies[j][2] / dist ** 3 * dt
+            bodies[i][4] += dy * bodies[j][2] / dist ** 3 * dt
+    for b in bodies:
+        b[0] += b[3] * dt
+        b[1] += b[4] * dt
+```
+
+<Solution>
+
+```python title="nbody_fast.py"
+import copy
+import timeit
+
+import nbody_naive
+
+
+def step_fast(bodies, dt=0.01):
+    n, pairs = len(bodies), 0
+    for i in range(n):
+        xi, yi, mi = bodies[i][0], bodies[i][1], bodies[i][2]
+        for j in range(i + 1, n):              # each pair once
+            bj = bodies[j]
+            dx, dy = bj[0] - xi, bj[1] - yi
+            d2 = dx * dx + dy * dy + 0.01
+            k = dt / (d2 * d2 ** 0.5)          # dt / dist**3
+            bodies[i][3] += dx * bj[2] * k
+            bodies[i][4] += dy * bj[2] * k
+            bj[3] -= dx * mi * k               # equal and opposite
+            bj[4] -= dy * mi * k
+            pairs += 1
+    for b in bodies:
+        b[0] += b[3] * dt
+        b[1] += b[4] * dt
+    return pairs
+```
+
+```python title="nbody_fast.py (continued)"
+a = copy.deepcopy(nbody_naive.BODIES)
+b = copy.deepcopy(nbody_naive.BODIES)
+nbody_naive.step(a)
+pairs = step_fast(b)
+close = all(abs(p - q) < 1e-9 for ra, rb in zip(a, b)
+            for p, q in zip(ra, rb))
+print("pairs:", nbody_naive.pairs_done, "->", pairs)
+print("same state (within 1e-9):", close)
+
+slow = min(timeit.repeat(lambda: nbody_naive.step(a), number=5, repeat=3))
+fast = min(timeit.repeat(lambda: step_fast(b), number=5, repeat=3))
+print("faster:", fast < slow)
+```
+
+```text
+pairs: 9900 -> 4950
+same state (within 1e-9): True
+faster: True
+```
+
+Positions and masses are only read in the pair loop, so updating velocities in either order gives the same physics. The results differ only in the last bits, because the arithmetic is reordered, which is why the check uses a tolerance. Halving the pairs is the biggest win. The step is still O(n²), and for thousands of bodies the next move is NumPy or a tree method such as Barnes-Hut.
+
+</Solution>
+</Exercise>
+
+<Exercise title="The stale exchange rate">
+
+Predict the two lines this prints, explain the bug, and fix it so the second line prints `120.0` while keeping a cache.
+
+```python title="stale_cache.py"
+from functools import cache
+
+RATES = {"EUR": 1.10}
+
+
+@cache
+def convert(amount, currency):
+    return round(amount * RATES[currency], 2)
+
+
+print(convert(100, "EUR"))
+RATES["EUR"] = 1.20                 # the rate changes during the day
+print(convert(100, "EUR"))
+```
+
+<Solution>
+
+It prints `110.0` twice. The cache key is `(100, "EUR")`, but the result also depends on `RATES`, which is not an argument, so the second call returns the stored answer. Make every input an argument:
+
+```python title="stale_cache_fixed.py"
+from functools import cache
+
+RATES = {"EUR": 1.10}
+
+
+@cache
+def convert_at(amount, rate):       # every input is an argument
+    return round(amount * rate, 2)
+
+
+def convert(amount, currency):
+    return convert_at(amount, RATES[currency])
+
+
+print(convert(100, "EUR"))
+RATES["EUR"] = 1.20
+print(convert(100, "EUR"))
+```
+
+```text
+110.0
+120.0
+```
+
+Calling `convert.cache_clear()` after every rate change would also work, but it is easy to forget. For a computation this cheap, the honest fix is no cache at all.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Remove duplicates, keep order">
+
+`dedupe_slow` removes duplicate tags while keeping the first occurrence of each. Write `dedupe_fast` with the same result for the 12,000 tags below, at least 20 times faster. Expected output: `same order: True` and `at least 20x faster: True`.
+
+```python title="dedupe.py"
+import timeit
+
+TAGS = [f"tag{i % 3_000}" for i in range(12_000)]
+
+
+def dedupe_slow(items):
+    out = []
+    for item in items:
+        if item not in out:          # scans out every time
+            out.append(item)
+    return out
+```
+
+<Solution>
+
+```python title="dedupe.py (continued)"
+def dedupe_fast(items):
+    return list(dict.fromkeys(items))  # dicts keep insertion order
+
+
+slow = min(timeit.repeat(lambda: dedupe_slow(TAGS), number=1, repeat=3))
+fast = min(timeit.repeat(lambda: dedupe_fast(TAGS), number=1, repeat=3))
+print("same order:", dedupe_fast(TAGS) == dedupe_slow(TAGS))
+print("at least 20x faster:", slow > 20 * fast)
+```
+
+```text
+same order: True
+at least 20x faster: True
+```
+
+`item not in out` scans a growing list, so the work is quadratic. `dict.fromkeys` does one hash lookup per item and keeps insertion order. A `set` alone would lose the order. A loop with a `seen` set is equally fast, if you need extra logic per item.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- Change the algorithm or data structure first: it is the only change that alters how the cost grows.
+- Built-ins are clearer and often faster, but since 3.11 the gap can be small. Measure.
+- `functools.cache` is a large win for pure functions with repeated inputs, and a bug for impure ones.
+- Many micro-optimisations are now worth a few per cent at most. Keep types stable and do less work per iteration.
+- For numeric loops, vectorise with NumPy. Next: [Native extensions](../native-extensions/).

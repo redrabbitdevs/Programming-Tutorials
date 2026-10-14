@@ -1,0 +1,391 @@
+---
+language: python
+level: expert
+module: Performance
+order: 3
+title: Memory
+description: Measure memory honestly with sys.getsizeof and tracemalloc, find the line that allocates, and cut usage with __slots__, streaming and the 3.15 bytearray.take_bytes.
+minVersion: "3.11"
+objectives:
+  - Explain why sys.getsizeof is shallow, and compute a deep size when you need one
+  - Measure current and peak memory with tracemalloc, and find the growing line with snapshots
+  - Reduce per-object memory with __slots__ and verify the saving
+  - Lower peak memory by streaming instead of materialising
+  - Avoid a copy when turning a bytearray into bytes with take_bytes
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/18-memory-and-references"]
+---
+
+Time is not the only cost. A program that needs 6 GB on a 4 GB container gets killed, however fast it is. The fundamentals lesson on [memory and references](../../../fundamentals/beginner/memory-and-references/) describes objects and references in general. This lesson measures them in CPython. Every number printed here was checked on 64-bit CPython 3.15. Sizes are implementation details, and they change between versions and builds.
+
+## sys.getsizeof is shallow
+
+`sys.getsizeof(obj)` returns the size of one object's own memory. For a container, that means the container and its array of references, not the objects they point to:
+
+```python title="shallow_sizes.py"
+import sys
+
+numbers = list(range(1_000))
+print("list object:", sys.getsizeof(numbers))
+print("one small int:", sys.getsizeof(5))
+
+
+def deep_size(obj, seen=None):
+    """Size of obj plus everything it contains, each object once."""
+    seen = set() if seen is None else seen
+    if id(obj) in seen:
+        return 0
+    seen.add(id(obj))
+    size = sys.getsizeof(obj)
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        size += sum(deep_size(item, seen) for item in obj)
+    elif isinstance(obj, dict):
+        size += sum(deep_size(k, seen) + deep_size(v, seen)
+                    for k, v in obj.items())
+    return size
+
+
+print("list and its ints:", deep_size(numbers))
+print("same int 1000 times:", deep_size([5] * 1_000))
+```
+
+```text
+list object: 8056
+one small int: 28
+list and its ints: 36056
+same int 1000 times: 8084
+```
+
+The list is 56 bytes of header plus 8 bytes per reference. Each distinct `int` is another 28 bytes, so the ints cost more than the list itself. A list holding the same object 1,000 times pays for it once, which is why `deep_size` tracks `id`s. Even this deep size is an estimate: it misses instance attributes, memory allocator overhead and anything owned by C code. For the real answer, ask the allocator.
+
+## tracemalloc: what was actually allocated
+
+`tracemalloc` hooks Python's memory allocator and records every block, with the line that allocated it. `get_traced_memory()` returns the current and the **peak** traced size since `start()`. Peak is what decides whether a process fits in memory:
+
+```python title="peak_stream.py"
+import tracemalloc
+
+
+def peak_of(func):
+    tracemalloc.start()
+    result = func()
+    _now, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return result, peak
+
+
+def with_list():
+    squares = [n * n for n in range(200_000)]   # all at once
+    return sum(squares)
+
+
+def with_generator():
+    return sum(n * n for n in range(200_000))   # one at a time
+
+
+a, list_peak = peak_of(with_list)
+b, gen_peak = peak_of(with_generator)
+print("same answer:", a == b)
+print("generator peak is 100x smaller:", gen_peak * 100 < list_peak)
+```
+
+```text
+same answer: True
+generator peak is 100x smaller: True
+```
+
+The list version holds 200,000 ints at once. The [generator](../../intermediate/generators/) holds one at a time, so its peak does not grow with the input. Tracing makes allocation slower, often by a factor of two or more, so turn it on for a measurement, not in production. `tracemalloc.reset_peak()` starts a new peak without discarding the traces.
+
+### Which line grew?
+
+Snapshots let you compare memory before and after a step, grouped by source line:
+
+```python title="snapshot_diff.py"
+import tracemalloc
+
+tracemalloc.start()
+before = tracemalloc.take_snapshot()
+
+cache = {}
+for i in range(20_000):
+    cache[i] = f"row-{i}"                  # the line that grows
+labels = [str(i) for i in range(500)]
+
+after = tracemalloc.take_snapshot()
+tracemalloc.stop()
+
+top = after.compare_to(before, "lineno")[0]
+frame = top.traceback[0]
+print("biggest growth at line", frame.lineno)
+print("in this file:", frame.filename.endswith("snapshot_diff.py"))
+print("new blocks at least 20000:", top.count_diff >= 20_000)
+```
+
+```text
+biggest growth at line 8
+in this file: True
+new blocks at least 20000: True
+```
+
+In a long-running service, take a snapshot, let it handle some traffic, take another, and print the top ten lines of `compare_to`. A line whose `size_diff` keeps growing between snapshots is your leak. `python -X tracemalloc=25` starts tracing at start-up and keeps 25 frames per allocation, which shows the call path for allocations in shared helpers.
+
+## `__slots__`: smaller objects
+
+A normal instance keeps its attributes in a per-instance namespace. A class with `__slots__` gets fixed storage for the named attributes instead, and no namespace at all:
+
+```python title="slots_memory.py"
+import sys
+import tracemalloc
+
+
+class Point:
+    def __init__(self, x, y):
+        self.x, self.y = x, y
+
+
+class SlotPoint:
+    __slots__ = ("x", "y")
+
+    def __init__(self, x, y):
+        self.x, self.y = x, y
+```
+
+```python title="slots_memory.py (continued)"
+def traced_bytes(cls, n=100_000):
+    tracemalloc.start()
+    points = [cls(0.0, 0.0) for _ in range(n)]
+    used, _peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return used
+
+
+print("getsizeof:", sys.getsizeof(Point(0, 0)), sys.getsizeof(SlotPoint(0, 0)))
+plain, slotted = traced_bytes(Point), traced_bytes(SlotPoint)
+print("slots use less:", slotted < plain)
+print("saving at least 30%:", slotted < 0.7 * plain)
+```
+
+```text
+getsizeof: 48 48
+slots use less: True
+saving at least 30%: True
+```
+
+`getsizeof` reports the same 48 bytes for both, because recent CPython versions store a plain instance's attribute values in an area that `getsizeof` does not count. `tracemalloc` sees the difference: about 40% less for the slotted class here. The saving is per instance, so it matters for hundreds of thousands of small objects and not at all for a dozen. The cost is flexibility. You cannot add attributes that are not listed, and multiple inheritance from two slotted bases with non-empty slots fails. `@dataclass(slots=True)` generates the slots for you ([Data classes](../../intermediate/dataclasses/)).
+
+## Zero-copy bytes with take_bytes
+
+<Since v="3.15" /> `bytearray.take_bytes(n=None)` removes the first `n` bytes from a bytearray and returns them as `bytes`. With no argument it takes everything and leaves the bytearray empty:
+
+```python title="take_bytes_demo.py"
+buffer = bytearray(b"GET /index\nHost: example\npartial")
+
+line = buffer.take_bytes(buffer.find(b"\n") + 1)   # first n bytes
+print(line, type(line).__name__)
+print(buffer)
+
+rest = buffer.take_bytes()                         # everything
+print(rest)
+print("buffer now empty:", len(buffer) == 0)
+```
+
+```text
+b'GET /index\n' bytes
+bytearray(b'Host: example\npartial')
+b'Host: example\npartial'
+buffer now empty: True
+```
+
+The point is the copy it avoids. The old idiom `bytes(buffer)` copies the whole buffer, so for a moment you hold two. In CPython, taking all the bytes hands the existing memory over to the new `bytes` object:
+
+```python title="take_bytes_peak.py"
+import io
+import tracemalloc
+
+SIZE = 8_000_000
+SOURCE = io.BytesIO(b"x" * SIZE)
+
+
+def peak_of(finish):
+    buffer = bytearray(SIZE)               # exact size, filled in place
+    SOURCE.seek(0)
+    SOURCE.readinto(buffer)
+    tracemalloc.start()
+    data = finish(buffer)
+    _now, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return data, peak
+
+
+copied, copy_peak = peak_of(bytes)
+taken, take_peak = peak_of(bytearray.take_bytes)
+print("same bytes:", copied == taken)
+print("bytes() allocated a second copy:", copy_peak >= SIZE)
+print("take_bytes() allocated almost nothing:", take_peak < SIZE // 100)
+```
+
+```text
+same bytes: True
+bytes() allocated a second copy: True
+take_bytes() allocated almost nothing: True
+```
+
+Two caveats. Taking only part of the buffer still copies the bytes that remain. And a bytearray grown with `+=` usually has spare capacity: in my measurements on 3.15.0, taking all of such a buffer still allocated a block of the full size. Fill a buffer of the right size with `readinto` when you can, and measure your own case.
+
+## When not to optimise memory
+
+If the process fits comfortably in its memory limit, memory work buys nothing. Reach for it when a process is killed, when it swaps, when you run many copies of it, or when peak usage grows with input size and the input will grow. `__slots__` on a class with ten instances, or a generator where a list of 50 items is clearer, is noise. Streaming has a real cost too: a generator can be consumed only once, and you cannot `len()` it or index it.
+
+## Common pitfalls
+
+**Summing `getsizeof` and calling it the total.** It is shallow, and it misses allocator overhead and inline attribute storage.
+
+**Measuring the current size instead of the peak.** A function can return a small result after briefly using gigabytes.
+
+**Leaving tracemalloc on.** It slows allocation and itself uses memory.
+
+**Holding a reference you forgot.** A cache, a global list or a closure keeps objects alive. Snapshots point at the line that allocated them, and `gc.get_referrers` shows what holds them.
+
+<Exercise title="Halve the loader's peak">
+
+`load_dicts` parses 50,000 lines into dictionaries, then sums the `value` field. Write `load_stream` that returns the same total with at most half the peak memory. Print `same total: True` and `peak at most half: True`.
+
+```python title="loader_memory.py"
+import tracemalloc
+
+LINES = [f"{i},sensor-{i % 50},{i % 97}.5" for i in range(50_000)]
+
+
+def load_dicts(lines):
+    rows = []
+    for line in lines:
+        rid, sensor, value = line.split(",")
+        rows.append({"id": int(rid), "sensor": sensor,
+                     "value": float(value)})
+    return sum(r["value"] for r in rows)
+
+
+def peak_of(loader):
+    tracemalloc.start()
+    total = loader(LINES)
+    _now, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    return total, peak
+```
+
+<Solution>
+
+Nothing but the total is needed, so never store the rows:
+
+```python title="loader_memory.py (continued)"
+def load_stream(lines):
+    total = 0.0
+    for line in lines:
+        total += float(line.rsplit(",", 1)[1])
+    return total
+
+
+before_total, before = peak_of(load_dicts)
+after_total, after = peak_of(load_stream)
+print("same total:", before_total == after_total)
+print("peak at most half:", after * 2 <= before)
+```
+
+```text
+same total: True
+peak at most half: True
+```
+
+The peak drops by far more than half, because nothing grows with the input any more. The totals are exactly equal because the values are added in the same order. If later code needed the rows, a slotted class or a tuple per row would be the next step, and storing columns in `array.array` the one after.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Predict the sizes">
+
+Predict the three numbers this prints, then run it.
+
+```python title="nested_size.py"
+import sys
+
+flat = [0] * 1_000
+nested = [flat]
+copies = [flat] * 1_000
+
+print(sys.getsizeof(flat))
+print(sys.getsizeof(nested))
+print(sys.getsizeof(copies))
+```
+
+<Solution>
+
+```text
+8056
+64
+8056
+```
+
+`nested` is a list with one reference: 56 bytes of header plus 8. `copies` holds 1,000 references to the same list, so it has the same size as `flat`, and the inner list exists only once. `getsizeof` never follows references, which is exactly why the second number is so small.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Refactor a line splitter">
+
+<Since v="3.15" /> This function removes complete lines from a network buffer, copying each slice and then deleting it. Rewrite it with `take_bytes` so that each line needs a single operation. The output must stay the same.
+
+```python title="line_splitter_old.py"
+def split_lines(buffer):
+    """Remove and return every complete line in buffer."""
+    lines = []
+    while (n := buffer.find(b"\n")) != -1:
+        lines.append(bytes(buffer[:n + 1]))   # copy the slice ...
+        del buffer[:n + 1]                     # ... then shift the rest
+    return lines
+
+
+buffer = bytearray(b"alpha\nbeta\ngam")
+print(split_lines(buffer), buffer)
+buffer += b"ma\n"
+print(split_lines(buffer), buffer)
+```
+
+```text
+[b'alpha\n', b'beta\n'] bytearray(b'gam')
+[b'gamma\n'] bytearray(b'')
+```
+
+<Solution>
+
+```python title="line_splitter.py"
+def split_lines(buffer):
+    """Remove and return every complete line in buffer."""
+    lines = []
+    while (n := buffer.find(b"\n")) != -1:
+        lines.append(buffer.take_bytes(n + 1))
+    return lines
+
+
+buffer = bytearray(b"alpha\nbeta\ngam")
+print(split_lines(buffer), buffer)
+buffer += b"ma\n"
+print(split_lines(buffer), buffer)
+```
+
+```text
+[b'alpha\n', b'beta\n'] bytearray(b'gam')
+[b'gamma\n'] bytearray(b'')
+```
+
+The bytes that remain are still moved, as before. The gain is one call instead of a slice, a copy and a deletion, with no temporary slice object. This is the "split a buffer at a separator" refactor listed in What's New in Python 3.15.
+
+</Solution>
+</Exercise>
+
+## Summary
+
+- `sys.getsizeof` is shallow and misses inline attribute storage. Use `tracemalloc` for what was really allocated.
+- Peak memory decides whether a process fits. `get_traced_memory()` gives it, and snapshots with `compare_to` show the line that grew.
+- `__slots__` cuts per-instance memory, and streaming cuts peak memory. Both have costs in flexibility.
+- <Since v="3.15" /> `bytearray.take_bytes()` turns a buffer into `bytes` without copying when you take all of it.
+- Next: [Optimising Python code](../optimising-python/).
