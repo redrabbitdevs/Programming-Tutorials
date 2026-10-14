@@ -380,3 +380,4 @@ The `return` expression `line, file.closed` is evaluated first, while the file i
 - A `with` statement runs an entry step and then, always, an exit step, even if the block raised. Errors carry on afterwards unless the manager suppresses them.
 - Several managers can share one `with`, separated by commas and exited in reverse order. <Since v="3.10" /> They can be wrapped in parentheses, one per line.
 - `contextlib.suppress`, `contextlib.redirect_stdout` and `tempfile.TemporaryDirectory` cover common clean-up jobs, and `ExitStack` handles a number of resources that is only known at run time.
+- Going further: the advanced lesson [contextlib in depth](../../advanced/contextlib-advanced/) covers the rest of `contextlib` for building and combining context managers.

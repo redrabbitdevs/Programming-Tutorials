@@ -326,3 +326,4 @@ The old value is saved before the change, so the exit step can tell "restore" fr
 - `@contextmanager` turns a generator with a single `yield` into a context manager: code before `yield` is the entry, code after is the exit, and the yielded value is the `as` target.
 - Wrap the `yield` in `try`/`finally` so the exit step runs even when the block raises.
 - Next: `itertools` and `functools`.
+- Going further: the advanced lesson [contextlib in depth](../../advanced/contextlib-advanced/) covers the rest of `contextlib` for building and combining context managers.

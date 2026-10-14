@@ -404,3 +404,4 @@ print(list(pairs_from([(1, 2, 3), (), (4,)])))
 - A function with `yield` returns a generator, whose body runs in pieces and pauses at each `yield`, keeping its local variables.
 - Generator expressions, `(expr for x in source)`, are the lazy form of a list comprehension. `yield from` hands over everything from another iterable.
 - Chains of generators form pipelines that process one item at a time. Next: writing your own context managers with a generator.
+- Going further: the advanced lesson [asyncio basics](../../advanced/asyncio-basics/) shows how the same pause-and-resume idea powers coroutines.
