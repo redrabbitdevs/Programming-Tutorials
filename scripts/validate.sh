@@ -7,6 +7,8 @@
 #        SKIP_INSTALL=1 scripts/validate.sh   reuse existing node_modules
 #        PYTHON=/path/to/python3.15 scripts/validate.sh   interpreter for examples
 # An example may have a sibling .in file, which is fed to it as stdin.
+#        NODE=/path/to/node scripts/validate.sh   Node for JavaScript examples (*.mjs,
+#        same .in/.out rules; *.test.mjs run with node --test, pass/fail counts only)
 set -u -o pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -95,6 +97,69 @@ if [ -d "$ROOT/examples" ]; then
   rm -f /tmp/validate_stderr.$$
 fi
 if [ $EX_BAD -eq 0 ]; then pass "examples: $EX_RUN run, $EX_CMP compared to .out"; else fail "examples: $EX_BAD of $EX_RUN failed"; fi
+
+# 2b. JavaScript examples ----------------------------------------------------
+step "js examples: run every examples/**/*.mjs (NODE=${NODE:-node})"
+JS_RUN=0; JS_BAD=0; JS_CMP=0; JS_CHK=0
+if [ -d "$ROOT/examples" ]; then
+  # Deterministic output: no colours, no experimental-feature warnings on stderr.
+  # Real errors still fail the run through the exit code and are printed.
+  export NODE_NO_WARNINGS=1 NO_COLOR=1
+  unset FORCE_COLOR
+  JS_ERR="$(mktemp)"
+  while IFS= read -r -d '' f; do
+    rel="${f#"$ROOT"/}"
+    dir="$(cd "$(dirname "$f")" && pwd)"
+    base="$(basename "$f")"
+    case "$rel" in
+      */browser/*)
+        # Browser-only code cannot run in Node: syntax-check it as a module.
+        JS_CHK=$((JS_CHK + 1))
+        if "${NODE:-node}" --check "$f" 2>"$JS_ERR"; then echo "  ok   $rel (syntax only)"
+        else echo "  FAIL $rel (syntax)"; head -10 "$JS_ERR" | sed 's/^/       /'; JS_BAD=$((JS_BAD + 1)); fi
+        continue ;;
+    esac
+    JS_RUN=$((JS_RUN + 1))
+    expected="${f%.mjs}.out"
+    stdin_file=/dev/null
+    [ -f "${f%.mjs}.in" ] && stdin_file="${f%.mjs}.in"
+    case "$base" in
+      *.test.mjs)
+        # Tests: compare only the pass/fail counts from the spec reporter's
+        # summary (timings and ordering are never compared). A red run is
+        # expected when the example has a .out file.
+        raw="$(cd "$dir" && timeout 60 "${NODE:-node}" --test --test-reporter=spec "$base" 2>"$JS_ERR" <"$stdin_file"; echo "@@exit=$?")"
+        code="${raw##*@@exit=}"
+        actual="$(printf '%s' "${raw%@@exit=*}" | sed -nE 's/^ℹ (tests|pass|fail) ([0-9]+)$/\1 \2/p')"
+        [ -f "$expected" ] && code=0
+        if [ -z "$actual" ] && [ $code -eq 0 ]; then code=1; echo "no test summary in output" >"$JS_ERR"; fi
+        ;;
+      *)
+        actual="$(cd "$dir" && timeout 30 "${NODE:-node}" "$base" 2>"$JS_ERR" <"$stdin_file")"
+        code=$?
+        ;;
+    esac
+    # Stack traces print absolute paths, also as file:// URLs. Strip this
+    # example's own directory so the output is the same on every machine.
+    actual="${actual//"file://$dir"\//}"
+    actual="${actual//"$dir"\//}"
+    if [ $code -ne 0 ]; then
+      echo "  FAIL $rel (exit $code)"; sed 's/^/       /' "$JS_ERR" | head -10
+      JS_BAD=$((JS_BAD + 1)); continue
+    fi
+    if [ -f "$expected" ]; then
+      JS_CMP=$((JS_CMP + 1))
+      if [ "$actual" != "$(cat "$expected")" ]; then
+        echo "  FAIL $rel (stdout differs from ${expected#"$ROOT"/})"
+        diff <(printf '%s\n' "$actual") "$expected" | head -10 | sed 's/^/       /'
+        JS_BAD=$((JS_BAD + 1)); continue
+      fi
+    fi
+    echo "  ok   $rel"
+  done < <(find "$ROOT/examples" -name '*.mjs' -type f -not -path '*/node_modules/*' -print0 | sort -z)
+  rm -f "$JS_ERR"
+fi
+if [ $JS_BAD -eq 0 ]; then pass "js examples: $JS_RUN run, $JS_CMP compared to .out, $JS_CHK syntax-checked"; else fail "js examples: $JS_BAD of $((JS_RUN + JS_CHK)) failed"; fi
 
 # 3. Internal links ----------------------------------------------------------
 step "links: internal links in site/dist against base path $BASE_PATH"

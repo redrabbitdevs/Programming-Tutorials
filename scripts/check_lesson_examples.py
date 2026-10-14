@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check that lesson code and output match the verified files in examples/.
 
-For every lesson .mdx, each titled python block (title="x.py") is matched to
+For every lesson .mdx, each titled python, js or javascript block (title="x.py" or "x.mjs") is matched to
 examples/<language>/**/x.py (examples/fundamentals for fundamentals lessons).
 Blocks titled "x.py (continued)" are joined to the block they continue. The
 untitled `text` block that directly follows a python block is its output; the
@@ -30,6 +30,8 @@ ALLOW = Path(__file__).with_name("lesson_examples_allow.txt")
 
 FENCE = re.compile(r"^(?P<indent>[ \t]*)```(?P<info>[^\n]*)$")
 CLOSE = re.compile(r"^[ \t]*```\s*$")
+# Fence languages that carry a runnable example (python x.py, js/javascript x.mjs).
+CODE_LANGS = ("python", "js", "javascript")
 TITLE = re.compile(r'title="([^"]*)"')
 
 
@@ -71,7 +73,7 @@ def collect(path):
     items = []
     by_title = {}
     for n, (line, lang, title, _rest, code) in enumerate(blocks):
-        if lang != "python" or not title:
+        if lang not in CODE_LANGS or not title:
             continue
         out = None
         if n + 1 < len(blocks):
