@@ -1,0 +1,2 @@
+exit code: 1
+DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16

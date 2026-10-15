@@ -6,7 +6,7 @@
   supported baseline. Where code is marked 3.11, 3.11 through 3.15 all run it.
 - `[F]` marks a concept taught in the shared fundamentals track (`research/fundamentals/outline.md`).
   The Python lesson links to that fundamentals lesson and covers only Python syntax, idioms and pitfalls.
-- 117 lessons in 18 modules: Beginner 31, Intermediate 42, Advanced 26, Expert 18. Intermediate
+- 118 lessons in 19 modules: Beginner 31, Intermediate 42, Advanced 26, Expert 19. Intermediate
   is rewritten from the built lessons (5 modules plus the Project module). The Beginner section
   below is still the original plan: 37 beginner lessons are built, so it needs the same sync.
 - Do not teach the items in facts.md "Deprecated or removed" as current practice.
@@ -223,7 +223,7 @@ These were planned in the earlier outline or in `gaps-intermediate.md` but are *
 
 ---
 
-## Expert (18 lessons)
+## Expert (19 lessons)
 
 ### Module E1 - Performance (6)
 
@@ -254,6 +254,14 @@ These were planned in the earlier outline or in `gaps-intermediate.md` but are *
 | `packaging-publishing` | Building and publishing packages | Ship a library to PyPI | wheels and sdists, build backends, versioning, trusted publishing, `pylock.toml` (PEP 751) | 3.11 | Publish a package to TestPyPI |
 | `cli-apps` | Command-line applications | Build robust CLIs | `argparse` (colour help 3.14+), subcommands, exit codes, `python -m` entry points | 3.11 | A `todo` CLI with subcommands |
 | `security-python` | Secure Python | Avoid common vulnerabilities | clean code and security basics [F], `secrets`, `subprocess` without `shell=True`, `pickle` risks, input validation, dependency auditing | 3.11 | Audit and fix an insecure script |
-| `config-observability` | Configuration and observability | Run Python services in production | env-based config, `logging.config`, structured logs, tracing, `faulthandler` | 3.11 | Add structured logging and a health check to a service |
-| `large-codebases` | Architecture for large codebases | Structure big Python projects | layering, dependency injection, typing as documentation, monorepos, `lazy` imports for startup | 3.15 | Refactor a tangled app into layers |
-| `migrating-to-315` | Upgrading to Python 3.15 | Plan and execute a version upgrade | What's New/porting guides, UTF-8 default impact, removals in 3.15, deprecations pending for 3.16/3.17, testing across versions | 3.15 | Upgrade a 3.11 project to 3.15 and fix every warning |
+| `config-observability` | Configuration and observability | Run Python services in production | env-based config, `logging.config`, structured logs, `contextvars` (token, `reset`), `sqlite3` primer box, tracing sketch (W3C `traceparent`, OpenTelemetry named as third-party), SIGTERM with `loop.add_signal_handler`, `faulthandler` | 3.11 | Add structured logging and a health check to a service |
+| `large-codebases` | Architecture for large codebases | Structure big Python projects | layering, dependency injection, typing as documentation, shared mutable state under threads and 3.15t, monorepos, `lazy` imports for startup | 3.15 | Refactor a tangled app into layers |
+| `migrating-to-315` | Upgrading to Python 3.15 | Plan and execute a version upgrade | What's New/porting guides, UTF-8 default impact, removals in 3.15, "Porting to Python 3.15" behaviour changes, deprecations pending for 3.16/3.17, testing across versions with 3.15t as a real CI target, free-threading readiness checklist | 3.15 | Upgrade a 3.11 project to 3.15 and fix every warning |
+
+### Module Project - End-of-level project (1)
+
+| # | slug | title | objectives | key concepts | minVersion | exercise idea |
+|---|---|---|---|---|---|---|
+| 19 | `project-ship-a-fast-tool` | Project: ship a fast, observable tool | Take the advanced `jobrun` tool to a 0.2.0 release using the whole expert level | Tachyon line profile, sieve with a reference check, `ContextVar` job IDs in text/JSON logs, SIGTERM cancel with exit 143, `--version` from one source (hatch dynamic version), `uv build`, warnings as errors, 3.15t test run; ends with a ten-question self-check and "Where next" (other languages, devguide, PEPs, contributing) | 3.15 | Count regex calls with `profiling.tracing`; replace `asyncio.iscoroutinefunction`; GIL report on 3.15 and 3.15t |
+
+Verified code for lesson 19 is in `examples/python/e4/jobrun/` (22 tests, run by `run_pytest.py`).

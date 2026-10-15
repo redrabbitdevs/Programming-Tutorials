@@ -1,0 +1,3 @@
+req-1: global says req-2, ContextVar says req-1
+req-2: global says req-2, ContextVar says req-2
+after both: -

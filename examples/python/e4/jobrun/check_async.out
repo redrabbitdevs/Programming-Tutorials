@@ -1,0 +1,4 @@
+levels  run is async: True
+primes  run is async: True
+wait    run is async: True
+words   run is async: True

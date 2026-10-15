@@ -1,0 +1,11 @@
+stderr: INFO motto: started
+stderr: INFO motto: ok: errors=1, should=1, never=1
+stderr: INFO quick-api: started
+stderr: INFO nightly-sync: started
+stderr: INFO quick-api: ok: waited 0.05s
+stderr: WARNING -: SIGTERM: cancelling the unfinished jobs
+motto         ok        errors=1, should=1, never=1
+quick-api     ok        waited 0.05s
+nightly-sync  cancelled stopped by SIGTERM
+3 jobs: 2 ok, 1 cancelled
+exit code: 143

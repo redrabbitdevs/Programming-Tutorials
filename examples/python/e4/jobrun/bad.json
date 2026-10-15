@@ -1,0 +1,8 @@
+{
+  "timeout": 0.5,
+  "workers": 1,
+  "jobs": [
+    {"id": "motto", "kind": "words", "text": "Readability counts."},
+    {"id": "beam-me-up", "kind": "teleport"}
+  ]
+}

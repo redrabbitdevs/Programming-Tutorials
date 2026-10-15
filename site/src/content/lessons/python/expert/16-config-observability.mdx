@@ -4,16 +4,17 @@ level: expert
 module: Production Python
 order: 16
 title: Configuration and observability
-description: Run a Python service in production - typed configuration read once from the environment, logging set up with dictConfig, structured JSON logs with request IDs, health checks, and faulthandler for crashes and hangs.
+description: "Run a Python service in production: typed configuration read once from the environment, logging set up with dictConfig, structured JSON logs with request IDs from a context variable, a tracing sketch, health checks, a clean stop on SIGTERM, and faulthandler for crashes and hangs."
 minVersion: "3.11"
 objectives:
   - Load configuration from the environment into a typed, validated, immutable object at start-up
   - Configure logging for a whole application with logging.config.dictConfig
   - Emit structured JSON logs with extra fields and a per-request ID from a context variable
+  - Explain what a trace and a span are, and how a trace ID travels between services
   - Write a health check that reports each dependency separately
-  - Use faulthandler to get Python stacks from crashes and hangs
-estimatedMinutes: 45
-fundamentals: []
+  - Stop an asyncio service cleanly on SIGTERM, and use faulthandler for crashes and hangs
+estimatedMinutes: 55
+fundamentals: ["fundamentals/beginner/24-debugging"]
 ---
 
 A service in production runs on a machine you cannot step through with a debugger, with settings someone else chose, and its logs are read by a search engine before they are read by a person. Two habits make that bearable. Configuration is read once, checked, and fails loudly at start-up. And the program describes what it is doing in a form machines can query. The [intermediate logging lesson](../../intermediate/logging/) covered loggers, handlers and formatters; this lesson builds on it.
@@ -36,7 +37,7 @@ class ConfigError(Exception):
 class Settings:
     port: int
     debug: bool
-    database_url: str
+    database_url: str = field(repr=False)  # may hold a password
     api_key: str = field(repr=False)
 ```
 
@@ -60,7 +61,9 @@ The class method does the parsing. It takes the environment as a parameter, so t
 ```
 
 ```python title="settings.py (continued)"
-print(Settings.from_env({"SHOP_API_KEY": "k-91f2", "SHOP_DEBUG": "yes"}))
+url = "postgresql://shop:s3cret@db.internal/shop"
+print(Settings.from_env({"SHOP_API_KEY": "k-91f2", "SHOP_DEBUG": "yes",
+                        "SHOP_DATABASE_URL": url}))
 for env in ({"SHOP_PORT": "80a", "SHOP_API_KEY": "k"}, {}):
     try:
         Settings.from_env(env)
@@ -69,12 +72,12 @@ for env in ({"SHOP_PORT": "80a", "SHOP_API_KEY": "k"}, {}):
 ```
 
 ```text
-Settings(port=8000, debug=True, database_url='sqlite:///shop.db')
+Settings(port=8000, debug=True)
 ConfigError: SHOP_PORT must be a whole number
 ConfigError: SHOP_API_KEY is required
 ```
 
-`field(repr=False)` keeps the API key out of the representation, so logging the settings at start-up, which is a good habit, cannot leak it. Booleans need care: `bool("false")` is `True`, so compare against a set of accepted words. In `main`, call `Settings.from_env(os.environ)` once and exit with a clear message on `ConfigError`. A service that refuses to start with a bad setting is much easier to debug than one that starts and fails on the first request. If you also want a configuration file, read it with `tomllib` first and let the environment override it, in that order and in that one function.
+`field(repr=False)` keeps a field out of the representation, so logging the settings at start-up, which is a good habit, cannot leak it. Mark every field that can hold a secret, and remember that URLs often do: `postgresql://user:password@host/db` puts the password in the middle of an ordinary-looking string. Booleans need care: `bool("false")` is `True`, so compare against a set of accepted words. In `main`, call `Settings.from_env(os.environ)` once and exit with a clear message on `ConfigError`. A service that refuses to start with a bad setting is much easier to debug than one that starts and fails on the first request. If you also want a configuration file, read it with `tomllib` first and let the environment override it, in that order and in that one function.
 
 ## Logging for a whole application
 
@@ -145,7 +148,48 @@ The `shop.db` message was below that logger's `WARNING` level and was dropped. N
 
 ## A request ID in every line
 
-When fifty requests are handled at once, their log lines interleave. Tag each line with the request it belongs to. A `contextvars.ContextVar` holds a value per thread and per `asyncio` task, and a filter copies it onto every record:
+When fifty requests are handled at once, their log lines interleave. Tag each line with the request it belongs to. That needs a value that is "global" to one request but different for the request next to it, which is what `contextvars` provides.
+
+### Context variables
+
+A `ContextVar` is read with `get()` and changed with `set()`. `set()` returns a **token**, and `reset(token)` puts back whatever value was there before, the way a `finally` block undoes a change. Each `asyncio` task runs in its own copy of the context, so a value set in one task is invisible to the others. Here two requests run as two tasks, and each pauses at an `await`, as a real handler does when it waits for a database:
+
+```python title="context_tasks.py"
+import asyncio
+import contextvars
+
+current = "-"  # a plain global, shared by every task
+request_id = contextvars.ContextVar("request_id", default="-")
+
+
+async def handle(rid):
+    global current
+    current = rid
+    token = request_id.set(rid)
+    await asyncio.sleep(0)  # the other request runs here
+    print(f"{rid}: global says {current}, ContextVar says {request_id.get()}")
+    request_id.reset(token)
+
+
+async def main():
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(handle("req-1"))
+        tg.create_task(handle("req-2"))
+    print("after both:", request_id.get())
+
+
+asyncio.run(main())
+```
+
+```text
+req-1: global says req-2, ContextVar says req-1
+req-2: global says req-2, ContextVar says req-2
+after both: -
+```
+
+While `req-1` waited, `req-2` overwrote the global, so `req-1` would log under the wrong ID. The `ContextVar` kept both values apart, and `main` never saw either. The output is the same on every run, because `sleep(0)` hands control to the other task at a fixed point. ([asyncio fundamentals](../../advanced/asyncio-basics/) covers tasks and the event loop.)
+
+Threads differ. On the default build, a new `threading.Thread` starts with an *empty* context, so it sees each variable's default. On the free-threaded build, the `thread_inherit_context` flag is on, and a thread starts with a copy of the context of the code that called `start()`. Pass the ID explicitly when you hand work to a thread ([threads](../../advanced/threading/)). Now the logging part: a filter copies the variable onto every record:
 
 ```python title="request_id.py"
 import contextvars
@@ -192,11 +236,145 @@ req-91bc shop.web: 200 OK
 - shop.web: idle
 ```
 
-None of the code that logs had to pass the ID along. This is the seed of **distributed tracing**: if the ID also travels in a header to the services you call, one search shows a request's whole path. Tracing libraries such as OpenTelemetry standardise those headers and add timings for each step, which you then view in a tracing system.
+None of the code that logs had to pass the ID along. `handle` uses the token to restore the old value, which matters when one thread serves many requests in turn.
+
+## Following one request across services
+
+A request ID answers "which lines belong together?" **Distributed tracing** also answers "where did the time go?", across every service a request touches. A **trace** is the whole journey and has one trace ID. A **span** is one step in it: a name, a start and an end, its own ID, and the ID of its parent span. The trace ID and the caller's span ID travel between services in a `traceparent` header, whose format is the [W3C Trace Context](https://www.w3.org/TR/trace-context/) standard. Here is the idea with the standard library only, using a context variable for the current span:
+
+```python title="trace_spans.py"
+import contextlib
+import contextvars
+import itertools
+import time
+
+current_span = contextvars.ContextVar("current_span", default=None)
+span_ids = itertools.count(1)  # real tracers use random 64-bit ids
+
+
+@contextlib.contextmanager
+def span(name, trace_id=None, parent_id=None):
+    """Record one step: its trace, its parent, and how long it took."""
+    parent = current_span.get()
+    if parent is not None:
+        trace_id, parent_id = parent["trace"], parent["id"]
+    record = {"trace": trace_id, "id": next(span_ids), "parent": parent_id,
+              "name": name}
+    token = current_span.set(record)
+    start = time.perf_counter()
+    try:
+        yield record
+    finally:
+        record["ms"] = (time.perf_counter() - start) * 1000
+        current_span.reset(token)
+        print(f"trace={record['trace']} span={record['id']} "
+              f"parent={record['parent']} {name}")
+```
+
+The service reads the incoming header and opens its first span as a child of the caller's (the IDs are shortened to 8 characters for printing):
+
+```python title="trace_spans.py (continued)"
+# The caller sent a W3C traceparent header: version-trace-parent-flags.
+header = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+_version, trace_id, caller_span, _flags = header.split("-")
+
+with span("POST /checkout", trace_id[:8], caller_span[:8]):
+    with span("load cart"):
+        pass
+    with span("charge card"):
+        pass
+```
+
+```text
+trace=4bf92f35 span=2 parent=1 load cart
+trace=4bf92f35 span=3 parent=1 charge card
+trace=4bf92f35 span=1 parent=00f067aa POST /checkout
+```
+
+Spans finish inside out, and each knows its parent, so a tracing system can rebuild the tree and draw the timings. Do not ship this sketch. The third-party **OpenTelemetry** packages do the same job properly: with `opentelemetry-api`, `trace.get_tracer(__name__).start_as_current_span("load cart")` replaces `span()`, and `opentelemetry.propagate.extract(headers)` reads `traceparent`. The API alone records nothing; the `opentelemetry-sdk` package and an exporter send the spans to a tracing system.
 
 ## Health checks
 
-A load balancer or orchestrator asks a service "are you able to serve?" through a health endpoint. Report each dependency separately, so the answer says *what* is wrong. The last exercise builds one.
+A load balancer or orchestrator asks a service "are you able to serve?" through a health endpoint. Report each dependency separately, so the answer says *what* is wrong. The last exercise builds one, with a database check that uses the standard library's `sqlite3` module.
+
+<Callout type="note" title="sqlite3 in brief" id="sqlite3-primer">
+
+`sqlite3` talks to SQLite, a database kept in one file, or in memory with the name `":memory:"`. `connect()` opens it, `execute()` runs one SQL statement, and `commit()` makes changes permanent. Pass values as parameters (`?` placeholders and a tuple), never by formatting them into the SQL, which is how SQL injection happens. A connection used in `with` commits when the block succeeds and rolls back when it raises, but does not close the connection.
+
+```python title="sqlite_primer.py"
+import sqlite3
+
+db = sqlite3.connect(":memory:")  # or a file name such as "shop.db"
+db.execute("CREATE TABLE stock (sku TEXT PRIMARY KEY, count INTEGER)")
+db.execute("INSERT INTO stock VALUES (?, ?)", ("tea", 4))
+db.commit()  # make the insert permanent
+
+sku = "tea"  # values always go in as parameters, never with f-strings
+print(db.execute("SELECT count FROM stock WHERE sku = ?", (sku,)).fetchone())
+
+try:
+    with db:  # commits if the block succeeds, rolls back if it raises
+        db.execute("UPDATE stock SET count = count - 1 WHERE sku = ?", (sku,))
+        raise RuntimeError("payment failed")
+except RuntimeError as error:
+    print("rolled back:", error)
+print(db.execute("SELECT count FROM stock WHERE sku = ?", (sku,)).fetchone())
+db.close()  # `with db` does not close the connection
+```
+
+```text
+(4,)
+rolled back: payment failed
+(4,)
+```
+
+`fetchone()` returns one row as a tuple, or `None`. The failed payment left the count at 4.
+
+</Callout>
+
+## Stopping cleanly
+
+Containers and service managers stop a process by sending it `SIGTERM`, and send `SIGKILL` if it has not exited after a grace period. Python installs no handler for `SIGTERM`, so by default the process dies on the spot: no `finally` blocks, no `atexit` functions, no flushed log buffers, and requests in flight are cut off. An `asyncio` service registers a handler with `loop.add_signal_handler()`, which runs it safely inside the event loop. This script starts a small service twice and terminates it, first without a handler, then with one:
+
+```python title="graceful_stop.py"
+import signal
+import subprocess
+import sys
+
+SERVICE = """
+import asyncio, signal, sys
+
+async def main(handle_sigterm):
+    stop = asyncio.Event()
+    if handle_sigterm:
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop.set)
+    print("ready", flush=True)
+    try:
+        await stop.wait()  # stands in for serving requests
+        print("SIGTERM: finishing open requests")
+    finally:
+        print("cleanup ran")
+
+asyncio.run(main(sys.argv[1] == "yes"))
+"""
+```
+
+```python title="graceful_stop.py (continued)"
+for handle in ("no", "yes"):
+    child = subprocess.Popen([sys.executable, "-c", SERVICE, handle],
+                             stdout=subprocess.PIPE, text=True)
+    child.stdout.readline()  # wait for "ready"
+    child.send_signal(signal.SIGTERM)
+    rest = child.stdout.read().splitlines()
+    print(f"handler {handle}: exit {child.wait()}, printed {rest}")
+```
+
+```text
+handler no: exit -15, printed []
+handler yes: exit 0, printed ['SIGTERM: finishing open requests', 'cleanup ran']
+```
+
+A negative return code means "killed by that signal": 15 is `SIGTERM`. Without the handler, not even the `finally` block ran. With it, the event is set, `main` returns normally, and everything after it (closing the server, flushing logs) happens. A real handler also makes the readiness check fail first, so the load balancer stops sending new requests, and finishes the open ones within the grace period. `add_signal_handler()` works only on Unix; elsewhere, and in programs without an event loop, use `signal.signal(signal.SIGTERM, handler)`, whose handler runs in the main thread between bytecodes. The [threads lesson](../../advanced/threading/) shows how a threaded service stops its workers with an `Event`.
 
 ## When the process crashes or hangs
 
@@ -248,6 +426,7 @@ Do not configure logging in a library: emit records and let the application deci
 - **Reading `os.environ` all over the code.** Settings become impossible to list, test or validate.
 - **Logging a secret through `extra=`.** Structured logs are copied everywhere; redact before logging.
 - **Health checks that only return "ok".** A check that cannot fail tells the balancer nothing.
+- **Setting a `ContextVar` without resetting it.** In a thread that serves request after request, the next request starts with the last one's ID. Keep the token and reset in `finally`.
 
 <Exercise title="Predict: the silent logger">
 
@@ -338,7 +517,7 @@ ConfigError: SHOP_WORKERS must be a whole number, not 'many'
 
 <Exercise title="A health check">
 
-Write `health(checks)`, where `checks` maps names to functions that raise if their dependency is unhealthy. Return `{"status": ..., "checks": {...}}` with `"ok"` or `"failed: <message>"` per check, and an overall status of `"ok"` or `"degraded"`. Test it with a database check (`SELECT 1` on an in-memory `sqlite3` connection), then add a disk check that raises `OSError("only 2% free")`. Printed with `json.dumps`:
+Write `health(checks)`, where `checks` maps names to functions that raise if their dependency is unhealthy. Return `{"status": ..., "checks": {...}}` with `"ok"` or `"failed: <message>"` per check, and an overall status of `"ok"` or `"degraded"`. Test it with a database check (`SELECT 1` on an in-memory `sqlite3` connection, as in [the box above](#sqlite3-primer)), then add a disk check that raises `OSError("only 2% free")`. Printed with `json.dumps`:
 
 ```text
 {"status": "ok", "checks": {"database": "ok"}}
@@ -393,6 +572,7 @@ Catching `Exception` is right here, and rare elsewhere: a health check must repo
 
 - Parse the environment once into a frozen, typed settings object; fail at start-up on bad values; hide secrets from `repr`.
 - `dictConfig` describes an application's logging as data. Set `disable_existing_loggers: False`.
-- Structured logs are one JSON object per line, with `extra=` fields; a `ContextVar` filter adds a request ID to every record.
-- Health checks report each dependency. `faulthandler` turns crashes and hangs into Python stacks.
+- Structured logs are one JSON object per line, with `extra=` fields; a `ContextVar` filter adds a request ID to every record. `set()` returns a token for `reset()`, and each asyncio task has its own copy.
+- A trace is a tree of spans that shares one trace ID, passed between services in a `traceparent` header. Use OpenTelemetry rather than your own.
+- Health checks report each dependency. Handle `SIGTERM` (`loop.add_signal_handler()` or `signal.signal()`), or the process dies without cleaning up. `faulthandler` turns crashes and hangs into Python stacks.
 - Next: [architecture for large codebases](../large-codebases/).

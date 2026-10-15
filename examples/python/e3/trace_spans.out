@@ -1,0 +1,3 @@
+trace=4bf92f35 span=2 parent=1 load cart
+trace=4bf92f35 span=3 parent=1 charge card
+trace=4bf92f35 span=1 parent=00f067aa POST /checkout

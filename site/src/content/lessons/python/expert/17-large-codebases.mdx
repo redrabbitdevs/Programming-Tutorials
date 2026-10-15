@@ -4,16 +4,17 @@ level: expert
 module: Production Python
 order: 17
 title: Architecture for large codebases
-description: Keep a growing Python application changeable - layers with one-way dependencies, dependency injection through constructors and Protocols, a composition root, boundaries enforced by a checker, typing as documentation, monorepos, and lazy imports for start-up time.
+description: "Keep a growing Python application changeable: layers with one-way dependencies, dependency injection through constructors and Protocols, a composition root, boundaries enforced by a checker, typing as documentation, shared state that survives free-threading, monorepos, and lazy imports for start-up time."
 minVersion: "3.11"
 objectives:
   - Split an application into domain, service and adapter layers whose imports point one way
   - Inject dependencies through constructors typed with Protocols, and wire them in one composition root
   - Enforce layer boundaries automatically with an ast-based import check
   - Use types, public names and packages to document a codebase's contracts
+  - Find the module-level mutable state that breaks under threads and the free-threaded build
   - Break import cycles, and use lazy imports (3.15) to keep start-up fast
-estimatedMinutes: 45
-fundamentals: []
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/10-scope-and-lifetime", "fundamentals/beginner/25-testing-mindset"]
 ---
 
 Small programs survive any structure. Large ones die of the same disease: everything imports everything, so a change to the e-mail code breaks the price calculation, tests need a real database, and nobody can say which module may depend on which. This lesson is about the few rules that prevent that, and the Python tools that let you check them rather than hope.
@@ -90,7 +91,7 @@ class Checkout:
         return total
 ```
 
-The adapters implement those Protocols without mentioning them:
+A Protocol needs no inheritance. An abstract base class from the [ABCs and protocols lesson](../../intermediate/abc-protocols/) would also work, but forces every adapter to import and subclass it, which is the dependency this design avoids. The adapters implement those Protocols without mentioning them. The catalogue uses `sqlite3`; if that module is new to you, read the [short primer](../config-observability/#sqlite3-primer) first:
 
 ```python title="shop/adapters.py"
 """Talk to the outside world: a database and a way to send messages."""
@@ -206,9 +207,19 @@ The exit code makes it a CI gate. For real projects, the third-party `import-lin
 
 ## Types and names as documentation
 
-In a large codebase, a function's signature is read far more often than its body. Annotate every public function and keep the layers that matter most, usually `domain` and `service`, clean under `mypy --strict` (see [linting and type checking](../../intermediate/ruff-and-type-checking/)). A Protocol is a contract written in code: the checker verifies every adapter against it, and a new developer learns from it what an adapter must do. Mark what is private with a leading underscore (`_pricing.py`, `_helper()`), and state a package's public names in `__all__`. A library that ships type hints adds an empty `py.typed` file ([PEP 561](https://peps.python.org/pep-0561/)) so that type checkers use them.
+In a large codebase, a function's signature is read far more often than its body. Annotate every public function (the vocabulary is in [static typing fundamentals](../../advanced/typing-fundamentals/)) and keep the layers that matter most, usually `domain` and `service`, clean under `mypy --strict` (see [linting and type checking](../../intermediate/ruff-and-type-checking/)). A Protocol is a contract written in code: the checker verifies every adapter against it, and a new developer learns from it what an adapter must do. Mark what is private with a leading underscore (`_pricing.py`, `_helper()`), and state a package's public names in `__all__`. A library that ships type hints adds an empty `py.typed` file ([PEP 561](https://peps.python.org/pep-0561/)) so that type checkers use them.
 
 Avoid modules named `utils` or `common`. They have no reason to exist except convenience, so everything ends up in them and everything imports them.
+
+## Shared state and threads
+
+Module-level mutable state is hidden coupling: any module can change it, and no signature shows who does. Once requests run in threads, it is also a correctness problem, and the free-threaded build (3.15t) runs those threads truly in parallel, so a race that was rare becomes frequent. Look for three shapes:
+
+- **Check-then-act caches.** `if key not in CACHE: CACHE[key] = load(key)` can run `load` twice for one key. Each dictionary operation is safe on both builds (the free-threaded build protects built-in containers with internal locks), but the pair of operations is not atomic on either.
+- **Lazy singletons.** `if _client is None: _client = Client()` can build two clients.
+- **Counters.** `Stats.orders += 1` reads, adds and writes back; two threads can both read the old value, and one update is lost.
+
+The architecture in this lesson already avoids most of it. Build shared objects once in the composition root and pass them in; protect what must stay shared with a `threading.Lock`; and keep per-request values in a `ContextVar`, as in [the observability lesson](../config-observability/). [Free-threaded Python](../../advanced/free-threading/) shows the races running, and [the upgrade lesson](../migrating-to-315/#getting-ready-for-the-free-threaded-build) has a readiness checklist.
 
 ## Monorepos
 
@@ -472,6 +483,7 @@ On 3.15, `lazy from .orders import Order` in `customers.py` also breaks this cyc
 - Organise code in layers whose imports point inward: domain, then services, then adapters, wired together in one composition root.
 - Inject collaborators through constructors typed with Protocols; test with small fakes.
 - Enforce boundaries with a checker in CI. Annotate public APIs and mark private modules.
+- Module-level caches, singletons and counters race under threads, more often on 3.15t. Build shared objects in the composition root, lock what stays shared.
 - Split a monorepo into packages with their own `pyproject.toml`.
 - Lazy imports (3.15) in the composition root keep start-up fast; global lazy modes are for applications, not libraries.
 - Next: [upgrading to Python 3.15](../migrating-to-315/).

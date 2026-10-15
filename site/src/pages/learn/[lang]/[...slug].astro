@@ -30,6 +30,8 @@ const isShared = d.language === 'fundamentals';
 const langs = await getCollection('languages', (l) => l.data.slug === d.language);
 const langName = isShared ? 'Fundamentals' : (langs[0]?.data.name ?? d.language);
 const homeHref = isShared ? url('/fundamentals/') : url(`/learn/${d.language}/`);
+// The last lesson of a track gets an end card instead of an empty "Next" slot.
+const trackComplete = langs[0]?.data.status === 'complete';
 const builds = await resolveFundamentals(d.fundamentals);
 const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
 ---
@@ -115,6 +117,18 @@ const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
               <span class="dir">Next</span>
               <span class="ttl">{next.data.title}</span>
             </a>
+          )}
+          {!next && (
+            <div class="next end-card">
+              <span class="dir">{trackComplete ? 'Track complete' : 'End of the lessons so far'}</span>
+              <span class="ttl">
+                {trackComplete ? `You have finished the ${langName} track` : `More ${langName} lessons are on the way`}
+              </span>
+              <span class="end-links">
+                <a href={homeHref}>{langName} curriculum</a>
+                <a href={url('/languages/')}>Language catalogue</a>
+              </span>
+            </div>
           )}
         </nav>
       </article>

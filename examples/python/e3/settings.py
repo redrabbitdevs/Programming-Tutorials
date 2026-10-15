@@ -11,7 +11,7 @@ class ConfigError(Exception):
 class Settings:
     port: int
     debug: bool
-    database_url: str
+    database_url: str = field(repr=False)  # may hold a password
     api_key: str = field(repr=False)
 
     @classmethod
@@ -30,7 +30,9 @@ class Settings:
         )
 
 
-print(Settings.from_env({"SHOP_API_KEY": "k-91f2", "SHOP_DEBUG": "yes"}))
+url = "postgresql://shop:s3cret@db.internal/shop"
+print(Settings.from_env({"SHOP_API_KEY": "k-91f2", "SHOP_DEBUG": "yes",
+                        "SHOP_DATABASE_URL": url}))
 for env in ({"SHOP_PORT": "80a", "SHOP_API_KEY": "k"}, {}):
     try:
         Settings.from_env(env)

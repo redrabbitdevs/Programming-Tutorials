@@ -1,0 +1,2 @@
+handler no: exit -15, printed []
+handler yes: exit 0, printed ['SIGTERM: finishing open requests', 'cleanup ran']
