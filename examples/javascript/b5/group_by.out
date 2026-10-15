@@ -1,0 +1,10 @@
+[Object: null prototype] {
+  eng: [ { name: 'Ada', team: 'eng' }, { name: 'Cy', team: 'eng' } ],
+  ops: [ { name: 'Bob', team: 'ops' } ]
+}
+null
+Map(2) {
+  3 => [ { name: 'Ada', team: 'eng' }, { name: 'Bob', team: 'ops' } ],
+  2 => [ { name: 'Cy', team: 'eng' } ]
+}
+[ 'Ada', 'Bob' ]

@@ -1,0 +1,7 @@
+[ 1, 10, 100, 9 ]
+true
+[ 'Cherry', 'apple', 'banana' ]
+[ 1, 2, 3, undefined ]
+[ 1, 9, 10, 100 ]
+[ 'Ada', 'bob', 'zoe', 'Émile' ]
+[ 'Ada', 'bob', 'Émile', 'zoe' ]

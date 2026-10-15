@@ -8,7 +8,9 @@
 #        PYTHON=/path/to/python3.15 scripts/validate.sh   interpreter for examples
 # An example may have a sibling .in file, which is fed to it as stdin.
 #        NODE=/path/to/node scripts/validate.sh   Node for JavaScript examples (*.mjs,
-#        same .in/.out rules; *.test.mjs run with node --test, pass/fail counts only)
+#        same .in/.out rules; *.test.mjs run with node --test, pass/fail counts only).
+#        In a folder with a .modules marker file, and for *.cjs files, only files
+#        that have a sibling .out run (the others are imported by those entry points).
 set -u -o pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -99,7 +101,7 @@ fi
 if [ $EX_BAD -eq 0 ]; then pass "examples: $EX_RUN run, $EX_CMP compared to .out"; else fail "examples: $EX_BAD of $EX_RUN failed"; fi
 
 # 2b. JavaScript examples ----------------------------------------------------
-step "js examples: run every examples/**/*.mjs (NODE=${NODE:-node})"
+step "js examples: run every examples/**/*.mjs entry point (NODE=${NODE:-node})"
 JS_RUN=0; JS_BAD=0; JS_CMP=0; JS_CHK=0
 if [ -d "$ROOT/examples" ]; then
   # Deterministic output: no colours, no experimental-feature warnings on stderr.
@@ -119,10 +121,20 @@ if [ -d "$ROOT/examples" ]; then
         else echo "  FAIL $rel (syntax)"; head -10 "$JS_ERR" | sed 's/^/       /'; JS_BAD=$((JS_BAD + 1)); fi
         continue ;;
     esac
+    # Multi-file examples: a module that other files import is not an entry point
+    # and must not be run alone. Two conventions mark the entry points, and both
+    # use the .out file, which every runnable entry has anyway:
+    #   - a folder that contains a file named .modules: only files with a
+    #     sibling .out are run (the rest are library modules, data or helpers);
+    #   - CommonJS files (*.cjs): only those with a sibling .out are run.
+    stem="${f%.*}"
+    expected="$stem.out"
+    if [ ! -f "$expected" ] && { [ -f "$dir/.modules" ] || [ "${base##*.}" = "cjs" ]; }; then
+      continue
+    fi
     JS_RUN=$((JS_RUN + 1))
-    expected="${f%.mjs}.out"
     stdin_file=/dev/null
-    [ -f "${f%.mjs}.in" ] && stdin_file="${f%.mjs}.in"
+    [ -f "$stem.in" ] && stdin_file="$stem.in"
     case "$base" in
       *.test.mjs)
         # Tests: compare only the pass/fail counts from the spec reporter's
@@ -156,7 +168,7 @@ if [ -d "$ROOT/examples" ]; then
       fi
     fi
     echo "  ok   $rel"
-  done < <(find "$ROOT/examples" -name '*.mjs' -type f -not -path '*/node_modules/*' -print0 | sort -z)
+  done < <(find "$ROOT/examples" \( -name '*.mjs' -o -name '*.cjs' \) -type f -not -path '*/node_modules/*' -print0 | sort -z)
   rm -f "$JS_ERR"
 fi
 if [ $JS_BAD -eq 0 ]; then pass "js examples: $JS_RUN run, $JS_CMP compared to .out, $JS_CHK syntax-checked"; else fail "js examples: $JS_BAD of $((JS_RUN + JS_CHK)) failed"; fi

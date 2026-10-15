@@ -1,0 +1,228 @@
+---
+language: javascript
+level: beginner
+module: Modules and a first project
+order: 34
+title: CommonJS in the wild
+description: Read older require and module.exports code, see how it differs from ES modules, load one kind from the other, and convert a CommonJS file to ESM.
+minVersion: "22"
+objectives:
+  - Read code that uses require and module.exports
+  - List the differences between CommonJS and ES modules
+  - Import CommonJS from ESM and load ESM with require
+  - Convert a small CommonJS module to ES modules
+estimatedMinutes: 35
+fundamentals: []
+---
+
+Node.js had a module system years before JavaScript did. It is called **CommonJS** (CJS), and a large amount of existing code, tutorials and packages still use it. You should write new code as ES modules, but you will read CommonJS often, and sometimes need the two to work together.
+
+## What CommonJS looks like
+
+A CommonJS module sets `module.exports` to whatever it wants to share. Another file loads it with `require()`.
+
+```javascript title="legacy_math.cjs"
+function add(a, b) {
+  return a + b;
+}
+
+function square(n) {
+  return n * n;
+}
+
+module.exports = { add, square, label: "legacy" };
+```
+
+```javascript title="app.cjs"
+const path = require("node:path");
+const { add, square } = require("./legacy_math.cjs");
+const modern = require("./modern.mjs");
+
+console.log(add(2, 3), square(4));
+console.log(path.basename(__filename));
+console.log(require.main === module);
+console.log(typeof exports, typeof module);
+
+console.log(modern.double(21));
+console.log(modern.default);
+```
+
+```text
+5 16
+app.cjs
+true
+object object
+42
+modern default
+```
+
+Save these as `legacy_math.cjs` and `app.cjs` and run `node app.cjs`. The `.cjs` extension always means CommonJS. A `.js` file is CommonJS when the nearest `package.json` has no `"type": "module"` (or has `"type": "commonjs"`, which `npm init` writes).
+
+- `require("./legacy_math.cjs")` runs the file and returns its `module.exports`. Destructuring picks names out of it.
+- `require("node:path")` loads a built-in module.
+- `__filename` is the path of the current file. `__dirname` is its folder. ES modules do not have them; use `import.meta.filename` and `import.meta.dirname`.
+- `require.main === module` is `true` when this file is the one that was started, and `false` when another file loaded it.
+- `exports` and `module` are variables Node.js gives every CommonJS file. They are not globals.
+
+## ESM compared with CommonJS
+
+| | ES modules | CommonJS |
+|---|---|---|
+| Syntax | `import` and `export` | `require()` and `module.exports` |
+| Loading | static imports are analysed before running | `require()` runs when the line is reached |
+| Strict mode | always | only if you write `"use strict"` |
+| Top-level `await` | allowed | not allowed |
+| Exports | live bindings | a plain object; a value taken out of it is a copy |
+| Needs a file extension | yes | no for `require("./file")`, which also tries `.js` |
+| `__dirname`, `__filename`, `require` | not available | available |
+| `this` at the top level | `undefined` | `module.exports` |
+
+Because ESM imports are static, tools and engines can see the structure of the program before it runs. ESM is also the module system of browsers. For those reasons, new Node.js code should be ESM.
+
+A common mistake with `exports`: `exports` starts as another name for `module.exports`. Adding a property (`exports.add = add`) works. Assigning a new value to it (`exports = { add }`) only changes the local variable and exports nothing. Assign to `module.exports` when you want to replace the whole export.
+
+## Using CommonJS from ESM
+
+An ES module can import a CommonJS file. The whole `module.exports` is the **default import**. Node.js also tries to detect named exports by reading the CommonJS source, as a convenience, so `{ add }` often works as well. For reliable code, import the default and take names from it.
+
+```javascript title="esm_side.mjs"
+import { createRequire } from "node:module";
+import legacy, { add } from "./legacy_math.cjs";
+
+console.log(legacy.label, add(1, 2), legacy.square(3));
+
+const require = createRequire(import.meta.url);
+const again = require("./legacy_math.cjs");
+console.log(again === legacy);
+```
+
+```text
+legacy 3 9
+true
+```
+
+`createRequire` builds a `require` function for use inside an ES module. It needs a location to resolve relative paths from, and `import.meta.url` provides it. The result is the same object as the default import, so `again === legacy` is `true`.
+
+## Using ESM from CommonJS
+
+CommonJS code can load an ES module with `require()`, as `app.cjs` did with `modern.mjs`. This works without a flag in Node.js 22.12 and later, and does not print a warning from 22.13 (it is on by default in 23.0). In Node.js 25.4 it stopped being marked experimental. The ES module's named exports become properties of the returned object, and its default export is the `default` property, which is why the example printed `modern.default`.
+
+There is one limit: `require()` is synchronous, so it cannot load an ES module that uses top-level `await`. Node.js throws `ERR_REQUIRE_ASYNC_MODULE` in that case. Such a module must be loaded with `import()`, which returns a promise and works everywhere.
+
+```javascript title="modern.mjs"
+export function double(n) {
+  return n * 2;
+}
+
+export default "modern default";
+```
+
+## Converting CommonJS to ESM
+
+The steps are mechanical.
+
+1. Rename the file to `.mjs`, or set `"type": "module"` in `package.json`.
+2. Replace `module.exports = { a, b }` with `export { a, b }`, or put `export` before each declaration.
+3. Replace `const { a } = require("./file.cjs")` with `import { a } from "./file.mjs"`. Add the file extension.
+4. Replace `__dirname` and `__filename` with `import.meta.dirname` and `import.meta.filename`.
+5. Check for `require()` calls inside functions or conditions. Static `import` cannot do this; use `import()`.
+
+## Common pitfalls
+
+- **Using `require` in a `.mjs` file.** It is not defined. Use `import`, or `createRequire`.
+- **Using `import` in a CommonJS file.** `import ... from` is a syntax error there. A dynamic `import()` call is allowed.
+- **Using top-level `await` in a CommonJS file.** It is a syntax error.
+- **Writing `exports = ...`.** It exports nothing. Use `module.exports = ...`.
+- **Mixing both styles in one file.** Pick one per file.
+- **Forgetting the extension in ESM.** `import "./shapes"` fails.
+- **Assuming named imports from CommonJS always work.** They depend on a heuristic. The default import always works.
+
+## Exercises
+
+<Exercise title="Convert a CommonJS module to ESM">
+
+Convert these two CommonJS files into ES modules that print the same output.
+
+```javascript title="shapes_cjs.cjs"
+const PI = 3.14159;
+
+function circleArea(r) {
+  return PI * r * r;
+}
+
+function rectArea(w, h) {
+  return w * h;
+}
+
+module.exports = { circleArea, rectArea };
+```
+
+```javascript title="use_shapes_cjs.cjs"
+const { circleArea, rectArea } = require("./shapes_cjs.cjs");
+
+console.log(circleArea(2).toFixed(2));
+console.log(rectArea(3, 4));
+```
+
+```text
+12.57
+12
+```
+
+<Solution>
+
+The module file becomes `shapes_esm.mjs`: `export` goes in front of each function you share, and `module.exports` disappears.
+
+```javascript title="shapes_esm.mjs"
+const PI = 3.14159;
+
+export function circleArea(r) {
+  return PI * r * r;
+}
+
+export function rectArea(w, h) {
+  return w * h;
+}
+```
+
+The consumer swaps `require` for `import` and adds the extension.
+
+```javascript title="use_shapes_esm.mjs"
+import { circleArea, rectArea } from "./shapes_esm.mjs";
+
+console.log(circleArea(2).toFixed(2));
+console.log(rectArea(3, 4));
+```
+
+```text
+12.57
+12
+```
+
+Both versions print `12.57` and `12`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Which is which?">
+
+You find a file called `server.js` with `const express = require("express")` at the top and no `package.json` nearby. Is it CommonJS or ESM? What would you change to run it as ESM?
+
+<Solution>
+
+It is CommonJS: `require` is its loading mechanism, and with no `package.json` setting `"type": "module"` a `.js` file is CommonJS. To run it as ESM, rename it to `server.mjs` (or add `"type": "module"` to a `package.json`) and change the first line to `import express from "express"`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- CommonJS uses `require()` and `module.exports`. `.cjs` files, and `.js` files without `"type": "module"`, are CommonJS.
+- ESM is the standard, static, strict system with live bindings and top-level `await`. Write new code as ESM.
+- ESM can import CommonJS: the default import is `module.exports`. `createRequire` gives ESM a `require`.
+- CommonJS can `require()` an ES module in Node.js 22.12 and later, unless that module uses top-level `await`.
+- Converting means changing the exports and imports, adding extensions, and replacing `__dirname`.
+
+Next: a project that combines everything from the beginner level.

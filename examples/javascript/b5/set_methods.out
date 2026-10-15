@@ -1,0 +1,7 @@
+Set(4) { 'grace', 'linus', 'alan', 'dennis' }
+Set(2) { 'grace', 'alan' }
+Set(1) { 'linus' }
+Set(2) { 'linus', 'dennis' }
+true
+false
+true

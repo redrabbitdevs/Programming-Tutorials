@@ -1,0 +1,3 @@
+{ theme: 'light', fontSize: 16, editor: { wrap: true } }
+{ theme: 'light', fontSize: 16, editor: { tabWidth: 4, wrap: true } }
+{ tabWidth: 4, wrap: false }

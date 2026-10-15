@@ -1,0 +1,10 @@
+{
+  "name": "greeter",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/hello.mjs",
+    "dev": "node --watch src/hello.mjs"
+  }
+}

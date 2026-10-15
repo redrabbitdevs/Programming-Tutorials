@@ -1,0 +1,262 @@
+---
+language: javascript
+level: beginner
+module: Arrays, objects and data
+order: 24
+title: map, filter, reduce and friends
+description: Transform arrays without loops using map, filter, reduce, find, findLast, some, every, flat and flatMap, and chain them into pipelines.
+minVersion: "22"
+objectives:
+  - Choose between map, filter and reduce for a task
+  - Find items with find, findIndex, findLast and findLastIndex
+  - Test arrays with some and every
+  - Flatten nested arrays with flat and flatMap and chain methods into a pipeline
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/sequences-and-arrays"]
+---
+
+The [higher-order functions lesson](../higher-order-functions/) previewed `map`, `filter` and `reduce`. This lesson covers them properly, with the other array methods that take a callback. Together they replace most loops that build a result. The [fundamentals lesson on sequences and arrays](../../../fundamentals/beginner/sequences-and-arrays/) describes the general operations. Here is how JavaScript spells them.
+
+All of these methods call your function with `(item, index, array)`. None of them changes the array, unless your callback does.
+
+The examples in this lesson use the same list of orders.
+
+## map, filter, reduce
+
+- `map` returns a new array of the same length, with each item replaced by the callback's result.
+- `filter` returns a new array with only the items for which the callback returns a truthy value.
+- `reduce` folds the array into one value. The callback gets the running result (the **accumulator**) and the next item. The second argument of `reduce` is the starting accumulator.
+
+```javascript title="array_transform.mjs"
+const orders = [
+  { id: 1, customer: "Ada", total: 40, paid: true },
+  { id: 2, customer: "Linus", total: 15, paid: false },
+  { id: 3, customer: "Grace", total: 90, paid: true },
+  { id: 4, customer: "Ada", total: 25, paid: true },
+];
+
+const totals = orders.map((o) => o.total);
+console.log(totals);
+
+const paid = orders.filter((o) => o.paid);
+console.log(paid.map((o) => o.id));
+
+const revenue = paid.reduce((sum, o) => sum + o.total, 0);
+console.log(revenue);
+
+const byCustomer = orders.reduce((acc, o) => {
+  acc[o.customer] = (acc[o.customer] ?? 0) + o.total;
+  return acc;
+}, {});
+console.log(byCustomer);
+
+console.log(orders.map((o, i) => `${i + 1}. ${o.customer}`));
+console.log(orders.forEach((o) => o.id));
+```
+
+```text
+[ 40, 15, 90, 25 ]
+[ 1, 3, 4 ]
+155
+{ Ada: 65, Linus: 15, Grace: 90 }
+[ '1. Ada', '2. Linus', '3. Grace', '4. Ada' ]
+undefined
+```
+
+The `reduce` that builds `byCustomer` uses an object as the accumulator, which shows that the result need not be a number. `acc[o.customer] ?? 0` supplies a starting value the first time a customer appears, using the nullish operator from the [null and undefined lesson](../null-undefined-nullish/).
+
+`forEach` is for side effects. It returns `undefined`, so there is nothing to chain or assign. If you want a new array, use `map`.
+
+### Always give reduce a starting value
+
+Without a second argument, `reduce` uses the first item as the starting value and begins at the second. That works for sums of numbers and fails in two ways.
+
+```javascript title="reduce_initial.mjs"
+console.log([1, 2, 3].reduce((a, b) => a + b));
+console.log([5].reduce((a, b) => a + b));
+console.log([].reduce((a, b) => a + b, 0));
+
+try {
+  [].reduce((a, b) => a + b);
+} catch (error) {
+  console.log(error.name);
+}
+
+const words = ["apple", "bob", "cat"];
+console.log(words.reduce((n, w) => n + w.length));
+console.log(words.reduce((n, w) => n + w.length, 0));
+```
+
+```text
+6
+5
+0
+TypeError
+apple33
+11
+```
+
+- On an empty array, `reduce` without a starting value throws a `TypeError`. With `0` it returns `0`.
+- When the result has a different type from the items, the first item is used as it is. The first sum of word lengths started from the string `"apple"` and joined strings and numbers into `"apple33"`. The second, with `0`, gives `11`.
+
+## Finding items
+
+`find` returns the first item for which the callback is truthy, or `undefined`. `findIndex` returns its position, or `-1`. `findLast` and `findLastIndex` search from the end and return the same kinds of result.
+
+```javascript title="array_find_test.mjs"
+const scores = [72, 95, 58, 88, 95];
+
+console.log(scores.find((s) => s > 90));
+console.log(scores.findIndex((s) => s > 90));
+console.log(scores.findLast((s) => s > 90));
+console.log(scores.findLastIndex((s) => s > 90));
+console.log(scores.find((s) => s > 100));
+console.log(scores.findIndex((s) => s > 100));
+
+console.log(scores.some((s) => s < 60));
+console.log(scores.every((s) => s >= 50));
+console.log(scores.every((s) => s >= 60));
+
+console.log([].some((s) => s > 0), [].every((s) => s > 0));
+```
+
+```text
+95
+1
+95
+4
+undefined
+-1
+true
+true
+false
+false true
+```
+
+`some` asks whether **any** item passes, and `every` asks whether **all** items do. Both stop as soon as the answer is known. On an empty array `some` is `false` and `every` is `true`, because no item can fail the test. That surprises people once, then it makes sense.
+
+When `find` returns `undefined`, you cannot tell "not found" from "found an item whose value is `undefined`". If that matters, use `findIndex`.
+
+## flat and flatMap
+
+`flat(depth)` merges nested arrays into the outer one. The default depth is 1. `Infinity` flattens everything.
+
+`flatMap(fn)` is `map` followed by `flat()` of depth 1. It is useful when each item produces zero, one or several results: return an empty array to drop an item, or an array of several to expand it.
+
+```javascript title="array_flat.mjs"
+const nested = [1, [2, 3], [4, [5, [6]]]];
+console.log(nested.flat());
+console.log(nested.flat(2));
+console.log(nested.flat(Infinity));
+
+const sentences = ["the cat", "sat down"];
+console.log(sentences.map((s) => s.split(" ")));
+console.log(sentences.flatMap((s) => s.split(" ")));
+
+const lines = [
+  { name: "tea", tags: ["hot", "drink"] },
+  { name: "ice", tags: ["cold"] },
+];
+console.log(lines.flatMap((l) => l.tags));
+
+const numbers = [1, 2, 3, 4];
+console.log(numbers.flatMap((n) => (n % 2 === 0 ? [n, n * 10] : [])));
+```
+
+```text
+[ 1, 2, 3, 4, [ 5, [ 6 ] ] ]
+[ 1, 2, 3, 4, 5, [ 6 ] ]
+[ 1, 2, 3, 4, 5, 6 ]
+[ [ 'the', 'cat' ], [ 'sat', 'down' ] ]
+[ 'the', 'cat', 'sat', 'down' ]
+[ 'hot', 'drink', 'cold' ]
+[ 2, 20, 4, 40 ]
+```
+
+## Chaining into a pipeline
+
+Because each method returns an array, you can chain them. Read a pipeline from top to bottom as a list of steps.
+
+Here is the exercise, solved: a short report from the order list.
+
+```javascript title="order_report.mjs"
+const orders = [
+  { id: 1, customer: "Ada", total: 40, paid: true },
+  { id: 2, customer: "Linus", total: 15, paid: false },
+  { id: 3, customer: "Grace", total: 90, paid: true },
+  { id: 4, customer: "Ada", total: 25, paid: true },
+];
+
+const paid = orders.filter((o) => o.paid);
+const revenue = paid.reduce((sum, o) => sum + o.total, 0);
+const unpaidIds = orders.filter((o) => !o.paid).map((o) => o.id);
+const customers = [...new Set(orders.map((o) => o.customer))];
+const biggest = orders.reduce((best, o) => (o.total > best.total ? o : best));
+
+console.log(`Paid orders: ${paid.length}`);
+console.log(`Revenue: ${revenue}`);
+console.log(`Unpaid ids: ${unpaidIds.join(", ")}`);
+console.log(`Customers: ${customers.join(", ")}`);
+console.log(`Biggest: order ${biggest.id} (${biggest.customer})`);
+```
+
+```text
+Paid orders: 3
+Revenue: 155
+Unpaid ids: 2
+Customers: Ada, Linus, Grace
+Biggest: order 3 (Grace)
+```
+
+`[...new Set(...)]` removes duplicates. Sets get their own lesson later in this module. The `reduce` that finds the biggest order uses no starting value on purpose: the first order is a fine starting candidate, and the array is known to be non-empty.
+
+Keep a chain short enough to read. If a step needs a name to be understood, assign the intermediate result to a `const` and name it, as `paid` is named above.
+
+## Common pitfalls
+
+- **Forgetting `return` in a callback with braces.** `orders.map((o) => { o.total })` returns an array of `undefined`. Either add `return`, or drop the braces.
+- **Using `map` for side effects.** If you do not use the new array, use `forEach` or a `for...of` loop.
+- **Using `reduce` when a simpler method works.** A `reduce` that only builds a filtered or mapped array should be `filter` or `map`.
+- **Calling `reduce` on a possibly empty array without a starting value.** It throws.
+- **Passing a function with optional parameters directly,** such as `map(parseInt)`. The index lands in the wrong parameter.
+- **Changing items inside `map` or `filter`.** The new array holds the same objects as the old one. The copying lesson and the references lesson in this module explain why that matters.
+
+## Exercises
+
+<Exercise title="Order report">
+
+Using the `orders` array from this lesson, print the number of paid orders, the revenue from them, the ids of the unpaid orders, the list of distinct customers, and the biggest order. Use `filter`, `map` and `reduce`.
+
+<Solution>
+
+The program is the `order_report.mjs` example shown above. The paid orders come from `filter`. The revenue is a `reduce` over them with a starting value of `0`. The unpaid ids come from a `filter` followed by a `map`. The biggest order comes from a `reduce` that keeps whichever order has the larger `total`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Flatten and filter">
+
+Given `const teams = [["Ada", "Grace"], ["Linus"], []]`, produce one array of names in upper case, using one `flat` or `flatMap` and one `map`.
+
+<Solution>
+
+```javascript
+const teams = [["Ada", "Grace"], ["Linus"], []];
+console.log(teams.flat().map((name) => name.toUpperCase()));
+```
+
+It prints `[ 'ADA', 'GRACE', 'LINUS' ]`. `flat()` joins the three inner arrays, and the empty one adds nothing. `teams.flatMap((team) => team.map((name) => name.toUpperCase()))` gives the same result in one call.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `map` transforms every item, `filter` keeps some, and `reduce` combines them into one value. Give `reduce` a starting value.
+- `find`, `findIndex`, `findLast` and `findLastIndex` locate an item. `some` and `every` test the whole array.
+- `flat` removes a level of nesting. `flatMap` maps and flattens in one step, and can drop or expand items.
+- Chains read well when each step is small. Name intermediate results when a step needs explaining.
+
+Next: sorting, and copying arrays without changing the original.

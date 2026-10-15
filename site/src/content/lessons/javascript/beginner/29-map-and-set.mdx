@@ -1,0 +1,347 @@
+---
+language: javascript
+level: beginner
+module: Arrays, objects and data
+order: 29
+title: Map and Set
+description: Use Map for key-value data with any key type, Set for unique values, the Set methods union and intersection, and Object.groupBy to group data.
+minVersion: "22"
+objectives:
+  - Create and use Map and Set and iterate over them
+  - Choose between a Map and a plain object
+  - Combine sets with union, intersection and difference
+  - Group an array with Object.groupBy and Map.groupBy
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/maps-and-sets"]
+---
+
+A map stores values under keys, and a set stores unique values. Why they exist and what they cost is covered in the [fundamentals lesson on maps and sets](../../../fundamentals/beginner/maps-and-sets/). JavaScript has built-in `Map` and `Set` classes. Plain objects can also act as dictionaries, so this lesson also tells you which to pick.
+
+## Map
+
+A `Map` holds key-value pairs. Build one from an array of `[key, value]` pairs or start empty and call `set`.
+
+```javascript title="map_basics.mjs"
+const stock = new Map([
+  ["apple", 5],
+  ["pear", 0],
+]);
+
+stock.set("plum", 12);
+stock.set("apple", 7);
+console.log(stock);
+console.log(stock.get("apple"), stock.get("kiwi"), stock.has("pear"), stock.size);
+
+stock.delete("pear");
+console.log([...stock.keys()], [...stock.values()]);
+
+for (const [fruit, count] of stock) {
+  console.log(fruit, count);
+}
+
+const byObject = new Map();
+const keyA = { id: 1 };
+byObject.set(keyA, "first");
+byObject.set(1, "number").set("1", "string");
+console.log(byObject.get(keyA), byObject.get({ id: 1 }));
+console.log(byObject.get(1), byObject.get("1"));
+
+console.log(new Map(Object.entries({ a: 1 })));
+console.log(Object.fromEntries(new Map([["b", 2]])));
+```
+
+```text
+Map(3) { 'apple' => 7, 'pear' => 0, 'plum' => 12 }
+7 undefined true 3
+[ 'apple', 'plum' ] [ 7, 12 ]
+apple 7
+plum 12
+first undefined
+number string
+Map(1) { 'a' => 1 }
+{ b: 2 }
+```
+
+- `set` returns the map, so calls chain. Setting an existing key replaces its value and keeps its position.
+- `get` returns `undefined` for a missing key. `has` asks whether it exists. `delete` removes a key. `size` is a property, not a method.
+- `keys()`, `values()` and `entries()` return iterators. Spread them into an array to print or index them. Iterating the map itself, as the `for...of` loop does, gives `[key, value]` pairs.
+- **Keys can be any value**: objects, numbers, functions. Keys are compared by identity for objects, so `get({ id: 1 })` does not find the entry stored under a different `{ id: 1 }`. The number `1` and the string `"1"` are different keys.
+- `new Map(Object.entries(obj))` converts an object to a map, and `Object.fromEntries(map)` converts back.
+
+## Set
+
+A `Set` holds unique values. Adding a value that is already there does nothing.
+
+```javascript title="set_basics.mjs"
+const seen = new Set([3, 1, 3, 2, 1]);
+console.log(seen, seen.size);
+
+seen.add(4).add(1);
+console.log(seen.has(4), seen.has(9));
+seen.delete(3);
+console.log([...seen]);
+
+const unique = [...new Set(["a", "b", "a", "c", "b"])];
+console.log(unique);
+
+console.log(new Set([NaN, NaN, 0, -0]).size);
+console.log(new Set([{ a: 1 }, { a: 1 }]).size);
+
+seen.forEach((value) => console.log("item", value));
+```
+
+```text
+Set(3) { 3, 1, 2 } 3
+true false
+[ 1, 2, 4 ]
+[ 'a', 'b', 'c' ]
+2
+2
+item 1
+item 2
+item 4
+```
+
+- The constructor accepts any iterable, and drops the duplicates. `[...new Set(array)]` is the usual way to remove duplicates from an array.
+- `add` returns the set, `has` tests membership and `delete` removes.
+- Equality is "same value zero": `NaN` equals `NaN`, and `0` equals `-0`. Objects are compared by identity, so two separate `{ a: 1 }` literals both stay.
+- Both `Map` and `Set` iterate in **insertion order**.
+
+## Set methods
+
+A `Set` has methods for the usual set operations. They return new sets and leave the originals alone. The operations were added in ES2025 and run on Node 22.
+
+```javascript title="set_methods.mjs"
+const ada = new Set(["grace", "linus", "alan"]);
+const bob = new Set(["alan", "dennis", "grace"]);
+
+console.log(ada.union(bob));
+console.log(ada.intersection(bob));
+console.log(ada.difference(bob));
+console.log(ada.symmetricDifference(bob));
+
+console.log(new Set(["alan"]).isSubsetOf(ada));
+console.log(ada.isSupersetOf(new Set(["alan", "x"])));
+console.log(ada.isDisjointFrom(new Set(["zed"])));
+```
+
+```text
+Set(4) { 'grace', 'linus', 'alan', 'dennis' }
+Set(2) { 'grace', 'alan' }
+Set(1) { 'linus' }
+Set(2) { 'linus', 'dennis' }
+true
+false
+true
+```
+
+- `a.union(b)`: everything in either.
+- `a.intersection(b)`: only what is in both.
+- `a.difference(b)`: what is in `a` but not in `b`.
+- `a.symmetricDifference(b)`: what is in exactly one of them.
+- `isSubsetOf`, `isSupersetOf` and `isDisjointFrom` answer true or false.
+
+Before these existed, you wrote them with `filter` and `has`. If your code must run on a Node version older than 22, check that these methods exist first.
+
+## Map or object?
+
+```javascript title="object_vs_map.mjs"
+const asObject = {};
+asObject["b"] = 1;
+asObject["a"] = 2;
+asObject[10] = "ten";
+asObject[2] = "two";
+console.log(Object.keys(asObject));
+
+const asMap = new Map();
+asMap.set("b", 1).set("a", 2).set(10, "ten").set(2, "two");
+console.log([...asMap.keys()]);
+
+console.log("toString" in {}, new Map().has("toString"));
+console.log(Object.keys(asObject).length, asMap.size);
+
+const counts = {};
+counts[1] = "number one";
+console.log(counts["1"]);
+```
+
+```text
+[ '2', '10', 'b', 'a' ]
+[ 'b', 'a', 10, 2 ]
+true false
+4 4
+number one
+```
+
+| | Plain object | `Map` |
+|---|---|---|
+| Key types | strings and symbols (numbers become strings) | any value |
+| Key order | whole-number keys first, ascending; then insertion order | insertion order |
+| Inherited names | `"toString" in {}` is `true` | none: `has("toString")` is `false` |
+| Size | `Object.keys(o).length` | `map.size` |
+| JSON | `JSON.stringify` works | not directly |
+| Best for | fixed records with known fields | collections that grow, lookups by arbitrary keys, counting |
+
+Use an object for a record with known fields, like a user. Use a `Map` for a lookup table whose keys come from data, such as a count per word.
+
+## Grouping
+
+`Object.groupBy(items, callback)` sorts items into groups. The callback returns the group key for each item, and the result is an object of arrays. `Map.groupBy` does the same into a `Map`, so the keys can be anything. Both were added in ES2024.
+
+```javascript title="group_by.mjs"
+const people = [
+  { name: "Ada", team: "eng" },
+  { name: "Bob", team: "ops" },
+  { name: "Cy", team: "eng" },
+];
+
+const byTeam = Object.groupBy(people, (p) => p.team);
+console.log(byTeam);
+console.log(Object.getPrototypeOf(byTeam));
+
+const mapped = Map.groupBy(people, (p) => p.name.length);
+console.log(mapped);
+console.log(mapped.get(3).map((p) => p.name));
+```
+
+```text
+[Object: null prototype] {
+  eng: [ { name: 'Ada', team: 'eng' }, { name: 'Cy', team: 'eng' } ],
+  ops: [ { name: 'Bob', team: 'ops' } ]
+}
+null
+Map(2) {
+  3 => [ { name: 'Ada', team: 'eng' }, { name: 'Bob', team: 'ops' } ],
+  2 => [ { name: 'Cy', team: 'eng' } ]
+}
+[ 'Ada', 'Bob' ]
+```
+
+The object result has a `null` prototype, which is why `getPrototypeOf` prints `null` and the console shows `[Object: null prototype]`. It means a group named `toString` cannot clash with an inherited property. `Map.groupBy` is the choice when the keys are not strings, as with the name lengths here.
+
+## Upserting into a map
+
+A frequent pattern is "get the value for this key, creating it first if it is missing". `Map` and `WeakMap` now have `getOrInsert(key, defaultValue)` for it <Since v="26" />, and `getOrInsertComputed(key, fn)` for when creating the default is costly. They are part of ES2026 and need Node 26. On older versions write `if (!map.has(key)) map.set(key, [])`.
+
+```javascript title="get_or_insert.mjs"
+const groups = new Map();
+
+for (const word of ["apple", "avocado", "banana", "blueberry", "cherry"]) {
+  groups.getOrInsert(word[0], []).push(word);
+}
+console.log(groups);
+
+const counts = new Map();
+for (const ch of "hello") {
+  counts.set(ch, counts.getOrInsert(ch, 0) + 1);
+}
+console.log(counts);
+
+const lazy = new Map();
+console.log(lazy.getOrInsertComputed("k", (key) => key.toUpperCase()));
+```
+
+```text
+Map(3) {
+  'a' => [ 'apple', 'avocado' ],
+  'b' => [ 'banana', 'blueberry' ],
+  'c' => [ 'cherry' ]
+}
+Map(4) { 'h' => 1, 'e' => 1, 'l' => 2, 'o' => 1 }
+K
+```
+
+`getOrInsert` returns the existing value, or stores the default and returns it. Because the returned array is the one stored in the map, `.push(word)` updates the map. `getOrInsertComputed` calls the function with the key only when the key is missing.
+
+## Common pitfalls
+
+- **Using `map["key"]` instead of `map.get("key")`.** It sets an ordinary property on the map object and does not store an entry.
+- **Looking up an object key with a look-alike object.** Keys compare by identity.
+- **Printing `map.keys()` and expecting an array.** It is an iterator. Spread it first.
+- **Using `map.length`.** The property is `size`.
+- **Assuming a `Set` comparison works with objects by content.** It does not.
+- **Using a plain object with user-supplied keys.** Names such as `"toString"` can collide with inherited properties.
+- **Expecting `JSON.stringify(map)` to list the entries.** It gives `{}`. Convert with `Object.fromEntries(map)` or `[...map]` first.
+
+## Exercises
+
+<Exercise title="Word frequency counter">
+
+Count how often each word appears in `"the cat and the hat and the bat"` using a `Map`. Print the words from most to least frequent, with ties in alphabetical order.
+
+<Solution>
+
+```javascript title="word_frequency.mjs"
+const text = "the cat and the hat and the bat";
+
+const counts = new Map();
+for (const word of text.split(" ")) {
+  counts.set(word, (counts.get(word) ?? 0) + 1);
+}
+
+const ranked = [...counts].sort(
+  ([wordA, countA], [wordB, countB]) =>
+    countB - countA || wordA.localeCompare(wordB, "en"),
+);
+
+for (const [word, count] of ranked) {
+  console.log(`${word}: ${count}`);
+}
+```
+
+```text
+the: 3
+and: 2
+bat: 1
+cat: 1
+hat: 1
+```
+
+The loop reads the current count with `get`, uses `?? 0` for a word not seen yet, and stores the new count. `[...counts]` turns the map into an array of `[word, count]` pairs. The comparator sorts by count descending and uses `localeCompare` to break ties. Destructuring in the comparator's parameters gives the pairs readable names.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Common friends">
+
+Given each person's friends as an array, find the friends all three people share and the set of everyone mentioned.
+
+<Solution>
+
+```javascript title="common_friends.mjs"
+const friends = {
+  ada: ["grace", "linus", "alan"],
+  bob: ["alan", "dennis", "grace"],
+  cy: ["grace", "alan", "ken"],
+};
+
+const sets = Object.values(friends).map((list) => new Set(list));
+const common = sets.reduce((acc, set) => acc.intersection(set));
+console.log([...common].sort());
+
+const everyone = sets.reduce((acc, set) => acc.union(set));
+console.log([...everyone].sort());
+```
+
+```text
+[ 'alan', 'grace' ]
+[ 'alan', 'dennis', 'grace', 'ken', 'linus' ]
+```
+
+Each array becomes a `Set`. `reduce` with `intersection` keeps only the names found in every set, and `reduce` with `union` collects every name. The sets are spread into arrays and sorted for stable printing. There is no starting value on the `reduce` calls, so the first set is the start, which is correct because the list is not empty.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `Map` stores pairs under any kind of key and keeps insertion order. Read with `get`, test with `has`, count with `size`.
+- `Set` stores unique values. `[...new Set(items)]` removes duplicates.
+- Set methods `union`, `intersection`, `difference` and friends return new sets and run on Node 22.
+- `Object.groupBy` and `Map.groupBy` group an array by a key computed per item.
+- `getOrInsert` on `Map` is new and needs Node 26.
+- Use objects for fixed records, and maps for lookup tables built from data.
+
+Next: JSON, the text format for data that objects and arrays map onto.

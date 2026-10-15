@@ -1,0 +1,283 @@
+---
+language: javascript
+level: beginner
+module: Arrays, objects and data
+order: 23
+title: Arrays
+description: Create arrays, read and change them with indexes, push, pop, shift, unshift, splice and slice, search them, and avoid the surprises of length and holes.
+minVersion: "22"
+objectives:
+  - Create arrays and read items by index, including from the end with at
+  - Add and remove items with push, pop, shift, unshift and splice
+  - Search with includes and indexOf, and know what they compare
+  - Explain how length works and what an array hole is
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/sequences-and-arrays"]
+---
+
+An array is an ordered list of values. The general idea, including indexes and why appending is cheap while inserting at the front is not, is in the [fundamentals lesson on sequences and arrays](../../../fundamentals/beginner/sequences-and-arrays/). This lesson covers how JavaScript arrays behave and the methods you will use every day.
+
+## Creating and reading arrays
+
+Write an array with square brackets. Items can be of any type, and one array can mix types. Indexes start at 0.
+
+```javascript title="arrays_basic.mjs"
+const fruits = ["apple", "banana", "cherry"];
+console.log(fruits);
+console.log(fruits[0], fruits[2], fruits[3]);
+console.log(fruits.length);
+
+fruits[1] = "blueberry";
+console.log(fruits);
+
+console.log(fruits.at(-1), fruits.at(-2));
+console.log(fruits[fruits.length - 1]);
+
+const mixed = [1, "two", true, null, [3, 4], { five: 5 }];
+console.log(mixed);
+console.log(typeof fruits, Array.isArray(fruits), Array.isArray("abc"));
+```
+
+```text
+[ 'apple', 'banana', 'cherry' ]
+apple cherry undefined
+3
+[ 'apple', 'blueberry', 'cherry' ]
+cherry blueberry
+cherry
+[ 1, 'two', true, null, [ 3, 4 ], { five: 5 } ]
+object true false
+```
+
+- Reading past the end gives `undefined`, not an error.
+- `length` is the number of items. The last index is `length - 1`.
+- `at` accepts negative numbers and counts from the end, so `at(-1)` is the last item. It is shorter than `fruits[fruits.length - 1]`. With square brackets, `fruits[-1]` does not work: it looks for a property named `"-1"` and finds nothing.
+- `typeof` reports `"object"` for an array. Use `Array.isArray` to ask whether a value is an array.
+
+A `const` array can still change. `const` fixes which array the name points to, not what is inside it.
+
+## Adding and removing at the ends
+
+`push` and `pop` work at the end. `unshift` and `shift` work at the start. All four change the array in place.
+
+```javascript title="arrays_ends.mjs"
+const queue = ["b", "c"];
+
+console.log(queue.push("d"));
+console.log(queue.push("e", "f"));
+console.log(queue);
+
+console.log(queue.pop());
+console.log(queue.shift());
+console.log(queue);
+
+console.log(queue.unshift("a"));
+console.log(queue);
+```
+
+```text
+3
+5
+[ 'b', 'c', 'd', 'e', 'f' ]
+f
+b
+[ 'c', 'd', 'e' ]
+4
+[ 'a', 'c', 'd', 'e' ]
+```
+
+`push` and `unshift` return the **new length**. `pop` and `shift` return the **removed item**. `push` and `unshift` accept several items at once. `shift` and `unshift` change the index of every other item, so the engine may have to move them all. On very large arrays, prefer `push` and `pop` where you can.
+
+## splice and slice
+
+The names are close and the jobs are different.
+
+- `splice(start, deleteCount, ...items)` removes and inserts in place and returns the removed items.
+- `slice(start, end)` returns a copy of a part and leaves the original alone. `end` is not included.
+
+```javascript title="arrays_splice.mjs"
+const letters = ["a", "b", "c", "d", "e"];
+
+const removed = letters.splice(1, 2);
+console.log(removed, letters);
+
+letters.splice(1, 0, "X", "Y");
+console.log(letters);
+
+letters.splice(0, 1, "Z");
+console.log(letters);
+
+letters.splice(-1);
+console.log(letters);
+
+const copy = letters.slice(1, 3);
+console.log(copy, letters);
+console.log(letters.slice(-2));
+```
+
+```text
+[ 'b', 'c' ] [ 'a', 'd', 'e' ]
+[ 'a', 'X', 'Y', 'd', 'e' ]
+[ 'Z', 'X', 'Y', 'd', 'e' ]
+[ 'Z', 'X', 'Y', 'd' ]
+[ 'X', 'Y' ] [ 'Z', 'X', 'Y', 'd' ]
+[ 'Y', 'd' ]
+```
+
+`splice(1, 2)` removed two items starting at index 1. `splice(1, 0, "X", "Y")` removed nothing and inserted two. `splice(0, 1, "Z")` replaced the first item. A negative start counts from the end, and leaving out the delete count removes everything from `start` onward.
+
+## Searching
+
+`includes` answers yes or no. `indexOf` gives the position, or `-1` if the item is not there. `lastIndexOf` searches from the end. To search with a condition, use `find` and `findIndex`, which the next lesson covers.
+
+```javascript title="arrays_search.mjs"
+const nums = [10, 20, 30, 20, NaN];
+
+console.log(nums.includes(20), nums.includes(99));
+console.log(nums.indexOf(20), nums.lastIndexOf(20), nums.indexOf(99));
+
+console.log(nums.includes(NaN), nums.indexOf(NaN));
+
+const a = { id: 1 };
+const list = [a, { id: 2 }];
+console.log(list.includes(a), list.includes({ id: 1 }));
+```
+
+```text
+true false
+1 3 -1
+true -1
+true false
+```
+
+Two details matter here:
+
+- `includes` treats `NaN` as equal to itself. `indexOf` uses strict equality, so it never finds `NaN`. Prefer `includes` for a yes-or-no question.
+- Both compare objects by **identity**, as the [equality lesson](../equality/) showed. `list.includes({ id: 1 })` is `false` because that literal is a new object, even though it looks the same as one in the array.
+
+## Length and holes
+
+`length` is not a read-only count. You can set it. A smaller value cuts the array. Assigning to an index past the end makes the array longer and leaves a gap.
+
+```javascript title="arrays_length_holes.mjs"
+const items = [1, 2, 3, 4, 5];
+items.length = 2;
+console.log(items);
+
+items[4] = "far";
+console.log(items, items.length);
+console.log(1 in items, 3 in items);
+
+console.log(new Array(3));
+console.log(Array(3).fill(0));
+console.log(Array.from({ length: 3 }, (_, i) => i * i));
+console.log(Array.of(3));
+console.log(new Array(3).length, new Array("3").length);
+
+for (const [i, x] of ["a", "b"].entries()) {
+  console.log(i, x);
+}
+```
+
+```text
+[ 1, 2 ]
+[ 1, 2, <2 empty items>, 'far' ] 5
+true false
+[ <3 empty items> ]
+[ 0, 0, 0 ]
+[ 0, 1, 4 ]
+[ 3 ]
+3 1
+0 a
+1 b
+```
+
+A gap is called a **hole**. The index is not there at all, which is why `3 in items` is `false` and Node prints `<2 empty items>`. Holes behave differently from `undefined` in several methods, and they are a common source of confusion.
+
+- `new Array(3)` makes an array of length 3 with only holes. `new Array("3")` makes a one-item array. This inconsistency is why most code avoids the constructor.
+- `Array(3).fill(0)` makes `[0, 0, 0]`.
+- `Array.from({ length: 3 }, (_, i) => i * i)` builds an array from a length and a function. This is the usual way to create an array of computed values.
+- `Array.of(3)` makes `[3]`.
+- `entries()` gives `[index, item]` pairs, which pair well with destructuring in a `for...of` loop. The lesson on destructuring covers that syntax.
+
+## Common pitfalls
+
+- **Expecting `fruits[-1]` to work.** Use `at(-1)`.
+- **Confusing `splice` and `slice`.** `splice` changes the array. `slice` copies.
+- **Using `indexOf` as a condition.** `if (list.indexOf(x))` is false for index 0 and true for `-1`. Use `includes`, or compare with `-1`.
+- **Searching for an object with `includes`.** It compares identity, not content.
+- **Removing items inside a forward loop.** The items shift down, and the loop skips one. Loop backwards, as the todo solution below does, or build a new array with `filter`.
+- **Using `new Array(n)` and then `map` over it.** The holes are skipped. Use `Array.from({ length: n }, ...)`.
+
+## Exercises
+
+<Exercise title="Todo list manager">
+
+Write three functions that work on an array of `{ text, done }` objects: `addTodo(text)` adds an item that is not done, `complete(text)` marks the item with that text as done, and `removeDone()` removes every finished item. Add three items, complete two, remove the done ones, and print what is left.
+
+<Solution>
+
+```javascript title="todo_list.mjs"
+const todos = [];
+
+function addTodo(text) {
+  todos.push({ text, done: false });
+}
+
+function complete(text) {
+  const todo = todos.find((t) => t.text === text);
+  if (todo) todo.done = true;
+}
+
+function removeDone() {
+  for (let i = todos.length - 1; i >= 0; i--) {
+    if (todos[i].done) todos.splice(i, 1);
+  }
+}
+
+addTodo("buy milk");
+addTodo("write lesson");
+addTodo("call Ada");
+complete("buy milk");
+complete("call Ada");
+removeDone();
+console.log(todos);
+```
+
+```text
+[ { text: 'write lesson', done: false } ]
+```
+
+`complete` uses `find`, which returns the object itself, so changing `todo.done` changes the object in the array. `removeDone` walks from the end so that `splice` never shifts an item the loop has not visited yet. A shorter way is to build a new array with `filter`, which the next lesson shows.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict the output">
+
+What do these print? Work it out first, then run it.
+
+```javascript
+const a = [1, 2, 3];
+a.length = 1;
+a[3] = 4;
+console.log(a.length, a.includes(undefined), a.indexOf(undefined));
+```
+
+<Solution>
+
+It prints `4 true -1`. Setting `length` to 1 leaves `[1]`. Assigning to index 3 makes the length 4 and leaves holes at indexes 1 and 2. `includes` treats a hole as `undefined`, so it returns `true`. `indexOf` skips holes entirely, so it returns `-1`. This is the kind of difference that makes holes worth avoiding.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Arrays are ordered, zero-indexed and can hold any mix of values. `Array.isArray` identifies them.
+- `at(-1)` reads from the end. `push`, `pop`, `shift`, `unshift` and `splice` change the array. `slice` copies.
+- `includes` and `indexOf` compare with strict-equality rules, so objects match only by identity.
+- `length` can be set, and skipped indexes leave holes. Avoid holes by building arrays with `Array.from` or `fill`.
+
+Next: transforming arrays with `map`, `filter` and `reduce`.

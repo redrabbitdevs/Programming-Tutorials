@@ -1,0 +1,9 @@
+Map(3) { 'apple' => 7, 'pear' => 0, 'plum' => 12 }
+7 undefined true 3
+[ 'apple', 'plum' ] [ 7, 12 ]
+apple 7
+plum 12
+first undefined
+number string
+Map(1) { 'a' => 1 }
+{ b: 2 }

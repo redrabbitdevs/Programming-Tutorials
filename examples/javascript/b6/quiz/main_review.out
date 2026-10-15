@@ -1,0 +1,32 @@
+
+Question 1: Which keyword declares a constant?
+  1) var
+  2) let
+  3) const
+  4) def
+Your answer: 
+Question 2: What does typeof null return?
+  1) null
+  2) object
+  3) undefined
+  4) number
+Your answer: 
+Question 3: Which array method adds an item to the end?
+  1) push
+  2) pop
+  3) shift
+  4) unshift
+Your answer: 
+Question 4: Is 0.1 + 0.2 === 0.3 in JavaScript?
+  1) true
+  2) false
+Your answer: 
+Question 5: Which file extension always makes Node treat a file as an ES module?
+  1) .mjs
+  2) .cjs
+  3) .json
+  4) .txt
+Your answer: 
+Score: 4/5
+Review these:
+- What does typeof null return? -> object

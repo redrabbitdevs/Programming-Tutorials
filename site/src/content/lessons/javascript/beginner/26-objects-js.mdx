@@ -1,0 +1,262 @@
+---
+language: javascript
+level: beginner
+module: Arrays, objects and data
+order: 26
+title: Objects
+description: Model data with object literals, shorthand properties, computed keys, in, Object.hasOwn, delete, keys, values and entries.
+minVersion: "22"
+objectives:
+  - Write object literals with shorthand properties, computed keys and methods
+  - Read and write properties with dot and bracket notation
+  - Check for a property with in and Object.hasOwn
+  - List an object's contents with Object.keys, values and entries and rebuild one with fromEntries
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/records-and-objects"]
+---
+
+A record groups named fields into one value. The idea is described in the [fundamentals lesson on records and objects](../../../fundamentals/beginner/records-and-objects/). In JavaScript the tool is the **object**: a collection of properties, each a key and a value. This lesson covers the syntax and the built-in functions for inspecting objects. Classes, which build objects from a template, come later.
+
+## Object literals
+
+Write an object with braces and `key: value` pairs. Keys are strings (or symbols). Quotes around a key are needed only when it is not a valid identifier, like `"favourite colour"`.
+
+```javascript title="objects_basic.mjs"
+const user = {
+  name: "Ada",
+  age: 36,
+  "favourite colour": "green",
+  skills: ["maths", "code"],
+};
+
+console.log(user.name, user["age"]);
+console.log(user["favourite colour"]);
+console.log(user.email);
+
+const field = "name";
+console.log(user[field]);
+
+user.email = "ada@example.com";
+user.age = 37;
+console.log(user);
+
+delete user.email;
+console.log(user.email, "email" in user);
+
+const name = "Grace";
+const age = 85;
+const shorthand = { name, age };
+console.log(shorthand);
+
+const key = "level";
+const dynamic = { [key]: 3, [`${key}Max`]: 10 };
+console.log(dynamic);
+```
+
+```text
+Ada 36
+green
+undefined
+Ada
+{
+  name: 'Ada',
+  age: 37,
+  'favourite colour': 'green',
+  skills: [ 'maths', 'code' ],
+  email: 'ada@example.com'
+}
+undefined false
+{ name: 'Grace', age: 85 }
+{ level: 3, levelMax: 10 }
+```
+
+- **Dot notation** (`user.name`) needs a plain identifier. **Bracket notation** (`user["favourite colour"]`) accepts any string, including a key held in a variable (`user[field]`).
+- Reading a property that does not exist gives `undefined`. It is not an error.
+- Assigning to a new key adds a property. Assigning to an existing key replaces its value. A `const` object can still gain, lose and change properties.
+- `delete user.email` removes a property. After that, `"email" in user` is `false`.
+- **Shorthand**: `{ name, age }` means `{ name: name, age: age }`.
+- **Computed keys**: `[expression]: value` evaluates the expression and uses the result as the key. The example builds `level` and `levelMax` from a variable.
+
+## Checking for a property
+
+`undefined` does not tell you whether a property exists, because a property can hold `undefined`. Use `in` or `Object.hasOwn`.
+
+```javascript title="objects_inspect.mjs"
+const point = { x: 1, y: 2, label: undefined };
+
+console.log("x" in point, "z" in point);
+console.log("label" in point, point.label !== undefined);
+console.log(Object.hasOwn(point, "x"), Object.hasOwn(point, "toString"));
+console.log("toString" in point);
+
+console.log(Object.keys(point));
+console.log(Object.values(point));
+console.log(Object.entries(point));
+
+for (const [key, value] of Object.entries({ a: 1, b: 2 })) {
+  console.log(key, "=", value);
+}
+
+const prices = { apple: 1, pear: 2 };
+const doubled = Object.fromEntries(
+  Object.entries(prices).map(([name, price]) => [name, price * 2]),
+);
+console.log(doubled);
+
+const messy = { b: 1, 2: "two", a: 2, 1: "one" };
+console.log(Object.keys(messy));
+```
+
+```text
+true false
+true false
+true false
+true
+[ 'x', 'y', 'label' ]
+[ 1, 2, undefined ]
+[ [ 'x', 1 ], [ 'y', 2 ], [ 'label', undefined ] ]
+a = 1
+b = 2
+{ apple: 2, pear: 4 }
+[ '1', '2', 'b', 'a' ]
+```
+
+- `"x" in point` is true if the object has the property, **including inherited ones**. `"toString" in point` is `true` because every object inherits `toString`.
+- `Object.hasOwn(point, "x")` checks only the object's own properties, so `Object.hasOwn(point, "toString")` is `false`. This is usually what you want. It replaced the older `obj.hasOwnProperty(key)`, which fails on objects that do not inherit from `Object.prototype` and can be shadowed by a property of the same name.
+- `label: undefined` exists as a property, so `"label" in point` is true even though its value is `undefined`.
+
+## Listing the contents
+
+`Object.keys`, `Object.values` and `Object.entries` return arrays of an object's own enumerable properties. That makes all the array methods available for working on objects. `Object.fromEntries` goes the other way and builds an object from an array of `[key, value]` pairs.
+
+The example above shows all four. The loop over `Object.entries` uses destructuring in the loop head: `const [key, value]` unpacks each pair. The `doubled` object is built by mapping over the entries and passing the result to `fromEntries`.
+
+Key order follows a fixed rule. Keys that look like whole numbers (`"1"`, `"2"`) come first, in ascending order. All other keys follow in the order they were added. That is why `messy` lists `'1'`, `'2'`, `'b'`, `'a'` although `b` was written first. If order of insertion matters for arbitrary keys, use a `Map`, covered later in this module.
+
+## Methods and nested data
+
+A function stored in an object is a **method**. The short form `increment() { ... }` is the same as `increment: function () { ... }`. The `this` rules from the [`this` lesson](../this-basics/) apply: inside a method called as `counter.increment()`, `this` is `counter`. Returning `this` allows chaining.
+
+Objects nest. Reading through a missing level fails if you do it with dots, because `undefined.host` throws a `TypeError`. The optional chaining operator `?.` stops and returns `undefined` instead, and `??` supplies a fallback, as the [null and undefined lesson](../null-undefined-nullish/) showed.
+
+```javascript title="objects_methods.mjs"
+const counter = {
+  count: 0,
+  increment() {
+    this.count += 1;
+    return this;
+  },
+  describe: function () {
+    return `count is ${this.count}`;
+  },
+};
+
+counter.increment().increment();
+console.log(counter.describe());
+
+const config = { server: { port: 8080 } };
+console.log(config.server.port);
+console.log(config.database?.host);
+console.log(config.database?.host ?? "localhost");
+
+const original = { a: 1 };
+const alias = original;
+alias.a = 2;
+console.log(original.a, original === alias, { a: 2 } === { a: 2 });
+```
+
+```text
+count is 2
+8080
+undefined
+localhost
+2 true false
+```
+
+The last line is the most important thing to remember about objects. `alias` and `original` are two names for **one** object, so changing one changes the other. Two separate literals that look alike are two objects, and `===` compares identity, so `{ a: 2 } === { a: 2 }` is `false`. The references lesson in this module takes this further.
+
+## Common pitfalls
+
+- **Using dot notation with a variable.** `user.field` looks for a property named `field`. Use `user[field]`.
+- **Testing existence with `if (obj.key)`.** It is false for `0`, `""` and `false` as well as for missing keys. Use `Object.hasOwn` or `in`.
+- **Expecting a key order you did not write.** Whole-number keys are sorted and come first.
+- **Using an object as a dictionary with untrusted keys.** Inherited names like `toString` appear to exist. A `Map` avoids this.
+- **Assuming `const` freezes an object.** It only fixes the variable.
+- **Reading through a missing level.** Use `?.` where a level might be absent.
+
+## Exercises
+
+<Exercise title="Model a library book and member">
+
+Create a `book` object with `isbn`, `title`, `authors` (an array) and `available`, and a `member` with a `name` and a `borrowed` array. Write `lend(book, member)` that does nothing and returns `false` if the book is not available, and otherwise marks it unavailable, adds its ISBN to the member's list and returns `true`. Lend the same book twice and print the member and how many properties the book has.
+
+<Solution>
+
+```javascript title="library_model.mjs"
+const book = {
+  isbn: "978-0-13-468599-1",
+  title: "The Pragmatic Programmer",
+  authors: ["Hunt", "Thomas"],
+  available: true,
+};
+
+const member = {
+  name: "Ada",
+  borrowed: [],
+};
+
+function lend(book, member) {
+  if (!book.available) return false;
+  book.available = false;
+  member.borrowed.push(book.isbn);
+  return true;
+}
+
+console.log(lend(book, member));
+console.log(lend(book, member));
+console.log(member);
+console.log(Object.keys(book).length);
+```
+
+```text
+true
+false
+{ name: 'Ada', borrowed: [ '978-0-13-468599-1' ] }
+4
+```
+
+The second `lend` returns `false` because the first one set `available` to `false`. The function changes both objects it receives, which is possible because objects are passed by reference. `Object.keys(book).length` counts the four properties.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Count with entries">
+
+Given `const stock = { apple: 3, pear: 0, plum: 5 }`, print only the names of fruits that are in stock (count above zero), as an array.
+
+<Solution>
+
+```javascript
+const stock = { apple: 3, pear: 0, plum: 5 };
+const inStock = Object.entries(stock)
+  .filter(([, count]) => count > 0)
+  .map(([name]) => name);
+console.log(inStock);
+```
+
+It prints `[ 'apple', 'plum' ]`. `Object.entries` gives `[name, count]` pairs. The parameter `[, count]` skips the name by leaving a gap in the destructuring pattern. After `filter`, `map` keeps just the name.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Objects hold named properties. Use dot notation for fixed names and brackets for names held in variables or with unusual characters.
+- Shorthand properties, computed keys and method shorthand shorten literals.
+- `in` includes inherited properties. `Object.hasOwn` checks only the object's own.
+- `Object.keys`, `values` and `entries` turn an object into arrays, and `fromEntries` turns pairs back into an object.
+- Objects are shared, not copied, when you assign them or pass them to functions.
+
+Next: unpacking objects and arrays with destructuring and spread.

@@ -1,0 +1,349 @@
+---
+language: javascript
+level: beginner
+module: Arrays, objects and data
+order: 28
+title: References, copies and structuredClone
+description: Predict when two names share one object, make shallow and deep copies, and know what Object.freeze does and does not protect.
+minVersion: "22"
+objectives:
+  - Tell value copying of primitives from reference sharing of objects
+  - Make shallow copies with spread and slice and say what they share
+  - Make deep copies with structuredClone and know its limits
+  - Explain why Object.freeze is shallow
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/memory-and-references"]
+---
+
+The [fundamentals lesson on memory and references](../../../fundamentals/beginner/memory-and-references/) explains the difference between a value and a reference to a value. JavaScript has exactly this split. **Primitives** (numbers, strings, booleans, `null`, `undefined`, symbols and BigInts) are copied when you assign them. **Objects**, which include arrays, functions, `Map`, `Set` and `Date`, are handled through references: assigning one gives the new name the same object.
+
+## Aliasing
+
+```javascript title="references_alias.mjs"
+let a = 5;
+let b = a;
+b = 6;
+console.log(a, b);
+
+const list1 = [1, 2, 3];
+const list2 = list1;
+list2.push(4);
+console.log(list1, list1 === list2);
+
+const other = [1, 2, 3, 4];
+console.log(list1 === other);
+
+function addItem(list, item) {
+  list.push(item);
+}
+const cart = ["pen"];
+addItem(cart, "ink");
+console.log(cart);
+
+function reassign(list) {
+  list = ["new"];
+  return list;
+}
+console.log(reassign(cart), cart);
+```
+
+```text
+5 6
+[ 1, 2, 3, 4 ] true
+false
+[ 'pen', 'ink' ]
+[ 'new' ] [ 'pen', 'ink' ]
+```
+
+- `b = a` copied the number, so changing `b` left `a` alone.
+- `list2 = list1` copied the reference. There is one array, and `push` through either name changes it. `===` on two objects compares identity, so `list1 === other` is `false` although the contents are equal.
+- Function arguments work the same way. `addItem` received the reference and changed the caller's array.
+- Reassigning a parameter, as `reassign` does, changes only the local name. The caller's `cart` is unchanged. **Changing the object** is visible outside. **Pointing the name somewhere else** is not.
+
+## Shallow copies
+
+Spread (`{ ...obj }`, `[...arr]`), `slice()`, `Object.assign({}, obj)` and `Array.from(arr)` all make a **shallow copy**: a new outer object whose properties point at the same inner values.
+
+```javascript title="copy_shallow.mjs"
+const original = {
+  name: "Ada",
+  scores: [90, 80],
+  address: { city: "London" },
+};
+
+const copy = { ...original };
+copy.name = "Grace";
+copy.scores.push(70);
+copy.address.city = "Paris";
+
+console.log(original.name);
+console.log(original.scores);
+console.log(original.address.city);
+
+console.log(copy.scores === original.scores);
+
+const arr = [[1], [2]];
+const arrCopy = arr.slice();
+arrCopy[0].push("x");
+console.log(arr);
+```
+
+```text
+Ada
+[ 90, 80, 70 ]
+Paris
+true
+[ [ 1, 'x' ], [ 2 ] ]
+```
+
+Replacing a property of the copy (`copy.name = "Grace"`) left the original alone, because that changed the copy's own slot. But `copy.scores.push(70)` and `copy.address.city = "Paris"` reached through to the objects that both share, so the original changed too. The array example shows the same with nested arrays.
+
+A shallow copy is right when the data has only primitives, or when you are about to replace the nested parts anyway, as the merge in the last lesson did.
+
+## Deep copies with structuredClone
+
+`structuredClone(value)` makes a **deep copy**: new objects all the way down. It is a global function, available in Node and in browsers.
+
+```javascript title="structured_clone.mjs"
+const original = {
+  name: "Ada",
+  scores: [90, 80],
+  address: { city: "London" },
+  born: new Date("1815-12-10"),
+  tags: new Set(["maths"]),
+};
+
+const deep = structuredClone(original);
+deep.scores.push(70);
+deep.address.city = "Paris";
+
+console.log(original.scores, original.address.city);
+console.log(deep.scores, deep.address.city);
+console.log(deep.born instanceof Date, deep.tags);
+console.log(deep.born === original.born);
+
+const loop = { name: "loop" };
+loop.self = loop;
+const loopCopy = structuredClone(loop);
+console.log(loopCopy.self === loopCopy);
+
+try {
+  structuredClone({ run() {} });
+} catch (error) {
+  console.log(error.name);
+}
+
+class Point {
+  constructor(x) {
+    this.x = x;
+  }
+  show() {
+    return this.x;
+  }
+}
+const clone = structuredClone(new Point(1));
+console.log(clone instanceof Point, clone);
+```
+
+```text
+[ 90, 80 ] London
+[ 90, 80, 70 ] Paris
+true Set(1) { 'maths' }
+false
+true
+DataCloneError
+false { x: 1 }
+```
+
+- Nested arrays and objects are separate in the copy.
+- It understands `Date`, `Set`, `Map`, typed arrays, `RegExp` and many other built-in types, so the clone's `born` is a real `Date` and `tags` is a real `Set`.
+- It handles circular references: `loopCopy.self === loopCopy`.
+- It **cannot copy functions**. It throws a `DataCloneError`.
+- It copies class instances as plain objects. The clone of a `Point` has the data (`x: 1`) but is not an instance of `Point`, so it has lost its methods.
+
+Compared with the older `JSON.parse(JSON.stringify(x))` trick, `structuredClone` keeps dates, sets and maps and handles cycles. The JSON lesson at the end of this module shows what that trick loses.
+
+## Object.freeze is shallow
+
+`Object.freeze(obj)` stops you adding, removing or changing the object's own properties. It does not freeze the objects those properties point at.
+
+```javascript title="freeze_shallow.mjs"
+const settings = Object.freeze({
+  theme: "dark",
+  window: { width: 800 },
+});
+
+try {
+  settings.theme = "light";
+} catch (error) {
+  console.log(error.name);
+}
+console.log(settings.theme);
+
+settings.window.width = 1024;
+console.log(settings.window.width);
+console.log(Object.isFrozen(settings), Object.isFrozen(settings.window));
+
+const items = Object.freeze([1, 2, 3]);
+try {
+  items.push(4);
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+TypeError
+dark
+1024
+true false
+TypeError
+```
+
+Because modules run in strict mode, writing to a frozen object throws a `TypeError`. (In sloppy-mode scripts the write is silently ignored, which hides bugs.) `settings.window.width = 1024` still worked, since `window` was not frozen, and `Object.isFrozen(settings.window)` is `false`. A frozen array rejects `push`.
+
+To freeze deeply you would freeze each nested object yourself, usually with a recursive function. In most programs it is simpler to treat data as read-only by convention and to return new objects instead of changing old ones.
+
+## Common pitfalls
+
+- **Treating `const copy = original` as a copy.** It is a second name.
+- **Assuming spread or `slice` copies deeply.** Only the top level is new.
+- **Using `fill` with an object.** `new Array(2).fill([])` puts the same array in every slot.
+- **Sharing a default object.** A default value built once and spread into many objects shares its nested arrays.
+- **Mutating a function's arguments.** Callers do not expect it. Return a new value instead.
+- **Cloning something that holds functions or class instances.** `structuredClone` throws on functions and drops the prototype of class instances.
+
+## Exercises
+
+<Exercise title="Find five aliasing bugs">
+
+Each section of this program has an aliasing bug. Read it, predict what is printed, then fix each one.
+
+```javascript title="aliasing_bugs.mjs"
+// Bug 1: the "copy" is the same array
+const original = [3, 1, 2];
+const sortedCopy = original;
+sortedCopy.sort();
+console.log(original);
+
+// Bug 2: a shared default object
+const defaults = { tags: [] };
+const post1 = { ...defaults };
+const post2 = { ...defaults };
+post1.tags.push("news");
+console.log(post2.tags);
+
+// Bug 3: fill with one object
+const grid = new Array(2).fill([]);
+grid[0].push("x");
+console.log(grid);
+
+// Bug 4: a function that changes its argument
+function addTax(order) {
+  order.total = order.total * 1.2;
+  return order;
+}
+const order = { total: 100 };
+addTax(order);
+console.log(order.total);
+
+// Bug 5: sort on a copy that is only one level deep
+const rows = [{ n: 2 }, { n: 1 }];
+const rowsCopy = [...rows];
+rowsCopy[0].n = 99;
+console.log(rows);
+```
+
+<Solution>
+
+Running the buggy program prints this:
+
+```text
+[ 1, 2, 3 ]
+[ 'news' ]
+[ [ 'x' ], [ 'x' ] ]
+120
+[ { n: 99 }, { n: 1 } ]
+```
+
+`original` became sorted, `post2.tags` has `news` in it, both rows of `grid` hold `x`, `order.total` changed to 120, and the first row of `rows` was changed through the copy.
+
+Here is the fixed version:
+
+```javascript title="aliasing_fixed.mjs"
+// Fix 1: copy before sorting (or use toSorted)
+const original = [3, 1, 2];
+const sortedCopy = original.toSorted();
+console.log(original, sortedCopy);
+
+// Fix 2: build a new tags array for every post
+const makePost = () => ({ tags: [] });
+const post1 = makePost();
+const post2 = makePost();
+post1.tags.push("news");
+console.log(post2.tags);
+
+// Fix 3: make a separate array for every row
+const grid = Array.from({ length: 2 }, () => []);
+grid[0].push("x");
+console.log(grid);
+
+// Fix 4: return a new object
+function addTax(order) {
+  return { ...order, total: order.total * 1.2 };
+}
+const order = { total: 100 };
+const taxed = addTax(order);
+console.log(order.total, taxed.total);
+
+// Fix 5: copy each row too
+const rows = [{ n: 2 }, { n: 1 }];
+const rowsCopy = rows.map((row) => ({ ...row }));
+rowsCopy[0].n = 99;
+console.log(rows);
+```
+
+```text
+[ 3, 1, 2 ] [ 1, 2, 3 ]
+[]
+[ [ 'x' ], [] ]
+100 120
+[ { n: 2 }, { n: 1 } ]
+```
+
+1. `toSorted` returns a sorted copy. The original keeps its order.
+2. A factory function builds a fresh `tags` array for every post, instead of spreading one shared default.
+3. `Array.from({ length: 2 }, () => [])` calls the function once for each slot, so every row is its own array.
+4. `addTax` returns a new object with a changed `total`. The caller's order is untouched.
+5. Mapping each row to `{ ...row }` copies the rows as well as the array.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict a freeze">
+
+What does this print?
+
+```javascript
+const team = Object.freeze({ name: "core", members: ["Ada"] });
+team.members.push("Grace");
+console.log(team.members.length, Object.isFrozen(team));
+```
+
+<Solution>
+
+It prints `2 true`. `team` is frozen, so you cannot add or reassign its properties. The `members` array is a separate object that was not frozen, so `push` works.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Primitives are copied on assignment. Objects are shared: two names can point at one object.
+- Spread, `slice`, `Object.assign` and `Array.from` make shallow copies. Nested objects stay shared.
+- `structuredClone` makes a deep copy, handles dates, sets, maps and cycles, throws on functions and turns class instances into plain objects.
+- `Object.freeze` is shallow. In a module, writing to a frozen object throws.
+
+Next: `Map` and `Set`, collections that fix some weaknesses of plain objects and arrays.

@@ -1,0 +1,7 @@
+Map(3) {
+  'a' => [ 'apple', 'avocado' ],
+  'b' => [ 'banana', 'blueberry' ],
+  'c' => [ 'cherry' ]
+}
+Map(4) { 'h' => 1, 'e' => 1, 'l' => 2, 'o' => 1 }
+K
