@@ -1,0 +1,3 @@
+input: 548 bytes
+Expat 2.7.2 or newer: True
+ParseError: limit on input amplification factor (from DTD and entities) breached: line 1, column 537

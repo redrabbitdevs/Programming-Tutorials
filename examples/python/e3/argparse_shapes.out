@@ -1,0 +1,8 @@
+verbose  2
+urls     ['https://a.example']
+retries  3
+format   'csv'
+header   ['A: 1', 'B: 2']
+color    False
+quiet    False
+output   None

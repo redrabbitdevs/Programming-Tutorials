@@ -56,6 +56,27 @@ Checked 2026-10-14 in this environment, not from a primary doc:
   `uv pip sync --help`: "Sync an environment with a `requirements.txt` or `pylock.toml` file".
   `uv publish --help` has `--trusted-publishing <automatic|always|never>` and `--publish-url`.
 
+### Re-check 2026-10-15 (lessons 13-15 audit fixes)
+
+- PyPI JSON API: pip 26.2.1 (uploaded 2026-08-04), uv 0.13.1 (2026-10-14), cibuildwheel 4.3.1.
+- `pip install --no-cache-dir -r pylock.toml` (pip 26.2.1, fresh 3.15 venv) printed:
+  "WARNING: Using pylock.toml as a requirements source is an experimental feature. It may be
+  removed/changed in a future release without prior warning." then
+  "Collecting iniconfig==2.3.1 (from pylock.toml)", "Downloading iniconfig-2.3.1-py3-none-any.whl
+  (7.6 kB)", "Installing collected packages: iniconfig", "Successfully installed iniconfig-2.3.1".
+- uv 0.13.1: `uv export --format` still lists `pylock.toml`; `uv pip sync pylock.toml` installed
+  `iniconfig==2.3.1` with "warning: The `--pylock` option is experimental".
+- Free-threaded wheel: a setuptools project with one C extension declaring
+  `{Py_mod_gil, Py_MOD_GIL_NOT_USED}`, `uv build --wheel --python 3.15t` printed
+  "Successfully built dist/fastcount-0.1.0-cp315-cp315t-linux_x86_64.whl". Installed into a
+  `python3.15t -m venv`, `import sys, fastcount; print(sys._is_gil_enabled())` printed `False`.
+  `python3.15 -m pip install` of the same wheel: "is not a supported wheel on this platform".
+- py-free-threading.github.io/ci/ (page dated September 25, 2026): "cibuildwheel 3.1+ has support
+  for building free-threaded wheels on all platforms and will build free-threaded wheels for
+  Python 3.14 and newer in its default configuration." /porting/: classifiers
+  "Programming Language :: Python :: Free Threading :: 1 - Unstable" ... "4 - Resilient".
+  "pass -Xgil=0 or set PYTHON_GIL=0 ... while running tests to ensure the GIL is actually disabled".
+
 ## Building: what `uv build` produced (local, 2026-10-14)
 
 `uv build` on a `src/tinyclock` project with hatchling as backend printed
@@ -194,6 +215,30 @@ directive '%d' may not be used without a year directive. ..."; `NamedTuple("P", 
 - tarfile: "Changed in version 3.12: Added the filter parameter." "Changed in version 3.14: The
   filter parameter now defaults to 'data'." Recommended: `filter='data'` "to support Python
   versions with a less secure default (3.13 and lower)."
+- tarfile, What's New 3.15 (checked 2026-10-15): "data_filter() now normalizes symbolic link
+  targets in order to avoid path traversal attacks" (CVE 2025-4138); "extract() and extractall()
+  now (re-)apply the extraction filter when substituting a link (hard or symbolic) with a copy of
+  another archive member, and when fixing up directory attributes. The former raises a new
+  exception, LinkFallbackError" (CVE 2025-4330, CVE 2024-12718); "no longer extract rejected
+  members when errorlevel() is zero" (CVE 2025-4435). tarfile docs: `LinkFallbackError` "Added in
+  version 3.15"; Hints: "Even with filter='data', tarfile is not suited for extracting untrusted
+  files without prior inspection."
+- xml, "XML security" (3.15 docs): "By default, Expat itself does not access local files or create
+  network connections. Expat versions lower than 2.7.2 may be vulnerable to the "billion laughs",
+  "quadratic blowup" and "large tokens" vulnerabilities ... Check pyexpat.EXPAT_VERSION."
+  "xmlrpc is vulnerable to the "decompression bomb" attack." Local 3.15.0, 3.14 and 3.10 builds:
+  `expat_2.9.0`; a 548-byte billion-laughs document raises ParseError "limit on input
+  amplification factor (from DTD and entities) breached". The page does not name defusedxml
+  (third-party; named in the lesson without a version claim).
+- ssl: create_default_context "Passing SERVER_AUTH as purpose sets verify_mode to CERT_REQUIRED";
+  Best defaults: "load the system's trusted CA certificates, enable certificate validation and
+  hostname checking". "Changed in version 3.13: The context now uses VERIFY_X509_PARTIAL_CHAIN
+  and VERIFY_X509_STRICT in its default verify flags."
+- signal, "Note on SIGPIPE": catch BrokenPipeError, then `os.dup2(devnull, sys.stdout.fileno())`
+  "to avoid another BrokenPipeError at shutdown". argparse: "FileType ... Deprecated since
+  version 3.14." What's New 3.15 Porting: "in add_argument('-f', '-foo'), dest is now 'foo'
+  instead of 'f'. Pass an explicit dest argument to preserve the old behavior." Checked: 3.15
+  `Namespace(foo='x')`, 3.14 `Namespace(f='x')`.
 
 ## Observability
 
