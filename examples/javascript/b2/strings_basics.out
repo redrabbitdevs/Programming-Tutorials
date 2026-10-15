@@ -1,0 +1,3 @@
+3 c t
+TypeError: Cannot assign to read only property '0' of string 'cat'
+cat CAT

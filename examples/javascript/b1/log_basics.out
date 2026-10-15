@@ -1,0 +1,6 @@
+Hello world 42 true
+Strings print bare: text
+Inside an array: [ 'text', 1, null, undefined ]
+{ name: 'Ada', born: 1815, tags: [ 'math', 'code' ] }
+
+after a blank line

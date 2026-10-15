@@ -1,0 +1,299 @@
+---
+language: javascript
+level: beginner
+module: Getting started with JavaScript
+order: 5
+title: Syntax, semicolons, comments and strict mode
+description: Write readable JavaScript, understand where automatic semicolon insertion can bite, and know what strict mode changes.
+minVersion: "22"
+objectives:
+  - Tell a statement from an expression
+  - Use semicolons, comments and naming conventions consistently
+  - Spot the cases where automatic semicolon insertion changes your meaning
+  - Explain what strict mode changes and why modules are always strict
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/01-what-is-a-program"]
+---
+
+JavaScript forgives a lot of sloppy formatting, and that is exactly the problem: some forgiven mistakes change what your program does without any error. This lesson sets out the habits that avoid those traps, and then looks at strict mode, which turns several silent mistakes into errors.
+
+## Statements and expressions
+
+An **expression** is a piece of code that produces a value: `5 + 3`, `"hi".length`, `age >= 18`, a function call. A **statement** is a complete instruction that does something: declaring a variable, an `if`, a loop. A program is a list of statements, and many statements contain expressions.
+
+```javascript title="expr_stmt.mjs"
+const result = 5 + 3;
+console.log(result * 2);
+```
+
+```text
+16
+```
+
+Here `5 + 3` is an expression with the value `8`, and `const result = ...;` is a statement that stores it. `result * 2` and `console.log(...)` are expressions too, and the line that contains `console.log(...)` is a statement.
+
+The difference matters because you can put an expression wherever a value is expected, and you cannot do that with a statement. This is a `SyntaxError`, because `if` is a statement and has no value:
+
+```javascript
+const label = if (age > 18) { "adult" }; // SyntaxError
+```
+
+JavaScript has an expression for the same job, the conditional operator, which a later lesson covers.
+
+## Semicolons
+
+A semicolon ends a statement. You may leave it out at the end of a line, because the language adds the missing ones itself with a rule called **automatic semicolon insertion**, or ASI. The rule is short to state and awkward to apply: if the next line cannot continue the current statement, a semicolon goes between them.
+
+This is fine, because each line is a complete statement:
+
+```javascript title="asi_lines.mjs"
+const a = 1
+const b = 2
+const total = a + b
+console.log(total)
+```
+
+```text
+3
+```
+
+This course writes the semicolons, and formatters such as Prettier add them by default. Many teams skip them. Both are legal styles, but whichever you pick, you must know where ASI goes wrong.
+
+### The return trap
+
+`return` followed by a line break gets a semicolon right after it, so the value on the next line is never returned:
+
+```javascript title="asi_return.mjs"
+function broken() {
+  return
+    42;
+}
+
+function fixed() {
+  return 42;
+}
+
+console.log(broken());
+console.log(fixed());
+```
+
+```text
+undefined
+42
+```
+
+`broken` returns `undefined` and the `42` is dead code that nothing complains about. Keep the returned value on the same line as `return`. When you return something long, open the bracket on that line:
+
+```javascript
+return {
+  total: 42,
+};
+```
+
+### Lines that start with a bracket
+
+A line that begins with `(`, `[` or a backtick continues the line before it, so no semicolon is inserted there. This runs without a semicolon error and does the wrong thing:
+
+```javascript
+const letters = ["a", "b"]
+const count = letters.length
+
+[1, 2].forEach((n) => console.log(n + count))
+```
+
+JavaScript reads the last two lines as `letters.length[1, 2].forEach(...)`, which fails at run time:
+
+```text
+TypeError: Cannot read properties of undefined (reading 'forEach')
+```
+
+With semicolons, the intent is clear:
+
+```javascript title="asi_guarded.mjs"
+const letters = ["a", "b"];
+const count = letters.length;
+
+[1, 2].forEach((n) => console.log(n + count));
+```
+
+```text
+3
+4
+```
+
+If you choose to skip semicolons, this is the case where you must put one at the start of such a line. If you write them, you never meet it.
+
+## Comments
+
+A comment is text that the engine ignores. It is for people.
+
+```javascript
+// A line comment runs to the end of the line.
+const rate = 0.2; // It can follow code.
+
+/* A block comment can
+   span several lines. */
+```
+
+Block comments do not nest: the first `*/` ends the comment. Comments that begin with `/**` are documentation comments, and editors read them to show hints. Write comments that explain *why*, not what the line already says.
+
+## Naming
+
+JavaScript does not enforce names, but everyone uses the same conventions:
+
+| Kind | Style | Example |
+|---|---|---|
+| Variables and functions | camelCase | `totalPrice`, `readLine` |
+| Classes | PascalCase | `ShoppingCart` |
+| Fixed constants | UPPER_SNAKE_CASE | `MAX_RETRIES` |
+
+Names are case-sensitive: `total` and `Total` are different variables. A name may contain letters, digits, `_` and `$`, and cannot start with a digit.
+
+## Formatters and linters
+
+A **formatter** such as Prettier rewrites your code into one consistent layout, so style stops being a discussion. A **linter** such as ESLint reads your code and reports likely mistakes, such as a variable that is never used. A later module sets both up. For now it is enough to know they exist and that most editors can run them when you save.
+
+## Strict mode
+
+In its original form, JavaScript allowed things that were almost always mistakes, and it could not simply start rejecting them without breaking old websites. So ES5 introduced **strict mode**, an opt-in switch that turns some silent behaviour into errors.
+
+Two cases are important to know:
+
+- **Code in an ES module is always strict.** Every `.mjs` file in this course is strict without you doing anything. So is the body of a class.
+- **Code in other files is sloppy by default.** To opt in, put the directive `"use strict";` as the first statement of the file or of a function.
+
+What strict mode changes, with examples that run in a module:
+
+- Assigning to a name that was never declared is a `ReferenceError`. Sloppy mode would create a global variable out of a typo.
+
+```javascript title="strict_undeclared.mjs"
+try {
+  total = 10;
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+```
+
+```text
+ReferenceError: total is not defined
+```
+
+- Writing to something that cannot be written is a `TypeError`. In sloppy mode, the assignment is ignored without a word. `Object.freeze` makes an object read-only, and it is used here to show the difference.
+
+```javascript title="strict_freeze.mjs"
+const settings = Object.freeze({ theme: "dark" });
+
+try {
+  settings.theme = "light";
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+
+console.log(settings.theme);
+```
+
+```text
+TypeError: Cannot assign to read only property 'theme' of object '#<Object>'
+dark
+```
+
+- The `with` statement, an obsolete feature that made scope hard to reason about, is a `SyntaxError`.
+
+A silent failure is far worse than a loud one, so strict mode is the right place to be. If you ever see an old tutorial that begins every file with `"use strict";`, now you know why, and why you do not need it in modules.
+
+<Callout type="note">
+
+Strict mode and `const` do different jobs. Strict mode is about catching mistakes in how the language is used. `const` is about whether a name can be pointed at something else. The next module on variables explains `const`.
+
+</Callout>
+
+## Common pitfalls
+
+- **A newline after `return`.** The function returns `undefined`.
+- **A line starting with `(` or `[` after a line without a semicolon.** It is glued to the previous line.
+- **Inconsistent naming.** `Price_Tag`, `pricetag` and `priceTag` look like three names. Pick camelCase and stay with it.
+- **Misspelling a variable name in sloppy code.** It silently creates a new global. In a module, you get a `ReferenceError` instead.
+- **Putting `"use strict"` in the middle of a file.** The directive only counts as the first statement.
+
+<Exercise title="Fix the messy file">
+
+This file has five problems: an inconsistent name, missing semicolons, a line that starts with a bracket, a `return` followed by a line break, and no explanation of what it does. Once fixed, the program should print `25`, then `50`, then `Total: 25`. Fix it.
+
+```javascript
+const Price_Tag = 20
+const tax = 5
+const total = Price_Tag + tax
+[1, 2].forEach((n) => console.log(n * total))
+function label() {
+  return
+    "Total: " + total
+}
+console.log(label())
+```
+
+Input: none. Run as it is, the file stops with a `TypeError`.
+
+<Solution>
+
+```javascript title="asi_fixed.mjs"
+// Prints the total price including tax, for two quantities.
+const priceTag = 20;
+const tax = 5;
+const total = priceTag + tax;
+
+[1, 2].forEach((n) => console.log(n * total));
+
+function label() {
+  return "Total: " + total;
+}
+
+console.log(label());
+```
+
+```text
+25
+50
+Total: 25
+```
+
+The changes are: `priceTag` follows the camelCase convention. Every statement ends with a semicolon, which makes the `[1, 2]` line a separate statement. The returned value now sits on the same line as `return`. A short comment says what the file computes.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Does strict mode apply here?">
+
+Which of these are strict mode: a file named `main.mjs`, the body of a class, a function whose first statement is `"use strict";`, and a script file with no directive and no `import` or `export`? Predict, then check the first one by assigning to an undeclared name in a `.mjs` file.
+
+<Solution>
+
+The first three are strict. The last one is not, because it is neither a module nor opted in. Checking the first:
+
+```javascript title="strict_check.mjs"
+try {
+  message = "hello";
+  console.log("sloppy mode");
+} catch (error) {
+  console.log(`strict mode: ${error.name}`);
+}
+```
+
+```text
+strict mode: ReferenceError
+```
+
+The assignment to `message` throws because modules are strict. In sloppy mode it would silently create a global variable.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- An expression produces a value, and a statement does something. You can only use an expression where a value is expected.
+- Write semicolons, keep `return` values on the same line, and be wary of lines that start with `(` or `[`.
+- Use camelCase for variables and functions, PascalCase for classes and UPPER_SNAKE_CASE for fixed constants.
+- Modules are always strict, so assigning to an undeclared name or writing to a frozen object throws. Other code can opt in with `"use strict";`.
+
+Next, in the module on values and types: [primitive types and `typeof`](../primitives-and-typeof/).

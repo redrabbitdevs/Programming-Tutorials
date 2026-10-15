@@ -1,0 +1,12 @@
+console.log("2" + 2);
+console.log("2" - 2);
+console.log(2 + 2 + "2");
+console.log("b" + "a" + +"a" + "a");
+console.log(true + true);
+console.log([] + 1);
+console.log([2] * [3]);
+console.log(null + "x");
+console.log(undefined * 2);
+console.log("" - 1);
+console.log(!!"0");
+console.log(1 < 2 < 3, 3 > 2 > 1);

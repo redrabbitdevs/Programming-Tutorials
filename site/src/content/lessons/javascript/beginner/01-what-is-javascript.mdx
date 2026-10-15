@@ -1,0 +1,146 @@
+---
+language: javascript
+level: beginner
+module: Getting started with JavaScript
+order: 1
+title: JavaScript, ECMAScript and runtimes
+description: Tell apart the language specification, the engines that run it and the runtimes that add file, network and page access.
+minVersion: "22"
+objectives:
+  - Explain the difference between the specification, an engine and a runtime
+  - Say where JavaScript runs and which parts of what you write belong to the language
+  - Check from inside a program which runtime you are in
+estimatedMinutes: 20
+fundamentals: ["fundamentals/beginner/01-what-is-a-program"]
+---
+
+"JavaScript" is used for three different things: a language, the program that runs it, and the toolbox you get alongside it. Mixing them up is the source of many confused questions, such as "why does `document` work in Chrome but not in my script?" This lesson separates the three.
+
+What a program is, and how source code becomes behaviour, is covered in the [fundamentals lesson](../../../fundamentals/beginner/what-is-a-program/). Here we only place JavaScript on that map.
+
+## The language: ECMAScript
+
+The rules of the language are written down in a standard called **ECMA-262**, maintained by a committee named **TC39**. The standard describes the *ECMAScript* language, and JavaScript is the name everyone uses for it. A new edition is published every year. The latest is **ECMAScript 2026**, the 17th edition. This course targets it, and says so when a feature is newer than the oldest Node.js version it supports.
+
+New features enter the standard through stages that run from 0 to 4:
+
+| Stage | Meaning |
+|---|---|
+| 0 to 2 | An idea, then a draft, being shaped by the committee |
+| 2.7 and 3 | Nearly settled, waiting for tests and real implementations |
+| 4 | Finished. It will be in the next edition |
+
+Stage 4 is the line that matters to you. A stage 2 proposal can change completely or disappear, so this course does not teach proposals below stage 4 as if they were JavaScript. Decorators, for example, are still at stage 2.7 as of October 2026.
+
+## The engine: the program that runs it
+
+A standard is only text. Something has to read your source code and carry it out. That something is a **JavaScript engine**. Three are in everyday use:
+
+- **V8**, used by Chrome, Edge and Node.js
+- **SpiderMonkey**, used by Firefox
+- **JavaScriptCore**, used by Safari
+
+Engines compete on speed, and they implement new language features at slightly different times. Node.js 26.11.1, the reference for this course, ships V8 14.6.
+
+## The runtime: the toolbox around the engine
+
+The engine knows the language and nothing else. It has arrays, strings, math and functions. It does not know how to read a file, draw a button or open a network connection. A **runtime** wraps an engine and adds those abilities.
+
+| Runtime | Engine | What it adds |
+|---|---|---|
+| A web browser | V8, SpiderMonkey or JavaScriptCore | `window`, `document`, events, `fetch`, `localStorage` |
+| Node.js | V8 | `process`, files, networking, modules such as `node:fs` |
+| Deno and Bun | their own choice | Alternatives to Node.js. This course teaches Node.js |
+
+So `document` is not part of JavaScript. It belongs to the browser. `process` belongs to Node.js. Even `console.log`, which you will use in every lesson, comes from the runtime and not from the language standard. You can see the difference by asking each name what it is. The `typeof` operator, which gets its own lesson, answers `"undefined"` for a name that does not exist.
+
+```javascript title="where_am_i.mjs"
+console.log(typeof window);
+console.log(typeof document);
+console.log(typeof process);
+console.log(typeof globalThis);
+```
+
+```text
+undefined
+undefined
+object
+object
+```
+
+Run in Node.js, `window` and `document` do not exist, while `process` does. Run the same four lines in a browser console and the answers flip for the first three. `globalThis` is a language feature (since ES2020) that names the global object in every runtime, which is why it works in both.
+
+<Callout type="note">
+
+Code that only uses the language, such as arithmetic, strings, arrays and functions, behaves the same everywhere. Code that touches the runtime, such as files or the page, only works where that runtime provides it. When a lesson uses a runtime feature, it says which one.
+
+</Callout>
+
+## Where this course runs your code
+
+Almost everything here runs on **Node.js** with the command `node file.mjs`. It needs no web page and no browser, and the same files can be tested automatically. A few lessons later in the course cover the browser and the DOM, and they say so in their titles.
+
+The `.mjs` extension tells Node.js to treat the file as an ES module, the modern file format of the language. A later lesson explains modules. For now, name your files `something.mjs`.
+
+## Common pitfalls
+
+- **Treating Java and JavaScript as relatives.** They are unrelated languages that share part of a name for historical marketing reasons.
+- **Assuming a browser example works in Node.js.** `alert`, `document` and `window` do not exist there. The error is `ReferenceError: document is not defined`.
+- **Assuming a Node.js example works in a browser.** `process`, `require` and the `node:` modules do not exist there.
+- **Reading a tutorial for the wrong edition.** Material from before 2015 (ES5) uses `var` and `function` everywhere and misses most of what you will learn. This course teaches the modern forms.
+
+<Exercise title="Spec, engine or runtime?">
+
+Decide for each item whether it belongs to the language specification, to an engine, or to a runtime.
+
+1. `Array.prototype.map`
+2. V8
+3. `document.querySelector`
+4. `fs.readFile` from `node:fs`
+5. The `??` operator
+6. TC39
+7. `setTimeout`
+8. SpiderMonkey
+
+<Solution>
+
+1. Specification. `map` is defined by ECMA-262.
+2. Engine.
+3. Runtime. It belongs to the browser.
+4. Runtime. It belongs to Node.js.
+5. Specification. The operator is part of the language (ES2020).
+6. Specification. TC39 is the committee that maintains it.
+7. Runtime. Browsers and Node.js each provide it. It is not defined by ECMA-262.
+8. Engine.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Which runtime am I in?">
+
+Write a program that prints `browser` if `typeof window` is not `"undefined"`, and `not a browser` otherwise. Run it with Node.js.
+
+<Solution>
+
+```javascript title="which_runtime.mjs"
+console.log(typeof window !== "undefined" ? "browser" : "not a browser");
+```
+
+```text
+not a browser
+```
+
+The `typeof` test is safe even when the name does not exist. Reading a missing name directly would throw a `ReferenceError`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- ECMAScript is the language standard. The latest edition is ECMAScript 2026, and only stage 4 proposals count as finished.
+- An engine such as V8 runs the language. A runtime such as a browser or Node.js adds `document`, `process`, files and the network.
+- This course runs your code with `node file.mjs`.
+
+Next: [installing Node.js](../install-node/).

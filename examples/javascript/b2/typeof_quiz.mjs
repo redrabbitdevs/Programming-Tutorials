@@ -1,0 +1,15 @@
+console.log(typeof 0);
+console.log(typeof "0");
+console.log(typeof 0n);
+console.log(typeof null);
+console.log(typeof undefined);
+console.log(typeof NaN);
+console.log(typeof []);
+console.log(typeof {});
+console.log(typeof (() => {}));
+console.log(typeof Symbol());
+console.log(typeof true);
+console.log(typeof typeof 42);
+console.log(typeof Infinity);
+console.log(typeof class {});
+console.log(typeof new Date());

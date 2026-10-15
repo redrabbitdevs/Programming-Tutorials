@@ -1,0 +1,12 @@
+console.log("1 === '1'  ", 1 === "1");
+console.log("1 == '1'   ", 1 == "1");
+console.log("0 == ''    ", 0 == "");
+console.log("0 == '0'   ", 0 == "0");
+console.log("'' == '0'  ", "" == "0");
+console.log("false == '0'", false == "0");
+console.log("null == undefined", null == undefined);
+console.log("null === undefined", null === undefined);
+console.log("null == 0  ", null == 0);
+console.log("[] == false", [] == false);
+console.log("[1] == 1   ", [1] == 1);
+console.log("NaN == NaN ", NaN == NaN);

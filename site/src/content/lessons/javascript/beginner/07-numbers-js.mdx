@@ -1,0 +1,321 @@
+---
+language: javascript
+level: beginner
+module: Values, types and coercion
+order: 7
+title: Numbers and BigInt
+description: Use JavaScript's double-precision numbers safely, recognise NaN, Infinity and negative zero, and switch to BigInt for large integers.
+minVersion: "22"
+objectives:
+  - Explain why 0.1 + 0.2 is not 0.3 and how to work around it
+  - Recognise NaN, Infinity and -0, and test for them correctly
+  - Know the safe integer range and use BigInt beyond it
+  - Use the arithmetic operators and common Math functions
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/05-expressions-and-operators"]
+---
+
+JavaScript has one number type for everything from `1` to `3.14159`. That keeps programs simple and brings a handful of surprises, all of which come from how the computer stores numbers. The [fundamentals lesson on expressions and operators](../../../fundamentals/beginner/expressions-and-operators/) explains floating-point imprecision in general. This lesson shows what it looks like in JavaScript and what to do about it.
+
+## One type: the double
+
+Every `number` is a 64-bit **IEEE 754 double**. It stores a sign, an exponent and a fraction in binary, which is why `42` and `3.14` are the same type. Whole numbers are exact up to a limit that is explained below. Fractions are usually approximations, because many decimal fractions have no exact binary form.
+
+```javascript title="float_imprecision.mjs"
+console.log(0.1 + 0.2);
+console.log(0.1 + 0.2 === 0.3);
+console.log(1.1 + 2.2);
+console.log(1 / 3);
+
+const close = Math.abs(0.1 + 0.2 - 0.3) < Number.EPSILON;
+console.log(close);
+
+console.log((0.1 + 0.2).toFixed(2));
+console.log(Number((0.1 + 0.2).toFixed(2)) === 0.3);
+```
+
+```text
+0.30000000000000004
+false
+3.3000000000000003
+0.3333333333333333
+true
+0.30
+true
+```
+
+`0.1 + 0.2` is `0.30000000000000004`, and this is not a JavaScript bug: every language that uses doubles gives the same answer. Two lessons follow:
+
+- Never compare computed fractions with `===`. Compare the difference with a small tolerance, such as `Number.EPSILON`, which is the gap between 1 and the next larger double. That tolerance suits values near 1, so scale it for larger numbers.
+- For display, round with `toFixed(2)`. It returns **text**, rounded to the number of decimals you ask for. Convert it back with `Number(...)` if you need a number again.
+
+## Money: use whole cents
+
+Because decimals are approximate, do not compute money with fractional values. Keep amounts in the smallest unit, as whole numbers, and divide only to display.
+
+```javascript title="money_cents.mjs"
+console.log(1.15 * 100);
+console.log(0.07 * 100);
+
+const priceCents = 1999;
+const quantity = 3;
+const totalCents = priceCents * quantity;
+
+console.log(totalCents);
+console.log((totalCents / 100).toFixed(2));
+console.log(Math.round(1.15 * 100));
+```
+
+```text
+114.99999999999999
+7.000000000000001
+5997
+59.97
+115
+```
+
+`1.15 * 100` is not `115`, but `1999 * 3` in cents is exactly `5997`. Whole numbers stay exact, so the only division happens at the end, for display. If a product like `1.15 * 100` does happen, `Math.round` brings it back to the nearest whole number.
+
+## NaN, Infinity and negative zero
+
+Three special values come with the number type.
+
+```javascript title="special_numbers.mjs"
+console.log(1 / 0);
+console.log(-1 / 0);
+console.log(0 / 0);
+console.log(Number("abc"));
+console.log(NaN === NaN);
+console.log(Number.isNaN(NaN), Number.isNaN("abc"));
+console.log(isNaN("abc"));
+console.log(Number.isFinite(1 / 0), Number.isFinite(42));
+
+const negativeZero = 0 * -1;
+console.log(negativeZero, negativeZero === 0, Object.is(negativeZero, 0));
+console.log(String(negativeZero));
+```
+
+```text
+Infinity
+-Infinity
+NaN
+NaN
+false
+true false
+true
+false true
+-0 true false
+0
+```
+
+- **`Infinity` and `-Infinity`** appear when a result is too large, or when you divide by zero. Division by zero is not an error.
+- **`NaN`** ("not a number") is the result of a failed numeric operation, such as `0 / 0` or `Number("abc")`. It is the only value that is not equal to itself, so `NaN === NaN` is `false`. Test for it with `Number.isNaN(value)`. The older global `isNaN("abc")` converts its argument to a number first and answers `true` for text, which is rarely what you mean. Prefer `Number.isNaN`.
+- **`-0`** is a separate value that compares equal to `0` with `===`. It can come out of operations such as `0 * -1`. `console.log` shows it as `-0`, and `String` hides the sign. You will rarely care, but `Object.is` can tell them apart.
+
+`Number.isFinite(value)` is `false` for `Infinity`, `-Infinity` and `NaN`, and also for anything that is not a number type.
+
+## Safe integers
+
+A double stores whole numbers exactly only up to 2 to the power of 53, minus 1. That is `Number.MAX_SAFE_INTEGER`, which is `9007199254740991`. Above it, neighbouring integers collide.
+
+```javascript title="safe_integers.mjs"
+const big = Number.MAX_SAFE_INTEGER;
+
+console.log(big);
+console.log(big + 1);
+console.log(big + 2);
+console.log(big + 1 === big + 2);
+console.log(Number.isSafeInteger(big), Number.isSafeInteger(big + 1));
+console.log(Number.isInteger(5.0), Number.isInteger(5.5));
+```
+
+```text
+9007199254740991
+9007199254740992
+9007199254740992
+true
+true false
+true false
+```
+
+`Number.isSafeInteger(n)` checks that `n` is a whole number in the safe range. `Number.isInteger(n)` only checks that it is whole, and `5.0` is whole because it is the same value as `5`.
+
+## Operators and Math
+
+The arithmetic operators are the ones you expect, plus `%` for the remainder and `**` for powers.
+
+```javascript title="number_operators.mjs"
+console.log(7 / 2);
+console.log(Math.trunc(7 / 2));
+console.log(7 % 3, -7 % 3);
+console.log(2 ** 10, 2 ** -1);
+console.log(Math.round(2.5), Math.round(-2.5), Math.round(2.4));
+console.log(Math.floor(-3.5), Math.ceil(-3.5), Math.trunc(-3.5));
+console.log(Math.max(3, 9, 4), Math.min(3, 9, 4), Math.abs(-8), Math.sqrt(81));
+console.log(1_000_000, 0xff, 0b1010, 1e3);
+console.log((255).toString(16), (5).toString(2));
+```
+
+```text
+3.5
+3
+1 -1
+1024 0.5
+3 -2 2
+-4 -3 -3
+9 3 8 9
+1000000 255 10 1000
+ff 101
+```
+
+Look at these details:
+
+- `/` always gives a fractional result when needed. `7 / 2` is `3.5`. There is no integer division, so use `Math.trunc(7 / 2)` to drop the fraction.
+- `%` takes its sign from the left operand: `-7 % 3` is `-1`.
+- `Math.round` rounds halves towards positive infinity, so `Math.round(2.5)` is `3` and `Math.round(-2.5)` is `-2`. `Math.floor` rounds down, `Math.ceil` up, and `Math.trunc` towards zero.
+- Numeric literals can use `0x` for hexadecimal, `0b` for binary and `e` for powers of ten. Underscores in a literal, such as `1_000_000`, are separators that make long numbers readable and do not change the value. They have been in the language since ES2021.
+- `toString(base)` writes a number in another base.
+
+`Math` has many more functions, such as `Math.max`, `Math.min`, `Math.abs`, `Math.sqrt` and `Math.random`. `Math` is not a type but a ready-made object of functions, so you never write `new Math`.
+
+## BigInt
+
+When you need whole numbers beyond the safe range, use a **BigInt**. Write a literal with a trailing `n`, or convert with `BigInt(...)`. BigInts have been in the language since ES2020, and they can grow as large as memory allows.
+
+```javascript title="bigint_basics.mjs"
+const big = 2n ** 64n;
+console.log(big);
+console.log(typeof big);
+console.log(5n / 2n, 7n % 3n);
+console.log(BigInt(Number.MAX_SAFE_INTEGER) + 2n);
+console.log(10n > 5, 10n == 10, 10n === 10);
+
+try {
+  console.log(1n + 1);
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+
+console.log(1n + BigInt(1), Number(1n) + 1);
+```
+
+```text
+18446744073709551616n
+bigint
+2n 1n
+9007199254740993n
+true true false
+TypeError: Cannot mix BigInt and other types, use explicit conversions
+2n 2
+```
+
+The rules to remember:
+
+- `typeof` a BigInt is `"bigint"`. It is a separate primitive type.
+- Division truncates: `5n / 2n` is `2n`. There are no fractional BigInts.
+- You cannot mix a BigInt and a number in arithmetic. `1n + 1` throws a `TypeError`, and you must convert one side explicitly: `1n + BigInt(1)` or `Number(1n) + 1`. Converting a huge BigInt to a number loses precision.
+- Comparisons work across the two types: `10n > 5` is `true` and `10n == 10` is `true`, but `10n === 10` is `false` because the types differ.
+- `Math` functions do not accept BigInts.
+
+Here is a factorial that would overflow the safe range with ordinary numbers:
+
+```javascript title="factorial_bigint.mjs"
+function factorial(n) {
+  let result = 1n;
+  for (let i = 2n; i <= n; i++) {
+    result *= i;
+  }
+  return result;
+}
+
+console.log(factorial(5n));
+console.log(factorial(25n));
+console.log(factorial(25n).toString().length);
+```
+
+```text
+120n
+15511210043330985984000000n
+26
+```
+
+`2n` starts the loop counter as a BigInt, so every multiplication stays among BigInts. `25!` has 26 digits, far beyond `Number.MAX_SAFE_INTEGER`.
+
+## Common pitfalls
+
+- **Comparing fractions with `===`.** Use a tolerance, or work in whole units.
+- **Using `isNaN`.** It converts first. Use `Number.isNaN`.
+- **Doing money in dollars.** Use cents or another smallest unit.
+- **Expecting integer division.** `7 / 2` is `3.5`.
+- **Mixing BigInt and number.** It throws. Convert explicitly.
+- **Using `toFixed` and treating the result as a number.** It returns a string.
+
+<Exercise title="Money in cents">
+
+A basket holds 3 items at `19.99` each. Compute the total in cents, without any fractional arithmetic on money, and print it as a string with two decimals. Use `1999` for the price in cents.
+
+Input: none. Expected output: `5997` then `59.97`.
+
+<Solution>
+
+```javascript title="money_total.mjs"
+const priceCents = 1999;
+const quantity = 3;
+const totalCents = priceCents * quantity;
+
+console.log(totalCents);
+console.log((totalCents / 100).toFixed(2));
+```
+
+```text
+5997
+59.97
+```
+
+The multiplication stays among whole numbers, so it is exact. The only division happens when the value is displayed.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Factorial with BigInt">
+
+Write `factorial(n)` that takes a BigInt and returns its factorial as a BigInt. Print `factorial(5n)`, `factorial(25n)` and the number of digits in `factorial(25n)`.
+
+Input: none. Expected output: `120n`, `15511210043330985984000000n`, `26`.
+
+<Solution>
+
+```javascript title="factorial_bigint.mjs"
+function factorial(n) {
+  let result = 1n;
+  for (let i = 2n; i <= n; i++) {
+    result *= i;
+  }
+  return result;
+}
+
+console.log(factorial(5n));
+console.log(factorial(25n));
+console.log(factorial(25n).toString().length);
+```
+
+```text
+120n
+15511210043330985984000000n
+26
+```
+
+`toString()` turns the BigInt into digits as text, and `.length` counts them.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- All ordinary numbers are doubles, so `0.1 + 0.2` is not `0.3`. Compare with a tolerance and keep money in whole cents.
+- `NaN` is never equal to itself: test with `Number.isNaN`. Dividing by zero gives `Infinity`.
+- Integers are exact up to `Number.MAX_SAFE_INTEGER`. Past that, use BigInt (`123n`), and do not mix it with numbers.
+
+Next: [strings and template literals](../strings-js/).

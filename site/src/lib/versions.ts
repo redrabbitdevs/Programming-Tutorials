@@ -10,6 +10,10 @@
  */
 export const OLDEST_SUPPORTED: Record<string, string> = {
   python: '3.11',
+  // Node.js 22 is the oldest supported line (Maintenance LTS until 2027-04-30), so
+  // JavaScript lessons with minVersion 22 show no badge.
+  // Source: research/javascript/sources/node-releases.md
+  javascript: '22',
 };
 
 const parts = (v: string) => v.split('.').map((n) => parseInt(n, 10) || 0);

@@ -1,0 +1,178 @@
+---
+language: javascript
+level: beginner
+module: Getting started with JavaScript
+order: 2
+title: Installing Node.js
+description: Install a current Node.js release, confirm the version from a terminal, and choose between LTS and Current.
+minVersion: "22"
+objectives:
+  - Install Node.js 26 or 24 and confirm it runs from a terminal
+  - Choose between an LTS and a Current release
+  - Read the version information a running program can report
+estimatedMinutes: 20
+fundamentals: ["fundamentals/beginner/02-tools-of-the-trade"]
+---
+
+To run JavaScript outside a browser you need Node.js on your machine. This lesson installs it, checks that the terminal can find it, and explains which release to pick.
+
+The fundamentals lesson on [editors, terminals and running code](../../../fundamentals/beginner/tools-of-the-trade/) covers what a terminal is and how to open one. This lesson assumes you can open one and type a command.
+
+## Which version to install
+
+Node.js numbers its releases with a major version: 22, 24, 26. Each major is in one of a few states:
+
+- **Current** is the newest line. It gets new features first.
+- **Active LTS** (long-term support) is a line that has been declared ready for general use and gets fixes for a long time.
+- **Maintenance LTS** only receives critical fixes, until the line reaches end of life.
+
+As of 14 October 2026:
+
+| Line | Status | Supported until |
+|---|---|---|
+| 26 | Current, becomes LTS on 28 October 2026 | 30 April 2029 |
+| 24 "Krypton" | Active LTS, moves to Maintenance on 20 October 2026 | 30 April 2028 |
+| 22 "Jod" | Maintenance LTS | 30 April 2027 |
+
+This course uses **Node.js 26** (the latest release is 26.11.1). Everything in the core path also runs on Node 22 and 24, because the oldest supported line is 22. When a lesson needs 24 or 26, it says so on the page with a marker like <Since v="24" />, so you can tell what will and will not work on your install.
+
+If you only need one install, take the LTS release from nodejs.org. If you are reading this after 28 October 2026, that is Node 26. Before then, install 26 if you want to follow along exactly, or 24 if you prefer an LTS line today. Both work for this module.
+
+<Callout type="note">
+
+Starting with Node.js 27, the release schedule changes to one major version per year, and every major moves to LTS after its six-month Current phase. The odd/even rule you may read about in older articles ("odd numbers are not for production") applies up to Node 26.
+
+</Callout>
+
+Node.js 20 and older have reached end of life. Do not install them.
+
+## Install it
+
+<Tabs>
+<Tab label="Windows">
+
+Download the Windows installer from [nodejs.org](https://nodejs.org/) and run it. Accept the defaults. Then open a new terminal window, such as PowerShell or Windows Terminal, so that it picks up the change.
+
+</Tab>
+<Tab label="macOS">
+
+Download the macOS installer from [nodejs.org](https://nodejs.org/) and open the package. Then open a new Terminal window.
+
+</Tab>
+<Tab label="Linux">
+
+Your distribution's package manager may carry an old Node.js, so check the version after installing. If it is older than 22, use the Linux binaries from [nodejs.org](https://nodejs.org/) or a version manager instead.
+
+</Tab>
+</Tabs>
+
+A **version manager** such as nvm or fnm installs several Node.js versions side by side and switches between them per project. It is optional for this course. It is worth learning once you maintain more than one project.
+
+## Check that it worked
+
+Open a new terminal and ask Node.js and its package manager for their versions.
+
+```bash frame="terminal"
+node --version
+npm --version
+```
+
+```text
+v26.11.1
+11.20.0
+```
+
+You should see a version that starts with `v`. Yours may be newer or older than the one above. Node.js 26.11.1 ships with npm 11.20.0. `npm` is the package manager that comes with Node.js, and a later module uses it.
+
+If the terminal says `command not found` (or `'node' is not recognized` on Windows), the usual cause is a terminal that was open before the install. Close it and open a new one. If that fails, the folder that holds `node` is missing from your **PATH**, the list of folders the terminal searches for programs. Running the installer again fixes it in most cases.
+
+## Ask a running program for its version
+
+A program can report which Node.js is running it. The `process` object is provided by Node.js, and it has two properties that are useful right now: `process.version`, the version string, and `process.versions`, an object with the versions of the parts inside Node.js, including the V8 engine.
+
+Create a file named `versions_print.mjs`:
+
+```javascript title="versions_print.mjs"
+console.log(process.version);
+console.log(process.versions.v8);
+```
+
+Run it with `node versions_print.mjs`. The output depends on your install. On Node.js 26.11.1 it is:
+
+```text frame="terminal"
+v26.11.1
+14.6.202.34-node.37
+```
+
+The second line is the V8 engine version, which tells you which language features your engine has.
+
+A program can also check the version and act on it. This one reads the major number out of `process.versions.node` and compares it:
+
+```javascript title="node_major.mjs"
+const major = Number(process.versions.node.split(".")[0]);
+
+console.log(`Node major version: ${major >= 22 ? "22 or newer" : "too old for this course"}`);
+```
+
+```text
+Node major version: 22 or newer
+```
+
+`split(".")` cuts the string `"26.11.1"` at each dot into an array of three pieces, and `[0]` takes the first. `Number(...)` turns that text into a number, so the comparison is between numbers and not between pieces of text. Lessons 7 and 9 cover numbers and conversions in detail.
+
+## Common pitfalls
+
+- **Using a terminal that was open during the install.** It does not see the new PATH. Open a new one.
+- **Several Node.js installs.** `node --version` tells you which one the terminal reaches. If it shows an old version after you installed a new one, an older install is earlier on your PATH.
+- **Running `sudo npm` to get past a permissions error.** Fix the cause instead. A version manager keeps everything in your home folder.
+- **Picking a Current release for production.** Up to Node 26, production applications should use LTS releases.
+
+<Exercise title="Print the version and the V8 version">
+
+Install Node.js, then write a program that prints `process.version` on the first line and `process.versions.v8` on the second. Run it from a terminal.
+
+Input: none. Your output depends on your install. On Node.js 26.11.1 it is shown below.
+
+<Solution>
+
+```javascript title="versions_print.mjs"
+console.log(process.version);
+console.log(process.versions.v8);
+```
+
+```text frame="terminal"
+v26.11.1
+14.6.202.34-node.37
+```
+
+`process.version` is a plain property, so no call is needed. It starts with `v`, unlike `process.versions.node`, which does not.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Compare against a different version">
+
+Change `node_major.mjs` so that it prints `Node 26 or newer` or `older than Node 26`. Input: none. Expected output on Node.js 26.11.1: `Node 26 or newer`.
+
+<Solution>
+
+```javascript title="node_26_check.mjs"
+const major = Number(process.versions.node.split(".")[0]);
+
+console.log(major >= 26 ? "Node 26 or newer" : "older than Node 26");
+```
+
+On Node.js 22 or 24, the same program prints `older than Node 26`. The conditional operator `? :` is covered in a later lesson. It picks between two values based on a condition.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Install Node.js 26 (or the 24 LTS) from nodejs.org, then check it with `node --version` and `npm --version`.
+- Production code belongs on an LTS line. From Node 27 the schedule is one major version a year.
+- `process.version` and `process.versions` let a program report what it runs on.
+
+Next: [the REPL, scripts and the browser console](../repl-and-files/).

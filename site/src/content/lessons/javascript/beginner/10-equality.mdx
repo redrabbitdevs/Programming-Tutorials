@@ -1,0 +1,221 @@
+---
+language: javascript
+level: beginner
+module: Values, types and coercion
+order: 10
+title: "Equality: ===, == and Object.is"
+description: Choose between strict equality, loose equality and Object.is, and understand why two equal-looking objects are not equal.
+minVersion: "22"
+objectives:
+  - Use === by default and explain what == does differently
+  - Recognise the loose-equality cases that surprise people
+  - Use Object.is for NaN and negative zero
+  - Explain why objects and arrays compare by reference
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/15-records-and-objects"]
+---
+
+JavaScript has three ways to ask "are these the same?", and they disagree in a few cases. This lesson shows the differences and the rule that keeps you out of trouble. The idea of identity versus equality is general, and the [fundamentals lesson on records and objects](../../../fundamentals/beginner/records-and-objects/) introduces it. Here it takes JavaScript's form.
+
+## Strict equality: ===
+
+`a === b` is true when the two values have the **same type** and the same value. There is no conversion. Different types are never strictly equal.
+
+`!==` is its opposite. Use these two operators by default.
+
+## Loose equality: ==
+
+`a == b` first converts the values to a common type when their types differ, then compares. It follows the coercion rules from the previous lesson, which makes it hard to predict.
+
+```javascript title="loose_equality.mjs"
+console.log("1 === '1'  ", 1 === "1");
+console.log("1 == '1'   ", 1 == "1");
+console.log("0 == ''    ", 0 == "");
+console.log("0 == '0'   ", 0 == "0");
+console.log("'' == '0'  ", "" == "0");
+console.log("false == '0'", false == "0");
+console.log("null == undefined", null == undefined);
+console.log("null === undefined", null === undefined);
+console.log("null == 0  ", null == 0);
+console.log("[] == false", [] == false);
+console.log("[1] == 1   ", [1] == 1);
+console.log("NaN == NaN ", NaN == NaN);
+```
+
+```text
+1 === '1'   false
+1 == '1'    true
+0 == ''     true
+0 == '0'    true
+'' == '0'   false
+false == '0' true
+null == undefined true
+null === undefined false
+null == 0   false
+[] == false true
+[1] == 1    true
+NaN == NaN  false
+```
+
+The results break the rule that equality is transitive: `0 == ""` and `0 == "0"` are both true, yet `"" == "0"` is false. `[] == false` is true, because both sides turn into `0`.
+The rules are easy to describe but not worth memorising:
+
+- If the types match, `==` behaves like `===`.
+- `null == undefined` is `true`, and neither equals anything else.
+- Otherwise, if one side is a number and the other text, boolean or object, they are converted towards numbers.
+- `NaN` is not equal to anything, including itself.
+
+One use of `==` is accepted widely, and it is the check against `null`: `value == null` is true for exactly `null` and `undefined`, and nothing else.
+
+```javascript title="null_check_idiom.mjs"
+function isMissing(value) {
+  return value == null;
+}
+
+console.log(isMissing(null), isMissing(undefined));
+console.log(isMissing(0), isMissing(""), isMissing(false), isMissing(NaN));
+```
+
+```text
+true true
+false false false false
+```
+
+Many teams ban `==` entirely and write `value === null || value === undefined` instead. Either is fine, as long as your team agrees. Everywhere else, use `===`.
+
+## NaN and Object.is
+
+`NaN === NaN` is `false`. The test for it is `Number.isNaN(value)`. `Object.is(a, b)` is a third comparison that behaves like `===`, except that it treats `NaN` as equal to itself and tells `0` from `-0`.
+
+```javascript title="object_is.mjs"
+console.log(NaN === NaN, Object.is(NaN, NaN), Number.isNaN(NaN));
+console.log(0 === -0, Object.is(0, -0));
+console.log([NaN].includes(NaN), [NaN].indexOf(NaN));
+console.log(Object.is("a", "a"), Object.is(1, 1));
+```
+
+```text
+false true true
+true false
+true -1
+true true
+```
+
+Note the last array line: `includes` finds `NaN`, while `indexOf` does not, because `indexOf` uses `===`. You will rarely need `Object.is` directly, but it is the right tool when `NaN` or `-0` matters.
+
+| Comparison | `NaN` with `NaN` | `0` with `-0` | Converts types |
+|---|---|---|---|
+| `===` | false | true | no |
+| `==` | false | true | yes |
+| `Object.is` | true | false | no |
+
+## Objects compare by reference
+
+For objects, arrays and functions, `===` asks whether both sides are **the very same object in memory**, not whether they look alike. Two separately created arrays with the same items are different objects.
+
+```javascript title="reference_equality.mjs"
+const a = [1, 2];
+const b = [1, 2];
+const c = a;
+
+console.log(a === b, a === c);
+console.log({} === {});
+
+c.push(3);
+console.log(a);
+
+function sameItems(x, y) {
+  return x.length === y.length && x.every((item, i) => item === y[i]);
+}
+
+console.log(sameItems([1, 2], [1, 2]), sameItems([1, 2], [2, 1]));
+```
+
+```text
+false true
+false
+[ 1, 2, 3 ]
+true false
+```
+
+`c = a` copies the **reference**, so `a` and `c` are one array under two names, and `c.push(3)` shows up through `a`. Two literals `{}` and `{}` are two objects.
+
+To compare contents, you must write the comparison, as `sameItems` does: same length and each pair of items equal. For nested data you need to compare recursively. Comparing with `JSON.stringify(a) === JSON.stringify(b)` is a shortcut that works for plain data only. It depends on key order and breaks on `undefined`, `NaN`, and values JSON cannot hold.
+
+## Common pitfalls
+
+- **Using `==` and trusting it.** `"" == 0` is true and `"" == "0"` is false.
+- **Comparing arrays or objects with `===` to find out if they hold the same data.** They are only equal if they are the same object.
+- **Testing `x === NaN`.** It is always false. Use `Number.isNaN(x)`.
+- **Comparing input text with a number.** `"5" === 5` is false. Convert the input first.
+
+<Exercise title="Rewrite eight == checks safely">
+
+Rewrite each condition so that it does not use `==`, and so that it keeps the meaning in brackets.
+
+1. `input == 5`, where `input` is the text `"5"` (meaning: the number five)
+2. `5 == "5"` (meaning: the text `"5"` equals the number written as text)
+3. `name == ""` (meaning: the name is blank)
+4. `flag == true` (meaning: the flag is on)
+5. `nothing == null` (meaning: `null` or `undefined`)
+6. `list == false` (meaning: the list is empty)
+7. `Number("abc") == NaN` (meaning: the conversion failed)
+8. `name == 0` (meaning: the name is blank, treated as zero)
+
+<Solution>
+
+```javascript title="safe_equality.mjs"
+const input = "5";
+const name = "";
+const flag = true;
+const nothing = undefined;
+const list = [];
+
+console.log(Number(input) === 5);
+console.log(String(5) === "5");
+console.log(name === "");
+console.log(flag);
+console.log(nothing === null || nothing === undefined);
+console.log(list.length === 0);
+console.log(Number.isNaN(Number("abc")));
+console.log(Number(name) === 0);
+```
+
+```text
+true
+true
+true
+true
+true
+true
+true
+true
+```
+
+In order: convert the input with `Number` and compare strictly; convert the number with `String`; compare with `""` directly; use the flag itself, since it is already a boolean; spell out both null cases; test `list.length === 0`; use `Number.isNaN`, because `NaN` never equals anything; and for the last, convert first with `Number(name) === 0`. Case 8 is a reminder that blank text becomes zero, which is rarely what you want.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict, then run">
+
+Say what each prints: `[] === []`, `[NaN].includes(NaN)`, `Object.is(0, -0)`, `null == 0`, `null >= 0`.
+
+<Solution>
+
+`[] === []` is `false` (two different arrays), `[NaN].includes(NaN)` is `true`, `Object.is(0, -0)` is `false`, and `null == 0` is `false`.
+
+The last one, `null >= 0`, is `true`. The relational operators `<`, `>`, `<=` and `>=` convert `null` to `0`, while `==` has a special rule that `null` equals only `undefined`. That is why `null == 0` is false and `null >= 0` is true. It is a good reason to treat `null` explicitly.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Use `===` and `!==` by default. `==` converts types first, with results that are hard to predict. The single accepted use is `value == null`.
+- `NaN` equals nothing, itself included. Use `Number.isNaN`. `Object.is` also tells `0` from `-0`.
+- Objects and arrays compare by reference. Two arrays with the same items are not `===`.
+
+Next: [null, undefined, ?? and ?.](../null-undefined-nullish/).
