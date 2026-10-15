@@ -1,0 +1,229 @@
+---
+language: javascript
+level: beginner
+module: Values, types and coercion
+order: 11
+title: "null, undefined, ?? and ?."
+description: Tell null from undefined, supply defaults without clobbering 0 and empty text, and read nested data that may be missing.
+minVersion: "22"
+objectives:
+  - Say where undefined comes from and when to use null
+  - Use ?? instead of || for defaults, and explain the difference
+  - Use ?. to read through values that might be missing
+  - Use ??=, ||= and &&= for conditional assignment
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/03-values-and-types"]
+---
+
+Most programs deal with data that may not be there: a setting nobody set, a field a user left out, a lookup that found nothing. JavaScript has two values for "nothing", and two modern operators that make handling them short. The general idea of a missing value is part of the [fundamentals lesson on values and types](../../../fundamentals/beginner/values-and-types/). This lesson covers JavaScript's version.
+
+## undefined and null
+
+**`undefined`** means "no value has been given". The language produces it for you in several situations.
+
+```javascript title="undefined_sources.mjs"
+let declared;
+console.log(declared);
+
+const user = { name: "Ada" };
+console.log(user.age);
+
+function echo(value) {
+  return value;
+}
+console.log(echo());
+
+function noReturn() {}
+console.log(noReturn());
+
+console.log([10, 20][5]);
+
+const empty = null;
+console.log(empty, typeof empty, typeof undefined);
+console.log(null == undefined, null === undefined);
+```
+
+```text
+undefined
+undefined
+undefined
+undefined
+undefined
+null object undefined
+true false
+```
+
+In order: a variable declared without a value, a property that does not exist, a function parameter that was not passed, a function that returns nothing, and a position beyond the end of an array. All give `undefined`.
+
+**`null`** is a value you write yourself, to say "there is deliberately nothing here". The language almost never produces `null` on its own. As the last lines show, `typeof null` is `"object"` (the old mistake from the first lesson of this module), `null == undefined` is true, and `null === undefined` is false.
+
+A practical rule: let `undefined` be what the language gives you, and use `null` only when you want to state "empty" explicitly. Do not assign `undefined` yourself. Many style guides go further and avoid `null` altogether.
+
+## The nullish coalescing operator: ??
+
+A common job is "use this value, or a default if it is missing". The old way is `||`, which uses the default for **any falsy** value, not only for missing ones. That removes legitimate `0`, `""` and `false`.
+
+The operator `??` (ES2020) falls back only for `null` and `undefined`.
+
+```javascript title="nullish.mjs"
+const count = 0;
+const label = "";
+const missing = null;
+
+console.log(count || 10, count ?? 10);
+console.log(label || "none", label ?? "none");
+console.log(missing || "fallback", missing ?? "fallback");
+console.log(undefined ?? null ?? "last");
+console.log(false || null, false ?? "kept");
+console.log((null ?? 1) || 2);
+```
+
+```text
+10 0
+none 
+fallback fallback
+last
+null false
+1
+```
+
+- `count || 10` is `10` even though `count` is `0`, a perfectly good value. `count ?? 10` keeps the `0`.
+- `label || "none"` replaces an empty string, and `label ?? "none"` keeps it. That is the empty line in the output.
+- For `null`, both operators use the fallback.
+- `??` chains: it returns the first value that is not `null` or `undefined`.
+
+If you want "the default for anything falsy", `||` is still right. The skill is choosing on purpose. For settings, quantities and flags, `??` is nearly always what you mean.
+
+<Callout type="warning">
+
+You cannot write `a ?? b || c` without brackets. Mixing `??` with `||` or `&&` in one expression is a `SyntaxError`, because the intended order is unclear. Add brackets to say which you mean: `(a ?? b) || c`.
+
+</Callout>
+
+## Optional chaining: ?.
+
+Reading a property of `undefined` or `null` throws a `TypeError`. The **optional chaining** operator `?.` (ES2020) stops and gives `undefined` instead, when the value before it is `null` or `undefined`.
+
+```javascript title="optional_chaining.mjs"
+const user = { name: "Ada", profile: { address: null }, tags: ["math"] };
+
+console.log(user.profile.address?.city);
+console.log(user.settings?.theme);
+console.log(user.tags?.[0], user.nothing?.[0]);
+console.log(user.greet?.());
+
+try {
+  console.log(user.settings.theme);
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+
+console.log(user?.profile?.address?.city.toUpperCase().length);
+```
+
+```text
+undefined
+undefined
+math undefined
+undefined
+TypeError: Cannot read properties of undefined (reading 'theme')
+undefined
+```
+
+Three forms exist: `a?.b` for a property, `a?.[0]` for an index or computed key, and `a?.()` to call a function only if it exists. In the example, `user.profile.address?.city` is `undefined` because `address` is `null`. Without the `?.` on `user.settings.theme`, the access throws, and the message names the property that was read from `undefined`.
+
+The last line shows **short-circuiting**: when `address` is missing, the whole rest of the chain, including `.toUpperCase()` and `.length`, is skipped and the answer is `undefined`. You do not need a `?.` after every dot.
+
+Use `?.` where data may be absent, not everywhere. If a value must be there, a `TypeError` that points to the problem is better than an `undefined` that hides it.
+
+`?.` and `??` are a natural pair: read something that may be missing, then supply a default.
+
+## Conditional assignment: ??=, ||= and &&=
+
+Three assignment operators combine a test with an assignment (ES2021). The assignment happens only when the test says so.
+
+| Operator | Assigns when the left side is |
+|---|---|
+| `a ??= b` | `null` or `undefined` |
+| `a \|\|= b` | falsy |
+| `a &&= b` | truthy |
+
+```javascript title="logical_assignment.mjs"
+const options = { retries: 0, name: "", debug: undefined, verbose: true };
+
+options.retries ??= 3;
+options.name ||= "anonymous";
+options.debug ??= false;
+options.verbose &&= "yes";
+
+console.log(options);
+```
+
+```text
+{ retries: 0, name: 'anonymous', debug: false, verbose: 'yes' }
+```
+
+`retries` was `0` and stayed `0` with `??=`. `name` was empty and was replaced with `||=`. `debug` was `undefined` and got a default. `verbose` was truthy, so `&&=` replaced it.
+
+## Common pitfalls
+
+- **Using `||` for defaults.** It overwrites `0`, `""` and `false`. Use `??`.
+- **Mixing `??` with `||` or `&&` without brackets.** It is a syntax error.
+- **Chaining `?.` everywhere.** It hides real mistakes, such as a misspelt property name.
+- **Checking for missing values with `typeof x === "undefined"`.** Compare with `undefined` directly, or use `x == null`.
+- **Assigning `undefined` to clear a value.** Use `null`, or delete the property.
+
+<Exercise title="Read nested config with defaults">
+
+Write `readConfig(config)` that returns an object with `host` (default `"localhost"`), `port` (default `8080`) and `debug` (default `false`). The host and port live at `config.server`, and the `server` object may be missing. A port of `0` and `debug: false` are valid and must be kept.
+
+Test it with `{}`, with `{ server: { port: 0 }, debug: false }` and with `{ server: { host: "example.test" }, debug: true }`.
+
+<Solution>
+
+```javascript title="config_defaults.mjs"
+function readConfig(config) {
+  return {
+    host: config.server?.host ?? "localhost",
+    port: config.server?.port ?? 8080,
+    debug: config.debug ?? false,
+  };
+}
+
+console.log(readConfig({}));
+console.log(readConfig({ server: { port: 0 }, debug: false }));
+console.log(readConfig({ server: { host: "example.test" }, debug: true }));
+```
+
+```text
+{ host: 'localhost', port: 8080, debug: false }
+{ host: 'localhost', port: 0, debug: false }
+{ host: 'example.test', port: 8080, debug: true }
+```
+
+`config.server?.host` is `undefined` when `server` is missing, and `??` then supplies the default. Because `??` ignores `0` and `false`, the second test keeps `port: 0`. Using `||` would have turned that port into `8080`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Which operator?">
+
+For each case choose `||` or `??`: (a) a page size where `0` means "show nothing"; (b) a display name where the empty string should become `"Guest"`; (c) a volume setting where `0` means muted.
+
+<Solution>
+
+(a) `??`, since `0` is a real choice. (b) `||`, since the empty string should be replaced, and `??` would keep it. (c) `??`, since a muted volume must stay `0`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `undefined` is what the language gives for "not set". `null` is what you write for "deliberately empty".
+- `a ?? b` falls back only for `null` and `undefined`. `a || b` falls back for any falsy value, including `0` and `""`.
+- `a?.b`, `a?.[i]` and `a?.()` return `undefined` instead of throwing when `a` is missing, and skip the rest of the chain.
+- `??=`, `||=` and `&&=` assign conditionally.
+
+Next: variables and control flow, starting with `let`, `const` and block scope.

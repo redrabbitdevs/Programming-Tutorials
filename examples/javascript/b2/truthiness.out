@@ -1,0 +1,16 @@
+false        false
+0            false
+-0           false
+0n           false
+""           false
+null         false
+undefined    false
+NaN          false
+--- truthy ---
+"0"          true
+"false"      true
+" "          true
+[]           true
+{}           true
+-1           true
+Infinity     true

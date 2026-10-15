@@ -1,0 +1,15 @@
+console.log(1 + 2);
+console.log("1" + 2);
+console.log(1 + "2");
+console.log(1 + 2 + "3");
+console.log("1" + 2 + 3);
+console.log("5" - 2);
+console.log("5" * "2");
+console.log("10" / "4");
+console.log(true + 1);
+console.log(null + 1);
+console.log(undefined + 1);
+console.log([] + []);
+console.log([1, 2] + [3]);
+console.log({} + []);
+console.log("3" > "12", 3 > 12, "3" > 12);

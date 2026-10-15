@@ -1,0 +1,325 @@
+---
+language: javascript
+level: beginner
+module: Values, types and coercion
+order: 9
+title: Type coercion
+description: Predict what JavaScript does when an operator meets the wrong type, and convert values explicitly instead.
+minVersion: "22"
+objectives:
+  - Predict the result of + and the other arithmetic operators on mixed types
+  - Convert values on purpose with Number, String, Boolean and parseInt
+  - List the falsy values and recognise truthy surprises
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/03-values-and-types"]
+---
+
+JavaScript does not refuse to add a number to a string or subtract text from a number. It converts one or both values and carries on. This is **type coercion**, and it explains most of the jokes about the language. Once you know the three rules, the results are predictable, and the habit of converting explicitly keeps them out of your programs. The [fundamentals lesson on values and types](../../../fundamentals/beginner/values-and-types/) covers type conversion in general.
+
+## The rules, in plain words
+
+There are only three target conversions, and each one has a fixed table.
+
+- **To a string** (`ToString`): numbers become their digits, `true` becomes `"true"`, `null` becomes `"null"`, `undefined` becomes `"undefined"`, an array becomes its items joined by commas, and a plain object becomes `"[object Object]"`.
+- **To a number** (`ToNumber`): text is parsed as a whole, so `"42"` becomes `42`, `""` and whitespace become `0`, and anything with extra characters, such as `"12px"`, becomes `NaN`. `true` is `1`, `false` and `null` are `0`, and `undefined` is `NaN`.
+- **To a boolean** (`ToBoolean`): a short list of values is false and everything else is true. See the truthiness section below.
+
+Objects first go through a step called **ToPrimitive**, which turns them into a primitive value by calling their `valueOf` or `toString` methods. Then one of the three conversions above applies.
+
+## The + operator
+
+`+` is the only arithmetic operator that also joins strings, and that makes it the usual source of surprises. The rule: if either side is a string (after ToPrimitive), both sides are converted to strings and joined. Otherwise both sides are converted to numbers and added.
+
+The other arithmetic operators, `-`, `*`, `/`, `%` and `**`, always convert both sides to numbers.
+
+```javascript title="plus_operator.mjs"
+console.log(1 + 2);
+console.log("1" + 2);
+console.log(1 + "2");
+console.log(1 + 2 + "3");
+console.log("1" + 2 + 3);
+console.log("5" - 2);
+console.log("5" * "2");
+console.log("10" / "4");
+console.log(true + 1);
+console.log(null + 1);
+console.log(undefined + 1);
+console.log([] + []);
+console.log([1, 2] + [3]);
+console.log({} + []);
+console.log("3" > "12", 3 > 12, "3" > 12);
+```
+
+```text
+3
+12
+12
+33
+123
+3
+10
+2.5
+2
+1
+NaN
+
+1,23
+[object Object]
+true false false
+```
+
+Work through a few of them:
+
+- `1 + 2 + "3"` is `"33"`: the sum `3` comes first, then the join. But `"1" + 2 + 3` is `"123"`: once a string appears, every later `+` joins.
+- `"5" - 2` is `3`, because `-` can only subtract numbers.
+- `null + 1` is `1`, since `null` becomes `0`, and `undefined + 1` is `NaN`, since `undefined` becomes `NaN`.
+- `[] + []` is the empty string, and `[1, 2] + [3]` is `"1,23"`, because each array becomes text first.
+- `"3" > "12"` is `true`, because two strings are compared character by character, like words in a dictionary. `"3" > 12` is `false` because a number on one side makes it a numeric comparison.
+
+## ToPrimitive and your own objects
+
+An object that appears where a primitive is wanted is asked for one. For `+` and `==`, the engine prefers `valueOf`. For string contexts such as template literals and `String(...)`, it prefers `toString`.
+
+```javascript title="to_primitive.mjs"
+const price = {
+  valueOf() {
+    return 42;
+  },
+  toString() {
+    return "forty-two";
+  },
+};
+
+console.log(price + 1);
+console.log(price * 2);
+console.log(`${price}`);
+console.log(String(price));
+console.log(price + "");
+```
+
+```text
+43
+84
+forty-two
+forty-two
+42
+```
+
+This is why `price + 1` gives `43` but `${price}` gives `forty-two`. You rarely define these methods yourself. It is enough to know that `{} + []` gives `"[object Object]"` because that is the default text of an object.
+
+## Converting on purpose
+
+Explicit conversion has no surprises: you say what you want.
+
+```javascript title="explicit_conversion.mjs"
+console.log(Number("42"), Number("  7 "), Number(""), Number("12px"));
+console.log(Number(true), Number(null), Number(undefined));
+console.log(Number([]), Number([5]), Number([1, 2]));
+console.log(String(123), String(null), String(undefined), String(true));
+console.log(String([1, 2]), String({}));
+console.log(Boolean(""), Boolean("0"), Boolean([]), Boolean(null));
+console.log(+"8", `${5}`, 5 + "");
+```
+
+```text
+42 7 0 NaN
+1 0 NaN
+0 5 NaN
+123 null undefined true
+1,2 [object Object]
+false true true false
+8 5 5
+```
+
+- `Number(value)` is strict. `Number("12px")` is `NaN`, and `Number("")` is `0`, which can be a trap for empty form fields. The unary plus, `+"8"`, does the same thing but is less obvious to read.
+- `String(value)` works for anything, including `null` and `undefined`. `value.toString()` fails on those two.
+- `Boolean(value)` applies the truthiness table.
+- A template literal `${5}`, or `5 + ""`, converts to a string too. The first is clearer.
+
+## parseInt and parseFloat
+
+`Number` rejects text with leftovers. `parseInt` and `parseFloat` read as much as they can from the start of the text and stop at the first character that does not fit.
+
+```javascript title="parse_int.mjs"
+console.log(parseInt("42px"), parseInt("px42"), parseInt("3.9"));
+console.log(parseInt("101", 2), parseInt("ff", 16), parseInt("0x1f"));
+console.log(parseInt("08", 10), parseInt("", 10));
+console.log(parseFloat("3.14abc"), Number("3.14abc"));
+console.log(["1", "2", "3"].map(parseInt));
+console.log(["1", "2", "3"].map(Number));
+console.log(["10", "10", "10"].map((s) => parseInt(s, 10)));
+```
+
+```text
+42 NaN 3
+5 255 31
+8 NaN
+3.14 NaN
+[ 1, NaN, NaN ]
+[ 1, 2, 3 ]
+[ 10, 10, 10 ]
+```
+
+- `parseInt("42px")` is `42`, but `parseInt("px42")` is `NaN`, since nothing at the start matches.
+- `parseInt("3.9")` is `3`: it stops at the dot. It truncates and does not round.
+- Always give a radix (the base) as the second argument: `parseInt("101", 2)` is `5`. Without one, text beginning with `0x` is read as hexadecimal. Writing `parseInt(s, 10)` for ordinary decimals removes any doubt.
+- `parseFloat("3.14abc")` is `3.14`, while `Number("3.14abc")` is `NaN`.
+
+The line with `["1", "2", "3"].map(parseInt)` is a famous trap. `map` passes each item **and its index** to the function, so `parseInt` is called as `parseInt("2", 1)`, and a radix of 1 is invalid, giving `NaN`. Pass `Number`, or wrap the call: `(s) => parseInt(s, 10)`.
+
+## Truthy and falsy
+
+Conditions such as `if (x)` and operators such as `!` and `&&` convert their operand to a boolean. Exactly eight values are **falsy**: `false`, `0`, `-0`, `0n`, `""`, `null`, `undefined` and `NaN`. Everything else is **truthy**.
+
+```javascript title="truthiness.mjs"
+function show(label, value) {
+  console.log(`${label.padEnd(12)} ${Boolean(value)}`);
+}
+
+show("false", false);
+show("0", 0);
+show("-0", -0);
+show("0n", 0n);
+show('""', "");
+show("null", null);
+show("undefined", undefined);
+show("NaN", NaN);
+console.log("--- truthy ---");
+show('"0"', "0");
+show('"false"', "false");
+show('" "', " ");
+show("[]", []);
+show("{}", {});
+show("-1", -1);
+show("Infinity", Infinity);
+```
+
+```text
+false        false
+0            false
+-0           false
+0n           false
+""           false
+null         false
+undefined    false
+NaN          false
+--- truthy ---
+"0"          true
+"false"      true
+" "          true
+[]           true
+{}           true
+-1           true
+Infinity     true
+```
+
+The surprises are on the truthy side: the text `"0"` and `"false"` are true, because any non-empty string is true. An empty array `[]` and an empty object `{}` are true as well, since they are objects. To test whether an array is empty, check `list.length === 0`.
+
+Because `0` and `""` are falsy, `if (count)` is false when `count` is `0`, which is often a real value. The nullish lesson at the end of this module shows a tool for that.
+
+`!!value` is a shorthand that converts to a boolean (two negations), and `Boolean(value)` says the same thing more clearly.
+
+## Common pitfalls
+
+- **Adding numbers that arrived as text.** Input from `readline`, forms and files is text. `"2" + "2"` is `"22"`. Convert first with `Number(...)`.
+- **`Number("")` is `0`.** An empty answer becomes zero without a complaint. Check for empty text before converting.
+- **`parseInt` without a radix**, and `map(parseInt)`.
+- **Truthiness tests for numbers and text.** `if (value)` skips `0` and `""`.
+- **Relying on object-to-string conversion.** `"" + {}` is `"[object Object]"`, which is never what a user should see.
+
+<Exercise title="Coercion quiz">
+
+Predict the output of these twelve lines, then run them.
+
+```javascript
+console.log("2" + 2);
+console.log("2" - 2);
+console.log(2 + 2 + "2");
+console.log("b" + "a" + +"a" + "a");
+console.log(true + true);
+console.log([] + 1);
+console.log([2] * [3]);
+console.log(null + "x");
+console.log(undefined * 2);
+console.log("" - 1);
+console.log(!!"0");
+console.log(1 < 2 < 3, 3 > 2 > 1);
+```
+
+<Solution>
+
+```javascript title="coercion_quiz.mjs"
+console.log("2" + 2);
+console.log("2" - 2);
+console.log(2 + 2 + "2");
+console.log("b" + "a" + +"a" + "a");
+console.log(true + true);
+console.log([] + 1);
+console.log([2] * [3]);
+console.log(null + "x");
+console.log(undefined * 2);
+console.log("" - 1);
+console.log(!!"0");
+console.log(1 < 2 < 3, 3 > 2 > 1);
+```
+
+```text
+22
+0
+42
+baNaNa
+2
+1
+6
+nullx
+NaN
+-1
+true
+true false
+```
+
+In order: `+` joins because a side is text; `-` converts to numbers; the sum `4` is joined to `"2"`; `+"a"` is `NaN`, giving `"baNaNa"`; `true` is `1`; `[]` becomes `""`, giving `"1"`; both arrays become numbers (`2` and `3`); `null` becomes `"null"`; `undefined` becomes `NaN`; `""` is `0`; the non-empty text `"0"` is truthy; and the last line compares `true < 3` (`true` is `1`) and then `true > 1` (false).
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Convert user input safely">
+
+The list `["10", "x", "", "7.5"]` holds text typed by a user. For each item print `Number(item)` and `parseInt(item, 10)` on one line. Which conversions would you accept as valid numbers, and why is `""` dangerous?
+
+<Solution>
+
+A small helper keeps the four calls short. `JSON.stringify` prints the text with its quotes, so the empty string is visible:
+
+```javascript title="safe_input.mjs"
+function show(item) {
+  console.log(JSON.stringify(item), Number(item), parseInt(item, 10));
+}
+
+show("10");
+show("x");
+show("");
+show("7.5");
+```
+
+```text
+"10" 10 10
+"x" NaN NaN
+"" 0 NaN
+"7.5" 7.5 7
+```
+
+`Number("")` is `0`, so a blank answer looks like a real zero. `parseInt` gives `NaN` for it, which can be tested, but `parseInt("7.5", 10)` silently drops the `.5`. Check for blank text first, then use `Number` and test the result with `Number.isNaN`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `+` joins when either side is text and adds otherwise. `-`, `*` and `/` always use numbers.
+- Convert on purpose: `Number(...)`, `String(...)`, `Boolean(...)`, and `parseInt(text, 10)`.
+- Eight values are falsy: `false`, `0`, `-0`, `0n`, `""`, `null`, `undefined`, `NaN`. Empty arrays and objects are truthy.
+
+Next: [equality](../equality/).

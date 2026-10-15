@@ -1,0 +1,12 @@
+console.log("typeof 42:        ", typeof 42);
+console.log("typeof 3.14:      ", typeof 3.14);
+console.log('typeof "text":    ', typeof "text");
+console.log("typeof true:      ", typeof true);
+console.log("typeof undefined: ", typeof undefined);
+console.log("typeof null:      ", typeof null);
+console.log("typeof 10n:       ", typeof 10n);
+console.log('typeof Symbol("id"):', typeof Symbol("id"));
+console.log("typeof {}:        ", typeof {});
+console.log("typeof []:        ", typeof []);
+console.log("typeof (() => 1): ", typeof (() => 1));
+console.log("typeof NaN:       ", typeof NaN);

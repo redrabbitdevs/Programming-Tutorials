@@ -1,0 +1,268 @@
+---
+language: javascript
+level: beginner
+module: Values, types and coercion
+order: 6
+title: Primitive types and typeof
+description: Name the seven primitive types and the object type, and use typeof while knowing where it gives odd answers.
+minVersion: "22"
+objectives:
+  - Name JavaScript's seven primitive types
+  - Use typeof and recognise its two famous quirks
+  - Explain what dynamic and weak typing mean in JavaScript
+estimatedMinutes: 25
+fundamentals: ["fundamentals/beginner/03-values-and-types"]
+---
+
+Every value in a JavaScript program has a type, and the type decides what you can do with the value. The general ideas, such as what a type is and the difference between static and dynamic typing, are in the [fundamentals lesson on values and types](../../../fundamentals/beginner/values-and-types/). This lesson lists the types JavaScript actually has and the operator that reports them.
+
+## The seven primitives and objects
+
+JavaScript has seven **primitive** types. A primitive is a single, simple value that cannot be changed from the inside. Everything else is an **object**.
+
+| Type | Example | Holds |
+|---|---|---|
+| `undefined` | `undefined` | A variable that has no value yet |
+| `null` | `null` | A deliberate "no value" |
+| boolean | `true`, `false` | Yes or no |
+| number | `42`, `3.14`, `NaN` | All ordinary numbers, whole or fractional |
+| bigint | `10n` | Whole numbers of any size |
+| string | `"text"` | Text |
+| symbol | `Symbol("id")` | A unique value, used as a hidden key |
+
+Objects cover everything else: plain objects `{}`, arrays `[]`, functions, dates, maps and so on. Arrays and functions are objects too, with extra abilities.
+
+Note that there is only one type for ordinary numbers. `42` and `3.14` are both `number`. There is no separate integer type. The next lesson explains what that means.
+
+## typeof
+
+The `typeof` operator gives back the type of a value as a string.
+
+```javascript title="typeof_values.mjs"
+console.log("typeof 42:        ", typeof 42);
+console.log("typeof 3.14:      ", typeof 3.14);
+console.log('typeof "text":    ', typeof "text");
+console.log("typeof true:      ", typeof true);
+console.log("typeof undefined: ", typeof undefined);
+console.log("typeof null:      ", typeof null);
+console.log("typeof 10n:       ", typeof 10n);
+console.log('typeof Symbol("id"):', typeof Symbol("id"));
+console.log("typeof {}:        ", typeof {});
+console.log("typeof []:        ", typeof []);
+console.log("typeof (() => 1): ", typeof (() => 1));
+console.log("typeof NaN:       ", typeof NaN);
+```
+
+```text
+typeof 42:         number
+typeof 3.14:       number
+typeof "text":     string
+typeof true:       boolean
+typeof undefined:  undefined
+typeof null:       object
+typeof 10n:        bigint
+typeof Symbol("id"): symbol
+typeof {}:         object
+typeof []:         object
+typeof (() => 1):  function
+typeof NaN:        number
+```
+
+`typeof` is an operator, not a function, so `typeof 42` needs no parentheses. They are harmless, and required when the operand is an expression that would otherwise bind wrongly, as with the arrow function above.
+
+Three results deserve a second look.
+
+- **`typeof null` is `"object"`.** This is a mistake from the first version of the language that can never be fixed without breaking old programs. `null` is a primitive. To test for it, compare directly with `value === null`.
+- **`typeof []` is `"object"`.** An array is an object. Use `Array.isArray(value)` to find out whether something is an array.
+- **`typeof NaN` is `"number"`.** `NaN` stands for "not a number", and it is still a value of the number type. The next lesson explains how it arises.
+
+A function reports `"function"`, even though functions are objects underneath. That is a convenience, not a separate type.
+
+A helper that tells the common cases apart looks like this:
+
+```javascript title="kind_of.mjs"
+function kindOf(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+console.log(kindOf(null));
+console.log(kindOf([1, 2]));
+console.log(kindOf({ a: 1 }));
+console.log(kindOf("hi"));
+console.log(kindOf(undefined));
+```
+
+```text
+null
+array
+object
+string
+undefined
+```
+
+The order of the checks matters: `null` must be handled before the final `typeof`, because `typeof null` would say `"object"`.
+
+## Names that do not exist
+
+Reading a variable that was never declared throws a `ReferenceError`. But `typeof` is safe on such a name, and answers `"undefined"`. It is how code checks whether a runtime feature exists, as the first lesson did with `window`.
+
+## Dynamic and weak typing
+
+In JavaScript the type belongs to the **value**, not to the variable. A variable can hold a number now and a string a moment later.
+
+```javascript title="dynamic_typing.mjs"
+let value = 5;
+console.log(typeof value);
+
+value = "five";
+console.log(typeof value);
+
+value = [5];
+console.log(typeof value, Array.isArray(value));
+
+console.log(typeof neverDeclared);
+```
+
+```text
+number
+string
+object true
+undefined
+```
+
+That is called **dynamic typing**. Nothing checks types before the program runs, so a type mistake shows up as wrong behaviour or a runtime error. TypeScript, a separate language that compiles to JavaScript, adds static checks.
+
+JavaScript is also **weakly typed**: operators accept values of the wrong type and quietly convert them, so `"5" * 2` gives `10` instead of an error. The coercion lesson in this module shows the rules.
+
+## Primitives and wrapper objects
+
+A primitive has no properties of its own, yet `"text".length` and `"text".toUpperCase()` work. The language briefly wraps the primitive in an object to look the property up, then discards the wrapper. You never have to think about this, with one exception: you can create a wrapper by hand with `new String(...)`, and you should not.
+
+```javascript title="wrapper_objects.mjs"
+console.log(typeof "text", typeof new String("text"));
+console.log("text".length, "text".toUpperCase());
+```
+
+```text
+string object
+4 TEXT
+```
+
+A `new String("text")` is an object that behaves differently in comparisons and conditions. Write plain `"text"`.
+
+## Common pitfalls
+
+- **Testing for null with typeof.** `typeof value === "object"` is also true for `null`, arrays and every plain object.
+- **Treating `NaN` as "not a number" in the type sense.** Its type is `number`.
+- **Using `new Number`, `new String` or `new Boolean`.** Use the plain values. Call `Number(...)`, `String(...)` and `Boolean(...)` without `new` when you want to convert.
+- **Expecting a variable to keep its type.** Nothing stops a reassignment from changing it.
+
+<Exercise title="Predict typeof for 15 values">
+
+Without running anything, write down what each line prints, then run the program and compare.
+
+```javascript
+console.log(typeof 0);
+console.log(typeof "0");
+console.log(typeof 0n);
+console.log(typeof null);
+console.log(typeof undefined);
+console.log(typeof NaN);
+console.log(typeof []);
+console.log(typeof {});
+console.log(typeof (() => {}));
+console.log(typeof Symbol());
+console.log(typeof true);
+console.log(typeof typeof 42);
+console.log(typeof Infinity);
+console.log(typeof class {});
+console.log(typeof new Date());
+```
+
+<Solution>
+
+```javascript title="typeof_quiz.mjs"
+console.log(typeof 0);
+console.log(typeof "0");
+console.log(typeof 0n);
+console.log(typeof null);
+console.log(typeof undefined);
+console.log(typeof NaN);
+console.log(typeof []);
+console.log(typeof {});
+console.log(typeof (() => {}));
+console.log(typeof Symbol());
+console.log(typeof true);
+console.log(typeof typeof 42);
+console.log(typeof Infinity);
+console.log(typeof class {});
+console.log(typeof new Date());
+```
+
+```text
+number
+string
+bigint
+object
+undefined
+number
+object
+object
+function
+symbol
+boolean
+string
+number
+function
+object
+```
+
+`typeof typeof 42` is `typeof "number"`, which is `"string"`: the inner `typeof` returns a string. A class is a function underneath, so it reports `"function"`. A `Date` is an object.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Tell an array from an object from null">
+
+Write a function `kindOf(value)` without looking back at the lesson. It must return `"null"` for `null`, `"array"` for an array, and otherwise the result of `typeof`. Test it with five values. Input: none. Expected: `null`, `array`, `object`, `string`, `undefined`.
+
+<Solution>
+
+The null check has to come before the final `typeof`, or `null` would be reported as an object.
+
+```javascript title="kind_of.mjs"
+function kindOf(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+console.log(kindOf(null));
+console.log(kindOf([1, 2]));
+console.log(kindOf({ a: 1 }));
+console.log(kindOf("hi"));
+console.log(kindOf(undefined));
+```
+
+```text
+null
+array
+object
+string
+undefined
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- JavaScript has seven primitive types (`undefined`, `null`, boolean, number, bigint, string, symbol) and the object type for everything else.
+- `typeof` returns a string. Remember `typeof null === "object"` and `typeof [] === "object"`. Use `=== null` and `Array.isArray` instead.
+- Types belong to values, not variables, and operators convert between them when they can.
+
+Next: [numbers and BigInt](../numbers-js/).

@@ -1,0 +1,257 @@
+---
+language: javascript
+level: beginner
+module: Getting started with JavaScript
+order: 4
+title: console.log and friends
+description: Print values, format output with template literals, write without a newline, and read a line of input from the keyboard.
+minVersion: "22"
+objectives:
+  - Print several values and objects with console.log
+  - Build output text with template literals and format placeholders
+  - Show tabular data with console.table and write without a newline using process.stdout.write
+  - Read a line typed by the user with node:readline/promises
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/02-tools-of-the-trade"]
+---
+
+Output is how a program talks back to you, and `console.log` is the tool you will use most for debugging as well. This lesson covers the output tools Node.js gives you and the one way to read input that you need before the course gets to files and networks.
+
+## console.log
+
+`console.log` takes any number of values, writes them separated by a space, and ends the line.
+
+```javascript title="log_basics.mjs"
+console.log("Hello", "world", 42, true);
+console.log("Strings print bare:", "text");
+console.log("Inside an array:", ["text", 1, null, undefined]);
+console.log({ name: "Ada", born: 1815, tags: ["math", "code"] });
+console.log();
+console.log("after a blank line");
+```
+
+```text
+Hello world 42 true
+Strings print bare: text
+Inside an array: [ 'text', 1, null, undefined ]
+{ name: 'Ada', born: 1815, tags: [ 'math', 'code' ] }
+
+after a blank line
+```
+
+Look at how each kind of value is shown:
+
+- A string argument on its own prints without quotes. Inside an array or object, strings get single quotes so you can see where they start and end.
+- Arrays and objects print in a readable form on one line. Longer ones wrap to several lines automatically.
+- `null` and `undefined` print as their names.
+- `console.log()` with no arguments prints an empty line.
+
+This format is for the developer, not for the end user. If you need a precise format, build the text yourself.
+
+## Building text: template literals
+
+A **template literal** is a string between backticks. Anything inside `${ }` is evaluated, and its result is put into the text.
+
+```javascript title="template_output.mjs"
+const item = "tea";
+const price = 3.5;
+const qty = 4;
+
+console.log(`${qty} x ${item} at ${price} each = ${qty * price}`);
+console.log(`Line one
+Line two`);
+```
+
+```text
+4 x tea at 3.5 each = 14
+Line one
+Line two
+```
+
+The expression `qty * price` is calculated inside the `${ }`. Template literals can also span several lines, as in the second `console.log`: the line break in the source becomes a line break in the string. The strings lesson in the next module covers them in more detail.
+
+## Format placeholders
+
+If the first argument of `console.log` is a string with placeholders, the following arguments fill them in. `%s` inserts text, `%d` a number, `%i` an integer (dropping the fraction), and `%%` prints a literal percent sign.
+
+```javascript title="log_format.mjs"
+console.log("%s is %d years old", "Ada", 36);
+console.log("%s scored %i%%", "Alan", 87.9);
+console.log("Total:", 4 * 2.5);
+console.log(`Total: ${4 * 2.5}`);
+```
+
+```text
+Ada is 36 years old
+Alan scored 87%
+Total: 10
+Total: 10
+```
+
+The last two lines print the same thing. Template literals are usually easier to read, so use placeholders only when you like their style or want console's own formatting.
+
+## Other console methods
+
+| Method | Does |
+|---|---|
+| `console.error(...)` | Writes to stderr, like `log` otherwise |
+| `console.warn(...)` | Also writes to stderr |
+| `console.info(...)` | Same as `log` |
+| `console.table(data)` | Draws a table from an array of objects |
+
+`console.table` is a quick way to see a list of records:
+
+```javascript title="table_demo.mjs"
+const people = [
+  { name: "Ada", born: 1815 },
+  { name: "Alan", born: 1912 },
+];
+
+console.table(people);
+```
+
+```text
+┌─────────┬────────┬──────┐
+│ (index) │ name   │ born │
+├─────────┼────────┼──────┤
+│ 0       │ 'Ada'  │ 1815 │
+│ 1       │ 'Alan' │ 1912 │
+└─────────┴────────┴──────┘
+```
+
+The `(index)` column is the position in the array. The columns after it come from the property names.
+
+## Writing without a newline
+
+`console.log` always ends the line. To print pieces on the same line, use `process.stdout.write`, which writes exactly the text you give it:
+
+```javascript title="write_no_newline.mjs"
+process.stdout.write("loading");
+process.stdout.write("...");
+process.stdout.write("done\n");
+console.log("next line");
+```
+
+```text
+loading...done
+next line
+```
+
+The `"\n"` in the third call is an escape sequence that stands for a line break. `process.stdout.write` accepts only a string, so convert numbers first.
+
+## Reading a line of input
+
+Node.js reads from the keyboard through the `node:readline/promises` module. The `import` line below loads one tool from it. `await` pauses the program until the user presses Enter, and `rl.question` returns what they typed as a string.
+
+```javascript title="greeting.mjs"
+import { createInterface } from "node:readline/promises";
+
+const rl = createInterface({ input: process.stdin, output: process.stdout });
+const name = await rl.question("What is your name? ");
+rl.close();
+
+console.log(`Hello, ${name}!`);
+console.log(`Your name has ${name.length} letters.`);
+```
+
+Save this as `greeting.mjs` and run it. The terminal shows your own typing. If you type `Ada`:
+
+```text frame="terminal"
+What is your name? Ada
+Hello, Ada!
+Your name has 3 letters.
+```
+
+`await` is allowed at the top of a module file like this one. Lessons later in the course explain how it works. For now, copy the shape: create the interface, `await` a question, close the interface.
+
+<Callout type="warning">
+
+`rl.question` returns text, even when the user types digits. `"1990"` is not the number 1990. Convert it with `Number(...)` before doing arithmetic. The coercion lesson explains the rules.
+
+</Callout>
+
+Calling `rl.close()` when you are finished lets the program exit. Without it, Node.js keeps waiting for more input.
+
+When the input comes from a pipe or a file instead of the keyboard, several `question` calls in a row can lose lines, because the lines arrive before the next question is asked. If you need to read several lines that way, read them with an iterator as the first exercise below does.
+
+## Common pitfalls
+
+- **Calling `console.log` and expecting a return value.** It returns `undefined`. You get the printed text, not a value to use.
+- **Forgetting backticks.** `"Total: ${x}"` with ordinary quotes prints the characters `${x}` literally.
+- **Passing a number to `process.stdout.write`.** It needs a string: write `String(n)` or a template literal.
+- **Leaving out `rl.close()`.** The program hangs at the end, waiting for input.
+
+<Exercise title="A greeting that asks for a name and a year">
+
+Write a program that asks for a name and a birth year, then prints `Hello, NAME!` and `In 2030 you will be AGE.`, where AGE is 2030 minus the year.
+
+Input: `Ada`, then `1990`. Expected output: `Hello, Ada!` and `In 2030 you will be 40.`
+
+Hint: use `rl[Symbol.asyncIterator]()` to get a line reader and `await lines.next()` for each answer. The `value` field of the result is the line.
+
+<Solution>
+
+```javascript title="greeting_year.mjs"
+import { createInterface } from "node:readline/promises";
+
+const rl = createInterface({ input: process.stdin, output: process.stdout });
+const lines = rl[Symbol.asyncIterator]();
+
+async function ask(prompt) {
+  process.stdout.write(prompt);
+  const { value } = await lines.next();
+  return value;
+}
+
+const name = await ask("What is your name? ");
+const year = Number(await ask("Which year were you born? "));
+rl.close();
+
+console.log(`Hello, ${name}!`);
+console.log(`In 2030 you will be ${2030 - year}.`);
+```
+
+```text frame="terminal"
+What is your name? Ada
+Which year were you born? 1990
+Hello, Ada!
+In 2030 you will be 40.
+```
+
+`ask` prints the prompt and then waits for the next line. `Number(...)` converts the second answer so the subtraction works on numbers. Reading through one iterator, instead of calling `question` twice, keeps working when the lines come from a pipe.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Numbers on one line">
+
+Print the numbers 1 to 3 on one line separated by spaces, using only `process.stdout.write`, and end the line with a newline.
+
+Input: none. Expected output: `1 2 3`.
+
+<Solution>
+
+```javascript title="write_numbers.mjs"
+process.stdout.write("1 ");
+process.stdout.write("2 ");
+process.stdout.write("3\n");
+```
+
+```text
+1 2 3
+```
+
+Each call writes one number as text, and the last call adds the newline. A loop would do this better, and you will write one in a later module.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `console.log` prints any number of values. Use template literals for exact text and `console.table` for lists of records.
+- `console.error` and `console.warn` write to stderr, and `process.stdout.write` writes without a newline.
+- `node:readline/promises` and `await rl.question(...)` read a line as a string. Convert it with `Number(...)` if you need a number.
+
+Next: [syntax, semicolons, comments and strict mode](../syntax-style-strict/).

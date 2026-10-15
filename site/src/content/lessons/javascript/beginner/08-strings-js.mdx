@@ -1,0 +1,255 @@
+---
+language: javascript
+level: beginner
+module: Values, types and coercion
+order: 8
+title: Strings and template literals
+description: Build, slice and search strings, and understand why length can surprise you with emoji and accents.
+minVersion: "22"
+objectives:
+  - Create strings with quotes and template literals
+  - Search, slice, split, replace and pad strings with the common methods
+  - Explain why strings are immutable and why length counts UTF-16 code units
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/06-text-and-strings"]
+---
+
+Text is the data you handle most often, so it is worth knowing the string tools well. The [fundamentals lesson on text, characters and encodings](../../../fundamentals/beginner/text-and-strings/) explains what a character set and an encoding are. This lesson shows how JavaScript stores text and which methods work on it.
+
+## Creating strings
+
+A string can be written with double quotes, single quotes or backticks. Single and double quotes are identical. Backticks make a **template literal**, which can contain expressions in `${ }` and can run over several lines. A backslash starts an escape sequence such as `\n` (new line), `\t` (tab), `\\` (a backslash) or `\"`.
+
+```javascript title="template_strings.mjs"
+const name = "Ada";
+const items = 3;
+
+console.log(`${name} bought ${items} item${items === 1 ? "" : "s"}.`);
+console.log("Tab:\tcolumn");
+console.log("Quote: \"hi\" and 'hi'");
+console.log('Backslash: \\');
+console.log(`Backtick: \` and braces: \${not evaluated}`);
+console.log("a" + 1 + 2, `a${1 + 2}`);
+```
+
+```text
+Ada bought 3 items.
+Tab:	column
+Quote: "hi" and 'hi'
+Backslash: \
+Backtick: ` and braces: ${not evaluated}
+a12 a3
+```
+
+Read the last line carefully. In `"a" + 1 + 2` the `+` works left to right: `"a" + 1` is the text `"a1"`, and then `"a1" + 2` is `"a12"`. Inside a template literal, `${1 + 2}` is evaluated as a sum first. When a string meets `+`, the other side is converted to text. The coercion lesson in this module covers the rules.
+
+Prefer template literals when you build text from parts. They read better than a chain of `+`.
+
+## Strings are immutable
+
+You can read a character by position, but you cannot change one. Methods that look like they change a string actually return a new one.
+
+```javascript title="strings_basics.mjs"
+const word = "cat";
+
+console.log(word.length, word[0], word.at(-1));
+
+try {
+  word[0] = "b";
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+
+const loud = word.toUpperCase();
+console.log(word, loud);
+```
+
+```text
+3 c t
+TypeError: Cannot assign to read only property '0' of string 'cat'
+cat CAT
+```
+
+`word[0]` is the first character, since counting starts at zero. `word.at(-1)` counts from the end, so `-1` is the last character. Assigning to `word[0]` throws a `TypeError` in a module, where code is strict. In sloppy code it would be ignored without a word. `toUpperCase()` leaves `word` as it was and gives back a new string.
+
+## Common methods
+
+Here are the methods you will use daily.
+
+```javascript title="strings_methods.mjs"
+const text = "  Learn JavaScript, one step at a time  ";
+const clean = text.trim();
+
+console.log(clean);
+console.log(clean.includes("step"), clean.startsWith("Learn"), clean.endsWith("time"));
+console.log(clean.indexOf("one"), clean.indexOf("two"));
+console.log(clean.slice(0, 5), clean.slice(-4));
+console.log(clean.split(", "));
+console.log(clean.split(" ").join("-"));
+console.log(clean.replaceAll("e", "E"));
+console.log("7".padStart(3, "0"), "ab".padEnd(5, ".") + "|");
+console.log("ha".repeat(3));
+```
+
+```text
+Learn JavaScript, one step at a time
+true true true
+18 -1
+Learn time
+[ 'Learn JavaScript', 'one step at a time' ]
+Learn-JavaScript,-one-step-at-a-time
+LEarn JavaScript, onE stEp at a timE
+007 ab...|
+hahaha
+```
+
+| Method | What it does |
+|---|---|
+| `trim()` | Removes whitespace from both ends |
+| `includes(x)`, `startsWith(x)`, `endsWith(x)` | Answer `true` or `false` |
+| `indexOf(x)` | Position of the first match, or `-1` |
+| `slice(start, end)` | The piece from `start` up to, but not including, `end`. Negative numbers count from the end |
+| `split(separator)` | Cuts into an array of pieces |
+| `join(separator)` | Called on an array: glues pieces into a string |
+| `replaceAll(a, b)` | Replaces every occurrence. It has been available since ES2021 |
+| `padStart(n, fill)`, `padEnd(n, fill)` | Pad to a total length `n` |
+| `repeat(n)` | Repeats the string |
+| `toUpperCase()`, `toLowerCase()` | Change the case |
+
+`replace(a, b)` with a text pattern only replaces the first match, which is a common surprise. Use `replaceAll` for every match. Avoid `substr`, which is deprecated. Use `slice` instead.
+
+## A formatted line
+
+`padStart` and `padEnd` line text up in columns. Numbers need to be converted to strings first, because the pad methods belong to strings.
+
+```javascript title="receipt.mjs"
+function line(name, quantity, price) {
+  const total = (quantity * price).toFixed(2);
+  return `${name.padEnd(8)}${String(quantity).padStart(3)}${total.padStart(8)}`;
+}
+
+console.log(line("Tea", 2, 3.5));
+console.log(line("Cake", 1, 4.25));
+console.log(line("Biscuit", 12, 0.4));
+```
+
+```text
+Tea       2    7.00
+Cake      1    4.25
+Biscuit  12    4.80
+```
+
+`toFixed(2)` gives each total two decimals as text. `padEnd(8)` fills the name column with spaces to eight characters, and `padStart(3)` and `padStart(8)` right-align the numbers.
+
+## Length, code units and emoji
+
+Internally, JavaScript stores a string as a sequence of 16-bit **UTF-16 code units**. `length` counts those units, not what a reader sees as characters. Most characters take one unit. Many emoji and rare characters take two, written as a **surrogate pair**.
+
+```javascript title="unicode_length.mjs"
+console.log("café".length);
+console.log("😀".length);
+console.log([..."😀"].length);
+console.log("😀".codePointAt(0));
+
+const family = "👨‍👩‍👧";
+console.log(family.length, [...family].length);
+console.log([...new Intl.Segmenter().segment(family)].length);
+
+const composed = "é";
+const decomposed = "é";
+console.log(composed.length, decomposed.length);
+console.log(composed === decomposed);
+console.log(composed === decomposed.normalize());
+```
+
+```text
+4
+2
+1
+128512
+8 5
+1
+1 2
+false
+true
+```
+
+Read the output line by line:
+
+- `"café".length` is `4`, as expected.
+- `"😀".length` is `2`, because that one emoji is two code units.
+- Spreading the string, `[..."😀"]`, walks it by **code point** instead, so the length is `1`. `codePointAt(0)` gives the code point number, `128512`.
+- The family emoji is several emoji joined by invisible joiner characters. Its `length` is `8` and its code point count is `5`, but a reader sees one symbol. `Intl.Segmenter`, a built-in tool for splitting text the way readers see it, counts `1`.
+- The letter é can be one code point (`é`) or an `e` followed by a combining accent (`é`). They look the same and have lengths 1 and 2, and `===` says they differ. `normalize()` converts both to the same form.
+
+When you need to count or slice what users see, use code points for most cases and `Intl.Segmenter` for the exact ones. Slicing with `slice` or indexing can cut a surrogate pair in half, leaving a broken character.
+
+## Common pitfalls
+
+- **Expecting `length` to count emoji as one.** It counts code units.
+- **Trying to modify a string in place.** Assign the result of the method to a variable.
+- **Using `replace` when you meant `replaceAll`.** Only the first match changes.
+- **Forgetting that `slice` excludes the end index.** `slice(0, 5)` has five characters.
+- **Using `+` with a number and text.** `"a" + 1 + 2` is `"a12"`. A template literal states the intent.
+- **Comparing accented text without `normalize()`.** Two strings that look identical can differ.
+
+<Exercise title="Format a receipt line">
+
+Write `line(name, quantity, price)` that returns a line with the name left-aligned in 8 characters, the quantity right-aligned in 3 and the total (quantity times price, two decimals) right-aligned in 8. Print three lines for `Tea` (2 at 3.5), `Cake` (1 at 4.25) and `Biscuit` (12 at 0.4).
+
+<Solution>
+
+```javascript title="receipt.mjs"
+function line(name, quantity, price) {
+  const total = (quantity * price).toFixed(2);
+  return `${name.padEnd(8)}${String(quantity).padStart(3)}${total.padStart(8)}`;
+}
+
+console.log(line("Tea", 2, 3.5));
+console.log(line("Cake", 1, 4.25));
+console.log(line("Biscuit", 12, 0.4));
+```
+
+```text
+Tea       2    7.00
+Cake      1    4.25
+Biscuit  12    4.80
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Count symbols, not code units">
+
+Write `countCodePoints(text)` and use it on `"Hi 😀😀"`. Print `length` and your count. Input: none. Expected output: `7` and `5`. Before you run it, work out why the first number is larger.
+
+<Solution>
+
+```javascript title="count_symbols.mjs"
+function countCodePoints(text) {
+  return [...text].length;
+}
+
+const message = "Hi 😀😀";
+console.log(message.length);
+console.log(countCodePoints(message));
+```
+
+```text
+7
+5
+```
+
+Three characters (`H`, `i`, a space) plus two emoji of two code units each make `7` units. Spreading the string walks code points, giving `5`.
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Use template literals for text built from parts. Strings are immutable, so methods return new strings.
+- Learn `slice`, `includes`, `split`/`join`, `replaceAll`, `padStart` and `trim`. Avoid `substr`.
+- `length` counts UTF-16 code units. Spread the string to count code points, and use `Intl.Segmenter` for what a reader sees as characters.
+
+Next: [type coercion](../coercion/).

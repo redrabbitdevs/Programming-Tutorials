@@ -1,0 +1,2 @@
+TypeError: Cannot assign to read only property 'theme' of object '#<Object>'
+dark

@@ -1,0 +1,183 @@
+---
+language: javascript
+level: beginner
+module: Getting started with JavaScript
+order: 3
+title: The REPL, scripts and the browser console
+description: Run JavaScript three ways, interactively in Node.js, from a saved file, and in a browser console, and see where output goes.
+minVersion: "22"
+objectives:
+  - Evaluate expressions in the Node.js REPL and leave it again
+  - Run a saved file with node and re-run it automatically with --watch
+  - Open the browser console and tell standard output from standard error
+estimatedMinutes: 25
+fundamentals: ["fundamentals/beginner/02-tools-of-the-trade"]
+---
+
+There are three common places to run a line of JavaScript: an interactive prompt, a saved file, and the console inside a browser. Each suits a different job. This lesson shows all three with the same small calculation.
+
+## The REPL
+
+Type `node` with no file name and Node.js starts a **REPL**, short for read-eval-print loop. It reads a line you type, evaluates it, prints the result and waits for the next line. It is the quickest way to check how a piece of syntax behaves.
+
+```text frame="terminal"
+$ node
+Welcome to Node.js v26.11.1.
+Type ".help" for more information.
+> 2 + 3
+5
+> const x = 10
+undefined
+> x * 4
+40
+> _ * 2
+80
+> "hi".toUpperCase()
+'HI'
+> .exit
+```
+
+A few things to notice:
+
+- Every expression prints its value. A declaration such as `const x = 10` has no value, so the REPL prints `undefined`.
+- `_` holds the result of the previous expression.
+- Names you declare stay available on later lines.
+- `.help` lists the REPL's own commands, and `.exit` leaves. Pressing Ctrl+D on an empty line also leaves.
+
+Commands that start with a dot belong to the REPL. They are not JavaScript.
+
+The REPL is for trying things. It keeps nothing, so anything worth keeping goes in a file.
+
+## Running a file
+
+Save this as `area.mjs`:
+
+```javascript title="area.mjs"
+const radius = 3;
+const area = Math.PI * radius ** 2;
+
+console.log(area);
+console.log(area.toFixed(2));
+```
+
+Then run it from the folder that contains it:
+
+```bash frame="terminal"
+node area.mjs
+```
+
+```text
+28.274333882308138
+28.27
+```
+
+`Math.PI` is a constant that the language provides, and `**` raises a number to a power. The first line shows more digits than you want: that is how JavaScript prints a number by default. `area.toFixed(2)` returns the number as text rounded to two decimals. The numbers lesson in the next module explains why the long form looks the way it does.
+
+Unlike the REPL, a script prints only what you tell it to print. Without the `console.log` calls, the program would run and show nothing.
+
+### Re-running when the file changes
+
+While you edit a file, you can ask Node.js to run it again each time you save:
+
+```bash frame="terminal"
+node --watch area.mjs
+```
+
+`--watch` has been stable since Node.js 22. The process stays running and prints the output again after every save. Press Ctrl+C to stop it.
+
+## Standard output and standard error
+
+A program has two output channels: **standard output** (stdout) for results, and **standard error** (stderr) for warnings and errors. In a terminal both appear on screen, so you rarely notice. They separate when you redirect a program's output to a file.
+
+```javascript title="streams.mjs"
+console.log("result: 42");
+console.error("warning: this goes to stderr");
+console.log("done");
+```
+
+`console.log` writes to stdout and `console.error` writes to stderr. In a terminal, all three lines show:
+
+```text frame="terminal"
+result: 42
+warning: this goes to stderr
+done
+```
+
+If you redirect stdout into a file, with `node streams.mjs > out.txt`, only stderr still appears on screen, and the file receives the other two lines:
+
+```text
+result: 42
+done
+```
+
+The lessons' expected outputs show stdout only, since that is what a program normally produces.
+
+## The browser console
+
+Every browser has developer tools. Open them from the browser's menu and choose the **Console** tab. It works like the REPL: you type an expression and see its value. Try `2 + 3` and `"hi".toUpperCase()` there as well.
+
+Two differences from Node.js are worth knowing. The browser console gives you `window` and `document`, which Node.js does not have, and Node.js gives you `process`, which a browser does not have. The first lesson of this module explains why.
+
+To run a file in a browser you need a web page that loads it. The optional browser module later in the course covers that. The Node.js route you have just used needs no page.
+
+## Common pitfalls
+
+- **Expecting a script to print the value of its last line.** Only the REPL does that. In a file, use `console.log`.
+- **Running `node` inside the REPL.** If you see `>` at the start of the line, you are already in the REPL. Type `.exit`, then run `node area.mjs` at the normal prompt.
+- **Running the file from the wrong folder.** `node area.mjs` looks in the current folder. `Cannot find module` means the file is somewhere else.
+- **Pasting code with a leading `$`.** The `$` in examples stands for the shell prompt. Do not type it.
+
+<Exercise title="One calculation, three places">
+
+A rectangle is 12 wide and 7 high. Work out its area and its perimeter (the length around it) in all three places: in the REPL, in a saved file, and in a browser console. In the file, print the area on the first line and the perimeter on the second.
+
+Input: none. Expected output from the file: `84` then `38`.
+
+<Solution>
+
+In the REPL or the browser console, type `12 * 7` and `(12 + 7) * 2`, and each line shows its result. In a file:
+
+```javascript title="rectangle.mjs"
+const width = 12;
+const height = 7;
+
+console.log(width * height);
+console.log((width + height) * 2);
+```
+
+```text
+84
+38
+```
+
+The file needs `console.log` to show the values. The REPL and the console print them without being asked.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="See stderr separate from stdout">
+
+Write a program that prints `ok` with `console.log` and `problem` with `console.error`. Run it twice, once normally and once with `> out.txt` after the command. What do you see on screen the second time, and what is in `out.txt`?
+
+<Solution>
+
+```javascript title="ok_problem.mjs"
+console.log("ok");
+console.error("problem");
+```
+
+Normally both words appear. With `node ok_problem.mjs > out.txt`, the screen shows only `problem`, because `>` redirects stdout and stderr is still attached to the terminal. The file `out.txt` contains `ok`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `node` alone starts the REPL for quick experiments. Leave it with `.exit` or Ctrl+D.
+- `node file.mjs` runs a script, and `node --watch file.mjs` re-runs it on every save.
+- `console.log` writes to stdout and `console.error` to stderr. Redirecting with `>` separates them.
+- The browser's Console tab is the same idea with different built-in names.
+
+Next: [console.log and friends](../console-and-output/).
