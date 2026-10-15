@@ -1,4 +1,5 @@
 import statistics
+import sys
 import timeit
 
 
@@ -16,6 +17,8 @@ setup = "words = ['spam'] * 10_000"
 join_best, join_median = bench("''.join(words)", setup)
 loop_best, _ = bench("s = ''\nfor w in words: s = w + s", setup)
 
+ratio = loop_best / join_best
 print("best <= median:", join_best <= join_median)
-print("prepend loop slower than join:", loop_best > join_best)
-print("at least 20x slower:", loop_best > 20 * join_best)
+print("prepend loop slower than join:", ratio > 1)
+print("at least 20x slower:", ratio > 20)
+print(f"measured: {ratio:.0f}x slower", file=sys.stderr)  # varies

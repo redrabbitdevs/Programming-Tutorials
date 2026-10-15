@@ -1,5 +1,6 @@
 import ctypes
 import ctypes.util
+import sys
 import timeit
 
 libc = ctypes.CDLL(ctypes.util.find_library("c"))
@@ -13,3 +14,4 @@ via_len = min(timeit.repeat(lambda: len(word), number=20_000, repeat=5))
 
 print("same answer:", libc.strlen(word) == len(word))
 print("len() at least 3x faster:", via_c > 3 * via_len)
+print(f"measured: {via_c / via_len:.0f}x", file=sys.stderr)  # varies

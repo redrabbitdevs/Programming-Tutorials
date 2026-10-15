@@ -1,3 +1,4 @@
+import sys
 import timeit
 
 setup = "data = list(range(10_000))"
@@ -8,3 +9,4 @@ as_gen = min(timeit.repeat("sum(x * x for x in data)", setup,
 
 ratio = as_gen / as_list
 print("same ballpark (within 3x):", 1 / 3 < ratio < 3)
+print(f"measured: generator / list = {ratio:.2f}", file=sys.stderr)

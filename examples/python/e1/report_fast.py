@@ -1,3 +1,4 @@
+import sys
 import timeit
 
 from report_slow import CUSTOMERS, ORDERS, build_report
@@ -19,3 +20,4 @@ fast = min(timeit.repeat(lambda: build_report_fast(ORDERS),
                          number=1, repeat=2))
 print("same report:", build_report_fast(ORDERS) == build_report(ORDERS))
 print("at least 5x faster:", slow > 5 * fast)
+print(f"measured: {slow / fast:.0f}x faster", file=sys.stderr)

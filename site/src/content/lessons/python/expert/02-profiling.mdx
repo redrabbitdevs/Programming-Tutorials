@@ -23,6 +23,7 @@ fundamentals: []
 A tracing profiler runs a hook on every call and return. That gives exact call counts, but the hook costs roughly the same for every call, so code with many small calls is slowed down far more than code that spends its time inside a few big ones.
 
 ```python title="tracing_overhead.py"
+import sys
 import time
 
 import profiling.tracing
@@ -49,8 +50,10 @@ start = time.perf_counter()
 profiler.runcall(many_calls)
 traced = time.perf_counter() - start
 
-print("tracing made it slower:", traced > plain)
-print("at least 2x slower:", traced > 2 * plain)
+ratio = traced / plain
+print("tracing made it slower:", ratio > 1)
+print("at least 2x slower:", ratio > 2)
+print(f"measured: {ratio:.1f}x slower", file=sys.stderr)  # varies
 ```
 
 ```text
@@ -58,7 +61,7 @@ tracing made it slower: True
 at least 2x slower: True
 ```
 
-On one machine the traced run took about 7 times as long. A loop calling `sorted()` on a big list would hardly slow down at all, so in a mixed program the tracing profile overstates the share of the small-call code. PEP 799 adds that tracing can disable some of the interpreter's own optimisations, such as the specialisation described in [The JIT and the interpreter](../jit-and-interpreter/), and that `cProfile` observes only the main thread. Use tracing for **exact counts** and call graphs, and treat its times as rough proportions.
+As in [Measuring performance](../measuring-performance/), the measured ratio goes to standard error. On my machine the traced run took 6 to 8 times as long (once 4.3 times, on the free-threaded build). A loop calling `sorted()` on a big list would hardly slow down at all, so in a mixed program the tracing profile overstates the share of the small-call code. PEP 799 adds that tracing can disable some of the interpreter's own optimisations, such as the specialisation described in [The JIT and the interpreter](../jit-and-interpreter/), and that `cProfile` observes only the main thread. Use tracing for **exact counts** and call graphs, and treat its times as rough proportions.
 
 ## Who calls the hot function?
 
@@ -113,13 +116,29 @@ Interactively, `pstats.Stats(profiler).print_callers("money")` prints the same t
 
 ## Sampling with Tachyon
 
-`profiling.sampling`, codenamed Tachyon, reads the target's call stack from outside the process at a fixed rate (1 kHz by default). The target runs at full speed, and nothing in it is instrumented. The output is a statistical estimate: a function seen in 5% of samples gets 5% of the time. Here is the report generator you will speed up in exercise 1:
+`profiling.sampling`, codenamed Tachyon, reads the target's call stack from outside the process at a fixed rate (1 kHz by default). The target runs at full speed, and nothing in it is instrumented. The output is a statistical estimate: a function seen in 5% of samples gets 5% of the time. Here is the sampling profile of the report generator you will speed up in exercise 1, limited to five rows (`-l 5`) and without the summary that follows the table (`--no-summary`):
 
 ```console
-$ python -m profiling.sampling run report_slow.py
+$ python3.15 -m profiling.sampling run -l 5 --no-summary report_slow.py
+customer-1199: 62.91
+customer-0560: 61.47
+customer-0663: 61.31
+Captured 352 samples in 0.35 seconds
+Sample rate: 995.94 samples/sec
+Error rate: 6.82
+Warning: missed 1 samples from the expected total of 353 (0.28%)
+Profile Stats:
+       nsamples   sample%  tottime (ms)    cumul%  cumtime (ms)  filename:lineno(function)
+        164/164      50.0       164.000      50.0       164.000  report_slow.py:11(customer_name)
+        124/124      37.8       124.000      37.8       124.000  report_slow.py:10(customer_name)
+         19/313       5.8        19.000      95.4       313.000  report_slow.py:19(build_report)
+            5/5       1.5         5.000       1.5         5.000  report_slow.py:12(customer_name)
+            4/4       1.2         4.000       1.2         4.000  ~:0(<GC>)
 ```
 
-Use `run -m package.module` for a module, and `-r 10khz` or `-d 30` to change the rate or stop after 30 seconds. The default table shows `nsamples` as *direct/cumulative*: direct samples have the function at the top of the stack, actually running, and cumulative ones have it anywhere on the stack. Sort with `--sort` and limit rows with `-l`.
+The program's own output comes first, then the table, which ends with a legend (not shown). The `run` subcommand starts the program itself, so it needed no extra privileges here. The `nsamples` column is *direct/cumulative*: direct samples have the line at the top of the stack, actually running, and cumulative ones have it anywhere on the stack. Rows are lines, not functions. Lines 10 and 11 are the loop and the comparison inside `customer_name`, and together they hold almost 90% of the direct samples. Line 19 of `build_report`, the call `customer_name(cid)`, reads 19/313: it was running in only 19 samples, but it was on the stack in 313, because the scan runs inside the call. The counts change on every run, but the order of the top rows does not, so read the order, not the numbers.
+
+Use `run -m package.module` for a module, and `-r 10khz` or `-d 30` to change the rate or stop after 30 seconds. Sort with `--sort`. Three more options are worth knowing: `--live` shows a `top`-like view that updates while the program runs, `--opcodes` records which bytecode instruction was running, including the specialised forms from [The JIT and the interpreter](../jit-and-interpreter/), and `--jsonl` writes one JSON object per line for your own scripts.
 
 ### Choose the mode for your question
 
@@ -127,10 +146,10 @@ The `--mode` option filters which samples count:
 
 - `wall` (the default) counts every sample, including sleeping and waiting. Use it for "why is this request slow?"
 - `cpu` counts only samples where the thread is on a CPU. A function that is large in `wall` and missing in `cpu` is waiting, and faster code will not help it.
-- `gil` counts only samples where the thread holds the GIL, so it shows which Python code is keeping other threads from running.
+- `gil` counts only samples where the thread holds the GIL, so it shows which Python code is keeping other threads from running ([Threads](../../advanced/threading/) explains why that matters).
 - `exception` counts samples while an exception is being raised or handled, which exposes code that uses exceptions for control flow.
 
-Add `-a` to sample all threads, and `--async-aware` to rebuild stacks from asyncio tasks.
+Add `-a` to sample all threads, and `--async-aware` to rebuild stacks from asyncio tasks ([asyncio basics](../../advanced/asyncio-basics/)), since a coroutine's caller is the event loop, not the code that awaited it.
 
 ### Output formats
 
@@ -138,7 +157,9 @@ Add `-a` to sample all threads, and `--async-aware` to rebuild stacks from async
 - `--heatmap` shows sample counts line by line next to the source.
 - `--gecko` writes JSON for the Firefox Profiler.
 - `--collapsed` writes one line per unique stack, for external flame graph tools.
-- `--binary -o base.bin` saves a run, and `--diff-flamegraph base.bin` colours a later run red where it got slower and blue where it got faster.
+- `--binary -o base.bin` saves a run, and `--diff-flamegraph base.bin` colours a later run red where it got slower and blue where it got faster. The `replay` subcommand turns a saved run into any of the other formats later.
+
+You will also meet third-party profilers in other people's advice: py-spy (a sampling profiler that also attaches to running processes), Scalene (CPU and memory together), and line_profiler (exact per-line timing of chosen functions). They predate Tachyon and do much the same jobs. Check each project's documentation for the Python versions it supports.
 
 ## Reading a flame graph
 
@@ -200,7 +221,7 @@ If a program finishes in under a second, a sampling profile has too few samples 
 
 <Exercise title="Speed up the report">
 
-`report_slow.py` builds a top-three customer report from 20,000 orders. Profile it with `python -m profiling.tracing -s tottime report_slow.py` and find the function with the largest own time. Then write `build_report_fast` in a new file `report_fast.py` that changes only that part. Print whether the reports match and whether the fast one is at least 5 times faster. Expected output: `same report: True` and `at least 5x faster: True`.
+`report_slow.py` builds a top-three customer report from 20,000 orders. Profile it with `python -m profiling.tracing -s tottime report_slow.py` and find the function with the largest own time. Then write `build_report_fast` in a new file `report_fast.py` that changes only that part. Print whether the reports match and whether the fast one is at least 5 times faster, and write the measured speed-up to standard error. Expected output: `same report: True` and `at least 5x faster: True`.
 
 ```python title="report_slow.py"
 import random
@@ -243,6 +264,7 @@ customer-0663: 61.31
 The profile puts nearly all the own time in `customer_name`, called 20,000 times, each call scanning up to 2,000 tuples. Build a dictionary once:
 
 ```python title="report_fast.py"
+import sys
 import timeit
 
 from report_slow import CUSTOMERS, ORDERS, build_report
@@ -265,6 +287,7 @@ fast = min(timeit.repeat(lambda: build_report_fast(ORDERS),
                          number=1, repeat=2))
 print("same report:", build_report_fast(ORDERS) == build_report(ORDERS))
 print("at least 5x faster:", slow > 5 * fast)
+print(f"measured: {slow / fast:.0f}x faster", file=sys.stderr)
 ```
 
 ```text
@@ -272,7 +295,7 @@ same report: True
 at least 5x faster: True
 ```
 
-Profile again afterwards: `customer_name` is gone, and no single function in the report dominates any more. That is the signal to stop.
+On my machine the measured speed-up was between 55x and 145x, so the 5x threshold leaves a wide margin for noise. Profile again afterwards: `customer_name` is gone, and no single function in the report dominates any more. That is the signal to stop.
 
 </Solution>
 </Exercise>

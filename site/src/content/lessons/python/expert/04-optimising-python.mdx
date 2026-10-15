@@ -4,7 +4,7 @@ level: expert
 module: Performance
 order: 4
 title: Optimising Python code
-description: Apply optimisations in the order that pays, from algorithms and data structures to built-ins, caching and vectorised libraries, and check each one with a measurement.
+description: Apply optimisations in the order that pays, from algorithms and data structures to built-ins, caching, vectorised libraries and parallelism, and check each one with a measurement.
 minVersion: "3.11"
 objectives:
   - Look for an algorithmic or data-structure change before tuning code
@@ -12,11 +12,12 @@ objectives:
   - Cache pure functions with functools.cache, and recognise when caching gives wrong answers
   - Know which micro-optimisations still matter after the 3.11 interpreter changes
   - Describe when vectorising with NumPy is the right move
-estimatedMinutes: 45
+  - Estimate what parallelism can gain, and pick the tool that fits the profile
+estimatedMinutes: 50
 fundamentals: ["fundamentals/beginner/20-big-o", "fundamentals/beginner/22-problem-patterns"]
 ---
 
-You have [measured](../measuring-performance/) and [profiled](../profiling/), and one function really is the problem. This lesson is about what to change, in the order that usually pays off: the algorithm first, then the data structure, then the use of built-ins, caching, and only then the micro-optimisations. Every change must keep the answer the same and show a measured gain.
+You have [measured](../measuring-performance/) and [profiled](../profiling/), and one function really is the problem. This lesson is about what to change, in the order that usually pays off: the algorithm first, then the data structure, then the use of built-ins, caching, and only then the micro-optimisations, vectorising and parallelism. Every change must keep the answer the same and show a measured gain.
 
 ## Algorithm first
 
@@ -24,6 +25,7 @@ No amount of tuning makes a quadratic algorithm scale. The [fundamentals lesson 
 
 ```python title="pair_sum.py"
 import random
+import sys
 import timeit
 
 random.seed(3)
@@ -55,6 +57,7 @@ fast = min(timeit.repeat(lambda: has_pair_set(NUMBERS, target),
                          number=1, repeat=3))
 print("same answer:", has_pair_naive(NUMBERS, 5) == has_pair_set(NUMBERS, 5))
 print("set version 50x faster:", slow > 50 * fast)
+print(f"measured: {slow / fast:.0f}x faster", file=sys.stderr)
 ```
 
 ```text
@@ -62,13 +65,14 @@ same answer: True
 set version 50x faster: True
 ```
 
-At 3,000 numbers the gap is already more than 50 times, and it keeps growing with the input. Other changes in the same family are sorting once and using [`bisect`](../../advanced/algorithms-py/), using `heapq` for "top k" instead of sorting everything, and using a `deque` for queues.
+As in [Measuring performance](../measuring-performance/), the measured ratio goes to standard error. At 3,000 numbers it was 240x to 390x on my machine, far above the 50x the script claims, and it keeps growing with the input. Other changes in the same family are sorting once and using [`bisect`](../../advanced/algorithms-py/), using `heapq` for "top k" instead of sorting everything, and using a `deque` for queues.
 
 ## Built-ins: still good, by less than you think
 
 A built-in such as `sum`, `max` or `str.join` runs its loop in C. That used to be a reliable 5 to 10 times win over the same loop in Python. Since 3.11 the specialising interpreter has narrowed the gap ([The JIT and the interpreter](../jit-and-interpreter/)), and it is now very uneven:
 
 ```python title="builtin_gap.py"
+import sys
 import timeit
 
 setup = "data = list(range(100_000))"
@@ -85,6 +89,8 @@ biggest = ratio("m = data[0]\nfor x in data:\n    if x > m: m = x",
                 "max(data)")
 print("sum() beats the loop by over 2x:", total > 2)
 print("max() and the loop within 3x:", 1 / 3 < biggest < 3)
+print(f"measured: sum {total:.1f}x, max {biggest:.1f}x",
+      file=sys.stderr)
 ```
 
 ```text
@@ -92,7 +98,7 @@ sum() beats the loop by over 2x: True
 max() and the loop within 3x: True
 ```
 
-On CPython 3.15, `sum` won by about 5 times on one machine, while `max` was barely faster than the hand-written loop, whose integer comparisons the interpreter specialises. Use built-ins because they are shorter and clearer, and treat any speed gain as a bonus you measure, not one you assume.
+On my machine, `sum` won by about 5 times, while `max` was only 1.3 to 1.4 times faster than the hand-written loop, whose integer comparisons the interpreter specialises. With the JIT on, the loop even beat `max` (0.6x). Use built-ins because they are shorter and clearer, and treat any speed gain as a bonus you measure, not one you assume.
 
 ## Caching pure functions
 
@@ -152,6 +158,43 @@ About 5% on this machine, which is within the noise of many benchmarks. Changes 
 
 When the work is arithmetic on many numbers, the large win is to stop looping in Python altogether. [NumPy](https://numpy.org/) stores numbers in packed arrays and runs whole-array operations in compiled code, so `(a * b).sum()` on a million floats does no per-element bytecode at all. Gains of 10 to 100 times over a Python loop are common for numeric work. NumPy is a third-party package (`pip install numpy`), and it pays off only when the data is numeric and the operations can be expressed on whole arrays. Converting a list to an array and back for each small operation can cost more than it saves. For loops that will not vectorise, the next lesson covers [native extensions](../native-extensions/).
 
+## When the work can run in parallel
+
+Everything so far makes one core do less work. Parallelism puts more cores on the same work, so it multiplies whatever speed you already have: it does not replace a better algorithm. Four cores give at most 4x, while the set in `pair_sum.py` gave 240x. And the part of the program that stays serial caps the gain, which is Amdahl's law:
+
+```python title="amdahl.py"
+def best_speedup(parallel_share, workers):
+    """Amdahl's law: the speed-up if the parallel part scales perfectly."""
+    serial_share = 1 - parallel_share
+    return 1 / (serial_share + parallel_share / workers)
+
+
+WORKERS = (2, 4, 8, 64)
+print(f"{'workers:':14}", *(f"{n:6}" for n in WORKERS))
+for share in (0.5, 0.9, 0.99):
+    speedups = (f"{best_speedup(share, n):6.1f}" for n in WORKERS)
+    print(f"{share:4.0%} parallel:", *speedups)
+```
+
+```text
+workers:            2      4      8     64
+ 50% parallel:    1.3    1.6    1.8    2.0
+ 90% parallel:    1.8    3.1    4.7    8.8
+ 99% parallel:    2.0    3.9    7.5   39.3
+```
+
+These are upper bounds. Real runs lose more to starting workers and to copying data to and from them. So parallelise last, in units of work that are large and independent, and measure the result. The profile tells you which tool fits; [Concurrency models](../../advanced/concurrency-models/) compares them in depth:
+
+| The profile shows | Reach for | Taught in |
+|---|---|---|
+| CPU-bound Python, independent tasks | `ProcessPoolExecutor`, with a `chunksize` on `map` for many small tasks | [Processes](../../advanced/multiprocessing/) |
+| The same, with cheaper start-up | <Since v="3.14" /> `InterpreterPoolExecutor` | [Multiple interpreters](../../advanced/subinterpreters/) |
+| The same, with thread-safe dependencies | threads on the free-threaded build | [Free-threaded Python](../../advanced/free-threading/) |
+| Time inside C code that releases the GIL, such as NumPy or `hashlib` on large inputs | ordinary threads | [Threads](../../advanced/threading/) |
+| Time waiting on the network or disk | `asyncio` or threads, which overlap the waits | [asyncio basics](../../advanced/asyncio-basics/) |
+
+The last row is concurrency, not parallelism: it makes waiting cheaper, not computing faster.
+
 ## When not to optimise
 
 Stop when the code meets its target, and do not start without one. Every optimisation in this lesson except the first makes code a little harder to read or a little more fragile. Caching adds invalidation bugs, and local aliases and inlined arithmetic add noise. Keep the clear version unless a profile shows the code is hot **and** a measurement shows the change helps by enough to matter to a user. Keep the test that proves the answer did not change.
@@ -168,7 +211,7 @@ Stop when the code meets its target, and do not start without one. Every optimis
 
 <Exercise title="Optimise an n-body step">
 
-`step` advances 100 bodies by one time step, computing the force for every ordered pair. Write `step_fast` in `nbody_fast.py`, applying three changes: compute each unordered pair once and apply equal and opposite updates (Newton's third law), compute the distance cubed once per pair, and read the body's own values into locals before the inner loop. Return the number of pairs computed. Expected output: `pairs: 9900 -> 4950`, `same state (within 1e-9): True`, `faster: True`.
+`step` advances 100 bodies by one time step, computing the force for every ordered pair. Write `step_fast` in `nbody_fast.py`, applying three changes: compute each unordered pair once and apply equal and opposite updates (Newton's third law), compute the distance cubed once per pair, and read the body's own values into locals before the inner loop. Return the number of pairs computed. Expected output: `pairs: 9900 -> 4950`, `same state (within 1e-9): True`, `faster: True`, with the measured speed-up written to standard error.
 
 ```python title="nbody_naive.py"
 import random
@@ -200,6 +243,7 @@ def step(bodies, dt=0.01):
 
 ```python title="nbody_fast.py"
 import copy
+import sys
 import timeit
 
 import nbody_naive
@@ -238,6 +282,7 @@ print("same state (within 1e-9):", close)
 slow = min(timeit.repeat(lambda: nbody_naive.step(a), number=5, repeat=3))
 fast = min(timeit.repeat(lambda: step_fast(b), number=5, repeat=3))
 print("faster:", fast < slow)
+print(f"measured: {slow / fast:.1f}x faster", file=sys.stderr)
 ```
 
 ```text
@@ -246,7 +291,7 @@ same state (within 1e-9): True
 faster: True
 ```
 
-Positions and masses are only read in the pair loop, so updating velocities in either order gives the same physics. The results differ only in the last bits, because the arithmetic is reordered, which is why the check uses a tolerance. Halving the pairs is the biggest win. The step is still O(n²), and for thousands of bodies the next move is NumPy or a tree method such as Barnes-Hut.
+On my machine the measured speed-up was 2.7x to 3.9x, depending on the build. The verdict asks only for "faster", because a stricter threshold would sit too close to that range. Positions and masses are only read in the pair loop, so updating velocities in either order gives the same physics. The results differ only in the last bits, because the arithmetic is reordered, which is why the check uses a tolerance. Halving the pairs is the biggest win. The step is still O(n²), and for thousands of bodies the next move is NumPy or a tree method such as Barnes-Hut.
 
 </Solution>
 </Exercise>
@@ -310,6 +355,7 @@ Calling `convert.cache_clear()` after every rate change would also work, but it 
 `dedupe_slow` removes duplicate tags while keeping the first occurrence of each. Write `dedupe_fast` with the same result for the 12,000 tags below, at least 20 times faster. Expected output: `same order: True` and `at least 20x faster: True`.
 
 ```python title="dedupe.py"
+import sys
 import timeit
 
 TAGS = [f"tag{i % 3_000}" for i in range(12_000)]
@@ -334,6 +380,7 @@ slow = min(timeit.repeat(lambda: dedupe_slow(TAGS), number=1, repeat=3))
 fast = min(timeit.repeat(lambda: dedupe_fast(TAGS), number=1, repeat=3))
 print("same order:", dedupe_fast(TAGS) == dedupe_slow(TAGS))
 print("at least 20x faster:", slow > 20 * fast)
+print(f"measured: {slow / fast:.0f}x faster", file=sys.stderr)
 ```
 
 ```text
@@ -341,7 +388,7 @@ same order: True
 at least 20x faster: True
 ```
 
-`item not in out` scans a growing list, so the work is quadratic. `dict.fromkeys` does one hash lookup per item and keeps insertion order. A `set` alone would lose the order. A loop with a `seen` set is equally fast, if you need extra logic per item.
+On my machine the measured speed-up was 290x to 575x. `item not in out` scans a growing list, so the work is quadratic. `dict.fromkeys` does one hash lookup per item and keeps insertion order. A `set` alone would lose the order. A loop with a `seen` set is equally fast, if you need extra logic per item.
 
 </Solution>
 </Exercise>
@@ -352,4 +399,6 @@ at least 20x faster: True
 - Built-ins are clearer and often faster, but since 3.11 the gap can be small. Measure.
 - `functools.cache` is a large win for pure functions with repeated inputs, and a bug for impure ones.
 - Many micro-optimisations are now worth a few per cent at most. Keep types stable and do less work per iteration.
-- For numeric loops, vectorise with NumPy. Next: [Native extensions](../native-extensions/).
+- For numeric loops, vectorise with NumPy.
+- Parallelism multiplies by at most the number of cores, and the serial part caps it. Choose processes, interpreters, free-threaded threads or `asyncio` from what the profile shows.
+- Next: [Native extensions](../native-extensions/).

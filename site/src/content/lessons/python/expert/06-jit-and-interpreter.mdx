@@ -4,7 +4,7 @@ level: expert
 module: Performance
 order: 6
 title: The JIT and the interpreter
-description: How CPython executes your code in tiers, from the specialising adaptive interpreter to the tail-calling interpreter and the experimental JIT, and what each means for how you write fast Python.
+description: How CPython executes your code, from the specialising adaptive interpreter (tier 1) and its tail-calling build to the experimental JIT (tier 2), and what each means for how you write fast Python.
 minVersion: "3.11"
 objectives:
   - Explain how the specialising adaptive interpreter speeds up type-stable code
@@ -20,15 +20,16 @@ Since Python 3.11, CPython has changed how it runs code more than in the previou
 
 ## The pipeline
 
-CPython compiles your source to **bytecode**, a compact list of instructions for a virtual machine, cached in `.pyc` files. The interpreter then executes that bytecode. Since 3.11 there are up to three tiers:
+CPython compiles your source to **bytecode**, a compact list of instructions for a virtual machine, cached in `.pyc` files. The interpreter then executes that bytecode. CPython's own documentation calls the two levels of execution tiers:
 
-1. The **specialising adaptive interpreter** (3.11), which rewrites instructions in place as it learns the types they see.
-2. How the interpreter loop itself is compiled: a classic `switch`, computed gotos, or <Since v="3.14" /> the new **tail-calling interpreter**.
-3. The **experimental JIT**, which compiles hot traces to machine code. It is off by default.
+1. **Tier 1** is the **specialising adaptive interpreter** (3.11), which runs bytecode and rewrites instructions in place as it learns the types they see. All code starts here.
+2. **Tier 2** is the **experimental JIT**, which records hot paths through the bytecode as traces of smaller micro-operations and compiles them to machine code. It is off by default.
+
+Separately, the tier 1 loop can itself be compiled from C in different ways: as a classic `switch`, with computed gotos, or, <Since v="3.14" /> as the new **tail-calling interpreter**. That choice is made when CPython is built, and it is not a tier: it changes only how fast the same interpreter runs.
 
 ## Tier 1: specialisation
 
-[PEP 659](https://peps.python.org/pep-0659/) rests on an observation: although Python is dynamic, most code sees the same types every time it runs. So the interpreter watches each "hot" instruction, and after a short warm-up it replaces a generic instruction such as `BINARY_OP` with a specialised one such as `BINARY_OP_ADD_INT`, which has a fast path for exactly that case. A small inline cache next to the instruction holds what it learned, such as a dictionary version or an attribute offset. With `adaptive=True`, `dis` shows the instructions as they are now, not as they were compiled:
+[PEP 659](https://peps.python.org/pep-0659/) rests on an observation: although Python is dynamic, most code sees the same types every time it runs. So the interpreter watches each "hot" instruction, and after a short warm-up it replaces a generic instruction such as `BINARY_OP` with a specialised one such as `BINARY_OP_ADD_INT`, which has a fast path for exactly that case. A small inline cache next to the instruction holds what it learned, such as a dictionary version or an attribute offset. The `dis` module lists a function's bytecode instructions. [Bytecode and dis](../bytecode-dis/), the next lesson, teaches it properly. Here you need only the instruction names (`opname`), and one option: with `adaptive=True`, `dis` shows the instructions as they are now, not as they were compiled:
 
 ```python title="specialise.py"
 import dis
@@ -54,7 +55,7 @@ cold:       ['BINARY_OP']
 after ints: ['BINARY_OP_ADD_INT']
 ```
 
-If the types change, the specialised instruction's guard fails, it falls back to the generic path, and after a while it re-specialises (exercise 2). Specialisation is the main reason 3.11 was 10 to 60% faster than 3.10, and 1.25 times faster on average on the standard benchmark suite. The practical lesson: **type-stable code is fast**. A variable that holds an `int` on one call and a `str` on the next defeats specialisation. Reading bytecode in depth is covered in the next module.
+If the types change, the specialised instruction's guard fails, it falls back to the generic path, and after a while it re-specialises (exercise 2). Specialisation is the main reason 3.11 was 10 to 60% faster than 3.10, and 1.25 times faster on average on the standard benchmark suite. The practical lesson: **type-stable code is fast**. A variable that holds an `int` on one call and a `str` on the next defeats specialisation.
 
 ## The interpreter loop: tail calls
 
@@ -70,8 +71,8 @@ Its status in 3.15, stated carefully:
 
 - It is **experimental** and **off by default**. [PEP 744](https://peps.python.org/pep-0744/), which describes it, is still a Draft.
 - <Since v="3.14" /> The official macOS and Windows installers include it, disabled. Set `PYTHON_JIT=1` to turn it on. It is not recommended for production.
-- A source build includes it only with `--enable-experimental-jit`. The value `yes-off` builds it but leaves it off until `PYTHON_JIT=1`. LLVM is needed to build CPython with the JIT, never to run it.
-- <Since v="3.15" /> It was substantially upgraded: a new tracing front end, basic register allocation, and more optimisations. On pyperformance it is 7 to 8% faster than the standard interpreter (geometric mean) on x86-64 Linux, and 11 to 12% faster than the tail-calling interpreter on AArch64 macOS. Individual benchmarks range from about 15% slower to over twice as fast.
+- A source build includes it only with `--enable-experimental-jit`. The value `yes` builds it switched on, `yes-off` builds it but leaves it off until `PYTHON_JIT=1`, and `interpreter` runs the tier 2 micro-operations in an interpreter instead of compiling them, which is useful only for debugging the JIT itself. LLVM is needed to build CPython with the JIT, never to run it.
+- <Since v="3.15" /> It was substantially upgraded: a new tracing front end that also partly handles generators and overloaded operators, basic register allocation, and more optimisations. On Linux, GDB and `backtrace()` can now unwind through JIT-compiled frames, so native debuggers and crash handlers no longer stop at generated code ([Monitoring and debugging](../monitoring-debugging/) covers native tools). On pyperformance it is 7 to 8% faster than the standard interpreter (geometric mean) on x86-64 Linux, and 11 to 12% faster than the tail-calling interpreter on AArch64 macOS. Individual benchmarks range from about 15% slower to over twice as fast.
 
 <Since v="3.14" /> `sys._jit` reports the JIT's state. The underscore marks it as CPython-specific and experimental. The same script also checks for the tail-calling interpreter, using the build options recorded in `sysconfig` (not available on Windows):
 
@@ -106,7 +107,7 @@ tail-calling interpreter: False
 
 ## When not to reach for the JIT
 
-For almost everyone, the answer today is: do not depend on it. It is experimental, its gains are modest on average and uneven between workloads, and some programs get slower. Programs that spend their time in C code, such as NumPy, regular expressions, I/O or database drivers, gain nothing, because the JIT only speeds up Python bytecode. Try it when you have a CPU-bound, pure-Python workload and a benchmark that represents it. Run with and without `PYTHON_JIT=1` several times, and adopt it only if the gain is clear and the test suite passes. An algorithmic fix from [Optimising Python code](../optimising-python/) almost always beats it.
+For almost everyone, the answer today is: do not depend on it. It is experimental, its gains are modest on average and uneven between workloads, and some programs get slower. Programs that spend their time in C code, such as NumPy, regular expressions, I/O or database drivers, gain nothing, because the JIT only speeds up Python bytecode. Try it when you have a CPU-bound, pure-Python workload and a benchmark that represents it. Run with and without `PYTHON_JIT=1` several times, and adopt it only if the gain is clear and the test suite passes. An algorithmic fix from [Optimising Python code](../optimising-python/) almost always beats it. And if the work splits into independent pieces, more cores through [multiple interpreters](../../advanced/subinterpreters/) or the [free-threaded build](../../advanced/free-threading/) can gain far more than any interpreter tier.
 
 ## Common pitfalls
 
@@ -122,7 +123,14 @@ For almost everyone, the answer today is: do not depend on it. It is experimenta
 
 <Exercise title="Try the JIT on a benchmark">
 
-Run `jit_bench.py` (below) twice with your Python 3.15, once with `PYTHON_JIT=0` and once with `PYTHON_JIT=1`, three times each. First run `jit_status.py`: if it says `JIT built in: False`, both runs use the interpreter. The python.org installers for macOS and Windows include the JIT. Building CPython yourself with `./configure --enable-experimental-jit=yes-off` is an optional extra and needs LLVM. Expected: every run prints `points inside: 16236`, and the second line says whether the JIT was enabled. Compare the best time of each set.
+Compare `jit_bench.py` (below) with and without the JIT:
+
+1. Run `jit_status.py`. If it prints `JIT built in: False`, both sets below measure the same interpreter.
+2. Run `PYTHON_JIT=0 python3.15 jit_bench.py` three times.
+3. Run `PYTHON_JIT=1 python3.15 jit_bench.py` three times.
+4. Compare the best time of each set.
+
+Every run prints `points inside: 16236`. The python.org macOS and Windows installers include the JIT; a source build needs `--enable-experimental-jit=yes-off` and LLVM.
 
 ```python title="jit_bench.py"
 import sys
@@ -156,20 +164,20 @@ print(f"seconds: {elapsed:.3f}")
 
 <Solution>
 
-On a Linux x86-64 machine with a JIT-capable 3.15 build, the best of three runs was:
+On my machine (x86-64 Linux, a 3.15.0 build with the JIT set to `yes-off`), three runs each were not enough: single runs varied from 0.072 to 0.12 seconds with either setting, so the sets overlapped. With 30 runs of each, interleaved, the best times were:
 
 ```console
 $ PYTHON_JIT=0 python3.15 jit_bench.py
 points inside: 16236
 JIT enabled: False
-seconds: 0.105
+seconds: 0.082
 $ PYTHON_JIT=1 python3.15 jit_bench.py
 points inside: 16236
 JIT enabled: True
-seconds: 0.105
+seconds: 0.073
 ```
 
-No measurable difference. The inner loop is dominated by `complex` arithmetic and `abs`, which are C functions that the JIT calls rather than speeds up, and a run of a tenth of a second leaves little time for warm-up to pay off. A loop doing integer arithmetic on local variables would be a better candidate. This is the normal experience with the JIT today: some code gains, much does not, and only a measurement of your workload tells you which.
+About 11% faster with the JIT, close to the suite average, and smaller than the noise between single runs. On a build without the JIT you should see two sets of similar times, since both measure the interpreter. The gain is modest because much of the inner loop is `complex` arithmetic and `abs`, which are C functions that the JIT calls rather than speeds up, and a run of a tenth of a second leaves little time for warm-up to pay off. This is the normal experience with the JIT today: gains are small and uneven, and only repeated measurement of your own workload tells you whether you have one.
 
 </Solution>
 </Exercise>

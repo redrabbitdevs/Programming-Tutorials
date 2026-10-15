@@ -136,6 +136,8 @@ fn fastdot(m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 ```
 
+These three snippets were last run in October 2026, on CPython 3.15.0 with cffi 2.1.1, Cython 3.3.0, and PyO3 0.29.3 with maturin 1.15.0. All three are third-party projects that change faster than Python, so follow their own documentation when it disagrees with this page.
+
 How to choose:
 
 - **ctypes**: a few calls into an existing C library, and no build step allowed.
@@ -148,7 +150,7 @@ How to choose:
 
 A compiled extension normally works with exactly one Python version and build, which is what tags such as `cp315` in a wheel name record. The **stable ABI** (`abi3`), available since Python 3.2, is a subset of the C API whose binary interface CPython promises not to change. An extension that uses only that subset (the Limited API, chosen by defining `Py_LIMITED_API`) and is built for 3.x works on 3.x and every later version, so a package can ship one wheel instead of one per release. PyO3, Cython and the main build back ends can all target it.
 
-Free-threaded builds could not use `abi3`, because it exposes the layout of `PyObject`, which is different without the GIL ([Free-threaded Python](../../advanced/free-threading/)). <Since v="3.15" /> [PEP 803](https://peps.python.org/pep-0803/) adds **`abi3t`**, a stable ABI for free-threaded builds that makes `PyObject` opaque. You select it with the `Py_TARGET_ABI3T` macro, or more usually in your build tool: meson-python, scikit-build-core and maturin support it. It needs real source changes, such as the new `PyModExport_*` module export hook. An extension built for both is tagged `abi3.abi3t` in its wheel name and works on both builds.
+Free-threaded builds could not use `abi3`, because it exposes the layout of `PyObject`, which is different without the GIL ([Free-threaded Python](../../advanced/free-threading/)). <Since v="3.15" /> [PEP 803](https://peps.python.org/pep-0803/) adds **`abi3t`**, a stable ABI for free-threaded builds that makes `PyObject` opaque. You select it with the `Py_TARGET_ABI3T` macro, or more usually in your build tool. Support is arriving release by release. When this lesson was checked (October 2026), PyO3 0.29 had an `abi3t` feature and maturin 1.15 tagged wheels `abi3.abi3t`. For meson-python, scikit-build-core and others, check each tool's release notes. It needs real source changes, such as the new `PyModExport_*` module export hook. An extension built for both is tagged `abi3.abi3t` in its wheel name and works on both builds.
 
 <Since v="3.15" /> To see which ABI the running interpreter has, read `sys.abi_info`:
 
@@ -174,7 +176,7 @@ That output is from the standard build on x86-64 Linux. On `python3.15t` the sec
 
 ## When not to go native
 
-Native code adds a compiler or a Rust toolchain to your build, wheels for every platform you support, and a class of bugs (crashes, memory corruption) that Python does not have. Go native only when the hot spot is CPU-bound Python, the algorithm is already right, and NumPy or an existing compiled package cannot do the job. If the time is spent waiting on I/O, native code changes nothing. And if a crossing happens per element, the boundary cost can make native code slower than the Python it replaced.
+Native code adds a compiler or a Rust toolchain to your build, wheels for every platform you support, and a class of bugs (crashes, memory corruption) that Python does not have. Go native only when the hot spot is CPU-bound Python, the algorithm is already right, and NumPy or an existing compiled package cannot do the job. If the time is spent waiting on I/O, native code changes nothing. If the work splits into large independent pieces, running them [in parallel](../optimising-python/#when-the-work-can-run-in-parallel) on several cores may be a cheaper first step than a rewrite ([Concurrency models](../../advanced/concurrency-models/)). And if a crossing happens per element, the boundary cost can make native code slower than the Python it replaced.
 
 ## Common pitfalls
 
@@ -273,13 +275,14 @@ With a pointer result, the same mistake truncates the address, and using it cras
 
 <Exercise title="Price the boundary">
 
-Measure the cost of a ctypes call by timing `libc.strlen(word)` against `len(word)` for `word = b"performance"` (best of 5 runs of 20,000 calls each). Print whether both give the same answer, and whether `len()` is at least 3 times faster. Expected output: `same answer: True` and `len() at least 3x faster: True`. Then explain in one sentence when calling C from Python is worth it.
+Measure the cost of a ctypes call by timing `libc.strlen(word)` against `len(word)` for `word = b"performance"` (best of 5 runs of 20,000 calls each). Print whether both give the same answer, and whether `len()` is at least 3 times faster, and write the measured ratio to standard error. Expected output: `same answer: True` and `len() at least 3x faster: True`. Then explain in one sentence when calling C from Python is worth it.
 
 <Solution>
 
 ```python title="ctypes_overhead.py"
 import ctypes
 import ctypes.util
+import sys
 import timeit
 
 libc = ctypes.CDLL(ctypes.util.find_library("c"))
@@ -293,6 +296,7 @@ via_len = min(timeit.repeat(lambda: len(word), number=20_000, repeat=5))
 
 print("same answer:", libc.strlen(word) == len(word))
 print("len() at least 3x faster:", via_c > 3 * via_len)
+print(f"measured: {via_c / via_len:.0f}x", file=sys.stderr)  # varies
 ```
 
 ```text
@@ -300,7 +304,7 @@ same answer: True
 len() at least 3x faster: True
 ```
 
-On one machine the ctypes call was about 10 times slower, even though `strlen` itself does almost nothing: the time goes into converting arguments and results. Calling C is worth it when one call does enough work to hide that fixed cost, such as processing a whole buffer or array.
+On my machine the ctypes call was about 9 times slower, and 14 times with the JIT on. The ratio depends on the C library and the build as well as the CPU, which is why the threshold is only 3x. The call is slow even though `strlen` itself does almost nothing: the time goes into converting arguments and results. Calling C is worth it when one call does enough work to hide that fixed cost, such as processing a whole buffer or array.
 
 </Solution>
 </Exercise>
