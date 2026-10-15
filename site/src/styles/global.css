@@ -631,6 +631,21 @@ a:hover { color: var(--accent-hover); text-decoration-thickness: 2px; }
 .pager .ttl { font-family: var(--font-display); font-size: var(--step-1); font-weight: 580; }
 .pager .next { text-align: right; grid-column: 2; }
 @media (max-width: 39.99rem) { .pager .next { text-align: left; grid-column: auto; } }
+/* Last lesson of a track: a card in the "Next" slot, with two plain links. */
+.pager .end-card {
+  display: grid; gap: var(--s-1);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-bg);
+}
+.pager .end-card .end-links { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-4); justify-content: flex-end; }
+.pager .end-card .end-links a {
+  display: inline-flex; align-items: center; padding: 0; border: 0; min-height: 44px;
+  color: var(--accent); text-decoration: underline;
+}
+.pager .end-card .end-links a:hover { background: none; color: var(--accent-hover); }
+@media (max-width: 39.99rem) { .pager .end-card .end-links { justify-content: flex-start; } }
 
 /* ==========================================================================
    MDX components

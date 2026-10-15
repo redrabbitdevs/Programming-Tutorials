@@ -1,0 +1,4 @@
+free-threaded build: False
+GIL enabled now: True
+thread_inherit_context: 0
+context_aware_warnings: 0

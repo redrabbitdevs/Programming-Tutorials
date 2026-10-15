@@ -1,0 +1,795 @@
+---
+language: python
+level: expert
+module: Project
+order: 19
+title: "Project: ship a fast, observable tool"
+description: "Take the jobrun tool from the advanced project to release 0.2.0 in seven checkable steps: profile it with Tachyon, replace its hot loop, add structured logs with a job ID, stop cleanly on SIGTERM, extend the command line, build a wheel, and test it on 3.15 and the free-threaded 3.15t."
+minVersion: "3.15"
+objectives:
+  - Profile a real tool with the sampling profiler and decide what to change from the result
+  - Replace a hot spot, and prove the new code gives the same answers and is faster
+  - Add structured logging with a per-job ID from a context variable, and a clean stop on SIGTERM
+  - Build a wheel with a single version number, and check what it contains
+  - Run the 3.15 upgrade checks and the free-threaded build as part of the test suite
+estimatedMinutes: 120
+fundamentals: []
+---
+
+This lesson has no new topics. It takes one program through the whole expert level: measure it, change the slow part, make it observable, package it, and check that it is ready for 3.15 and the free-threaded build. Each step ends with a result you can check before you move on, and links back to the lesson it relies on.
+
+The program is **jobrun**, the job runner you built in the [advanced project](../../advanced/project-async-plugin-tool/). It reads a JSON file of jobs, runs them concurrently under a deadline, and prints one line per job. You will release version 0.2.0.
+
+## The specification
+
+- The `primes` job is at least 20 times faster, with the same answers.
+- `--log-level` and `--log-format text|json` turn on logs on standard error. Every log line names the job it came from, without passing the job around.
+- On `SIGTERM`, jobrun cancels the unfinished jobs, still prints the report with those jobs as `cancelled`, and exits with code 143 (128 + 15, the signal number). Ctrl-C exits with 130.
+- `--pool thread` runs CPU work in threads, which run in parallel on the free-threaded build. `--version` prints the version, which is written in one place only.
+- `uv build` produces a wheel. The test suite passes with warnings as errors, on 3.15 and on 3.15t.
+
+The finished project is in the course repository under `examples/python/e4/jobrun/`. New and changed files:
+
+```text
+jobrun/
+├── pyproject.toml         step 6
+├── small.json, stop.json  steps 3 and 4
+└── src/jobrun/
+    ├── __init__.py        step 5
+    ├── builtin.py         step 2
+    ├── logs.py            step 3 (new)
+    ├── models.py          step 4
+    ├── runner.py          steps 3 and 4
+    └── cli.py             step 5
+```
+
+## Step 0: start from 0.1.0
+
+Copy your advanced project, or the one under `examples/python/a5/jobrun/`, and install it as before with `python -m pip install -e .`. Run the suite once, so you know what "nothing broke" looks like:
+
+```console
+$ python -m pytest -q
+....................                                                     [100%]
+20 passed in 0.24s
+```
+
+**Check:** 20 tests pass. Every step below keeps them passing, and adds two.
+
+## Step 1: measure before you change anything
+
+The obvious suspect is `count_primes`, the CPU job. Do not trust the suspicion; profile it. A sampling profiler sees only the process it samples, and jobrun computes in pool workers, so put the function alone in a script, with a large enough input to collect a thousand samples:
+
+```python title="slow_primes.py"
+"""count_primes as the advanced project left it, alone in one script."""
+from math import isqrt
+
+
+def count_primes(below: int) -> int:
+    count = 0
+    for n in range(2, below):
+        for d in range(2, isqrt(n) + 1):
+            if n % d == 0:
+                break
+        else:
+            count += 1
+    return count
+
+
+print(count_primes(1_000_000))
+```
+
+```text
+78498
+```
+
+Run it under [Tachyon](../profiling/), the 3.15 sampling profiler. The `run` subcommand starts the script itself, so it needs no special permission to attach. This is a real run, trimmed to the table; your counts will differ, but the order of the top rows is stable:
+
+```console
+$ python -m profiling.sampling run slow_primes.py
+78498
+Captured 1617 samples in 1.62 seconds
+Sample rate: 999.95 samples/sec
+Error rate: 0.99
+Profile Stats:
+       nsamples   sample%   tottime (s)    cumul%   cumtime (s)  filename:lineno(function)
+      1287/1287      80.4         1.287      80.4         1.287  slow_primes.py:9(count_primes)
+        290/290      18.1         0.290      18.1         0.290  slow_primes.py:8(count_primes)
+          11/11       0.7         0.011       0.7         0.011  slow_primes.py:10(count_primes)
+          10/10       0.6         0.010       0.6         0.010  slow_primes.py:7(count_primes)
+            3/3       0.2         0.003       0.2         0.003  slow_primes.py:12(count_primes)
+         0/1601       0.0         0.000     100.0         1.601  slow_primes.py:16(<module>)
+```
+
+Tachyon reports lines, not just functions. Line 9, `if n % d == 0:`, was executing in 1,287 of the samples (direct), and on the stack in the same 1,287 (cumulative), so the time is spent on that line itself and not in anything it calls. Line 8, the inner `for`, takes most of the rest. Together they are 98% of the run: the inner loop *is* the program. Micro-optimising that line would save a few per cent. Doing far fewer divisions would save almost all of it, which calls for a different algorithm ([optimising Python](../optimising-python/): algorithm first).
+
+## Step 2: one optimisation, checked
+
+The sieve of Eratosthenes crosses out the multiples of each prime instead of testing each number. In Python it is fast when the crossing out is one slice assignment on a `bytearray`, so the inner loop runs in C. Keep the error for an impossible input, because a test depends on it:
+
+```python title="src/jobrun/builtin.py (changed: count_primes)"
+def count_primes(below: int) -> int:
+    """The sieve of Eratosthenes. It still runs in a worker pool."""
+    if below < 2:
+        raise ValueError(f"below must be at least 2, got {below}")
+    is_prime = bytearray([1]) * below
+    is_prime[0] = is_prime[1] = 0
+    for n in range(2, isqrt(below - 1) + 1):
+        if is_prime[n]:
+            # Cross out n*n, n*n + n, ... in one slice assignment.
+            is_prime[n * n :: n] = bytes(len(range(n * n, below, n)))
+    return is_prime.count(1)
+```
+
+`len(range(n * n, below, n))` is the number of positions the slice covers, computed without building a list. Now check both promises: the same answers, and a real speed-up, measured as in [measuring performance](../measuring-performance/) with the best of several runs:
+
+```python title="check_sieve.py"
+import timeit
+from math import isqrt
+
+from jobrun.builtin import count_primes
+
+
+def trial_division(below: int) -> int:
+    """The step 0 version, kept here as the reference answer."""
+    count = 0
+    for n in range(2, below):
+        for d in range(2, isqrt(n) + 1):
+            if n % d == 0:
+                break
+        else:
+            count += 1
+    return count
+
+
+same = all(count_primes(b) == trial_division(b) for b in range(2, 3000))
+print("same answers for 2..2999:", same)
+print("primes below 1,000,000:", count_primes(1_000_000))
+
+old = min(timeit.repeat(lambda: trial_division(100_000), number=1, repeat=5))
+new = min(timeit.repeat(lambda: count_primes(100_000), number=1, repeat=5))
+print("at least 20x faster:", old / new >= 20)
+```
+
+```text
+same answers for 2..2999: True
+primes below 1,000,000: 78498
+at least 20x faster: True
+```
+
+**Check:** three lines as shown. The comparison covers every input from 2 to 2,999, including the edge cases 2 and 3, and the count below a million matches step 1. On the machine used for this lesson the measured ratio was about 290x to 400x, on both builds, so a 20x threshold leaves a wide margin for slower machines; if you get `False`, print `old / new` and run it three times. The suite still passes: 20 tests.
+
+## Step 3: logs that name the job
+
+When six jobs run at once, a log line is useless unless it says which job wrote it. Passing a job ID to every function would change every signature. A [context variable](../config-observability/#context-variables) does it without that, because every `asyncio` task runs in its own copy of the context. `logs.py` holds the variable, a filter that copies it onto each record, and two formats: plain text for people, and one JSON object per line for a log collector.
+
+```python title="src/jobrun/logs.py"
+import json
+import logging
+import sys
+from contextvars import ContextVar
+
+# Each asyncio task runs in its own copy of the context, so every job
+# sees its own value here without passing it around.
+job_id: ContextVar[str] = ContextVar("job_id", default="-")
+
+
+class JobFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.job = job_id.get()
+        return True
+```
+
+```python title="src/jobrun/logs.py (continued)"
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return json.dumps({"level": record.levelname,
+                           "job": getattr(record, "job", "-"),
+                           "message": record.getMessage()})
+
+
+TEXT = logging.Formatter("%(levelname)s %(job)s: %(message)s")
+
+
+def setup(level: str, form: str) -> None:
+    """Send the jobrun loggers to stderr, as text lines or JSON lines."""
+    handler = logging.StreamHandler(sys.stderr)
+    handler.addFilter(JobFilter())
+    if form == "json":
+        handler.setFormatter(JsonFormatter())
+    else:
+        handler.setFormatter(TEXT)
+    logger = logging.getLogger("jobrun")
+    logger.handlers[:] = [handler]
+    logger.setLevel(level)
+    logger.propagate = False
+```
+
+`getattr` with a default keeps `mypy --strict` content, since `LogRecord` declares no `job` attribute. Logs go to standard error, so the report on standard output stays clean for pipes. In the runner, the old `execute` becomes `attempt`, unchanged, and a new `execute` sets the variable and logs around it. Setting it without a reset is safe here: the task's copy of the context disappears when the task ends.
+
+```python title="src/jobrun/runner.py"
+import asyncio
+import logging
+import signal
+from collections.abc import Callable
+
+from .config import Config
+from .logs import job_id
+from .models import Context, Outcome, Status
+from .plugin import Plugin
+
+log = logging.getLogger("jobrun.runner")
+
+
+async def attempt[T](job: Plugin[T], ctx: Context, timeout: float) -> Outcome:
+    try:
+        async with asyncio.timeout(timeout):
+            value = await job.run(ctx)
+    except TimeoutError:
+        detail = f"no result after {timeout}s"
+        return Outcome(job.job_id, Status.TIMEOUT, detail)
+    except Exception as error:
+        detail = f"{type(error).__name__}: {error}"
+        return Outcome(job.job_id, Status.FAILED, detail)
+    return Outcome(job.job_id, Status.OK, job.render(value))
+
+
+async def execute[T](job: Plugin[T], ctx: Context, timeout: float) -> Outcome:
+    job_id.set(job.job_id)  # only this task's copy of the context changes
+    log.info("started")
+    outcome = await attempt(job, ctx, timeout)
+    log.info("%s: %s", outcome.status, outcome.detail)
+    return outcome
+```
+
+The `--log-level` and `--log-format` options arrive in step 5. Here is what they produce for `small.json`, which holds a word count and a 5-second wait under a 0.2-second deadline:
+
+```console
+$ jobrun small.json --log-level INFO --log-format json
+{"level": "INFO", "job": "motto", "message": "started"}
+{"level": "INFO", "job": "motto", "message": "ok: readability=1, counts=1"}
+{"level": "INFO", "job": "slow-api", "message": "started"}
+{"level": "INFO", "job": "slow-api", "message": "timeout: no result after 0.2s"}
+motto     ok        readability=1, counts=1
+slow-api  timeout   no result after 0.2s
+2 jobs: 1 ok, 1 timeout
+```
+
+**Check:** every line carries the right job, although `execute` passed nothing to the logger. A collector can now answer "show me everything `slow-api` did" with one query.
+
+## Step 4: stop cleanly on SIGTERM
+
+A scheduler or container runtime stops jobrun with `SIGTERM`. By default that kills the process at once: no report, and no record of which jobs finished ([stopping cleanly](../config-observability/#stopping-cleanly)). The report needs a status for jobs that never finished, so `Status` gains a member:
+
+```python title="src/jobrun/models.py (changed: Status)"
+class Status(StrEnum):
+    OK = "ok"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+    CANCELLED = "cancelled"
+```
+
+`run_all` installs a handler with `loop.add_signal_handler()` for as long as the jobs run. The handler cancels every task. A task cancelled from outside does not make the `TaskGroup` fail; the group simply waits for the rest, so the code after it still runs. On Windows, or outside the main thread, the loop cannot install the handler, and `on_sigterm` says so instead of failing.
+
+```python title="src/jobrun/runner.py (continued)"
+def on_sigterm(loop: asyncio.AbstractEventLoop,
+               stop: Callable[[], None]) -> bool:
+    """Call stop() on SIGTERM. False where the loop cannot do it (Windows)."""
+    try:
+        loop.add_signal_handler(signal.SIGTERM, stop)
+    except (NotImplementedError, RuntimeError):
+        return False
+    return True
+
+
+def outcome_of(task: asyncio.Task[Outcome]) -> Outcome:
+    if task.cancelled():
+        return Outcome(task.get_name(), Status.CANCELLED, "stopped by SIGTERM")
+    return task.result()
+```
+
+```python title="src/jobrun/runner.py (continued)"
+async def run_all(config: Config, ctx: Context) -> list[Outcome]:
+    loop = asyncio.get_running_loop()
+    tasks: list[asyncio.Task[Outcome]] = []
+
+    def stop() -> None:
+        log.warning("SIGTERM: cancelling the unfinished jobs")
+        for task in tasks:
+            task.cancel()
+
+    watching = on_sigterm(loop, stop)
+    try:
+        async with asyncio.TaskGroup() as tg:
+            for job in config.jobs:
+                coro = execute(job, ctx, config.timeout)
+                tasks.append(tg.create_task(coro, name=job.job_id))
+    finally:
+        if watching:
+            loop.remove_signal_handler(signal.SIGTERM)
+    return [outcome_of(task) for task in tasks]
+```
+
+Each task is named after its job, which is how `outcome_of` knows whose task was cancelled. To try it, run jobrun as a child process, wait until the quick job has finished, and send the signal. `stop.json` has a word count, a 0.05-second wait and a 30-second "nightly sync":
+
+```python title="sigterm_demo.py"
+import os
+import signal
+import subprocess
+import sys
+
+# Run `jobrun stop.json --log-level INFO` in a child process, as a
+# scheduler or container runtime would.
+CODE = "import sys; from jobrun.cli import main; sys.exit(main())"
+args = ["stop.json", "--log-level", "INFO"]
+child = subprocess.Popen([sys.executable, "-c", CODE, *args],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, env={**os.environ, "PYTHONPATH": "src"})
+```
+
+```python title="sigterm_demo.py (continued)"
+# Wait until the quick job has finished, then ask the child to stop.
+for line in child.stderr:
+    print("stderr:", line.rstrip())
+    if line.startswith("INFO quick-api: ok"):
+        child.send_signal(signal.SIGTERM)
+        break
+out, err = child.communicate(timeout=10)
+for line in err.splitlines():
+    print("stderr:", line)
+print(out, end="")
+print("exit code:", child.returncode)
+```
+
+```text
+stderr: INFO motto: started
+stderr: INFO motto: ok: errors=1, should=1, never=1
+stderr: INFO quick-api: started
+stderr: INFO nightly-sync: started
+stderr: INFO quick-api: ok: waited 0.05s
+stderr: WARNING -: SIGTERM: cancelling the unfinished jobs
+motto         ok        errors=1, should=1, never=1
+quick-api     ok        waited 0.05s
+nightly-sync  cancelled stopped by SIGTERM
+3 jobs: 2 ok, 1 cancelled
+exit code: 143
+```
+
+**Check:** the process ended at once, not after 30 seconds, and the two finished jobs are still reported. The warning shows `-` as its job, because the signal handler runs in the event loop's own context, not in a job's. The suite gains a test that sends `SIGTERM` to the test process itself:
+
+```python title="tests/test_runner.py (added test)"
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix signal handlers")
+def test_sigterm_cancels_the_unfinished_jobs(ctx: Context) -> None:
+    async def run_then_signal() -> list[Outcome]:
+        loop = asyncio.get_running_loop()
+        loop.call_later(0.05, os.kill, os.getpid(), signal.SIGTERM)
+        jobs = (Wait("fast", 0), Wait("slow", 5))
+        return await run_all(Config(10.0, 1, jobs), ctx)
+
+    outcomes = asyncio.run(run_then_signal())
+    assert [o.status for o in outcomes] == [Status.OK, Status.CANCELLED]
+```
+
+## Step 5: the command line
+
+`cli.py` grows a thread pool, the logging options, `--version` and the exit codes from the specification. The [CLI lesson](../cli-apps/) covered `choices=` and exit codes. The version lives in `src/jobrun/__init__.py` as `__version__ = "0.2.0"`, and step 6 makes the build read it from there.
+
+```python title="src/jobrun/cli.py"
+import argparse
+import asyncio
+import signal
+import sys
+from collections import Counter
+from concurrent.futures import (Executor, ProcessPoolExecutor,
+                                ThreadPoolExecutor)
+from pathlib import Path
+
+from . import __version__, logs
+from .config import load_config
+from .models import ConfigError, Context, Outcome, Sink, Status
+from .runner import run_all
+
+
+def make_pool(kind: str, workers: int) -> Executor:
+    match kind:
+        case "process":
+            return ProcessPoolExecutor(max_workers=workers)
+        case "thread":
+            return ThreadPoolExecutor(max_workers=workers)
+        case "interpreter":
+            from concurrent.futures import InterpreterPoolExecutor
+
+            return InterpreterPoolExecutor(max_workers=workers)
+        case _:
+            raise ValueError(f"unknown pool kind {kind!r}")
+```
+
+`cancelled` is nine characters, so the status column is now ten wide, one more than before:
+
+```python title="src/jobrun/cli.py (continued)"
+def report(outcomes: list[Outcome], out: Sink) -> None:
+    width = max((len(o.job_id) for o in outcomes), default=0) + 2
+    for o in outcomes:
+        out.write(f"{o.job_id:<{width}}{o.status:<10}{o.detail}\n")
+    counts = Counter(o.status for o in outcomes)
+    parts = [f"{counts[s]} {s}" for s in Status if counts[s]]
+    out.write(f"{len(outcomes)} jobs: {', '.join(parts)}\n")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="jobrun")
+    parser.add_argument("jobs", type=Path, help="JSON file of jobs")
+    parser.add_argument("--pool", default="process",
+                        choices=["process", "thread", "interpreter"])
+    parser.add_argument("--log-level", default="WARNING",
+                        choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument("--log-format", default="text",
+                        choices=["text", "json"])
+    parser.add_argument("--version", action="version",
+                        version=f"%(prog)s {__version__}")
+    return parser
+```
+
+`asyncio.run` turns Ctrl-C into `KeyboardInterrupt` after cancelling its main task, so `main` catches it and returns 130 instead of printing a traceback:
+
+```python title="src/jobrun/cli.py (continued)"
+def main(argv: list[str] | None = None, out: Sink | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    logs.setup(args.log_level, args.log_format)
+    try:
+        config = load_config(args.jobs)
+    except (OSError, ConfigError) as error:
+        print(f"jobrun: {error}", file=sys.stderr)
+        return 2
+    try:
+        with make_pool(args.pool, config.workers) as pool:
+            outcomes = asyncio.run(run_all(config, Context(pool)))
+    except KeyboardInterrupt:
+        return 130  # 128 + SIGINT, as shells report it
+    report(outcomes, out if out is not None else sys.stdout)
+    if any(o.status is Status.CANCELLED for o in outcomes):
+        return 128 + signal.SIGTERM
+    return 0 if all(o.status is Status.OK for o in outcomes) else 1
+```
+
+```console
+$ jobrun --version
+jobrun 0.2.0
+$ jobrun jobs.json --pool thread
+motto       ok        is=2, better=2, than=2
+server-log  ok        INFO=2 WARN=1 ERROR=1 ?=1
+primes      ok        3245 primes below 30000
+primes-bad  failed    ValueError: below must be at least 2, got 1
+quick-api   ok        waited 0.1s
+slow-api    timeout   no result after 0.5s
+6 jobs: 4 ok, 1 failed, 1 timeout
+$ jobrun small.json --log-level INFO
+INFO motto: started
+INFO motto: ok: readability=1, counts=1
+INFO slow-api: started
+INFO slow-api: timeout: no result after 0.2s
+motto     ok        readability=1, counts=1
+slow-api  timeout   no result after 0.2s
+2 jobs: 1 ok, 1 timeout
+```
+
+**Check:** the default format is plain text, because a person usually reads jobrun's output; JSON is one option away for a collector. The test that compared the report text now expects the wider column, and a new test checks the JSON records. The suite has 22 tests.
+
+## Step 6: build the release
+
+Two changes to `pyproject.toml`. `dynamic = ["version"]` with a `[tool.hatch.version]` table tells the build backend to read the version from `__init__.py`, so `--version` and the wheel can never disagree. And `filterwarnings = ["error"]` makes every warning in the test run a failure, which is the habit from [upgrading to 3.15](../migrating-to-315/#turn-warnings-into-errors-first):
+
+```toml title="pyproject.toml"
+[project]
+name = "jobrun"
+dynamic = ["version"]
+description = "Run typed plugin jobs concurrently, each with a deadline"
+requires-python = ">=3.12"
+dependencies = []
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+]
+
+[project.scripts]
+jobrun = "jobrun.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/jobrun/__init__.py"
+
+[dependency-groups]
+dev = ["pytest", "mypy", "pyright"]
+
+[tool.mypy]
+python_version = "3.15"
+
+[tool.pyright]
+pythonVersion = "3.15"
+
+[tool.pytest.ini_options]
+filterwarnings = ["error"]
+```
+
+Build, and look inside the wheel ([building and publishing](../packaging-publishing/) explains each file):
+
+```console
+$ uv build
+Building source distribution...
+Building wheel from source distribution...
+Successfully built dist/jobrun-0.2.0.tar.gz
+Successfully built dist/jobrun-0.2.0-py3-none-any.whl
+$ python -m zipfile -l dist/jobrun-0.2.0-py3-none-any.whl
+File Name                                             Modified             Size
+jobrun/__init__.py                             2020-02-02 00:00:00           95
+jobrun/__main__.py                             2020-02-02 00:00:00           79
+jobrun/builtin.py                              2020-02-02 00:00:00         3844
+jobrun/cli.py                                  2020-02-02 00:00:00         2677
+jobrun/config.py                               2020-02-02 00:00:00         1552
+jobrun/logs.py                                 2020-02-02 00:00:00         1190
+jobrun/models.py                               2020-02-02 00:00:00          684
+jobrun/plugin.py                               2020-02-02 00:00:00          978
+jobrun/runner.py                               2020-02-02 00:00:00         2254
+jobrun-0.2.0.dist-info/METADATA                2020-02-02 00:00:00          344
+jobrun-0.2.0.dist-info/WHEEL                   2020-02-02 00:00:00           87
+jobrun-0.2.0.dist-info/entry_points.txt        2020-02-02 00:00:00           43
+jobrun-0.2.0.dist-info/RECORD                  2020-02-02 00:00:00          947
+```
+
+**Check:** the file names say `0.2.0`, read from `__init__.py`, and the tag `py3-none-any` says the wheel is pure Python: one file serves every version and both builds, including 3.15t. The new `logs.py` is inside, and the fixed 2020 dates are hatchling's way of making builds reproducible. Publishing is the `publish` job from the packaging lesson, with trusted publishing, unchanged. jobrun has no runtime dependencies, so a lock file would hold only the development tools; lock those as the packaging lesson showed if your CI needs repeatable runs.
+
+## Step 7: the upgrade checks and 3.15t
+
+The last step runs the upgrade lesson's checks against your own code. With `filterwarnings = ["error"]`, an ordinary `pytest` run already fails on any deprecation warning. Add the encoding check, and run the same suite on every version the project claims, with the free-threaded build as a real entry:
+
+```console
+$ python -X warn_default_encoding -W error::EncodingWarning -m pytest -q
+......................                                                   [100%]
+22 passed in 0.32s
+$ uv run --python 3.15t -m pytest -q
+......................                                                   [100%]
+22 passed in 0.47s
+```
+
+(uv's own download and install lines are left out of the second run.) Repeat the second command with `3.12`, `3.13`, `3.14` and `3.15`, or list the five versions as a CI matrix. Then go through the [free-threading checklist](../migrating-to-315/#getting-ready-for-the-free-threaded-build) for jobrun: it has no extension modules, so the GIL stays off (exercise 3 checks), and its one piece of shared state, `REGISTRY`, is written only at import time and only read while jobs run.
+
+**Check:** 22 tests pass in every run.
+
+## Where each piece came from
+
+| Piece of the project | Lesson |
+|---|---|
+| Timing with the best of several runs | [Measuring performance](../measuring-performance/) |
+| Tachyon, line-level samples | [Profiling](../profiling/) |
+| The sieve, algorithm first | [Optimising Python](../optimising-python/) |
+| `--pool thread` on 3.15t | [The GIL and free-threading internals](../gil-internals/) |
+| `pyproject.toml`, wheels, publishing | [Building and publishing packages](../packaging-publishing/) |
+| `choices=`, `--version`, exit codes | [Command-line applications](../cli-apps/) |
+| `ContextVar`, log formats, `SIGTERM` | [Configuration and observability](../config-observability/) |
+| Warnings as errors, the 3.15t entry | [Upgrading to Python 3.15](../migrating-to-315/) |
+
+## Common pitfalls
+
+- **Profiling the main process of a pooled program.** Tachyon would show the event loop waiting, because the work happens in worker processes. Profile the worker function alone, as step 1 did, or attach to a worker's process ID.
+- **An optimisation without a reference.** Keep the old implementation in the check script until the new one has matched it on many inputs. The sieve's edge cases (2, 3, and squares of primes) are where a slice bound is off by one.
+- **Calling `add_signal_handler` and never removing it.** The handler outlives `run_all` and cancels tasks that belong to some later call. The `finally` removes it.
+- **A `SIGTERM` handler that does slow work.** The platform sends `SIGKILL` after its grace period. Cancel, report, exit; do not start new work.
+- **A deadline or a cancel does not stop a process worker.** A cancelled `primes` job stops being awaited, but the worker keeps computing, and the pool's `with` block waits for it. Short CPU jobs keep shutdown short.
+- **Two version numbers.** A version written in both `pyproject.toml` and `__init__.py` will drift. Write it once.
+
+<Exercise title="Count the calls before you optimise">
+
+Before changing `LogLevels`, find out how often it calls the regex engine. Run its `run` method once under `profiling.tracing` on a 1,000-line log, then use `pstats` to print the number of calls to `fullmatch` and to `splitlines`. Expected output:
+
+```text
+INFO=1000
+    1 calls  <method 'splitlines' of 'str' objects>
+ 1000 calls  <method 'fullmatch' of 're.Pattern' objects>
+```
+
+<Solution>
+
+```python title="count_calls.py"
+import asyncio
+import pstats
+from concurrent.futures import ThreadPoolExecutor
+
+import profiling.tracing
+
+from jobrun.builtin import LogLevels
+from jobrun.models import Context
+
+LOG = "\n".join(f"09:00:{n % 60:02} INFO line {n}" for n in range(1000))
+job = LogLevels("log", LOG)
+
+profiler = profiling.tracing.Profile()
+with ThreadPoolExecutor() as pool:
+    value = profiler.runcall(asyncio.run, job.run(Context(pool)))
+print(job.render(value))
+
+functions = pstats.Stats(profiler).get_stats_profile().func_profiles
+for name, profile in functions.items():
+    if "fullmatch" in name or "splitlines" in name:
+        print(f"{profile.ncalls:>5} calls  {name}")
+```
+
+```text
+INFO=1000
+    1 calls  <method 'splitlines' of 'str' objects>
+ 1000 calls  <method 'fullmatch' of 're.Pattern' objects>
+```
+
+A tracing profiler gives exact counts, which a sampling profiler cannot. One `fullmatch` per line is the minimum for this design, so there is no call to remove; if the plugin were slow, the next question would be the cost of each call. `get_stats_profile()` returns the table as objects, so you do not have to parse the printed report.
+
+</Solution>
+</Exercise>
+
+<Exercise title="A check that breaks in 3.16">
+
+A colleague adds a sanity check that every plugin's `run` is a coroutine function:
+
+```python
+import asyncio
+import jobrun.builtin
+from jobrun.plugin import REGISTRY
+
+for kind, plugin in sorted(REGISTRY.items()):
+    print(kind, asyncio.iscoroutinefunction(plugin.run))
+```
+
+Run it with `-W error::DeprecationWarning` and report the exit code and the warning, then write a version that runs cleanly on 3.15 and will keep running on 3.16. Expected output of the two scripts:
+
+```text
+exit code: 1
+DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16
+```
+
+```text
+levels  run is async: True
+primes  run is async: True
+wait    run is async: True
+words   run is async: True
+```
+
+<Solution>
+
+```python title="check_async_old.py"
+import subprocess
+import sys
+
+OLD = """
+import asyncio
+import jobrun.builtin
+from jobrun.plugin import REGISTRY
+
+for kind, plugin in sorted(REGISTRY.items()):
+    print(kind, asyncio.iscoroutinefunction(plugin.run))
+"""
+
+done = subprocess.run(
+    [sys.executable, "-W", "error::DeprecationWarning", "-c", OLD],
+    capture_output=True, text=True,
+)
+print("exit code:", done.returncode)
+print(done.stderr.strip().splitlines()[-1].split(";")[0])
+```
+
+```text
+exit code: 1
+DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16
+```
+
+```python title="check_async.py"
+import inspect
+
+import jobrun.builtin  # noqa: F401  Importing it registers the plugins.
+from jobrun.plugin import REGISTRY
+
+for kind, plugin in sorted(REGISTRY.items()):
+    print(f"{kind:<7} run is async: {inspect.iscoroutinefunction(plugin.run)}")
+```
+
+```text
+levels  run is async: True
+primes  run is async: True
+wait    run is async: True
+words   run is async: True
+```
+
+`inspect.iscoroutinefunction` is the replacement the deprecation table in the upgrade lesson names. Without `-W error`, the old script runs and prints the right answers, with one warning on standard error that nobody reads; that is why the project's tests run with warnings as errors.
+
+</Solution>
+</Exercise>
+
+<Exercise title="Does jobrun keep the GIL off?">
+
+Write `gil_report.py`, which imports every jobrun module and then prints whether the interpreter is a free-threaded build, whether the GIL is enabled now, and the two flags that differ between the builds. Run it with `python3.15` and `python3.15t`. Expected on the default build:
+
+```text
+free-threaded build: False
+GIL enabled now: True
+thread_inherit_context: 0
+context_aware_warnings: 0
+```
+
+<Solution>
+
+```python title="gil_report.py"
+import sys
+import sysconfig
+
+import jobrun.cli  # noqa: F401  Imports every jobrun module.
+
+free_threaded_build = sysconfig.get_config_var("Py_GIL_DISABLED") == 1
+print("free-threaded build:", free_threaded_build)
+print("GIL enabled now:", sys._is_gil_enabled())
+print("thread_inherit_context:", sys.flags.thread_inherit_context)
+print("context_aware_warnings:", sys.flags.context_aware_warnings)
+```
+
+```text
+free-threaded build: False
+GIL enabled now: True
+thread_inherit_context: 0
+context_aware_warnings: 0
+```
+
+```console
+$ python3.15t gil_report.py
+free-threaded build: True
+GIL enabled now: False
+thread_inherit_context: 1
+context_aware_warnings: 1
+```
+
+`Py_GIL_DISABLED` describes the build, and `sys._is_gil_enabled()` describes the running process; they differ when an extension turns the GIL back on, which jobrun's imports do not. `thread_inherit_context` matters to jobrun's logging: on 3.15t, a thread started from inside a job would see that job's ID, while on the default build it would see `-`. Jobs that log from pool threads should set the variable themselves.
+
+</Solution>
+</Exercise>
+
+## Self-check
+
+Answer each question in a sentence or two before you open the answers. If one stumps you, reread the linked lesson; these are the ideas the whole expert level rests on.
+
+1. Why does a single timing of a function tell you so little, and what do you report instead?
+2. A sampling profile shows a function with 900 cumulative samples and 10 direct ones. Where is the time?
+3. When does `functools.cache` make a program slower or wrong?
+4. What does the specialising adaptive interpreter do with a `BINARY_OP` that always sees two `int`s?
+5. Why can an immortal object's reference count stop changing, and what problem does that solve for the free-threaded build?
+6. An extension module does not declare `Py_mod_gil`. What happens when `python3.15t` imports it?
+7. What is the difference between `Requires-Python` and a wheel's tag such as `cp315-cp315-manylinux_2_28_x86_64`?
+8. Why should a library never call `logging.basicConfig()` or `sys.set_lazy_imports("all")`?
+9. What happens to a Python service that receives `SIGTERM` and has no handler for it?
+10. You upgrade to 3.15 and a test that used `assertWarns` starts failing with a warning it never showed before. Why?
+
+<details>
+<summary>Answers</summary>
+
+1. Timings vary with the machine, other load and caches. Repeat, keep the minimum or a distribution, and compare with a margin wide enough to survive the noise ([measuring performance](../measuring-performance/)).
+2. In the functions it calls: it is on the stack almost always, but rarely the one executing ([profiling](../profiling/)).
+3. When arguments are unhashable or rarely repeat, when results are large and live forever, or when the function has side effects or depends on changing state ([optimising Python](../optimising-python/)).
+4. It replaces the instruction in place with a specialised form for that case, and falls back if the types change ([the JIT and the interpreter](../jit-and-interpreter/), [bytecode](../bytecode-dis/)).
+5. Its count is pinned at a special value and never decremented to zero, so it is never freed; threads then share it without writing to its count, which removes contention ([memory management](../memory-model/), [GIL internals](../gil-internals/)).
+6. The GIL is turned back on for the whole process, with a `RuntimeWarning`, unless `PYTHON_GIL=0` or `-X gil=0` forces it off ([GIL internals](../gil-internals/)).
+7. `Requires-Python` says which versions the project supports at all; the tag says which interpreter, ABI and platform one built file can run on ([packaging](../packaging-publishing/)).
+8. Both change global behaviour for every program that imports the library. Those choices belong to the application ([configuration and observability](../config-observability/), [large codebases](../large-codebases/)).
+9. It dies at once with the default action: no `finally` blocks, no `atexit`, no flushed logs ([configuration and observability](../config-observability/#stopping-cleanly)).
+10. Since 3.15, `assertWarns` no longer swallows warnings that do not match the expected category, so a warning that was hidden now reaches the warning filters, which may turn it into an error ([upgrading to 3.15](../migrating-to-315/#porting-to-315-behaviour-that-changed)).
+
+</details>
+
+## What you can now do
+
+This is the end of the expert level and of the Python track. You can measure a program honestly and find where its time goes; read the bytecode, memory model and import machinery underneath it; package, configure, observe and secure it; and move it to a new Python version, or to the free-threaded build, with evidence rather than hope.
+
+## Where next
+
+- **Another language.** Learning a second language is the fastest way to see which of your habits are Python and which are programming. [JavaScript](../../../javascript/beginner/what-is-javascript/) is the next track on this site, and the [language catalogue](../../../../languages/) lists the rest.
+- **The shared fundamentals.** The [fundamentals track](../../../../fundamentals/) covers the ideas common to every language, from algorithms to testing, if you skipped any of it.
+- **CPython itself.** The [Python Developer's Guide](https://devguide.python.org/) explains how to build CPython from source, run its test suite and make a first contribution; its "Getting started" section is the place to begin. Issues labelled "easy" on the [CPython issue tracker](https://github.com/python/cpython/issues) are the usual first step.
+- **How Python changes.** Read a few recent [PEPs](https://peps.python.org/), including one that was rejected, and follow the "Ideas" and "Core Development" categories on [Python Discourse](https://discuss.python.org/), where proposals are discussed before they become PEPs.
+- **Contribute to what you use.** Pick one library you depend on, read its contributing guide, and fix a documentation bug or test its next release on 3.15t. That is how the free-threading tracker you used in the upgrade lesson gets filled in.

@@ -1,0 +1,9 @@
+{
+  "timeout": 60,
+  "workers": 1,
+  "jobs": [
+    {"id": "motto", "kind": "words", "text": "Errors should never pass silently."},
+    {"id": "quick-api", "kind": "wait", "seconds": 0.05},
+    {"id": "nightly-sync", "kind": "wait", "seconds": 30}
+  ]
+}

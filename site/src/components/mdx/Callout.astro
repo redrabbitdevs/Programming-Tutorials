@@ -2,8 +2,10 @@
 interface Props {
   type?: 'note' | 'tip' | 'warning' | 'danger';
   title?: string;
+  /** Anchor for links from other lessons, e.g. id="sqlite3-primer". */
+  id?: string;
 }
-const { type = 'note', title } = Astro.props;
+const { type = 'note', title, id } = Astro.props;
 const defaults = { note: 'Note', tip: 'Tip', warning: 'Warning', danger: 'Danger' } as const;
 const label = title ?? defaults[type];
 const paths = {
@@ -14,7 +16,7 @@ const paths = {
 } as const;
 ---
 
-<aside class="callout" data-type={type} role="note" aria-label={label}>
+<aside class="callout" id={id} data-type={type} role="note" aria-label={label}>
   <p class="callout-title" aria-hidden="true">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={paths[type]} /></svg>
     {label}

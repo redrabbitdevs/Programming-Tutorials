@@ -1,0 +1,29 @@
+$ jobrun --version
+jobrun 0.2.0
+$ jobrun jobs.json --pool thread
+motto       ok        is=2, better=2, than=2
+server-log  ok        INFO=2 WARN=1 ERROR=1 ?=1
+primes      ok        3245 primes below 30000
+primes-bad  failed    ValueError: below must be at least 2, got 1
+quick-api   ok        waited 0.1s
+slow-api    timeout   no result after 0.5s
+6 jobs: 4 ok, 1 failed, 1 timeout
+[exit code 1]
+$ jobrun small.json --log-level INFO
+INFO motto: started
+INFO motto: ok: readability=1, counts=1
+INFO slow-api: started
+INFO slow-api: timeout: no result after 0.2s
+motto     ok        readability=1, counts=1
+slow-api  timeout   no result after 0.2s
+2 jobs: 1 ok, 1 timeout
+[exit code 1]
+$ jobrun small.json --log-level INFO --log-format json
+{"level": "INFO", "job": "motto", "message": "started"}
+{"level": "INFO", "job": "motto", "message": "ok: readability=1, counts=1"}
+{"level": "INFO", "job": "slow-api", "message": "started"}
+{"level": "INFO", "job": "slow-api", "message": "timeout: no result after 0.2s"}
+motto     ok        readability=1, counts=1
+slow-api  timeout   no result after 0.2s
+2 jobs: 1 ok, 1 timeout
+[exit code 1]

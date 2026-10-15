@@ -4,15 +4,15 @@ level: expert
 module: Production Python
 order: 18
 title: Upgrading to Python 3.15
-description: Plan and carry out an upgrade to Python 3.15 - read the porting notes, turn deprecation warnings into errors on the old version, handle the UTF-8 default (PEP 686) and the 3.15 removals, prepare for what goes in 3.16 and 3.17, and test across versions.
+description: "Plan and carry out an upgrade to Python 3.15: read the porting notes, turn deprecation warnings into errors on the old version, handle the UTF-8 default (PEP 686), the 3.15 removals and behaviour changes, prepare for 3.16 and 3.17, and test across versions, including the free-threaded build."
 minVersion: "3.15"
 objectives:
   - Find what an upgrade will break by reading What's New and the deprecation lists
   - Surface deprecation warnings as errors before you switch versions
   - Explain what the UTF-8 default changes, who it affects, and how to find affected code
-  - Fix code that relies on APIs removed in 3.15, and plan for removals in 3.16 and 3.17
-  - Test a project on several Python versions and decide when to drop old ones
-estimatedMinutes: 45
+  - Fix code that relies on APIs removed in 3.15 or on behaviour that changed, and plan for removals in 3.16 and 3.17
+  - Test a project on several Python versions, including 3.15t, and decide when to drop old ones
+estimatedMinutes: 55
 fundamentals: []
 ---
 
@@ -137,6 +137,56 @@ ValueError: Day of month directive '%d' may not be used without a year directive
 2028-02-29
 ```
 
+## Porting to 3.15: behaviour that changed
+
+Some changes remove nothing. The code still runs, but does something different, and no deprecation warning announced it. What's New lists them under [Porting to Python 3.15](https://docs.python.org/3/whatsnew/3.15.html#porting-to-python-3-15); these are the ones most likely in application code:
+
+| Change in 3.15 | How to find affected code |
+|---|---|
+| `argparse`: with a short option and a single-dash long option, as in `add_argument('-f', '-file')`, `dest` is now taken from the long one (`file`, not `f`) | search for `add_argument` with two single-dash names; pass `dest=` explicitly |
+| `base64.urlsafe_b64decode()` no longer requires padding; `padded=True` restores the check | search for code that relies on it raising for unpadded input |
+| `unittest`: `assertWarns()` and `assertWarnsRegex()` no longer swallow warnings that do not match | new warnings in the test output, or failures under `filterwarnings = ["error"]` |
+| `sqlite3.connect()`: every parameter except `database` is keyword-only | a `TypeError` at the call; name the arguments |
+| `xml.etree.ElementTree.iterparse()` emits a `ResourceWarning` if it opened a file and is not closed | run tests with `-W error::ResourceWarning`; call `close()` or use `contextlib.closing()` |
+
+The Removed section adds a few that look like behaviour changes too: AST node constructors raise `TypeError` for a missing or unknown argument (a `DeprecationWarning` since 3.13), and `importlib.resources.files(package=...)`, `zipimporter.load_module()` and `@typing.no_type_check_decorator` are gone. `typing.ByteString` and `collections.abc.ByteString` left their modules' `__all__`, so a star import no longer provides them, and importing them warns. Four of the changes, run on 3.15:
+
+```python title="porting_315.py"
+import argparse
+import base64
+import sqlite3
+import unittest
+import warnings
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-f", "-file")
+print("argparse dest:", vars(parser.parse_args(["-f", "a.txt"])))
+
+print("unpadded base64:", base64.urlsafe_b64decode("YWI"))
+
+case = unittest.TestCase()
+with warnings.catch_warnings(record=True) as leaked:
+    warnings.simplefilter("always", UserWarning)
+    with case.assertWarns(DeprecationWarning):
+        warnings.warn("old API", DeprecationWarning)
+        warnings.warn("unrelated", UserWarning)
+print("leaked past assertWarns:", [str(w.message) for w in leaked])
+
+try:
+    sqlite3.connect(":memory:", 5.0)  # timeout given by position
+except TypeError as error:
+    print("TypeError:", error)
+```
+
+```text
+argparse dest: {'file': 'a.txt'}
+unpadded base64: b'ab'
+leaked past assertWarns: ['unrelated']
+TypeError: connect() takes at most 1 positional arguments (2 given)
+```
+
+On 3.14 the same script prints `{'f': 'a.txt'}` and then stops with `binascii.Error: Incorrect padding`. The `assertWarns` change matters most for a suite that runs with warnings as errors: a warning that the old version hid now fails a test.
+
 ## What goes next: 3.16 and 3.17
 
 Fix these now, while they are warnings, so the next upgrade is uneventful:
@@ -148,6 +198,7 @@ Fix these now, while they are warnings, so the next upgrade is uneventful:
 | 3.16 | `~True`, `~False` | `not x` (or `~int(x)` if you mean it) |
 | 3.16 | logging handlers taking `strm=` | `stream=` |
 | 3.16 | `array` type code `'u'` | `'w'` |
+| 3.16 | `__loader__` set without `__spec__.loader` stops being consulted | set `__spec__`; see [the import system](../import-system/) |
 | 3.17 | the `profile` module | `profiling.tracing`; see [profiling](../profiling/) |
 | 3.17 | `typing.ByteString`, `collections.abc.ByteString` | `collections.abc.Buffer`, or `bytes \| bytearray \| memoryview` |
 | 3.17 | `strptime()` with `%e` and no year | include a year |
@@ -156,7 +207,25 @@ Not everything that is deprecated will be removed. `re.match()` is *soft* deprec
 
 ## Testing across versions
 
-Run your test suite on every version you claim to support, in CI, as a matrix. Locally, `uv run --python 3.11 python -m pytest` and the same with `3.15` run the suite under each interpreter, and tox or nox automate the matrix. Add the free-threaded build (`3.15t`) as an extra, allowed-to-fail entry if your users might run it. Declare the range in `requires-python`, so installers refuse versions you have not tested.
+Run your test suite on every version you claim to support, in CI, as a matrix. Locally, `uv run --python 3.11 python -m pytest` and the same with `3.15` run the suite under each interpreter, and tox or nox automate the matrix. Declare the range in `requires-python`, so installers refuse versions you have not tested.
+
+Treat the free-threaded build as a real entry in that matrix: `uv run --python 3.15t python -m pytest`. It is officially supported in 3.15, though optional, and the official macOS installers now include it by default, so some of your users will run it. A job that is allowed to fail gets ignored. Once your project passes on 3.15t, a failure there is a regression like any other.
+
+## Getting ready for the free-threaded build
+
+Passing tests on 3.15t is necessary but not enough, because most test suites run one thread. Work through this list once, then keep the CI job:
+
+1. **Check the GIL really stays off.** Import your package on `python3.15t` and print `sys._is_gil_enabled()`. An extension module that has not declared support turns the GIL back on with a `RuntimeWarning` ([the GIL lesson](../gil-internals/) explains why). The [free-threading compatibility tracker](https://py-free-threading.github.io/tracking/) lists the state of popular dependencies.
+2. **Test with the GIL forced off.** `PYTHON_GIL=0` or `-X gil=0` keeps it off even after such an import. Use that only to find out what breaks, never in production.
+3. **Audit shared mutable state.** Module-level caches, lazy singletons and class-level counters: the three shapes in [architecture for large codebases](../large-codebases/#shared-state-and-threads). Built-in containers will not be corrupted, but check-then-act sequences still need a `threading.Lock`.
+4. **Write a stress test.** Run the operation that touches shared state from many threads at once, many times, and check an invariant at the end. Run it on both builds.
+5. **Know the two flags that differ.** On 3.15t, `sys.flags.thread_inherit_context` and `sys.flags.context_aware_warnings` are 1 by default (0 on the default build). New threads start with a copy of the caller's context variables, and `warnings.catch_warnings()` changes only the current context instead of a global list. Code that relied on either default behaves differently.
+6. **Build and declare.** An extension needs `cp315t` wheels (cibuildwheel builds them) and the `Py_mod_gil` slot; [packaging](../packaging-publishing/) covers the wheel tags.
+7. **Measure.** The free-threaded build runs single-threaded code a little slower (the [free-threading HOWTO](https://docs.python.org/3/howto/free-threading-python.html) gives about 1% on macOS aarch64 to 8% on x86-64 Linux on the pyperformance suite). It pays only for parallel CPU-bound work in threads.
+
+## Adopting what is new
+
+An upgrade is also the moment to use what the new version adds, once `requires-python` allows it: `frozendict` from [immutability](../../advanced/immutability/), `sentinel` and `TypeForm` from [new in typing](../../advanced/modern-typing-315/), and lazy imports. Template strings from [the t-strings lesson](../../advanced/template-strings/) need 3.14. Adopt them one at a time, in separate commits from the upgrade itself.
 
 When code must differ by version, prefer testing for the feature, or catching `ImportError`, over comparing `sys.version_info`. The test then stays correct on other implementations and on versions you have not thought about:
 
@@ -354,5 +423,6 @@ The warnings appear in the order the code runs: `import profile` before the `pri
 - Make `DeprecationWarning` an error in tests while still on the old version, and fix what it finds.
 - 3.15 uses UTF-8 for text I/O everywhere (PEP 686). Find reliance on the old default with `-X warn_default_encoding`; write `encoding="utf-8"` explicitly.
 - 3.15 removed, among others, `strptime` `%d` without a year, the `NamedTuple` keyword form and the `sre_*` modules. The asyncio policy system and `~bool` go in 3.16; `profile` and `ByteString` in 3.17.
-- Test every supported version in CI, and upgrade applications promptly but libraries conservatively.
-- This completes the Production Python module and the expert level.
+- Some 3.15 changes warn about nothing: `argparse` `dest` inference, unpadded `urlsafe_b64decode`, `assertWarns` letting other warnings through, and keyword-only `sqlite3.connect()` arguments.
+- Test every supported version in CI, with 3.15t as a real entry, and work through the free-threading checklist. Upgrade applications promptly but libraries conservatively.
+- Next: [the capstone project](../project-ship-a-fast-tool/), which puts the whole expert level to work on one tool.

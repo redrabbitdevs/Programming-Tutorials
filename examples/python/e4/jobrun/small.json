@@ -1,0 +1,8 @@
+{
+  "timeout": 0.2,
+  "workers": 1,
+  "jobs": [
+    {"id": "motto", "kind": "words", "text": "Readability counts."},
+    {"id": "slow-api", "kind": "wait", "seconds": 5}
+  ]
+}
