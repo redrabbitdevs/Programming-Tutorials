@@ -1,6 +1,6 @@
 {
- "updated": "2026-10-14",
- "pr_counter": 60,
+ "updated": "2026-10-15",
+ "pr_counter": 71,
  "phase": "content",
  "decisions": {
   "stack": "Astro + MDX, custom design (no stock docs theme), deployed to GitHub Pages",
@@ -108,13 +108,13 @@
   },
   {
    "id": "M8",
-   "name": "Python: Expert + latest features",
+   "name": "Python expert level (18 lessons, audited; P1 fixes in progress)",
    "status": "pending"
   },
   {
    "id": "M9",
    "name": "Tier 1 languages, in order",
-   "status": "pending"
+   "status": "in_progress"
   },
   {
    "id": "M7",
@@ -123,11 +123,11 @@
   },
   {
    "id": "M8",
-   "name": "Python expert level",
+   "name": "Python expert level (18 lessons, audited; P1 fixes in progress)",
    "status": "in_progress"
   }
  ],
- "in_progress": null,
+ "in_progress": "Expert P1 fixes (lessons 01-07, 08-12); JavaScript B3+B4 (lessons 12-22)",
  "open_prs": [],
  "merged_prs": [
   {
@@ -353,13 +353,52 @@
   {
    "n": 59,
    "title": "Add the advanced capstone: an async plugin job runner (lesson 27)"
+  },
+  {
+   "n": 61,
+   "title": "Add Python expert module E1: Performance (lessons 01-06)"
+  },
+  {
+   "n": 62,
+   "title": "Add Python expert module E2: CPython internals (lessons 07-12)"
+  },
+  {
+   "n": 63,
+   "title": "Board: scroll long panels inside fixed heights to keep it compact"
+  },
+  {
+   "n": 64,
+   "title": "Add JavaScript research: facts, curriculum outline and source extracts"
+  },
+  {
+   "n": 65,
+   "title": "Validate JavaScript examples in validate.sh and CI"
+  },
+  {
+   "n": 66,
+   "title": "Add Python expert module E3: Production Python (lessons 13-18)"
+  },
+  {
+   "n": 67,
+   "title": "Add Python expert-level gap audit (W4)"
+  },
+  {
+   "n": 68,
+   "title": "Fix expert-audit P0s: remote-debug option spelling, fundamentals ids, GC facts"
+  },
+  {
+   "n": 69,
+   "title": "Add Improver review of the Python expert level (W4)"
+  },
+  {
+   "n": 70,
+   "title": "Add JavaScript beginner modules B1 and B2 (lessons 01-11)"
   }
  ],
  "next_actions": [
-  "Running: Python E1 Performance and E2 CPython internals (Writers on Opus)",
-  "Then: E3 Production Python",
-  "Then: W4 expert audit",
-  "Then: next tier-1 language (JavaScript) via W1 research",
+  "Merge expert P1 fix PRs for 01-07 and 08-12",
+  "Expert P1 fixes for 13-18: sqlite3/contextvars, Porting-to-3.15, free-threading readiness, CLI, security, pylock, observability; capstone and track ending; Python expert blurb; python.md status complete",
+  "JavaScript B3+B4, then B5-B7, then the W4 beginner audit",
   "Retry W5 batch 3 when Wikipedia allows"
  ],
  "escalations": [],
@@ -658,11 +697,12 @@
   }
  },
  "lessons": {
-  "written": 134,
-  "planned": 152
+  "written": 163,
+  "planned": 267
  },
  "language_status": {
-  "python": "in_progress"
+  "python": "in_progress",
+  "javascript": "in_progress"
  },
  "log": [
   {
@@ -964,6 +1004,12 @@
    "from": "advisor",
    "to": "github",
    "msg": "PRs 48\u201359 merged: Python advanced level complete (27 lessons) and audited; strict heading check; forward links. Expert E1/E2 in progress."
+  },
+  {
+   "t": "00:45",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PRs 61-70 merged: Python expert E1-E3 (18 lessons), expert audit (gaps + review) and P0 fixes, JS research and validation, JavaScript B1-B2 (11 lessons), board scroll panels."
   }
  ],
  "model_review": [
@@ -1033,7 +1079,10 @@
    "A2",
    "A3",
    "A4",
-   "A-project"
+   "A-project",
+   "E1",
+   "E2",
+   "E3"
   ],
   "fundamentals": [
    "F1",
@@ -1041,6 +1090,10 @@
    "F3",
    "F4",
    "F5"
+  ],
+  "javascript": [
+   "B1",
+   "B2"
   ]
  },
  "catalog_fixes_needed": [],
@@ -1049,6 +1102,7 @@
   "Python 3.11 reaches end of life in October 2027: bump OLDEST_SUPPORTED in site/src/lib/versions.ts",
   "Advanced follow-ups not done: deadlock demo, threading.local/contextvars, as_completed, checker-transcript verification script",
   "Catalog: Gap Finder flagged ~30 possibly missing languages in languages.json",
-  "InterpreterPoolExecutor lost module globals in a genexpr on 3.15.0 (unconfirmed; not claimed as a bug)"
+  "InterpreterPoolExecutor lost module globals in a genexpr on 3.15.0 (unconfirmed; not claimed as a bug)",
+  "Expert P2 items from gaps-expert.md and python-expert.md; build checks for -X option names and fundamentals ids"
  ]
 }
