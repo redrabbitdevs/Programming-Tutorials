@@ -1,0 +1,7 @@
+[]
+true
+[ { id: 1, text: 'Buy milk', done: false } ]
+[]
+[ { id: 1, text: 'ok', done: true } ]
+false
+null [] false

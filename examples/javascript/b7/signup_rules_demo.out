@@ -1,0 +1,12 @@
+{}
+{
+  username: 'No spaces, please.',
+  email: 'Enter an address like name@example.com.',
+  password: 'Use at least 8 characters.',
+  confirm: 'The passwords do not match.'
+}
+{
+  username: 'Use at least 3 characters.',
+  email: 'Enter an address like name@example.com.',
+  password: 'Use at least 8 characters.'
+}

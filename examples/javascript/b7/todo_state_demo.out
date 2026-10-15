@@ -1,0 +1,9 @@
+[
+  { id: 1, text: 'Buy milk', done: false },
+  { id: 2, text: 'Write lesson', done: false }
+]
+1
+[ 'Write lesson' ]
+[ 'Buy milk' ]
+2
+[ { id: 1, text: 'Buy milk', done: true } ]

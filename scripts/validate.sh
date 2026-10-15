@@ -11,6 +11,9 @@
 #        same .in/.out rules; *.test.mjs run with node --test, pass/fail counts only).
 #        In a folder with a .modules marker file, and for *.cjs files, only files
 #        that have a sibling .out run (the others are imported by those entry points).
+#        In a folder with a .browser marker file (browser lessons; it holds a package.json
+#        with "type": "module" so .js files are modules), *.js and *.mjs files are
+#        syntax-checked only, unless they have a sibling .out: then they run in Node.
 set -u -o pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -113,8 +116,15 @@ if [ -d "$ROOT/examples" ]; then
     rel="${f#"$ROOT"/}"
     dir="$(cd "$(dirname "$f")" && pwd)"
     base="$(basename "$f")"
+    # *.js is only an example in a folder marked .browser (elsewhere it is not ours).
+    if [ "${base##*.}" = "js" ] && [ ! -f "$dir/.browser" ]; then continue; fi
+    browser_only=0
+    if [ -f "$dir/.browser" ] && [ ! -f "${f%.*}.out" ]; then browser_only=1; fi
     case "$rel" in
-      */browser/*)
+      */browser/*) browser_only=1 ;;
+    esac
+    case "$browser_only" in
+      1)
         # Browser-only code cannot run in Node: syntax-check it as a module.
         JS_CHK=$((JS_CHK + 1))
         if "${NODE:-node}" --check "$f" 2>"$JS_ERR"; then echo "  ok   $rel (syntax only)"
@@ -168,7 +178,7 @@ if [ -d "$ROOT/examples" ]; then
       fi
     fi
     echo "  ok   $rel"
-  done < <(find "$ROOT/examples" \( -name '*.mjs' -o -name '*.cjs' \) -type f -not -path '*/node_modules/*' -print0 | sort -z)
+  done < <(find "$ROOT/examples" \( -name '*.mjs' -o -name '*.cjs' -o -name '*.js' \) -type f -not -path '*/node_modules/*' -print0 | sort -z)
   rm -f "$JS_ERR"
 fi
 if [ $JS_BAD -eq 0 ]; then pass "js examples: $JS_RUN run, $JS_CMP compared to .out, $JS_CHK syntax-checked"; else fail "js examples: $JS_BAD of $((JS_RUN + JS_CHK)) failed"; fi

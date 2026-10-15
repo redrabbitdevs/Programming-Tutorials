@@ -1,0 +1,7 @@
+"" -> "Enter your age."
+"abc" -> "Use whole numbers only."
+"12.5" -> "Use whole numbers only."
+"12" -> "Age must be between 13 and 120."
+"13" -> ""
+" 40 " -> ""
+"121" -> "Age must be between 13 and 120."
