@@ -1,4 +1,5 @@
 import copy
+import sys
 import timeit
 
 import nbody_naive
@@ -36,3 +37,4 @@ print("same state (within 1e-9):", close)
 slow = min(timeit.repeat(lambda: nbody_naive.step(a), number=5, repeat=3))
 fast = min(timeit.repeat(lambda: step_fast(b), number=5, repeat=3))
 print("faster:", fast < slow)
+print(f"measured: {slow / fast:.1f}x faster", file=sys.stderr)

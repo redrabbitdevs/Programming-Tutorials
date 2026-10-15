@@ -1,3 +1,4 @@
+import sys
 import timeit
 
 
@@ -5,6 +6,8 @@ def compare(a, b, setup="pass", margin=1.25):
     """Say which statement is faster, or 'tie' within the margin."""
     ta = min(timeit.repeat(a, setup, number=500, repeat=5))
     tb = min(timeit.repeat(b, setup, number=500, repeat=5))
+    apart = max(ta, tb) / min(ta, tb)
+    print(f"measured: {apart:.1f}x apart", file=sys.stderr)  # varies
     if ta * margin < tb:
         return "a"
     if tb * margin < ta:

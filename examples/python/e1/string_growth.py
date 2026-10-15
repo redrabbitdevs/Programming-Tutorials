@@ -1,4 +1,5 @@
 import io
+import sys
 import timeit
 
 
@@ -38,3 +39,4 @@ for fn in [plus_equals, prepend, join, string_io]:
     growth = best(fn, big) / best(fn, small)
     shape = "quadratic" if growth > 40 else "linear"
     print(f"{fn.__name__:12} {shape}")
+    print(f"measured: {growth:.0f}x", file=sys.stderr)  # varies

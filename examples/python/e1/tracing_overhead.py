@@ -1,3 +1,4 @@
+import sys
 import time
 
 import profiling.tracing
@@ -23,5 +24,7 @@ start = time.perf_counter()
 profiler.runcall(many_calls)
 traced = time.perf_counter() - start
 
-print("tracing made it slower:", traced > plain)
-print("at least 2x slower:", traced > 2 * plain)
+ratio = traced / plain
+print("tracing made it slower:", ratio > 1)
+print("at least 2x slower:", ratio > 2)
+print(f"measured: {ratio:.1f}x slower", file=sys.stderr)  # varies

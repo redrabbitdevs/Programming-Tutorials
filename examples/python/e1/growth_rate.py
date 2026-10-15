@@ -1,3 +1,4 @@
+import sys
 import timeit
 
 
@@ -17,3 +18,4 @@ for stmt, number in [("x in data", 200), ("x in s", 200_000)]:
     else:
         shape = "unclear, measure again"
     print(f"{stmt:10} {shape}")
+    print(f"measured: {growth:.1f}x", file=sys.stderr)  # varies

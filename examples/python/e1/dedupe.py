@@ -1,3 +1,4 @@
+import sys
 import timeit
 
 TAGS = [f"tag{i % 3_000}" for i in range(12_000)]
@@ -19,3 +20,4 @@ slow = min(timeit.repeat(lambda: dedupe_slow(TAGS), number=1, repeat=3))
 fast = min(timeit.repeat(lambda: dedupe_fast(TAGS), number=1, repeat=3))
 print("same order:", dedupe_fast(TAGS) == dedupe_slow(TAGS))
 print("at least 20x faster:", slow > 20 * fast)
+print(f"measured: {slow / fast:.0f}x faster", file=sys.stderr)

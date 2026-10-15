@@ -16,7 +16,7 @@ estimatedMinutes: 40
 fundamentals: ["fundamentals/beginner/20-big-o"]
 ---
 
-You already know the basic tools from [Measuring speed with timeit and cProfile](../../intermediate/profiling/): `python -m timeit`, `timeit.repeat`, taking the `min`, and checking that a fast version still gives the right answer. This module is about doing that work well enough to base decisions on it. This lesson covers measurement. [Profiling](../profiling/) finds where the time goes, and the later lessons cover what to do about it.
+You already know the basic tools from [Measuring speed with timeit and cProfile](../../intermediate/profiling/): `python -m timeit`, `timeit.repeat`, taking the `min`, and checking that a fast version still gives the right answer. This module is about doing that work well enough to base decisions on it. This lesson covers measurement. [Profiling](../profiling/) finds where the time goes, and the later lessons cover what to do about it. If you finished [the advanced project](../../advanced/project-async-plugin-tool/), its job runner is a good program to practise on through this module.
 
 A benchmark answers one narrow question: *on this machine, with this interpreter and this input, which of these is faster, and by how much?* Most bad performance decisions come from benchmarks that answered a different question from the one asked.
 
@@ -62,6 +62,7 @@ When wall time and CPU time disagree a lot, the program is waiting. No amount of
 
 ```python title="bench_harness.py"
 import statistics
+import sys
 import timeit
 
 
@@ -79,9 +80,11 @@ setup = "words = ['spam'] * 10_000"
 join_best, join_median = bench("''.join(words)", setup)
 loop_best, _ = bench("s = ''\nfor w in words: s = w + s", setup)
 
+ratio = loop_best / join_best
 print("best <= median:", join_best <= join_median)
-print("prepend loop slower than join:", loop_best > join_best)
-print("at least 20x slower:", loop_best > 20 * join_best)
+print("prepend loop slower than join:", ratio > 1)
+print("at least 20x slower:", ratio > 20)
+print(f"measured: {ratio:.0f}x slower", file=sys.stderr)  # varies
 ```
 
 ```text
@@ -90,9 +93,11 @@ prepend loop slower than join: True
 at least 20x slower: True
 ```
 
+The last line goes to standard error, so it is not part of the output above. It prints the number behind the verdict, which changes from run to run. On my machine (a 4-core x86-64 Linux VM running CPython 3.15.0, the machine for every "on my machine" in this module) it said between 110x and 130x. When a verdict prints `False`, that line tells you whether you are looking at a bug or at a machine that measured differently.
+
 The **best** run is your estimate of the code's real cost, since noise only ever adds time. The **median** tells you how noisy the machine was. If the median is more than about 10% above the best, something else was competing for the CPU, so close it and measure again. `Timer.autorange()` does the same calibration as the loop above, aiming for 0.2 seconds per run. <Since v="3.15" /> You can change that target with `autorange(target_time=...)` or `python -m timeit --target-time`, and the command-line output is in colour by default (set `NO_COLOR=1` to turn it off).
 
-Notice what the script prints: comparisons with a wide margin, not times. Raw times belong in your notes, along with the machine, the Python version and the input size. A claim like "at least 20x slower" survives a different laptop. "316 µs" does not.
+Notice what the script prints as its result: comparisons with a wide margin, not times. Raw numbers belong in your notes (here, standard error), along with the machine, the Python version and the input size. A claim like "at least 20x slower" survives a different laptop if the margin is wide compared with the noise you measured: 20x against a measured 110x leaves plenty of room, while 100x would not. "316 µs" survives nothing. If a verdict fails, run the script three times and judge by the best run before you suspect the code.
 
 For results you will publish or act on across releases, use [pyperf](https://pyperf.readthedocs.io/), the tool behind CPython's own benchmark suite. It runs each benchmark in several fresh processes, discards warm-up runs, and reports the mean and standard deviation. `python -m pyperf system tune` reduces CPU frequency scaling noise on Linux, and `pyperf compare_to old.json new.json` says whether a difference is significant.
 
@@ -101,6 +106,7 @@ For results you will publish or act on across releases, use [pyperf](https://pyp
 The [fundamentals lesson on Big O](../../../fundamentals/beginner/big-o/) describes how cost grows with input size. Measurement lets you check the growth rate directly: time the code at `n` and at `10 * n`, and look at the ratio. A linear algorithm takes about 10 times longer, a constant-time one about the same, and a quadratic one about 100 times longer.
 
 ```python title="growth_rate.py"
+import sys
 import timeit
 
 
@@ -120,12 +126,15 @@ for stmt, number in [("x in data", 200), ("x in s", 200_000)]:
     else:
         shape = "unclear, measure again"
     print(f"{stmt:10} {shape}")
+    print(f"measured: {growth:.1f}x", file=sys.stderr)  # varies
 ```
 
 ```text
 x in data  grows with n (linear)
 x in s     flat (constant)
 ```
+
+On my machine the measured growth was about 10x for the list and between 1.0x and 1.3x for the set, so the thresholds of 5 and 2.5 sit well clear of both.
 
 Growth rate decides what happens as data gets bigger. Constant factors decide what happens at the size you actually have. At ten items a linear scan of a tuple can beat building a set, because building the set costs more than the few comparisons it saves. So measure at realistic sizes, and at a larger one too if your data will grow.
 
@@ -151,6 +160,7 @@ Here are four ways to build a string from a list of words. For each, measure the
 
 ```python title="string_growth.py"
 import io
+import sys
 import timeit
 
 
@@ -196,6 +206,7 @@ for fn in [plus_equals, prepend, join, string_io]:
     growth = best(fn, big) / best(fn, small)
     shape = "quadratic" if growth > 40 else "linear"
     print(f"{fn.__name__:12} {shape}")
+    print(f"measured: {growth:.0f}x", file=sys.stderr)  # varies
 ```
 
 ```text
@@ -205,7 +216,7 @@ join         linear
 string_io    linear
 ```
 
-`prepend` copies the whole string on every step, so its total work grows with the square of the length. `plus_equals` looks as if it should too, but CPython resizes the string in place when nothing else refers to it. That optimisation is a CPython implementation detail, and PEP 8 advises against relying on it, so `"".join` remains the portable choice. `join` is also the fastest by a constant factor, because the loop runs in C.
+On my machine the linear ones grew by 9x to 16x and `prepend` by 160x to 330x, so the threshold of 40 is far from both. `prepend` copies the whole string on every step, so its total work grows with the square of the length. `plus_equals` looks as if it should too, but CPython resizes the string in place when nothing else refers to it. That optimisation is a CPython implementation detail, and PEP 8 advises against relying on it, so `"".join` remains the portable choice. `join` is also the fastest by a constant factor, because the loop runs in C.
 
 </Solution>
 </Exercise>
@@ -237,6 +248,7 @@ generator is 50x faster: True
 The generator expression is never iterated. Creating it costs the same for 10 items or 10 million, and none of the squares are computed. Consume both results the same way, here with `sum`:
 
 ```python title="lazy_bench_fixed.py"
+import sys
 import timeit
 
 setup = "data = list(range(10_000))"
@@ -247,13 +259,14 @@ as_gen = min(timeit.repeat("sum(x * x for x in data)", setup,
 
 ratio = as_gen / as_list
 print("same ballpark (within 3x):", 1 / 3 < ratio < 3)
+print(f"measured: generator / list = {ratio:.2f}", file=sys.stderr)
 ```
 
 ```text
 same ballpark (within 3x): True
 ```
 
-The list version is usually a little faster, and the generator uses far less memory. Which one matters depends on the size of the data ([Memory](../memory-profiling/)).
+On my machine the measured ratio was between 0.85 and 1.05, and between 1.1 and 1.5 with the JIT on (`PYTHON_JIT=1`, [The JIT and the interpreter](../jit-and-interpreter/)). Which of the two wins depends on the build, and the generator uses far less memory. Which one matters depends on the size of the data ([Memory](../memory-profiling/)).
 
 </Solution>
 </Exercise>
@@ -271,6 +284,7 @@ Expected output: `b`, `tie`, `a`, one per line.
 <Solution>
 
 ```python title="compare_tool.py"
+import sys
 import timeit
 
 
@@ -278,6 +292,8 @@ def compare(a, b, setup="pass", margin=1.25):
     """Say which statement is faster, or 'tie' within the margin."""
     ta = min(timeit.repeat(a, setup, number=500, repeat=5))
     tb = min(timeit.repeat(b, setup, number=500, repeat=5))
+    apart = max(ta, tb) / min(ta, tb)
+    print(f"measured: {apart:.1f}x apart", file=sys.stderr)  # varies
     if ta * margin < tb:
         return "a"
     if tb * margin < ta:
@@ -297,7 +313,7 @@ tie
 a
 ```
 
-The margin is what makes the answer stable. Two runs of the same code never take exactly the same time, so without a margin the second line would say `a` or `b` at random. Even 25% can be too tight for identical code on a busy machine, which is why the tie test uses a margin of 2. Slicing copies the list in one C call, while the comprehension runs a bytecode loop.
+The margin is what makes the answer stable. Two runs of the same code never take exactly the same time, so without a margin the second line would say `a` or `b` at random. Even 25% can be too tight for identical code on a busy machine, which is why the tie test uses a margin of 2. Slicing copies the list in one C call, while the comprehension runs a bytecode loop: on my machine the slice won by 3.3x to 6.9x, depending on the build, against a margin of 1.25.
 
 </Solution>
 </Exercise>

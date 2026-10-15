@@ -1,4 +1,5 @@
 import random
+import sys
 import timeit
 
 random.seed(3)
@@ -29,3 +30,4 @@ fast = min(timeit.repeat(lambda: has_pair_set(NUMBERS, target),
                          number=1, repeat=3))
 print("same answer:", has_pair_naive(NUMBERS, 5) == has_pair_set(NUMBERS, 5))
 print("set version 50x faster:", slow > 50 * fast)
+print(f"measured: {slow / fast:.0f}x faster", file=sys.stderr)

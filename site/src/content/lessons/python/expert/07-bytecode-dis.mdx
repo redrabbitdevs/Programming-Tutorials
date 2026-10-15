@@ -245,6 +245,10 @@ $ python3.15 specialise.py
 
 `FOR_ITER_LIST` is `FOR_ITER` specialised for lists. `BINARY_OP_ADD_INT` skips the operator dispatch. `JUMP_BACKWARD_NO_JIT` is the backward jump you see when the experimental JIT is off, which is the default. The names and the thresholds are internal and change between releases, so treat this as a window, not an API. The practical lesson: code whose types stay stable at each site gets the fast paths.
 
+## When not to read bytecode
+
+Use `dis` to answer "what does this line actually do?": which names it looks up, whether a comprehension creates a function, where a line's instructions begin. Do not use it to answer "how fast is this?" or "is this thread-safe?". Fewer instructions is not faster code, because one call instruction can run a million lines of C, and specialisation changes the cost of an instruction while the program runs. Speed is a question for [timeit and a profiler](../measuring-performance/). Thread safety cannot be read from bytecode either: a thread switch can happen between any two instructions, a single instruction such as `BINARY_OP` can run arbitrary Python through `__add__`, and on the free-threaded build threads run truly at the same time. Use locks, not opcode counts. And since opcodes change every release, keep them out of production code.
+
 ## Common pitfalls
 
 **Benchmarking by counting instructions.** One specialised instruction can cost less than one generic one. Measure with `timeit`, not `dis`.
