@@ -130,7 +130,7 @@ Hello, Ada!
 <dict:greetings> DictImporter
 ```
 
-The import system set `__spec__`, `__loader__` and `__name__` before `exec_module` ran, and put the module in `sys.modules`. The loader only runs code. Passing `origin` to `compile` makes tracebacks name `<dict:greetings>`. The same pattern serves modules from a database, a zip in memory, or a network share.
+The import system set `__spec__`, `__loader__` and `__name__` before `exec_module` ran, and put the module in `sys.modules`. The loader only runs code, with the `compile` and `exec` pair from [introspection and the AST](../../advanced/introspection-ast/), and the same warning about untrusted source applies. Like the classes in [metaclasses](../../advanced/metaclasses/), a module is an ordinary object made at run time: when `create_module` returns `None`, the import system makes an empty `types.ModuleType(name)`. Passing `origin` to `compile` makes tracebacks name `<dict:greetings>`. The same pattern serves modules from a database, a zip in memory, or a network share.
 
 ## load_module is gone
 
@@ -238,7 +238,7 @@ acme startup hook ran
 lib on sys.path: True
 ```
 
-On 3.14, which ignores `.start` files, the same program prints `acme import line ran` instead. All path lines are applied before any entry point runs, which is why `acme_boot` can be found in `lib`. The PEP's timeline: `import` lines keep working through 3.17 (with a warning under `-v`), are silently ignored in 3.18 and 3.19, and produce a warning from 3.20.
+On 3.14, which ignores `.start` files, the same program prints `acme import line ran` instead. All path lines are applied before any entry point runs, which is why `acme_boot` can be found in `lib`. The [PEP's planned timeline](https://peps.python.org/pep-0829/#abstract), with versions it gives as "expected": `import` lines keep working for three years, expected to be 3.15 to 3.17 (with a warning under `-v`), are then silently ignored, expected in 3.18 and 3.19, and produce a warning after that, expected from 3.20.
 
 ## Choosing a hook
 

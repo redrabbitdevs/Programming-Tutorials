@@ -1,0 +1,4 @@
+growing: [('Request', 500)]
+biggest new allocations: line 10 (at least 500 kB)
+held by: ['dict', 'list']
+the holder is handled: True

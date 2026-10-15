@@ -1,0 +1,17 @@
+# Driver for hello.c, the solution to "A minimal extension" in lesson 12.
+# scripts/validate.sh builds it, puts it on PYTHONPATH and runs this file;
+# output goes to hello.out.
+import sys
+import sysconfig
+
+import hello
+
+print(hello.greet('Ada'))
+try:
+    hello.greet(3)
+except TypeError as exc:
+    print("TypeError:", exc)
+
+# Py_mod_gil: on a free-threaded build, importing hello must leave the GIL off.
+free_threaded = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+print("GIL left alone:", not (free_threaded and sys._is_gil_enabled()))

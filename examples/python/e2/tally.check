@@ -1,0 +1,27 @@
+# Driver for tally.c. scripts/validate.sh builds the extension (version-specific
+# and abi3t), puts it on PYTHONPATH and runs this file; output goes to tally.out.
+# The lines repeat the console sessions in lesson 12 (c-api-tour).
+import sys
+import sysconfig
+
+import tally
+
+print(tally.count_true([0, 1, 'a', '', None, 3]))
+print(tally.count_true([1, 0, 2]))
+try:
+    tally.count_true(5)
+except TypeError as exc:
+    print("TypeError:", exc)
+
+print(tally.scale([1, 2.5, True]))
+print(tally.scale(range(3), factor=0.5))
+for bad in ("tally.scale([1, 'two'])", "tally.scale([1], 'x')",
+            "tally.scale()", "tally.scale(7)"):
+    try:
+        eval(bad)
+    except TypeError as exc:
+        print("TypeError:", exc)
+
+# Py_mod_gil: on a free-threaded build, importing tally must leave the GIL off.
+free_threaded = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+print("GIL left alone:", not (free_threaded and sys._is_gil_enabled()))

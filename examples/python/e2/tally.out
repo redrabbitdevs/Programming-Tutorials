@@ -1,0 +1,10 @@
+3
+2
+TypeError: 'int' object is not iterable
+[2.0, 5.0, 2.0]
+[0.0, 0.5, 1.0]
+TypeError: must be real number, not str
+TypeError: must be real number, not str
+TypeError: scale() missing required argument 'seq' (pos 1)
+TypeError: 'int' object is not iterable
+GIL left alone: True

@@ -161,6 +161,92 @@ if [ -d "$ROOT/examples" ]; then
 fi
 if [ $JS_BAD -eq 0 ]; then pass "js examples: $JS_RUN run, $JS_CMP compared to .out, $JS_CHK syntax-checked"; else fail "js examples: $JS_BAD of $((JS_RUN + JS_CHK)) failed"; fi
 
+# 2c. C extension examples ---------------------------------------------------
+# Each examples/python/**/NAME.c is a CPython extension from a lesson. It is
+# compiled twice against $PYTHON's headers with gcc -Wall -Werror (a
+# version-specific build and an abi3t stable-ABI build). Both are imported by
+# running NAME.check under $PYTHON (and the abi3t build under $PYTHON_FT, a
+# free-threaded python3.15t, if set); output must equal NAME.out. Titled c
+# blocks in python lessons (NAME.c, NAME.c (continued)) must equal NAME.c.
+# Skipped with a SKIP line when there is no C compiler or no Python.h.
+step "c extensions: build and import examples/python/**/*.c (PYTHON_FT=${PYTHON_FT:-unset})"
+CX_RUN=0; CX_BAD=0
+CC_BIN="${CC:-gcc}"
+PY_BIN="${PYTHON:-python3}"
+CX_INC="$("$PY_BIN" -c 'import sysconfig; print(sysconfig.get_paths()["include"])' 2>/dev/null)"
+CX_SUF="$("$PY_BIN" -c 'import sysconfig; print(sysconfig.get_config_var("EXT_SUFFIX"))' 2>/dev/null)"
+CX_SKIP=""
+if [ "$(uname -s)" != "Linux" ]; then CX_SKIP="not Linux"
+elif ! command -v "$CC_BIN" >/dev/null 2>&1; then CX_SKIP="no C compiler ($CC_BIN)"
+elif [ -z "$CX_INC" ] || [ ! -f "$CX_INC/Python.h" ]; then CX_SKIP="no Python.h for $PY_BIN"
+fi
+if [ -n "$CX_SKIP" ]; then
+  echo "  SKIP $CX_SKIP"
+  SUMMARY+=("SKIP  c extensions: $CX_SKIP")
+else
+  CX_TMP="$(mktemp -d)"
+  while IFS= read -r -d '' f; do
+    rel="${f#"$ROOT"/}"
+    name="$(basename "${f%.c}")"
+    check="${f%.c}.check"; expected="${f%.c}.out"
+    CX_RUN=$((CX_RUN + 1))
+    if [ ! -f "$check" ] || [ ! -f "$expected" ]; then
+      echo "  FAIL $rel (needs ${name}.check and ${name}.out)"; CX_BAD=$((CX_BAD + 1)); continue
+    fi
+    ok=1
+    for build in specific abi3t; do
+      out="$CX_TMP/$name-$build"; mkdir -p "$out"
+      if [ $build = specific ]; then flags=(); so="$out/$name$CX_SUF"
+      else flags=(-DPy_LIMITED_API=0x030f0000 -DPy_TARGET_ABI3T=0x030f0000); so="$out/$name.abi3t.so"; fi
+      if ! "$CC_BIN" -Wall -Werror -shared -fPIC -I"$CX_INC" "${flags[@]}" "$f" -o "$so" 2>"$CX_TMP/err"; then
+        echo "  FAIL $rel ($build build)"; head -10 "$CX_TMP/err" | sed 's/^/       /'; ok=0; continue
+      fi
+      runners=("$PY_BIN")
+      [ $build = abi3t ] && [ -n "${PYTHON_FT:-}" ] && runners+=("$PYTHON_FT")
+      for py in "${runners[@]}"; do
+        actual="$(cd "$CX_TMP" && PYTHONPATH="$out" timeout 30 "$py" "$check" 2>"$CX_TMP/err")"
+        if [ $? -ne 0 ] || [ "$actual" != "$(cat "$expected")" ]; then
+          echo "  FAIL $rel ($build build under $py)"
+          diff <(printf '%s\n' "$actual") "$expected" | head -10 | sed 's/^/       /'
+          head -10 "$CX_TMP/err" | sed 's/^/       /'; ok=0
+        fi
+      done
+    done
+    if [ $ok -eq 1 ]; then echo "  ok   $rel"; else CX_BAD=$((CX_BAD + 1)); fi
+  done < <(find "$ROOT/examples/python" -name '*.c' -type f -print0 | sort -z)
+  rm -rf "$CX_TMP"
+  # Lesson C blocks against the example files (joined like continued python blocks).
+  if ! python3 - "$ROOT" <<'PYEOF'
+import sys
+from pathlib import Path
+root = Path(sys.argv[1])
+sys.path.insert(0, str(root / "scripts"))
+import check_lesson_examples as cle
+bad = 0
+for lesson in sorted((root / "site/src/content/lessons/python").rglob("*.mdx")):
+    parts = {}
+    for line, lang, title, _rest, code in cle.parse_blocks(lesson):
+        if lang != "c" or not title:
+            continue
+        base = title.removesuffix(" (continued)")
+        parts.setdefault(base, []).append(code)
+    for base, codes in parts.items():
+        cands = list((root / "examples/python").rglob(base))
+        rel = lesson.relative_to(root)
+        if not cands:
+            print(f"  FAIL {rel}: no examples/python file for {base}"); bad += 1
+        elif cle.squash("\n".join(codes)) != cle.squash(cands[0].read_text()):
+            print(f"  FAIL {rel}: c blocks titled {base} differ from "
+                  f"{cands[0].relative_to(root)}"); bad += 1
+        else:
+            print(f"  ok   {rel}: {base} ({len(codes)} blocks)")
+sys.exit(1 if bad else 0)
+PYEOF
+  then CX_BAD=$((CX_BAD + 1)); fi
+  if [ $CX_BAD -eq 0 ]; then pass "c extensions: $CX_RUN built twice, imported, compared to .out; lesson c blocks match"
+  else fail "c extensions: $CX_BAD failed"; fi
+fi
+
 # 3. Internal links ----------------------------------------------------------
 step "links: internal links in site/dist against base path $BASE_PATH"
 if [ $BUILD_OK -eq 1 ]; then

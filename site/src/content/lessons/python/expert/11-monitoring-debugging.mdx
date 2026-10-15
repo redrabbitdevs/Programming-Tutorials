@@ -17,7 +17,7 @@ fundamentals:
   - fundamentals/beginner/24-debugging
 ---
 
-Debuggers, profilers and coverage tools all need the interpreter to tell them what is happening. For most of Python's history that meant `sys.settrace`: a callback on every line of every traced function, paid whether the tool still needed it or not. This lesson covers the modern replacements: an event API with per-location switches, a safe way to attach to a process that is already running, and native stacks that system profilers can read.
+Debuggers, profilers and coverage tools all need the interpreter to tell them what is happening. For most of Python's history that meant `sys.settrace`: a callback on every line of every traced function, paid whether the tool still needed it or not. The tools in this lesson work one level below the `inspect` signatures and source of [introspection and the AST](../../advanced/introspection-ast/): they see code objects as they run. This lesson covers the modern replacements: an event API with per-location switches, a safe way to attach to a process that is already running, and native stacks that system profilers can read.
 
 ## sys.monitoring
 
@@ -111,11 +111,11 @@ missed lines: [3]
 
 Line +3, `return "fail"`, never ran. The second call to `grade` produced no callbacks at all. `co_lines()` from [the bytecode lesson](../bytecode-dis/) supplies the set of lines that could have run. `sys.monitoring.restart_events()` turns every disabled location back on, for tools that measure in rounds.
 
-<Since v="3.15" /> Events that are not tied to one location, such as `RAISE` and `PY_UNWIND`, can now also be set per code object, and returning `DISABLE` turns them off for that whole code object.
+<Since v="3.15" /> The events that are not tied to one location, `PY_THROW`, `PY_UNWIND`, `RAISE`, `EXCEPTION_HANDLED` and `RERAISE`, can now also be set per code object, and returning `DISABLE` from their callbacks turns them off for that whole code object ([sys.monitoring, "Other events"](https://docs.python.org/3/library/sys.monitoring.html#other-events)). An exception tracker can now watch one function and stop paying once it has seen what it needs.
 
 ## Attaching a debugger to a running process
 
-A server is stuck, and it was not started under a debugger. Since 3.14 ([PEP 768](https://peps.python.org/pep-0768/)), you can attach `pdb` to it by process id:
+A server is stuck, and it was not started under a debugger. Since 3.14 ([PEP 768](https://peps.python.org/pep-0768/)), you can attach `pdb` to it by process id. [Debugging with pdb](../../intermediate/debugging-pdb/) covered the commands and a first attach. A session, then what happens underneath:
 
 ```console
 $ python3.15 -m pdb -p 48211
@@ -198,7 +198,7 @@ Some redistributors enabled them earlier: the 3.14.8 build that `uv` installs pr
 
 ## Choosing a tool
 
-For a tool you write, use `sys.monitoring`, and switch off every location you are done with. Use `sys.settrace` only to support Pythons older than 3.12. To inspect a live process, use `pdb -p` first and `sys.remote_exec` for one-off, scripted actions. For CPU time across Python and native code, use a sampling profiler (the [profiling](https://docs.python.org/3/library/profiling.html) package in 3.15, or `perf`), not an event hook.
+For a tool you write, use `sys.monitoring`, and switch off every location you are done with. Use `sys.settrace` only to support Pythons older than 3.12. To inspect a live process, use `pdb -p` first and `sys.remote_exec` for one-off, scripted actions. For CPU time across Python and native code, use a sampling profiler (the [profiling](https://docs.python.org/3/library/profiling.html) package in 3.15, or `perf`), not an event hook. You will also meet third-party tools such as py-spy, which samples a running process from outside; check each tool's documentation for the Python versions it supports.
 
 ## Common pitfalls
 
@@ -337,7 +337,7 @@ print(count_calls(fib, 5), count_calls(fib, 6))
 15 25
 ```
 
-Since 3.14, `free_tool_id` first calls `clear_tool_id`, which unregisters the callbacks and turns the events off. On 3.12 and 3.13, turn the events off yourself before freeing.
+Since 3.14, `free_tool_id` first calls `clear_tool_id`, which unregisters the callbacks and turns the events off. On 3.12 and 3.13, turn the events off yourself before freeing. If several functions claim tool ids, wrap the claim and the release in a context manager ([advanced context managers](../../advanced/contextlib-advanced/)), so that no caller can forget the `finally`.
 
 </Solution>
 </Exercise>
