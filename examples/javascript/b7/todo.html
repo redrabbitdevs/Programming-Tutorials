@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Todo page</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 28rem; }
+      ul { padding-left: 0; list-style: none; }
+      li { padding: 0.25rem 0; cursor: pointer; }
+      li.done span { text-decoration: line-through; color: gray; }
+      button[aria-pressed="true"] { font-weight: bold; }
+      #note { color: #b00020; }
+    </style>
+    <script type="module" src="todo.js"></script>
+  </head>
+  <body>
+    <h1>Todo</h1>
+    <form id="add-form">
+      <label>
+        New task
+        <input id="new-todo" name="text" type="text" autocomplete="off" />
+      </label>
+      <button type="submit">Add</button>
+    </form>
+
+    <p id="filters">
+      <button type="button" data-filter="all">All</button>
+      <button type="button" data-filter="active">Active</button>
+      <button type="button" data-filter="done">Done</button>
+    </p>
+
+    <ul id="todo-list"></ul>
+    <p id="summary"></p>
+    <p id="note"></p>
+  </body>
+</html>

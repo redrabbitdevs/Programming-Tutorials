@@ -1,0 +1,366 @@
+---
+language: javascript
+level: beginner
+module: DOM basics (optional browser strand)
+order: 38
+title: Events
+description: Respond to clicks and other user actions with addEventListener, read the event object, use bubbling for event delegation, cancel default actions and remove listeners with once and signal.
+minVersion: "22"
+objectives:
+  - Attach a listener with addEventListener and read the event object
+  - Explain bubbling and use event delegation for lists
+  - Cancel a default browser action with preventDefault
+  - Use the once and signal options to limit or remove a listener
+estimatedMinutes: 40
+fundamentals: []
+---
+
+*This lesson belongs to the optional browser module. Serve your folder as in lesson 36 and open each page in a browser.*
+
+A page that never reacts is just a document. An **event** is the browser telling your code that something happened: a click, a key press, a form submission, a page finishing loading. You register a function, called a **listener** or handler, and the browser calls it each time the event happens.
+
+## addEventListener
+
+```javascript
+button.addEventListener("click", (event) => {
+  console.log("clicked", event.type);
+});
+```
+
+`addEventListener(type, listener, options)` takes the event name as a string, the function to call and an optional third argument. The browser calls the function with an **event object**. Three of its properties matter most:
+
+- `event.type` is the name of the event, such as `"click"`.
+- `event.target` is the element where the event started. For a click, it is the innermost element under the pointer.
+- `event.currentTarget` is the element the listener is attached to. MDN notes that it is only available while the handler runs.
+
+You can add several listeners for the same event on one element. They run in the order you added them. MDN points out that two anonymous functions are never identical, even with the same source code, so adding "the same" arrow function twice adds two listeners.
+
+To remove a listener with `removeEventListener`, you must pass the same function object that you added, so give the function a name if you plan to remove it. The `signal` option below is often easier.
+
+## A click counter
+
+The counter keeps its calculation in a pure function: given the current count and an action, it returns the next count.
+
+```javascript title="counter_logic.js"
+export function nextCount(count, action, step = 1) {
+  switch (action) {
+    case "inc":
+      return count + step;
+    case "dec":
+      return count - step;
+    case "reset":
+      return 0;
+    default:
+      return count;
+  }
+}
+```
+
+```javascript title="counter_logic_demo.mjs"
+import { nextCount } from "./counter_logic.js";
+
+let count = 0;
+for (const action of ["inc", "inc", "dec", "inc", "oops"]) {
+  count = nextCount(count, action);
+  console.log(action, count);
+}
+console.log("reset", nextCount(count, "reset"));
+console.log("step 5", nextCount(count, "inc", 5));
+```
+
+Run `node counter_logic_demo.mjs`:
+
+```text
+inc 1
+inc 2
+dec 1
+inc 2
+oops 2
+reset 0
+step 5 7
+```
+
+An unknown action such as `"oops"` leaves the count as it was. A `step` argument has a default of 1. Now the page. It has buttons, and each button names its action in a `data-action` attribute.
+
+```html title="counter.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Click counter</title>
+    <script type="module" src="counter.js"></script>
+  </head>
+  <body>
+    <h1>Click counter</h1>
+    <p>Count: <output id="count">0</output></p>
+    <p>
+      <button type="button" data-action="dec">-1</button>
+      <button type="button" data-action="inc">+1</button>
+      <button type="button" data-action="reset">Reset</button>
+    </p>
+    <p>
+      <button type="button" id="hello">Say hello (works once)</button>
+      <button type="button" id="stop">Switch the counter off</button>
+    </p>
+    <p id="status"></p>
+  </body>
+</html>
+```
+
+```javascript title="counter.js"
+import { nextCount } from "./counter_logic.js";
+
+let count = 0;
+const output = document.querySelector("#count");
+const status = document.querySelector("#status");
+const controller = new AbortController();
+
+function update(action) {
+  count = nextCount(count, action);
+  output.textContent = String(count);
+}
+
+for (const button of document.querySelectorAll("button[data-action]")) {
+  button.addEventListener(
+    "click",
+    () => update(button.getAttribute("data-action")),
+    { signal: controller.signal },
+  );
+}
+
+document.querySelector("#hello").addEventListener(
+  "click",
+  () => {
+    status.textContent = "Hello! This message appears only once.";
+  },
+  { once: true },
+);
+
+document.querySelector("#stop").addEventListener("click", () => {
+  controller.abort();
+  status.textContent = "The counter buttons are switched off.";
+});
+```
+
+- `document.querySelectorAll("button[data-action]")` finds the three counter buttons. Each gets a click listener, and the listener reads the button's `data-action` value and passes it to `update`.
+- `update` calls the pure function, stores the result, and writes it to the page with `textContent`. The state (`count`) lives in a variable, and the page just shows it.
+- `output` is an HTML element for showing a result. A `<p>` or `<span>` would work equally well.
+
+Open `counter.html` and press the buttons. The count goes up, down and back to 0.
+
+### The once and signal options
+
+The third argument of `addEventListener` can be an object of options. Two of them are used above.
+
+- `{ once: true }` removes the listener automatically after it has run once. The "Say hello" button only works the first time.
+- `{ signal }` takes an `AbortSignal`. When you call `abort()` on its `AbortController`, every listener registered with that signal is removed. One call switches off a whole group. The "Switch the counter off" button does this to the three counter buttons.
+
+MDN also documents `capture` and `passive`. `passive: true` promises that the listener never calls `preventDefault()`. You do not need either option in this module.
+
+## Bubbling and delegation
+
+Most events **bubble**. A click on a `<li>` is delivered first to the `<li>`, then to its parent `<ul>`, then to the next parent, all the way up to the document. A listener added the normal way runs during this upward trip.
+
+This allows a pattern called **event delegation**: instead of a listener on every `<li>`, put one on the `<ul>` and look at `event.target` to see which item was clicked. It has two advantages. New items work without any extra code, because the listener belongs to the list. And a long list needs only one listener.
+
+`event.target` can be a child of the item you care about, such as a `<span>` inside an `<li>`. `event.target.closest("li")` walks up from the target and returns the nearest ancestor that matches the selector, or the element itself, or `null` if there is none.
+
+The logic for the task list is again in a pure function:
+
+```javascript title="tasks_logic.js"
+export function toggleTask(tasks, id) {
+  return tasks.map((task) => (task.id === id ? { ...task, done: !task.done } : task));
+}
+
+export function countDone(tasks) {
+  return tasks.filter((task) => task.done).length;
+}
+```
+
+```javascript title="tasks_logic_demo.mjs"
+import { countDone, toggleTask } from "./tasks_logic.js";
+
+const tasks = [
+  { id: 1, text: "Write HTML", done: false },
+  { id: 2, text: "Write JavaScript", done: true },
+];
+
+const after = toggleTask(tasks, 1);
+console.log(after);
+console.log(countDone(tasks), countDone(after));
+console.log(toggleTask(tasks, 99) === tasks, toggleTask(tasks, 99).length);
+```
+
+Run `node tasks_logic_demo.mjs`:
+
+```text
+[
+  { id: 1, text: 'Write HTML', done: true },
+  { id: 2, text: 'Write JavaScript', done: true }
+]
+1 2
+false 2
+```
+
+`toggleTask` returns a new array with a changed copy of one task, so the original stays as it was, in the same way as the copying lesson. Searching for an id that does not exist returns an array with the same tasks. The page:
+
+```html title="delegate.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Delegated task list</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 1rem; }
+      li { cursor: pointer; }
+      li.done { text-decoration: line-through; color: gray; }
+    </style>
+    <script type="module" src="delegate.js"></script>
+  </head>
+  <body>
+    <h1>Tasks</h1>
+    <p>Click a task to mark it done. <span id="summary"></span></p>
+    <ul id="tasks"></ul>
+    <p><a id="docs" href="https://example.com/">Read the docs</a></p>
+    <p id="status"></p>
+  </body>
+</html>
+```
+
+```javascript title="delegate.js"
+import { countDone, toggleTask } from "./tasks_logic.js";
+
+let tasks = [
+  { id: 1, text: "Write HTML", done: false },
+  { id: 2, text: "Write JavaScript", done: false },
+  { id: 3, text: "Open the page", done: false },
+];
+
+const list = document.querySelector("#tasks");
+const summary = document.querySelector("#summary");
+const status = document.querySelector("#status");
+
+function render() {
+  const rows = tasks.map((task) => {
+    const li = document.createElement("li");
+    li.textContent = task.text;
+    li.dataset.id = String(task.id);
+    li.classList.toggle("done", task.done);
+    return li;
+  });
+  list.replaceChildren(...rows);
+  summary.textContent = `${countDone(tasks)} of ${tasks.length} done.`;
+}
+
+list.addEventListener("click", (event) => {
+  console.log(event.type, event.target.tagName, event.currentTarget.id);
+  const li = event.target.closest("li");
+  if (li === null || !list.contains(li)) return;
+  tasks = toggleTask(tasks, Number(li.dataset.id));
+  render();
+});
+
+document.querySelector("#docs").addEventListener("click", (event) => {
+  event.preventDefault();
+  status.textContent = "The link click was cancelled. The page stayed where it is.";
+});
+
+render();
+```
+
+- `render` builds the whole list from `tasks` each time, as in the last lesson. Every `<li>` gets its id in `dataset.id`.
+- There is one click listener, on the list. It finds the clicked item with `closest("li")`. The `list.contains(li)` check makes sure the item is inside this list.
+- `Number(li.dataset.id)` turns the string back into a number to match the task ids.
+- The first line of the handler logs the event. When you click an item, the console shows:
+
+```text title="Console output"
+click LI tasks
+```
+
+The target is the `LI` and the current target is the list, `tasks`, where the listener is attached.
+
+### Cancelling a default action
+
+Some events have a built-in action: a click on a link goes to its address, and a form submit sends the form. `event.preventDefault()` cancels that action. The event still bubbles. The last listener in `delegate.js` uses it for the "Read the docs" link, so clicking the link shows a message and the page does not move. Forms use the same call in the next lesson.
+
+`event.stopPropagation()` is different: it stops the event from travelling further up. Delegation depends on events reaching the parent, so avoid it unless you have a clear reason.
+
+## Common pitfalls
+
+- **Calling the function instead of passing it.** `button.addEventListener("click", update())` runs `update` at once and registers its return value. Write `update`, or `() => update(...)`.
+- **Removing a listener that cannot be matched.** `removeEventListener` needs the original function object. A new arrow function is a different function. Use a named function or a `signal`.
+- **Listeners on items that are replaced.** After `replaceChildren`, the old `<li>` elements are gone with their listeners. Delegation on the parent avoids the problem.
+- **Using `target` when you meant `currentTarget`.** `target` is where the event started, which can be a child element. `currentTarget` is where the listener sits.
+- **Forgetting `closest` returns `null`.** A click on the list's padding has no `<li>` above it. Check for `null`.
+- **Doing slow work in a handler.** The page cannot respond while your code runs. Keep handlers short.
+
+## Exercises
+
+<Exercise title="Delete a task">
+
+Write a pure function `removeTask(tasks, id)` that returns a new array without the task with that id, and check it in Node. Then say how you would add a "Delete" button to each item of the delegated task list.
+
+<Solution>
+
+`filter` keeps every task whose id is different:
+
+```javascript title="tasks_remove.js"
+export function removeTask(tasks, id) {
+  return tasks.filter((task) => task.id !== id);
+}
+```
+
+```javascript title="tasks_remove_demo.mjs"
+import { removeTask } from "./tasks_remove.js";
+
+const tasks = [
+  { id: 1, text: "Write HTML", done: false },
+  { id: 2, text: "Write JavaScript", done: true },
+];
+
+const after = removeTask(tasks, 1);
+console.log(after);
+console.log(tasks.length, after.length);
+console.log(removeTask(tasks, 99).length);
+```
+
+Run `node tasks_remove_demo.mjs`:
+
+```text
+[ { id: 2, text: 'Write JavaScript', done: true } ]
+2 1
+2
+```
+
+The original array still has 2 tasks, and removing an unknown id changes nothing.
+
+To add the button, create one `<button>` for each task in `render` and mark it with `button.dataset.role = "remove"`. In the existing list listener, test the target first: if `event.target.closest("button[data-role='remove']")` is not `null`, set `tasks = removeTask(tasks, id)`, otherwise toggle as before. No new listeners are needed, because the list listener already receives clicks from the buttons. The project lesson does exactly this.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Which listeners run?">
+
+A page has `<div id="outer"><button id="inner">Go</button></div>`. A click listener is added to `#outer`, and another to `#inner`. The listener on `#inner` calls `console.log("inner")`, and the one on `#outer` calls `console.log("outer")`. Both use the default options. What is logged when you click the button once? What changes if the listener on `#inner` is added with `{ once: true }` and you click twice?
+
+<Solution>
+
+The click starts at the button and bubbles up to the div, so the output is `inner` and then `outer`.
+
+With `{ once: true }` on the button's listener, the first click logs `inner` and `outer`. The button's listener is then removed. The second click logs only `outer`, because the div's listener is still there.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `addEventListener(type, listener, options)` registers a function. The browser passes it an event object with `type`, `target` and `currentTarget`.
+- Keep calculations in pure functions, and let handlers read the event, call the function and update the page.
+- Events bubble from the target up through its ancestors. Delegation uses one listener on a parent and `event.target.closest(...)` to find the item.
+- `preventDefault()` cancels the browser's default action, such as following a link.
+- `{ once: true }` runs a listener at most once. `{ signal }` removes it when the controller aborts.
+- Next, you will use events to read and check what a visitor types into a form.

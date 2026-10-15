@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Click counter</title>
+    <script type="module" src="counter.js"></script>
+  </head>
+  <body>
+    <h1>Click counter</h1>
+    <p>Count: <output id="count">0</output></p>
+    <p>
+      <button type="button" data-action="dec">-1</button>
+      <button type="button" data-action="inc">+1</button>
+      <button type="button" data-action="reset">Reset</button>
+    </p>
+    <p>
+      <button type="button" id="hello">Say hello (works once)</button>
+      <button type="button" id="stop">Switch the counter off</button>
+    </p>
+    <p id="status"></p>
+  </body>
+</html>

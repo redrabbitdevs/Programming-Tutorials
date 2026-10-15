@@ -1,0 +1,6 @@
+[
+  { id: 1, text: 'Write HTML', done: true },
+  { id: 2, text: 'Write JavaScript', done: true }
+]
+1 2
+false 2

@@ -1,0 +1,374 @@
+---
+language: javascript
+level: beginner
+module: DOM basics (optional browser strand)
+order: 36
+title: JavaScript in a web page
+description: Load a script into an HTML page with a module script tag, serve the page locally, use the developer tools console, and see how module scope differs from a classic script.
+minVersion: "22"
+objectives:
+  - Load a JavaScript file into a page with a module script tag
+  - Serve a page from a local web server and open the console
+  - Explain how module scope differs from a classic script's global scope
+  - Use defer so a classic script runs after the page is parsed
+estimatedMinutes: 40
+fundamentals: []
+---
+
+**This module is optional.** Everything else in the beginner level runs in Node.js, and nothing in the core path needs a browser. The five lessons here show the other place JavaScript lives: inside a web page, where it can read and change what the visitor sees. Skip them if you only want to write command-line tools and servers, and come back whenever you like. Later lessons that touch the browser say so.
+
+## How this module is organised
+
+A browser example needs two things Node does not: an HTML page and a browser to open it. You cannot check the page's behaviour by running a script in the terminal. So every lesson in this module splits its code in two:
+
+- **Logic** goes in plain functions that never touch the page. You can run these in Node and check their output, exactly as in the earlier lessons.
+- **Page code** goes in a separate file that reads and changes the DOM. You check it by opening the page and looking at it.
+
+This split is also a good habit in real projects, because the logic is easy to test and the page code stays short. The ideas behind it, such as separating a calculation from its input and output, are in the [fundamentals lesson on functions](../../../fundamentals/beginner/functions/).
+
+The APIs in this module are well established. At the time of writing, MDN labels each one used here as Baseline **widely available**, which means it works in all the current major browsers and has done for a good while. When a lesson uses something newer, it says so.
+
+Put all the files of this module in one folder, for example `web`. Every file is shown in full, and each lesson's files work together.
+
+## Your first page
+
+An HTML page loads JavaScript with a `<script>` element. The modern way is `type="module"`.
+
+```html title="hello.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hello page</title>
+    <script type="module" src="hello.js"></script>
+  </head>
+  <body>
+    <h1 id="title">Loading...</h1>
+    <p>Open the console (F12) to see the log.</p>
+  </body>
+</html>
+```
+
+The `src` attribute names the file to load. The script is in the `<head>`, yet it can still change the `<h1>` in the body. A module script is **deferred**: the browser downloads it while it reads the page, and runs it only after the whole document has been parsed. MDN states that you do not need `defer` for a module script because "modules are deferred automatically".
+
+The script itself is an ordinary ES module, as in lessons 31 to 33. It can `import` from other files.
+
+```javascript title="hello.js"
+import { greeting } from "./greeting.js";
+
+const hour = new Date().getHours();
+const heading = document.querySelector("#title");
+
+heading.textContent = greeting("visitor", hour);
+console.log("hello.js ran after the page was parsed");
+```
+
+- `document` is the object that represents the page. `document.querySelector("#title")` finds the first element that matches a CSS selector. The next lesson covers this properly.
+- `textContent` is the text inside an element. Assigning to it replaces what was there.
+- `new Date().getHours()` gives the hour from 0 to 23 on the visitor's clock.
+
+The greeting comes from a separate module with no page code in it.
+
+```javascript title="greeting.js"
+export function greeting(name, hour) {
+  const who = name.trim() === "" ? "stranger" : name.trim();
+  if (hour < 12) return `Good morning, ${who}!`;
+  if (hour < 18) return `Good afternoon, ${who}!`;
+  return `Good evening, ${who}!`;
+}
+```
+
+`greeting` is a pure function: the same name and hour always give the same result. Check it in Node:
+
+```javascript title="greeting_demo.mjs"
+import { greeting } from "./greeting.js";
+
+console.log(greeting("Ada", 9));
+console.log(greeting("Ada", 14));
+console.log(greeting("  ", 20));
+```
+
+Run `node greeting_demo.mjs`:
+
+```text
+Good morning, Ada!
+Good afternoon, Ada!
+Good evening, stranger!
+```
+
+The page code is then little more than "find the heading, put the text in it". Later lessons follow this pattern every time.
+
+## Serving the page
+
+You might expect to double-click `hello.html`. For a module script that does not work. MDN's guide to JavaScript modules warns that loading the HTML file from disk (a `file://` address) causes CORS errors because of the security rules for modules, and that you need to test through a server.
+
+A web server is just a program that sends files when a browser asks. Node can do that in a few lines. Save this as `serve.mjs` in your `web` folder.
+
+```javascript title="serve.mjs"
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { extname, join, normalize, sep } from "node:path";
+
+const types = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+};
+
+const root = process.cwd();
+const port = Number(process.argv[2] ?? 8000);
+
+const server = createServer(async (request, response) => {
+  const url = new URL(request.url, "http://localhost");
+  let path = decodeURIComponent(url.pathname);
+  if (path.endsWith("/")) path += "index.html";
+
+  const file = normalize(join(root, path));
+  if (file !== root && !file.startsWith(root + sep)) {
+    response.writeHead(403).end("Forbidden");
+    return;
+  }
+
+  try {
+    const body = await readFile(file);
+    const type = types[extname(file)] ?? "application/octet-stream";
+    response.writeHead(200, { "Content-Type": type }).end(body);
+  } catch {
+    response.writeHead(404).end("Not found");
+  }
+});
+
+server.listen(port, "127.0.0.1", () => {
+  console.log(`Serving ${root} at http://localhost:${port}/`);
+});
+```
+
+- `createServer` calls the function once for each request. `request.url` is the path the browser asked for, such as `/hello.html`.
+- `join(root, path)` turns it into a file path inside the folder, and the `startsWith` check refuses any path that would climb out of that folder. A server that skipped this check could be asked for any file on your computer.
+- `readFile` reads the file. The `types` table sets the `Content-Type` header, so the browser knows that `.js` files are JavaScript. Browsers refuse a module script that arrives with the wrong type.
+- The server listens on `127.0.0.1`, so only your own computer can reach it.
+
+Start it from inside the folder:
+
+```text frame="terminal"
+node serve.mjs
+Serving /home/you/web at http://localhost:8000/
+```
+
+Open `http://localhost:8000/hello.html` in your browser. The heading should read "Good morning, visitor!" or the greeting for your local time. Press `Ctrl+C` in the terminal to stop the server.
+
+If you have Python installed, `python3 -m http.server` in the same folder is another way to serve the files. Use whichever you prefer.
+
+## The console
+
+Every browser has **developer tools**, usually opened from the browser's menu or with `F12`. The **Console** tab shows what `console.log` prints, and it shows errors, with the file and line that caused them. Open it now on the hello page. You should see:
+
+```text title="Console output"
+hello.js ran after the page was parsed
+```
+
+When a page does not do what you expect, the console is the first place to look. A typo in a file name, a missing server or a thrown error all show up there.
+
+## Module scope and the global object
+
+In a browser, the global object is `window`, and `globalThis` is the same object. How a script is loaded decides whether its top-level names end up on it.
+
+```html title="classic_scope.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Classic scope</title>
+    <script src="classic_scope.js" defer></script>
+  </head>
+  <body>
+    <h1>Classic scope</h1>
+    <p>Open the console (F12) to see the results.</p>
+  </body>
+</html>
+```
+
+```javascript title="classic_scope.js"
+var classicVar = "I become a property of window";
+let classicLet = "I do not";
+
+console.log("typeof window.classicVar:", typeof window.classicVar);
+console.log("typeof window.classicLet:", typeof window.classicLet);
+console.log("this === window:", this === window);
+```
+
+This file is a **classic script**: no `type="module"`. Open `classic_scope.html` and read the console:
+
+```text title="Console output"
+typeof window.classicVar: string
+typeof window.classicLet: undefined
+this === window: true
+```
+
+At the top level of a classic script, `var` creates a property on `window`, but `let` and `const` do not, and `this` is the global object. Now the same idea in a module:
+
+```html title="module_scope.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Module scope</title>
+    <script type="module" src="module_scope.js"></script>
+  </head>
+  <body>
+    <h1>Module scope</h1>
+    <p>Open the console (F12) to see the results.</p>
+  </body>
+</html>
+```
+
+```javascript title="module_scope.js"
+var moduleVar = "module scope only";
+
+console.log("typeof window.moduleVar:", typeof window.moduleVar);
+console.log("this:", this);
+console.log("globalThis === window:", globalThis === window);
+```
+
+Open `module_scope.html`:
+
+```text title="Console output"
+typeof window.moduleVar: undefined
+this: undefined
+globalThis === window: true
+```
+
+Even `var` stays private to the module, and `this` is `undefined` at its top level. Each module has its own scope, so two modules can both use a name like `count` without clashing. That is why new code should use modules. The scope rules are the ones from the scope and closures lesson, applied to files.
+
+## Classic scripts and defer
+
+You will still meet classic scripts in older code and tutorials. A classic script with a `src` runs as soon as the browser reaches it, and the parser waits. If it sits in the `<head>`, the body does not exist yet.
+
+The `defer` attribute fixes that for a classic script. MDN describes it as meant to run the script after the document has been parsed. The page below uses it:
+
+```html title="defer_demo.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Defer demo</title>
+    <script src="defer_demo.js" defer></script>
+  </head>
+  <body>
+    <h1>Before</h1>
+  </body>
+</html>
+```
+
+```javascript title="defer_demo.js"
+const heading = document.querySelector("h1");
+heading.textContent = "Changed by a deferred classic script";
+```
+
+Open `defer_demo.html`. The heading changes to "Changed by a deferred classic script". Remove the word `defer` from the `<script>` tag and reload: `document.querySelector("h1")` now returns `null` because the heading has not been parsed yet, and the next line throws a `TypeError`. The exact message depends on the browser, and the console shows it. A module script avoids this problem without any attribute.
+
+## Common pitfalls
+
+- **Opening the page from disk.** A module script fails with a CORS error under `file://`. Use a local server.
+- **Wrong file type from the server.** If the browser complains about a MIME type, the server sent the script with a type other than JavaScript.
+- **A classic script that runs too early.** It finds `null` where it expected an element. Use `type="module"` or add `defer`.
+- **Expecting a module's variables on `window`.** They are private to the module. Export what other files need.
+- **Forgetting to reload.** The browser may show a cached copy of the old script. Reload the page after each change, and check the console for errors first.
+
+## Exercises
+
+<Exercise title="A hello page with a date">
+
+Make a page `today.html` with an `<h1>` and a paragraph with the id `date`. A module script should put "Today is YYYY-MM-DD." in the paragraph. Put the formatting in a pure function `formatDate(date)` in its own module, and check it in Node with a fixed date.
+
+<Solution>
+
+The formatting lives in a module of its own. `getMonth()` counts from 0, so add 1, and `padStart` adds the leading zero.
+
+```javascript title="today_format.js"
+export function formatDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+```
+
+A Node demo with fixed dates makes the output predictable:
+
+```javascript title="today_format_demo.mjs"
+import { formatDate } from "./today_format.js";
+
+console.log(formatDate(new Date(2026, 9, 15)));
+console.log(formatDate(new Date(2027, 0, 5)));
+```
+
+Run `node today_format_demo.mjs`:
+
+```text
+2026-10-15
+2027-01-05
+```
+
+The page and the script that fills the paragraph:
+
+```html title="today.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Today</title>
+    <script type="module" src="today.js"></script>
+  </head>
+  <body>
+    <h1>Hello, web!</h1>
+    <p id="date"></p>
+  </body>
+</html>
+```
+
+```javascript title="today.js"
+import { formatDate } from "./today_format.js";
+
+const paragraph = document.querySelector("#date");
+paragraph.textContent = `Today is ${formatDate(new Date())}.`;
+```
+
+Serve the folder and open `today.html`. The paragraph shows today's date from your clock. Only the last file touches the page, so the formatting is checked without a browser.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Why does it fail?">
+
+A page has this in its `<head>`: `<script src="app.js"></script>`, and `app.js` begins with `document.querySelector("main").textContent = "Hi";`. The page has a `<main>` element in its body. The console shows a `TypeError`. Give two different ways to fix it.
+
+<Solution>
+
+The script is a classic script in the head with no `defer`, so it runs before the browser has parsed the `<main>` element. `querySelector` returns `null`, and assigning to a property of `null` throws.
+
+1. Add `defer`: `<script src="app.js" defer></script>`.
+2. Make it a module: `<script type="module" src="app.js"></script>`.
+
+A third way is to move the `<script>` to the end of the body, after `<main>`, but the first two keep the script in the head and are the usual choice.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- This module is optional. The page code runs in a browser, and the logic goes in plain functions that you can check in Node.
+- Load a script with `<script type="module" src="file.js">`. Module scripts are deferred, so the page is parsed before they run.
+- Serve the page from a local web server. Module scripts do not load from a `file://` address.
+- The developer tools console shows `console.log` output and errors.
+- A module has its own scope, and `this` is `undefined` at its top level. A classic script's top-level `var` becomes a property of `window`.
+- A classic script in the head needs `defer` to see the page. Next, you will find and change elements with the DOM.

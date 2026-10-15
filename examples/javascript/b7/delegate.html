@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Delegated task list</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 1rem; }
+      li { cursor: pointer; }
+      li.done { text-decoration: line-through; color: gray; }
+    </style>
+    <script type="module" src="delegate.js"></script>
+  </head>
+  <body>
+    <h1>Tasks</h1>
+    <p>Click a task to mark it done. <span id="summary"></span></p>
+    <ul id="tasks"></ul>
+    <p><a id="docs" href="https://example.com/">Read the docs</a></p>
+    <p id="status"></p>
+  </body>
+</html>

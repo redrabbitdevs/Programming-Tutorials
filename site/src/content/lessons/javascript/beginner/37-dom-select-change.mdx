@@ -1,0 +1,349 @@
+---
+language: javascript
+level: beginner
+module: DOM basics (optional browser strand)
+order: 37
+title: Selecting and changing elements
+description: Find elements with querySelector, change text, attributes and classes, build new elements, and see why textContent is safer than innerHTML.
+minVersion: "22"
+objectives:
+  - Find one or many elements with querySelector and querySelectorAll
+  - Change text, attributes and classes of an element
+  - Create elements and put them on the page
+  - Explain why textContent is safer than innerHTML for untrusted text
+estimatedMinutes: 40
+fundamentals: []
+---
+
+*This lesson belongs to the optional browser module. Serve your folder as in the previous lesson and open each page in a browser.*
+
+When a browser loads a page, it builds a tree of objects from the HTML. This tree is the **DOM**, the Document Object Model. Every element, such as a heading or a list item, is an object with properties and methods. JavaScript changes the page by changing these objects. The browser redraws what you see.
+
+## Finding elements
+
+`document.querySelector(selector)` takes a CSS selector and returns the first matching element. If nothing matches it returns `null`.
+
+```javascript
+const heading = document.querySelector("h1");        // by tag
+const count = document.querySelector("#count");      // by id
+const first = document.querySelector("ul li.low");   // by structure and class
+```
+
+`querySelectorAll(selector)` returns every match. MDN says the result is a **static** `NodeList`: a snapshot, which does not change if the page changes later. A `NodeList` is not an array, but you can loop over it with `for...of`, and it has `length`. Convert it with `Array.from(list)` if you need array methods such as `map`.
+
+```javascript
+for (const item of document.querySelectorAll("li")) {
+  console.log(item.textContent);
+}
+```
+
+Both methods also exist on elements. `list.querySelectorAll("li.low")` searches only inside `list`. When the selector is invalid, they throw a `SyntaxError`.
+
+## Changing text
+
+`textContent` reads or sets the text of an element and everything inside it. MDN warns that setting it removes all the element's children and replaces them with a single text node. The text is inserted as plain text. Characters like `<` are shown as they are and are not read as markup.
+
+```javascript
+const count = document.querySelector("#count");
+count.textContent = "3 items";
+```
+
+## Attributes and classes
+
+`setAttribute(name, value)` and `getAttribute(name)` read and write HTML attributes. Many attributes also exist as properties, such as `button.type` and `input.value`. Attributes whose names start with `data-` are available on the `dataset` property: the attribute `data-id` is `element.dataset.id`, and the value is always a string.
+
+For styling, change the element's **classes** and let your CSS do the rest. `element.classList` has `add`, `remove`, `contains`, `replace` and `toggle`. `toggle(name, force)` adds the class when `force` is `true` and removes it when `false`, so it fits a yes-or-no state.
+
+```javascript
+li.classList.toggle("low", item.qty <= 1);
+li.setAttribute("title", "Only one left");
+```
+
+## Creating elements
+
+`document.createElement("li")` makes a new, empty element that is not on the page yet. Fill it in, then add it to an element that is already there. `append` adds children at the end, and it accepts elements and plain strings. `replaceChildren(...nodes)` removes all the current children and adds the new ones in one step. MDN lists `replaceChildren` as Baseline widely available since April 2023.
+
+## A shopping list
+
+The page below shows a list built from an array. The page itself has only empty containers.
+
+```html title="shopping.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shopping list</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 1rem; }
+      .low { color: #b00020; font-weight: bold; }
+    </style>
+    <script type="module" src="shopping.js"></script>
+  </head>
+  <body>
+    <h1>Shopping list</h1>
+    <p id="count"></p>
+    <ul id="shopping"></ul>
+  </body>
+</html>
+```
+
+The logic is separate from the page. The three functions never touch the DOM, so Node can run them.
+
+```javascript title="shopping_logic.js"
+export function describeItem({ name, qty }) {
+  return `${qty} x ${name}`;
+}
+
+export function sortByName(items) {
+  return [...items].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function isLow(item) {
+  return item.qty <= 1;
+}
+```
+
+```javascript title="shopping_logic_demo.mjs"
+import { describeItem, isLow, sortByName } from "./shopping_logic.js";
+
+const items = [
+  { name: "pears", qty: 4 },
+  { name: "apples", qty: 1 },
+  { name: "milk", qty: 2 },
+];
+
+for (const item of sortByName(items)) {
+  console.log(describeItem(item), isLow(item));
+}
+console.log(items[0].name);
+```
+
+Run `node shopping_logic_demo.mjs`:
+
+```text
+1 x apples true
+2 x milk false
+4 x pears false
+pears
+```
+
+The sorted copy has the items in order of name. The last line shows that `sortByName` did not change the original array, because it sorted a copy. Now the page code:
+
+```javascript title="shopping.js"
+import { describeItem, isLow, sortByName } from "./shopping_logic.js";
+
+const items = [
+  { name: "pears", qty: 4 },
+  { name: "apples", qty: 1 },
+  { name: "milk", qty: 2 },
+];
+
+const list = document.querySelector("#shopping");
+const count = document.querySelector("#count");
+
+function render(items) {
+  const rows = sortByName(items).map((item) => {
+    const li = document.createElement("li");
+    li.textContent = describeItem(item);
+    li.classList.toggle("low", isLow(item));
+    li.setAttribute("title", `${item.qty} left`);
+    return li;
+  });
+  list.replaceChildren(...rows);
+  count.textContent = `${items.length} items`;
+}
+
+render(items);
+
+for (const li of list.querySelectorAll("li.low")) {
+  li.append(" (running low)");
+}
+```
+
+- `sortByName(items).map(...)` turns each item into a new `<li>` element. Nothing is on the page yet.
+- `textContent` sets the visible text. `classList.toggle("low", isLow(item))` marks the items that are nearly out. `setAttribute("title", ...)` adds a tooltip.
+- `list.replaceChildren(...rows)` puts the new rows into the list. The function can be called again with new data, and the list is rebuilt from scratch each time. Rebuilding from the data is the idea that the project lesson uses.
+- The last loop uses `querySelectorAll` on the list to find the low items and calls `append` on each one to add more text.
+
+Open `shopping.html`. You should see "3 items" and the list `1 x apples (running low)`, `2 x milk` and `4 x pears`, with the apples line in red and bold. Hover over a line to see its tooltip.
+
+## textContent and innerHTML
+
+`innerHTML` also changes what is inside an element, but it reads the string as HTML. That matters when the string comes from somewhere you do not control, such as something a visitor typed.
+
+```html title="text_vs_html.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>textContent and innerHTML</title>
+    <script type="module" src="text_vs_html.js"></script>
+  </head>
+  <body>
+    <h1>textContent and innerHTML</h1>
+    <p>textContent: <span id="as-text"></span></p>
+    <p>innerHTML: <span id="as-html"></span></p>
+  </body>
+</html>
+```
+
+```javascript title="text_vs_html.js"
+const input = "<b>not bold</b>";
+
+document.querySelector("#as-text").textContent = input;
+document.querySelector("#as-html").innerHTML = input;
+```
+
+Open `text_vs_html.html`. The `textContent` line shows the characters `<b>not bold</b>` as they are. The `innerHTML` line shows the words "not bold" in bold, because the browser built a `<b>` element from the string.
+
+Bold text is harmless, but the same mechanism can run code. MDN's page on `innerHTML` calls it "probably the most common vector for cross-site scripting (XSS) attacks". It notes that `innerHTML` does not run `<script>` elements that you insert, but that other markup still can. Its example is an `<img>` with a broken `src` and an `onerror` attribute, where the code in `onerror` runs. MDN recommends `textContent` when the content should be plain text.
+
+The rule for you:
+
+- Use `textContent` for any text that came from a user, a file or a server.
+- Use `innerHTML` only for fixed strings that you wrote yourself, or avoid it and build elements with `createElement`.
+
+The security habits behind this rule are in the [fundamentals lesson on clean code and security basics](../../../fundamentals/beginner/clean-code-and-security-basics/).
+
+## Common pitfalls
+
+- **`null` from `querySelector`.** A wrong selector or a script that ran too early returns `null`. Reading a property of it throws. Check the selector and how the script is loaded.
+- **Using `#` or `.` wrongly.** `"#count"` is an id and `".low"` is a class. `"count"` looks for an element named `<count>`.
+- **Treating a `NodeList` as an array.** `querySelectorAll("li").map(...)` is a `TypeError`. Use `Array.from` first, or a `for...of` loop.
+- **Expecting a `NodeList` to update.** It is a snapshot. Query again after the page changes.
+- **Putting user text through `innerHTML`.** Use `textContent`.
+- **Numbers in `dataset`.** `dataset.id` is a string. Convert it with `Number()` when you need a number.
+
+## Exercises
+
+<Exercise title="Render a list from an array">
+
+Make `fruit_list.html` with an empty `<ul id="fruit">`. A script should show the array `["apple", "banana", "cherry"]` as `1. apple`, `2. banana` and `3. cherry`. Put the label in a pure function `labelFor(name, index)`, and check it in Node.
+
+<Solution>
+
+The label function does not need the page. `map` passes the item and its index to the function, so `labelFor` can be passed straight to `map`.
+
+```javascript title="fruit_labels.js"
+export function labelFor(name, index) {
+  return `${index + 1}. ${name}`;
+}
+```
+
+```javascript title="fruit_labels_demo.mjs"
+import { labelFor } from "./fruit_labels.js";
+
+const fruits = ["apple", "banana", "cherry"];
+console.log(fruits.map(labelFor));
+```
+
+Run `node fruit_labels_demo.mjs`:
+
+```text
+[ '1. apple', '2. banana', '3. cherry' ]
+```
+
+The page and its script:
+
+```html title="fruit_list.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fruit list</title>
+    <script type="module" src="fruit_list.js"></script>
+  </head>
+  <body>
+    <h1>Fruit</h1>
+    <ul id="fruit"></ul>
+  </body>
+</html>
+```
+
+```javascript title="fruit_list.js"
+import { labelFor } from "./fruit_labels.js";
+
+const fruits = ["apple", "banana", "cherry"];
+const list = document.querySelector("#fruit");
+
+const rows = fruits.map((name, index) => {
+  const li = document.createElement("li");
+  li.textContent = labelFor(name, index);
+  return li;
+});
+
+list.replaceChildren(...rows);
+```
+
+The script builds one `<li>` per fruit with `textContent`, then puts them all in the list with `replaceChildren`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Make a comment safe">
+
+A page shows comments with this code. A visitor posts `<img src='x' onerror='alert(1)'>`. What goes wrong, and how do you fix `addComment`?
+
+```javascript
+function addComment(text) {
+  const li = document.createElement("li");
+  li.innerHTML = text;
+  comments.append(li);
+}
+```
+
+<Solution>
+
+`innerHTML` reads the text as HTML. The `<img>` is created, its image fails to load and the code in `onerror` runs. A visitor could use the same trick to run any code on the page.
+
+The fix is to set the text as text:
+
+```javascript title="safe_comment.js"
+const comments = document.querySelector("#comments");
+
+function addComment(text) {
+  const li = document.createElement("li");
+  li.textContent = text;
+  comments.append(li);
+}
+
+addComment("Nice page!");
+addComment("<img src='x' onerror='alert(1)'>");
+```
+
+The page that goes with it:
+
+```html title="safe_comment.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Comments</title>
+    <script type="module" src="safe_comment.js"></script>
+  </head>
+  <body>
+    <h1>Comments</h1>
+    <ul id="comments"></ul>
+  </body>
+</html>
+```
+
+With `textContent`, the second comment appears on the page as the literal characters of the tag, and nothing runs.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `querySelector` returns the first match or `null`, and `querySelectorAll` returns a static `NodeList` that you can loop over with `for...of`.
+- `textContent` sets plain text. `setAttribute`, `dataset` and `classList` change attributes and classes.
+- `createElement`, `append` and `replaceChildren` build new content. Rebuilding a list from an array is simple and reliable.
+- Keep the data logic in pure functions, and the page code short.
+- Use `textContent` for untrusted text. `innerHTML` turns text into markup and is a common source of XSS.
+- Next, you will make the page respond to clicks and keys.

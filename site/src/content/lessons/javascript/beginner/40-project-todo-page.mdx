@@ -1,0 +1,461 @@
+---
+language: javascript
+level: beginner
+module: DOM basics (optional browser strand)
+order: 40
+title: "Project: a todo page"
+description: Build a todo page in three stages, with the state in pure functions, saving through localStorage with error handling, and a render function and delegated events for the page.
+minVersion: "22"
+objectives:
+  - Keep application state in an array and change it with pure functions
+  - Save and load data with localStorage, and survive when it fails
+  - Rebuild the page from the state with one render function
+  - Combine delegated events, filters and storage in one page
+estimatedMinutes: 55
+fundamentals: ["fundamentals/beginner/errors-and-exceptions"]
+---
+
+*This lesson belongs to the optional browser module. It has no new syntax, only a way of putting the earlier lessons together. Serve your folder as in lesson 36.*
+
+You will build a todo page. A visitor adds tasks, ticks them off, deletes them, filters the list and finds it all again after closing the tab. The ideas behind handling failures are in the [fundamentals lesson on errors and exceptions](../../../fundamentals/beginner/errors-and-exceptions/).
+
+## The plan
+
+The design is the same split as in the whole module: logic in plain modules that Node can run, and a small page script that connects them to the DOM.
+
+- `todo_state.js` holds the **state functions**. A todo is an object `{ id, text, done }`. The state is an array of them. Every function takes the array and returns a new array.
+- `todo_storage.js` saves and loads the array through `localStorage`, and keeps working when storage fails.
+- `todo.html` and `todo.js` are the page. One `render` function draws the whole list from the state. Events change the state, save it and call `render` again.
+
+Build it in stages, and check each stage before you go on. Stages 1 and 2 run in Node. Stage 3 runs in the browser.
+
+## Stage 1: the state
+
+The state functions never change the array they receive. They return a new one, as in the lessons on copying arrays and on references.
+
+```javascript title="todo_state.js"
+export function addTodo(todos, text) {
+  const trimmed = text.trim();
+  if (trimmed === "") return todos;
+  const id = todos.reduce((highest, todo) => Math.max(highest, todo.id), 0) + 1;
+  return [...todos, { id, text: trimmed, done: false }];
+}
+
+export function toggleTodo(todos, id) {
+  return todos.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo));
+}
+
+export function removeTodo(todos, id) {
+  return todos.filter((todo) => todo.id !== id);
+}
+
+export function visibleTodos(todos, filter) {
+  if (filter === "active") return todos.filter((todo) => !todo.done);
+  if (filter === "done") return todos.filter((todo) => todo.done);
+  return todos;
+}
+
+export function remaining(todos) {
+  return todos.filter((todo) => !todo.done).length;
+}
+```
+
+- `addTodo` trims the text and ignores an empty one by returning the same array. The new id is one more than the highest id, so ids stay unique.
+- `toggleTodo` replaces one todo by a copy with `done` flipped, and keeps the others.
+- `removeTodo` keeps every todo whose id differs.
+- `visibleTodos` applies a filter: `"active"` keeps unfinished todos, `"done"` keeps finished ones, and anything else keeps all.
+- `remaining` counts the unfinished todos.
+
+Check them with a demo:
+
+```javascript title="todo_state_demo.mjs"
+import { addTodo, remaining, removeTodo, toggleTodo, visibleTodos } from "./todo_state.js";
+
+let todos = [];
+todos = addTodo(todos, "  Buy milk ");
+todos = addTodo(todos, "Write lesson");
+todos = addTodo(todos, "   ");
+console.log(todos);
+
+todos = toggleTodo(todos, 1);
+console.log(remaining(todos));
+console.log(visibleTodos(todos, "active").map((todo) => todo.text));
+console.log(visibleTodos(todos, "done").map((todo) => todo.text));
+console.log(visibleTodos(todos, "all").length);
+
+todos = removeTodo(todos, 2);
+console.log(todos);
+```
+
+Run `node todo_state_demo.mjs`:
+
+```text
+[
+  { id: 1, text: 'Buy milk', done: false },
+  { id: 2, text: 'Write lesson', done: false }
+]
+1
+[ 'Write lesson' ]
+[ 'Buy milk' ]
+2
+[ { id: 1, text: 'Buy milk', done: true } ]
+```
+
+The text was trimmed, the blank entry was ignored, and after ticking the first todo one task remains. The filters pick the right tasks, and removing id 2 leaves only the finished one. Stage 1 is done.
+
+## Stage 2: saving and loading
+
+`localStorage` keeps strings between visits, for one origin (your site's address). MDN says its keys and values are strings and that the data has no expiry time. So the list must be turned into text with `JSON.stringify` and back with `JSON.parse`, as in the JSON lesson.
+
+Storage can also fail. Reading `window.localStorage` can throw a `SecurityError`: MDN lists pages with a `file:` or `data:` origin, and browsers set to block site data. So the code that touches storage must be ready to fail, and the page must still work without it. Data that comes back is not always what you saved either: someone could edit it, or it could be damaged. So loading checks the shape of every item.
+
+The functions take the storage object as an argument, instead of reaching for the global one. In the browser you pass `localStorage`, and in a test you can pass a fake.
+
+```javascript title="todo_storage.js"
+const KEY = "todos";
+
+function isTodo(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    Number.isInteger(value.id) &&
+    typeof value.text === "string" &&
+    typeof value.done === "boolean"
+  );
+}
+
+export function getStorage(win) {
+  try {
+    return win.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function loadTodos(storage) {
+  if (storage === null) return [];
+  try {
+    const raw = storage.getItem(KEY);
+    if (raw === null) return [];
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data.filter(isTodo) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveTodos(storage, todos) {
+  if (storage === null) return false;
+  try {
+    storage.setItem(KEY, JSON.stringify(todos));
+    return true;
+  } catch {
+    return false;
+  }
+}
+```
+
+- `getStorage(win)` returns `win.localStorage`, or `null` if reading it throws.
+- `loadTodos` returns an empty list when there is no storage, nothing saved, text that is not valid JSON, or data that is not an array. It keeps only items that have the right shape.
+- `saveTodos` returns `true` or `false`, so the page can tell the visitor when saving did not work. It never throws.
+- The `catch` blocks have no variable, because the reason does not matter here. Only the fallback does.
+
+Check it in Node with a fake storage made from a `Map`, and with storage objects that fail on purpose:
+
+```javascript title="todo_storage_demo.mjs"
+import { getStorage, loadTodos, saveTodos } from "./todo_storage.js";
+
+function memoryStorage() {
+  const data = new Map();
+  return {
+    getItem: (key) => (data.has(key) ? data.get(key) : null),
+    setItem: (key, value) => data.set(key, String(value)),
+  };
+}
+
+const storage = memoryStorage();
+console.log(loadTodos(storage));
+
+const todos = [{ id: 1, text: "Buy milk", done: false }];
+console.log(saveTodos(storage, todos));
+console.log(loadTodos(storage));
+
+storage.setItem("todos", "{not json");
+console.log(loadTodos(storage));
+
+storage.setItem("todos", JSON.stringify([{ id: 1, text: "ok", done: true }, { id: "x" }, null]));
+console.log(loadTodos(storage));
+
+const full = {
+  getItem: () => null,
+  setItem: () => {
+    throw new Error("storage is full");
+  },
+};
+console.log(saveTodos(full, todos));
+
+const blocked = {
+  get localStorage() {
+    throw new Error("access denied");
+  },
+};
+const none = getStorage(blocked);
+console.log(none, loadTodos(none), saveTodos(none, todos));
+```
+
+Run `node todo_storage_demo.mjs`:
+
+```text
+[]
+true
+[ { id: 1, text: 'Buy milk', done: false } ]
+[]
+[ { id: 1, text: 'ok', done: true } ]
+false
+null [] false
+```
+
+In order: nothing saved gives `[]`. A saved list comes back the same. Damaged text gives `[]`. In the mixed array, only the one valid item survives. A full storage makes `saveTodos` return `false`. A blocked `localStorage` gives `null`, and with `null` loading returns an empty list and saving returns `false`. Stage 2 is done.
+
+## Stage 3: the page
+
+The HTML has the form, three filter buttons, an empty list, and two paragraphs for the count and for a warning.
+
+```html title="todo.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Todo page</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 28rem; }
+      ul { padding-left: 0; list-style: none; }
+      li { padding: 0.25rem 0; cursor: pointer; }
+      li.done span { text-decoration: line-through; color: gray; }
+      button[aria-pressed="true"] { font-weight: bold; }
+      #note { color: #b00020; }
+    </style>
+    <script type="module" src="todo.js"></script>
+  </head>
+  <body>
+    <h1>Todo</h1>
+    <form id="add-form">
+      <label>
+        New task
+        <input id="new-todo" name="text" type="text" autocomplete="off" />
+      </label>
+      <button type="submit">Add</button>
+    </form>
+
+    <p id="filters">
+      <button type="button" data-filter="all">All</button>
+      <button type="button" data-filter="active">Active</button>
+      <button type="button" data-filter="done">Done</button>
+    </p>
+
+    <ul id="todo-list"></ul>
+    <p id="summary"></p>
+    <p id="note"></p>
+  </body>
+</html>
+```
+
+The script joins everything.
+
+```javascript title="todo.js"
+import { addTodo, remaining, removeTodo, toggleTodo, visibleTodos } from "./todo_state.js";
+import { getStorage, loadTodos, saveTodos } from "./todo_storage.js";
+
+const storage = getStorage(window);
+let todos = loadTodos(storage);
+let filter = "all";
+
+const form = document.querySelector("#add-form");
+const input = document.querySelector("#new-todo");
+const filters = document.querySelector("#filters");
+const list = document.querySelector("#todo-list");
+const summary = document.querySelector("#summary");
+const note = document.querySelector("#note");
+
+function render() {
+  const rows = visibleTodos(todos, filter).map((todo) => {
+    const li = document.createElement("li");
+    li.dataset.id = String(todo.id);
+    li.classList.toggle("done", todo.done);
+
+    const label = document.createElement("span");
+    label.textContent = todo.text;
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Delete";
+    remove.dataset.role = "remove";
+
+    li.append(label, " ", remove);
+    return li;
+  });
+  list.replaceChildren(...rows);
+
+  summary.textContent = `${remaining(todos)} left`;
+  for (const button of filters.querySelectorAll("button")) {
+    button.setAttribute("aria-pressed", String(button.dataset.filter === filter));
+  }
+}
+
+function commit(next) {
+  todos = next;
+  const saved = saveTodos(storage, todos);
+  note.textContent = saved ? "" : "Could not save. Your list is lost when you close the page.";
+  render();
+}
+
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  commit(addTodo(todos, input.value));
+  input.value = "";
+  input.focus();
+});
+
+list.addEventListener("click", (event) => {
+  const li = event.target.closest("li");
+  if (li === null) return;
+  const id = Number(li.dataset.id);
+  if (event.target.closest("button[data-role='remove']") !== null) {
+    commit(removeTodo(todos, id));
+  } else {
+    commit(toggleTodo(todos, id));
+  }
+});
+
+filters.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-filter]");
+  if (button === null) return;
+  filter = button.dataset.filter;
+  render();
+});
+
+render();
+```
+
+- At load, it gets the storage, loads the todos and starts with the `"all"` filter.
+- `render` is the only code that writes the list. It makes one `<li>` per visible todo, with the text in a `<span>` set by `textContent`, so a todo that contains `<b>` is shown as typed and not read as HTML. Each `<li>` carries its id in `data-id`. It also writes the count and sets `aria-pressed` on the filter buttons, and the CSS makes the pressed one bold.
+- `commit` is the only code that changes the state. It stores the new array, tries to save, shows a warning if saving fails, and renders.
+- The form's `submit` listener cancels the reload, adds the todo, clears the box and puts the cursor back in it.
+- The list has a single click listener (event delegation). It finds the `<li>` with `closest`. If the click came from the Delete button, it removes the todo, and otherwise it toggles it. A todo added later works without more code.
+- The filter bar has a click listener of its own. A filter change does not touch the data, so it does not save.
+
+Open `todo.html`. Add two or three tasks. Click a task to mark it done: it gets a line through it and the count drops. Press Delete to remove one. Try the Active and Done filters. Reload the page and the list is still there. If your browser blocks storage, the page tells you that the list will be lost.
+
+The result is easy to change because each job has one home. A new rule about todos goes in `todo_state.js` and can be checked in Node. Anything about saving goes in `todo_storage.js`. Only `render` and the listeners know about the DOM.
+
+## Common pitfalls
+
+- **Changing the array in place.** Functions that `push` or `splice` the shared array make the state hard to follow. Return a new array.
+- **Reading `localStorage` without a guard.** Even getting the object can throw. Wrap it, and let the page work without it.
+- **Trusting what comes back from storage.** Parse inside `try`, and check the shape of the data.
+- **Forgetting that storage holds strings.** Save with `JSON.stringify` and load with `JSON.parse`.
+- **Writing the list from several places.** Keep one `render` that draws everything from the state.
+- **Reading an id as a number.** `dataset.id` is a string. Convert it with `Number`.
+- **Inserting a todo's text with `innerHTML`.** Use `textContent`.
+
+## Exercises
+
+<Exercise title="Clear completed">
+
+Write a pure function `clearDone(todos)` that returns only the unfinished todos, and check it in Node. Then say how you would add a "Clear completed" button to the page.
+
+<Solution>
+
+```javascript title="clear_done.js"
+export function clearDone(todos) {
+  return todos.filter((todo) => !todo.done);
+}
+```
+
+```javascript title="clear_done_demo.mjs"
+import { clearDone } from "./clear_done.js";
+
+const todos = [
+  { id: 1, text: "Buy milk", done: true },
+  { id: 2, text: "Write lesson", done: false },
+  { id: 3, text: "Water plants", done: true },
+];
+
+console.log(clearDone(todos));
+console.log(todos.length);
+console.log(clearDone([]));
+```
+
+Run `node clear_done_demo.mjs`:
+
+```text
+[ { id: 2, text: 'Write lesson', done: false } ]
+3
+[]
+```
+
+The original has 3 todos and is not changed. An empty list stays empty.
+
+For the button, add `<button type="button" id="clear-done">Clear completed</button>` to `todo.html`. In `todo.js`, import `clearDone` from the new module and add:
+
+```javascript
+document.querySelector("#clear-done").addEventListener("click", () => {
+  commit(clearDone(todos));
+});
+```
+
+`commit` saves the new list and draws it, so nothing else needs to change.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A better count message">
+
+The page says "1 left" and "0 left". Write `summaryLabel(count)` that gives "Nothing left to do", "1 task left" and "3 tasks left", and check it in Node. Say where you would call it.
+
+<Solution>
+
+```javascript title="summary_label.js"
+export function summaryLabel(count) {
+  if (count === 0) return "Nothing left to do";
+  if (count === 1) return "1 task left";
+  return `${count} tasks left`;
+}
+```
+
+```javascript title="summary_label_demo.mjs"
+import { summaryLabel } from "./summary_label.js";
+
+for (const count of [0, 1, 2, 10]) {
+  console.log(summaryLabel(count));
+}
+```
+
+Run `node summary_label_demo.mjs`:
+
+```text
+Nothing left to do
+1 task left
+2 tasks left
+10 tasks left
+```
+
+In `todo.js`, import `summaryLabel` and change the line in `render` to `summary.textContent = summaryLabel(remaining(todos));`. Only the one line in `render` changes, because the display text comes from one place.
+
+</Solution>
+
+</Exercise>
+
+## Going further
+
+Pick one and build it. Let a double-click edit the text of a todo. Add a "Mark all as done" button with its own pure function. Keep the filter between visits by saving it as well. Or add a drop-down that sorts the list. For each idea, write the pure function first and check it in Node.
+
+## Summary
+
+- The page is a function of its state: change the state, then call `render`.
+- Pure functions on an array of objects keep the logic testable in Node, outside the browser.
+- `localStorage` holds strings, so use JSON. Reading or writing it can fail, so guard it with `try`/`catch` and give the page a fallback.
+- Check data you load, delegate events from a parent, and use `textContent` for text that came from the visitor.
+- That is the end of the optional browser module. The Node path continues in the intermediate level.

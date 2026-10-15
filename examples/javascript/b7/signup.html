@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign up</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 24rem; }
+      label { display: block; margin-top: 0.75rem; }
+      input { display: block; width: 100%; box-sizing: border-box; }
+      .error { color: #b00020; min-height: 1.25em; margin: 0.25rem 0 0; }
+    </style>
+    <script type="module" src="signup.js"></script>
+  </head>
+  <body>
+    <h1>Sign up</h1>
+    <form id="signup">
+      <label>
+        Username
+        <input name="username" type="text" autocomplete="username" required />
+      </label>
+      <p class="error" data-error-for="username" aria-live="polite"></p>
+
+      <label>
+        Email
+        <input name="email" type="email" autocomplete="email" required />
+      </label>
+      <p class="error" data-error-for="email" aria-live="polite"></p>
+
+      <label>
+        Password
+        <input name="password" type="password" autocomplete="new-password" required />
+      </label>
+      <p class="error" data-error-for="password" aria-live="polite"></p>
+
+      <label>
+        Repeat the password
+        <input name="confirm" type="password" autocomplete="new-password" required />
+      </label>
+      <p class="error" data-error-for="confirm" aria-live="polite"></p>
+
+      <button type="submit">Create account</button>
+    </form>
+    <p id="result"></p>
+  </body>
+</html>

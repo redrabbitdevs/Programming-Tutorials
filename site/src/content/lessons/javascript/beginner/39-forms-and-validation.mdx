@@ -1,0 +1,316 @@
+---
+language: javascript
+level: beginner
+module: DOM basics (optional browser strand)
+order: 39
+title: Forms
+description: Read form input with FormData, check it live with the input and submit events and the constraint validation API, and learn why a server must never trust a browser's checks.
+minVersion: "22"
+objectives:
+  - Read all the fields of a form with FormData
+  - React to the input and submit events
+  - Use the constraint validation API with setCustomValidity
+  - Explain why client-side validation never replaces server-side checks
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/clean-code-and-security-basics"]
+---
+
+*This lesson belongs to the optional browser module. Serve your folder as in lesson 36 and open the page in a browser.*
+
+Forms are how a page asks the visitor for something. The browser already does much of the work: it draws the fields, lets the visitor type, and can refuse to submit a form that is clearly incomplete. Your JavaScript adds your own rules, clearer messages and a response that does not reload the page.
+
+## Reading the fields
+
+`new FormData(form)` collects the current values of the form's fields. MDN says it is filled using the `name` of each control as the key, so a field without a `name` is left out. A `FormData` object can be looped over with `for...of`, and each item is a `[name, value]` pair. That makes `Object.fromEntries` a quick way to turn it into a plain object.
+
+```javascript
+const data = Object.fromEntries(new FormData(form));
+// { username: "ada", email: "ada@example.com", ... }
+```
+
+If a name occurs more than once, such as a group of checkboxes, `Object.fromEntries` keeps only the last value. `formData.getAll(name)` returns all of them as an array.
+
+## Events for forms
+
+Two events do most of the work:
+
+- `input` fires on a field when its value is changed by the visitor, for example with each key press. Use it for live feedback.
+- `submit` fires on the form when the visitor submits it, for example with a submit button. Its default action is to send the form and load a new page. For a page that handles the data itself, call `event.preventDefault()` first.
+
+According to MDN, a form that fails validation does not fire `submit` at all. The browser fires an `invalid` event instead and shows the problem.
+
+## Constraint validation
+
+HTML attributes such as `required` and `type="email"` set rules for a field, and the browser checks them. This is called **constraint validation**, and it has a JavaScript side:
+
+- `form.checkValidity()` returns `true` if every field is valid.
+- `form.reportValidity()` does the same check and also shows the problems to the visitor.
+- `field.setCustomValidity(message)` adds your own error message to a field. As long as the message is not an empty string, the field counts as invalid and the form will not submit. MDN stresses that you must set the message back to `""` when the problem is gone.
+
+That last call connects your rules to the browser's machinery. You decide what is wrong, the browser blocks the submit and shows your message.
+
+## Validation rules as a pure function
+
+The rules do not need a page. This function takes the values and returns an object with one message for each field that has a problem.
+
+```javascript title="signup_rules.js"
+export function validateSignup({ username = "", email = "", password = "", confirm = "" }) {
+  const errors = {};
+
+  const name = username.trim();
+  if (name.length < 3) {
+    errors.username = "Use at least 3 characters.";
+  } else if (/\s/.test(name)) {
+    errors.username = "No spaces, please.";
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errors.email = "Enter an address like name@example.com.";
+  }
+
+  if (password.length < 8) {
+    errors.password = "Use at least 8 characters.";
+  }
+
+  if (confirm !== password) {
+    errors.confirm = "The passwords do not match.";
+  }
+
+  return errors;
+}
+```
+
+The default values (`username = ""` and so on) let it accept an object with missing fields. Check it with three inputs:
+
+```javascript title="signup_rules_demo.mjs"
+import { validateSignup } from "./signup_rules.js";
+
+console.log(
+  validateSignup({
+    username: "ada",
+    email: "ada@example.com",
+    password: "analytical",
+    confirm: "analytical",
+  }),
+);
+
+console.log(
+  validateSignup({
+    username: "a b",
+    email: "ada@",
+    password: "short",
+    confirm: "other",
+  }),
+);
+
+console.log(validateSignup({}));
+```
+
+Run `node signup_rules_demo.mjs`:
+
+```text
+{}
+{
+  username: 'No spaces, please.',
+  email: 'Enter an address like name@example.com.',
+  password: 'Use at least 8 characters.',
+  confirm: 'The passwords do not match.'
+}
+{
+  username: 'Use at least 3 characters.',
+  email: 'Enter an address like name@example.com.',
+  password: 'Use at least 8 characters.'
+}
+```
+
+The first form is valid, so the result is an empty object. The second breaks four rules at once. The third, an empty object, breaks three, and has no `confirm` error because two empty strings are equal. Rules like these are easy to test and to reuse, including on a server written in JavaScript.
+
+## The sign-up page
+
+The page has four fields and one message paragraph under each. Each `<p class="error">` names its field in `data-error-for`.
+
+```html title="signup.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign up</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 24rem; }
+      label { display: block; margin-top: 0.75rem; }
+      input { display: block; width: 100%; box-sizing: border-box; }
+      .error { color: #b00020; min-height: 1.25em; margin: 0.25rem 0 0; }
+    </style>
+    <script type="module" src="signup.js"></script>
+  </head>
+  <body>
+    <h1>Sign up</h1>
+    <form id="signup">
+      <label>
+        Username
+        <input name="username" type="text" autocomplete="username" required />
+      </label>
+      <p class="error" data-error-for="username" aria-live="polite"></p>
+
+      <label>
+        Email
+        <input name="email" type="email" autocomplete="email" required />
+      </label>
+      <p class="error" data-error-for="email" aria-live="polite"></p>
+
+      <label>
+        Password
+        <input name="password" type="password" autocomplete="new-password" required />
+      </label>
+      <p class="error" data-error-for="password" aria-live="polite"></p>
+
+      <label>
+        Repeat the password
+        <input name="confirm" type="password" autocomplete="new-password" required />
+      </label>
+      <p class="error" data-error-for="confirm" aria-live="polite"></p>
+
+      <button type="submit">Create account</button>
+    </form>
+    <p id="result"></p>
+  </body>
+</html>
+```
+
+The script ties the rules to the form.
+
+```javascript title="signup.js"
+import { validateSignup } from "./signup_rules.js";
+
+const form = document.querySelector("#signup");
+const result = document.querySelector("#result");
+const touched = new Set();
+
+function check() {
+  const errors = validateSignup(Object.fromEntries(new FormData(form)));
+
+  for (const field of form.querySelectorAll("input")) {
+    const message = errors[field.name] ?? "";
+    field.setCustomValidity(message);
+    const output = form.querySelector(`[data-error-for="${field.name}"]`);
+    output.textContent = touched.has(field.name) ? message : "";
+  }
+
+  return errors;
+}
+
+for (const field of form.querySelectorAll("input")) {
+  field.addEventListener("input", () => {
+    touched.add(field.name);
+    check();
+  });
+}
+
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (Object.keys(check()).length > 0) return;
+
+  const { username, email } = Object.fromEntries(new FormData(form));
+  result.textContent = `Welcome, ${username}! A confirmation would be sent to ${email}.`;
+
+  form.reset();
+  touched.clear();
+  check();
+});
+
+check();
+```
+
+- `check` builds a data object from the form, runs the rules, and for each input calls `setCustomValidity` with the error message, or an empty string. It also shows the message in the paragraph under the field, but only for fields the visitor has already touched. Nobody wants to be told off before they have typed anything.
+- Each field gets its own `input` listener. It records the field's name in the `touched` set, then calls `check`.
+- The `submit` listener cancels the real submit. If there are errors it stops. Otherwise it reads the two values it needs, shows a welcome message, resets the form and checks again. The code does not put the password anywhere on the page.
+- The last line runs `check` once at load. Without it, the custom messages would not exist until someone typed, and an untouched form could be submitted. After the first call, the empty form is invalid, so the browser blocks the submit and shows the message.
+
+Open `signup.html`. Type `ad` in the username box: "Use at least 3 characters." appears under it. Fill the other fields, and give a repeated password that differs: the match message shows. Make them equal and press the button: you see the welcome message, and the form clears.
+
+The text of the welcome message goes in with `textContent`. The visitor controls `username`, so this matters, as the DOM lesson explained.
+
+## Never trust the browser
+
+All this checking is for the visitor's convenience. MDN is blunt about it: client-side validation is too easy to bypass, so a server should always validate what it receives too. Anyone can open the developer tools, remove a `required` attribute, change a script or send a request without using your page at all. Your server must treat every value it receives as untrusted and check it again. The reasons, and what else to check, are in the [fundamentals lesson on clean code and security basics](../../../fundamentals/beginner/clean-code-and-security-basics/).
+
+Because the rules here live in a plain module, a Node.js server can import the same `validateSignup` and run it on the received data. The browser check is a courtesy, and the server check is the real one.
+
+## Common pitfalls
+
+- **A field without a `name`.** `FormData` skips it, and `data.email` is `undefined`.
+- **Forgetting `preventDefault()` in a submit handler.** The page reloads and your result vanishes.
+- **Never clearing a custom message.** The field stays invalid forever. Always call `setCustomValidity("")` when the field is fine.
+- **Showing errors too early.** Wait until the visitor has touched the field or tried to submit.
+- **Checking only in the browser.** The server must check again.
+- **Putting secrets in the page.** Do not show or log passwords.
+- **Using `innerHTML` for a message with the visitor's text.** Use `textContent`.
+
+## Exercises
+
+<Exercise title="An age rule">
+
+Write a pure function `validateAge(text)` that returns an error message, or `""` when the age is fine. An empty value, a value that is not a whole number and an age outside 13 to 120 should each give a different message. Check it in Node with several inputs.
+
+<Solution>
+
+`Number("")` is `0`, so test for an empty value first. `Number.isInteger` rejects `"abc"` (which becomes `NaN`) and `"12.5"`.
+
+```javascript title="age_rule.js"
+export function validateAge(text) {
+  const trimmed = text.trim();
+  if (trimmed === "") return "Enter your age.";
+  const age = Number(trimmed);
+  if (!Number.isInteger(age)) return "Use whole numbers only.";
+  if (age < 13 || age > 120) return "Age must be between 13 and 120.";
+  return "";
+}
+```
+
+```javascript title="age_rule_demo.mjs"
+import { validateAge } from "./age_rule.js";
+
+for (const text of ["", "abc", "12.5", "12", "13", " 40 ", "121"]) {
+  console.log(JSON.stringify(text), "->", JSON.stringify(validateAge(text)));
+}
+```
+
+Run `node age_rule_demo.mjs`:
+
+```text
+"" -> "Enter your age."
+"abc" -> "Use whole numbers only."
+"12.5" -> "Use whole numbers only."
+"12" -> "Age must be between 13 and 120."
+"13" -> ""
+" 40 " -> ""
+"121" -> "Age must be between 13 and 120."
+```
+
+In a page you would call `ageInput.setCustomValidity(validateAge(ageInput.value))` in an `input` listener, as `check` does for the other fields.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Is the browser check enough?">
+
+Your sign-up page marks the email field `required` and `type="email"`, and your script blocks the submit if the rules fail. A friend says the server does not need to check the email, because the page already did. What do you answer?
+
+<Solution>
+
+The server still has to check. The checks in the page only run in the visitor's browser, which the visitor controls. Someone can disable the script, edit the page in the developer tools or send a request directly without loading the page. The server only sees the request, and it cannot tell whether your page checked anything. The page checks make the form pleasant to use. The server checks keep the system safe.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `new FormData(form)` collects the values of the named fields. `Object.fromEntries` turns it into an object.
+- The `input` event gives live feedback, and the `submit` event handles the whole form. Call `preventDefault()` to stop the page from reloading.
+- `setCustomValidity(message)` makes a field invalid with your message. Reset it to `""` to make the field valid again.
+- Put rules in a pure function so you can test them in Node and reuse them elsewhere.
+- Client-side checks improve the experience but never protect anything. A server must validate again.
+- Next, you will combine DOM, events and storage in a small todo app.
