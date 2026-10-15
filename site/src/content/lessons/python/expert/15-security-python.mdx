@@ -4,13 +4,14 @@ level: expert
 module: Production Python
 order: 15
 title: Secure Python
-description: The Python-specific ways programs get compromised and their fixes - secrets instead of random, password hashing, subprocess without a shell, why pickle runs code, path traversal, unsafe parsing and archives, and auditing dependencies.
+description: "The Python-specific ways programs get compromised and their fixes: secrets instead of random, password hashing, subprocess without a shell, why pickle runs code, path traversal, TLS verification, untrusted XML and archives, and auditing dependencies."
 minVersion: "3.11"
 objectives:
   - Generate tokens with secrets and store passwords with a slow, salted hash
   - Run other programs without shell injection, and quote correctly when a shell is unavoidable
   - Explain how unpickling runs code, and restrict or replace pickle
   - Keep user-supplied paths inside a folder
+  - Keep TLS verification on, and parse untrusted XML and archives safely
   - Recognise the other standard-library traps and audit third-party dependencies
 estimatedMinutes: 45
 fundamentals: ["fundamentals/beginner/28-clean-code-and-security-basics"]
@@ -199,7 +200,7 @@ refused: builtins.print is not allowed
 
 ## Paths from users
 
-A file name from a request can contain `..` or be absolute. Resolve the joined path and check that it is still inside the folder you meant:
+A file name from a request can contain `..` or be absolute. The [pathlib lesson](../../intermediate/pathlib/) covered joining and resolving; here the point is refusing. Resolve the joined path and check that it is still inside the folder you meant:
 
 ```python title="safe_path.py"
 import tempfile
@@ -236,6 +237,119 @@ refused: '/etc/passwd' is outside the upload folder
 
 Joining an absolute path replaces the base entirely, which is why `/etc/passwd` needs the check as much as `..` does. `resolve()` also follows symbolic links, so a link inside the folder that points outside it is refused too.
 
+## TLS, XML and archives
+
+Three kinds of input arrive from outside without ever passing through your own parsing code: a server's certificate, an XML document and an archive.
+
+**TLS.** `ssl.create_default_context()` loads the system's trusted certificates and checks both the certificate chain and the host name. The usual "fix" for a certificate error switches verification off, which lets anyone between you and the server read and change the traffic:
+
+```python title="tls_defaults.py"
+import ssl
+
+
+def describe(label, context):
+    print(f"{label:<10}", context.verify_mode.name,
+          "check_hostname =", context.check_hostname)
+
+
+describe("default", ssl.create_default_context())
+describe("unverified", ssl._create_unverified_context())
+
+# The usual "fix" for a certificate error, done in the wrong order:
+context = ssl.create_default_context()
+try:
+    context.verify_mode = ssl.CERT_NONE
+except ValueError as error:
+    print("ValueError:", error)
+
+# To trust a private CA, add it; do not switch verification off.
+# context = ssl.create_default_context(cafile="company-ca.pem")
+```
+
+```text
+default    CERT_REQUIRED check_hostname = True
+unverified CERT_NONE check_hostname = False
+ValueError: Cannot set verify_mode to CERT_NONE when check_hostname is enabled.
+```
+
+Never ship `_create_unverified_context`, `CERT_NONE` or a library's `verify=False`. For an internal certificate authority, pass its certificate as `cafile`. <Since v="3.13" /> The default context also sets `VERIFY_X509_STRICT`, so it rejects some malformed certificates that older versions accepted.
+
+**XML.** Entity declarations let a short document expand enormously. This "billion laughs" document is 548 bytes:
+
+```python title="xml_bomb.py"
+import pyexpat
+import xml.etree.ElementTree as ET
+
+# Ten levels of entities, each one repeating the level below ten times:
+# a few hundred bytes that would expand to a billion copies of "lol".
+entities = ['<!ENTITY a0 "lol">']
+for level in range(1, 10):
+    entities.append(f'<!ENTITY a{level} "{f"&a{level - 1};" * 10}">')
+BOMB = f"<!DOCTYPE bomb [{''.join(entities)}]><bomb>&a9;</bomb>"
+
+print("input:", len(BOMB), "bytes")
+print("Expat 2.7.2 or newer:", pyexpat.version_info >= (2, 7, 2))
+try:
+    ET.fromstring(BOMB)
+except ET.ParseError as error:
+    print("ParseError:", error)
+```
+
+```text
+input: 548 bytes
+Expat 2.7.2 or newer: True
+ParseError: limit on input amplification factor (from DTD and entities) breached: line 1, column 537
+```
+
+The standard library's parsers use the Expat library, which refuses this, and does not fetch external files, as long as it is new enough. The [XML security](https://docs.python.org/3/library/xml.html#xml-security) section of the docs lists the attacks and says that Expat older than 2.7.2 may be vulnerable; check `pyexpat.EXPAT_VERSION`, because some Linux builds use the system's copy. For XML from strangers, the third-party `defusedxml` package wraps the same parsers and refuses entity declarations outright.
+
+**Archives.** An archive member can be named `../outside.txt` or `/etc/cron.d/job`, or be a link to `/etc/passwd`. `tarfile`'s `data` filter rewrites or refuses each one:
+
+```python title="tar_filter.py"
+import io
+import tarfile
+import tempfile
+from pathlib import Path
+
+
+def hostile_archive():
+    """An archive with one honest member and three escape attempts."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as tar:
+        for name in ["notes.txt", "../outside.txt", "/etc/cron.d/job"]:
+            info = tarfile.TarInfo(name)
+            info.size = 2
+            tar.addfile(info, io.BytesIO(b"hi"))
+        link = tarfile.TarInfo("passwd")
+        link.type, link.linkname = tarfile.SYMTYPE, "/etc/passwd"
+        tar.addfile(link)
+    buffer.seek(0)
+    return buffer
+```
+
+```python title="tar_filter.py (continued)"
+with tempfile.TemporaryDirectory() as folder:
+    with tarfile.open(fileobj=hostile_archive()) as tar:
+        for member in tar.getmembers():
+            try:
+                tar.extract(member, folder, filter="data")
+                print("extracted:", member.name)
+            except tarfile.FilterError as error:
+                print("refused:  ", member.name, type(error).__name__)
+    files = [p for p in Path(folder).rglob("*") if p.is_file()]
+    print(sorted(p.relative_to(folder).as_posix() for p in files))
+```
+
+```text
+extracted: notes.txt
+refused:   ../outside.txt OutsideDestinationError
+extracted: /etc/cron.d/job
+refused:   passwd AbsoluteLinkError
+['etc/cron.d/job', 'notes.txt']
+```
+
+The absolute name lost its leading slash and landed inside the folder. `data` is the default from 3.14; pass it explicitly to be safe on older versions. <Since v="3.15" /> [What's New 3.15](https://docs.python.org/3/whatsnew/3.15.html#tarfile) lists further fixes, each with a CVE: the filter now normalises link targets, extraction re-applies it when a link is replaced by a copy of another member (refusing with the new `LinkFallbackError`), and rejected members are no longer extracted when `errorlevel` is 0. Even so, the [tarfile documentation](https://docs.python.org/3/library/tarfile.html#hints-for-further-verification) says the filters are not enough for untrusted archives on their own: extract into a new empty folder and limit file count and total size. `zipfile` strips leading slashes and removes `..` components from member names when it extracts, but its documentation gives the same warning: inspect untrusted archives first.
+
 ## Other traps in the standard library
 
 | Instead of | Use | Why |
@@ -243,7 +357,9 @@ Joining an absolute path replaces the base entirely, which is why `/etc/passwd` 
 | `eval(text)` to parse a literal | `ast.literal_eval(text)` or `json.loads` | `eval` runs any expression |
 | `assert user.is_admin` | `if not ...: raise PermissionError` | `python -O` removes asserts |
 | f-strings in SQL | driver placeholders, or [template strings](../../advanced/template-strings/) | SQL injection |
-| `tarfile` `extractall()` on 3.13 and older | `extractall(path, filter="data")` | blocks absolute paths and `..`; the default from 3.14 |
+| `tarfile` `extractall()` on 3.13 and older | `extractall(path, filter="data")` | see [archives](#tls-xml-and-archives) above |
+| a regex with nested quantifiers on user input | a simpler pattern and a length limit ([regex lesson](../../advanced/regex/)) | backtracking can take exponential time (ReDoS) |
+| remote attaching left on in a process that must not be inspected | `-X disable-remote-debug` ([monitoring and debugging](../monitoring-debugging/)) | `pdb -p` and `sys.remote_exec` run code inside a live process |
 | `tempfile.mktemp()` | `NamedTemporaryFile`, `mkstemp`, `TemporaryDirectory` | another process can take the name first |
 | `yaml.load` with an unsafe loader (PyYAML) | `yaml.safe_load` | unsafe loaders can build arbitrary objects |
 
@@ -472,6 +588,7 @@ refused: '../uploads-old/a.db' is outside the upload folder
 - Tokens come from `secrets`; compare them with `compare_digest`. Passwords get a salted, slow hash such as `hashlib.scrypt`.
 - Pass `subprocess` a list. With an unavoidable shell, `shlex.quote` every value.
 - Unpickling calls whatever the data names. Use JSON across trust boundaries, or an allow-list `Unpickler`.
-- Resolve user paths and check them with `is_relative_to`. Prefer `literal_eval`, explicit checks over `assert`, `filter="data"` for tar files, and placeholders for SQL.
+- Resolve user paths and check them with `is_relative_to`. Prefer `literal_eval`, explicit checks over `assert`, and placeholders for SQL.
+- Keep TLS verification on with `ssl.create_default_context()`. Parse untrusted XML with an Expat of 2.7.2 or newer, or `defusedxml`. Extract tar files with `filter="data"`, which 3.15 tightened again.
 - Lock dependencies with hashes and audit them on a schedule.
 - Next: [configuration and observability](../config-observability/).

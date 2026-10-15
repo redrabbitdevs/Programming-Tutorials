@@ -1,0 +1,5 @@
+extracted: notes.txt
+refused:   ../outside.txt OutsideDestinationError
+extracted: /etc/cron.d/job
+refused:   passwd AbsoluteLinkError
+['etc/cron.d/job', 'notes.txt']

@@ -9,6 +9,7 @@ minVersion: "3.11"
 objectives:
   - Explain what a source distribution and a wheel contain, and read a wheel's compatibility tags
   - Build both with a PEP 517 build frontend and test the wheel before it leaves your machine
+  - Build and test a free-threaded (cp315t) wheel and declare free-threading support
   - Choose version numbers that installers order the way you intend
   - Publish to TestPyPI, then to PyPI from CI with trusted publishing instead of a stored token
   - Record and verify an exact environment with pylock.toml (PEP 751)
@@ -129,6 +130,30 @@ fastgeo   2.1.0  cp312 abi3   win_amd64
 
 The starred `*_build` swallows the optional build tag, which is why the last two lines agree. `py3-none-any` is pure Python: one wheel for every platform. `cp315-cp315` contains compiled code for CPython 3.15 only. A `t` in the ABI tag marks the free-threaded build ([PEP 703](https://peps.python.org/pep-0703/)). `abi3` is the stable ABI: built against 3.12, it loads on 3.12 and every later version. `manylinux_2_28` promises it runs on any Linux with glibc 2.28 or newer. If you ship compiled code, you publish one wheel per combination you support, plus an sdist for everyone else.
 
+## Free-threaded wheels
+
+A `py3-none-any` wheel already installs on the free-threaded build. Only compiled code needs its own `cp315t` wheel, and building one is an ordinary build run by the free-threaded interpreter. Here it is for `fastcount`, a small C extension whose module declares the `Py_mod_gil` slot from [the GIL lesson](../gil-internals/) (output trimmed):
+
+```console
+$ uv build --wheel --python 3.15t
+Building wheel...
+Successfully built dist/fastcount-0.1.0-cp315-cp315t-linux_x86_64.whl
+```
+
+Test it in a fresh free-threaded environment, and check that the import left the GIL off. An extension without the slot turns it back on, with a `RuntimeWarning`:
+
+```console
+$ python3.15t -m venv /tmp/ft
+$ /tmp/ft/bin/python -m pip install \
+    dist/fastcount-0.1.0-cp315-cp315t-linux_x86_64.whl
+$ /tmp/ft/bin/python -c "import sys, fastcount; print(sys._is_gil_enabled())"
+False
+```
+
+Then run your whole test suite there, with a stress test that calls your code from many threads ([testing on the free-threaded build](../../advanced/free-threading/)). If a dependency has not declared support yet, `PYTHON_GIL=0` keeps the GIL off during the run.
+
+Declare support in two places: the slot in the code, and a trove classifier that tells users how far to trust it, from `Programming Language :: Python :: Free Threading :: 1 - Unstable` to `4 - Resilient` (levels defined in the community [porting guide](https://py-free-threading.github.io/porting/)). For release wheels, the [same guide](https://py-free-threading.github.io/ci/) says (checked 15 October 2026) that cibuildwheel 3.1 and later builds free-threaded wheels for 3.14 and newer by default. The 3.15 alternative, one `abi3t` wheel, is in [the C API tour](../c-api-tour/).
+
 ## Version numbers
 
 Versions follow the [version specifiers specification](https://peps.python.org/pep-0440/), not string order. A release cycle sorts like this:
@@ -188,7 +213,7 @@ Three details matter. Building happens in a separate `build` job, so the job hol
 
 ## Lock files: pylock.toml
 
-Your library's `dependencies` should be ranges, so it can live alongside other packages. An *application* or a deployment needs the opposite: the exact files. [PEP 751](https://peps.python.org/pep-0751/), accepted on 31 March 2025, defines `pylock.toml`, a lock format that any installer can read without resolving dependencies again. Before it, each tool had its own (`uv.lock`, `poetry.lock`). The PEP leaves it to each tool whether to adopt it. In the versions installed for this lesson (checked 14 October 2026), pip 26.2.1 writes one with `pip lock`, which it still labels experimental, and uv 0.13.0 exports one with `uv export --format pylock.toml` and installs one with `uv pip sync`. Here is what pip wrote for a single package (URL shortened):
+Your library's `dependencies` should be ranges, so it can live alongside other packages. An *application* or a deployment needs the opposite: the exact files. [PEP 751](https://peps.python.org/pep-0751/), accepted on 31 March 2025, defines `pylock.toml`, a lock format that any installer can read without resolving dependencies again. Before it, each tool had its own (`uv.lock`, `poetry.lock`). The PEP leaves it to each tool whether to adopt it. At the time of writing (checked 15 October 2026), pip 26.2.1 writes one with `pip lock` and installs one with `pip install -r pylock.toml`; uv 0.13.1 exports one with `uv export --format pylock.toml` and installs one with `uv pip sync pylock.toml`. Both still label this support experimental, and it changes quickly, so check the [specification](https://packaging.python.org/en/latest/specifications/pylock-toml/) and your tool's release notes. The specification also allows several locks per project, named `pylock.<name>.toml`. Here is what pip wrote for a single package (URL shortened):
 
 ```console
 $ python -m pip lock iniconfig==2.3.1 -o -
@@ -205,6 +230,17 @@ url = "https://files.pythonhosted.org/.../iniconfig-2.3.1-py3-none-any.whl"
 
 [packages.wheels.hashes]
 sha256 = "9121e2c1fdb355232495be3194c8dfe87ccc2d5dee45947b78e68f499790d7a7"
+```
+
+On the deployment machine, saved as `pylock.toml`, it installs without resolving anything:
+
+```console
+$ python -m pip install -r pylock.toml
+WARNING: Using pylock.toml as a requirements source is an experimental feature. It may be removed/changed in a future release without prior warning.
+Collecting iniconfig==2.3.1 (from pylock.toml)
+  Downloading iniconfig-2.3.1-py3-none-any.whl (7.6 kB)
+Installing collected packages: iniconfig
+Successfully installed iniconfig-2.3.1
 ```
 
 The hash is the security feature: an installer refuses a file whose bytes differ from what you locked. This is what that check does:
@@ -429,6 +465,7 @@ The first bug looked the file up by its full path, while the lock is keyed by fi
 
 - An sdist is source that must be built; a wheel is a zip that is only unpacked. Its `.dist-info` carries the metadata and entry points that `importlib.metadata` reads.
 - The python, ABI and platform tags in a wheel's name decide where it installs. `abi3` spans versions; `t` marks free-threaded builds.
+- Build a `cp315t` wheel with the free-threaded interpreter, test that importing it leaves the GIL off, and declare support with the `Py_mod_gil` slot and a `Free Threading` classifier.
 - Test the built wheel in a fresh environment, rehearse on TestPyPI, and publish from CI with trusted publishing, building in a job that cannot upload.
-- `pylock.toml` (PEP 751) is the standard lock file: exact files with hashes, for applications rather than libraries.
+- `pylock.toml` (PEP 751) is the standard lock file: exact files with hashes, for applications rather than libraries. `pip install -r pylock.toml` and `uv pip sync pylock.toml` install one; tool support is still marked experimental.
 - Next: [command-line applications](../cli-apps/).
