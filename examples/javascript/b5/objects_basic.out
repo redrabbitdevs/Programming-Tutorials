@@ -1,0 +1,14 @@
+Ada 36
+green
+undefined
+Ada
+{
+  name: 'Ada',
+  age: 37,
+  'favourite colour': 'green',
+  skills: [ 'maths', 'code' ],
+  email: 'ada@example.com'
+}
+undefined false
+{ name: 'Grace', age: 85 }
+{ level: 3, levelMax: 10 }

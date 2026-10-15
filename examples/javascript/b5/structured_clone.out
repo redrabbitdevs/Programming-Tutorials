@@ -1,0 +1,7 @@
+[ 90, 80 ] London
+[ 90, 80, 70 ] Paris
+true Set(1) { 'maths' }
+false
+true
+DataCloneError
+false { x: 1 }

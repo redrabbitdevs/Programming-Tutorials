@@ -1,0 +1,465 @@
+---
+language: javascript
+level: beginner
+module: Modules and a first project
+order: 35
+title: "Project: a command-line quiz"
+description: Build a multiple-choice quiz in four stages from a JSON question file, small ES modules, a validated input loop and error handling, then extend it.
+minVersion: "22"
+objectives:
+  - Split a program into modules that each do one job
+  - Load and validate data from a JSON module
+  - Read answers in a loop that rejects bad input
+  - Test each stage on its own and extend a finished program
+estimatedMinutes: 60
+fundamentals: ["fundamentals/beginner/errors-and-exceptions"]
+---
+
+This lesson has no new syntax. You will build one program from what the beginner level has covered: arrays of objects, `map` and `filter`, destructuring, JSON modules, ES modules, `async` input and error handling. The ideas behind handling errors are in the [fundamentals lesson on errors and exceptions](../../../fundamentals/beginner/errors-and-exceptions/).
+
+The program is a **multiple-choice quiz**. It asks questions from a data file, one at a time, and keeps asking until it gets a valid answer. At the end it prints a score and a verdict.
+
+## The plan
+
+- Questions live in a JSON file, so you can change them without touching code.
+- Each module does one job: `load.mjs` loads and checks the data, `score.mjs` does the arithmetic, `ask.mjs` talks to the user and `main.mjs` joins them.
+- Logic that does not read input (loading, scoring, parsing a choice) is kept in functions that you can run and check alone.
+- Build it in stages. After each stage, run its small demo and check the output before you go on.
+
+Make a folder called `quiz` and put every file in it. All the commands below run inside that folder.
+
+## Stage 1: the questions and a loader
+
+Each question has a `prompt`, a list of `choices` and the index of the correct `answer`, counting from 0.
+
+```json title="questions.json"
+[
+  {
+    "prompt": "Which keyword declares a constant?",
+    "choices": ["var", "let", "const", "def"],
+    "answer": 2
+  },
+  {
+    "prompt": "What does typeof null return?",
+    "choices": ["null", "object", "undefined", "number"],
+    "answer": 1
+  },
+  {
+    "prompt": "Which array method adds an item to the end?",
+    "choices": ["push", "pop", "shift", "unshift"],
+    "answer": 0
+  },
+  {
+    "prompt": "Is 0.1 + 0.2 === 0.3 in JavaScript?",
+    "choices": ["true", "false"],
+    "answer": 1
+  },
+  {
+    "prompt": "Which file extension always makes Node treat a file as an ES module?",
+    "choices": [".mjs", ".cjs", ".json", ".txt"],
+    "answer": 0
+  }
+]
+```
+
+The loader imports the file as a JSON module, as in the previous lessons, and checks the shape of every question. A broken data file should stop the program with a clear message, not cause strange behaviour halfway through a game.
+
+```javascript title="load.mjs"
+import questions from "./questions.json" with { type: "json" };
+
+export function validate(list) {
+  if (!Array.isArray(list) || list.length === 0) {
+    throw new Error("The quiz needs at least one question");
+  }
+  list.forEach((q, i) => {
+    const where = `question ${i + 1}`;
+    if (typeof q.prompt !== "string") {
+      throw new Error(`${where}: prompt must be text`);
+    }
+    if (!Array.isArray(q.choices) || q.choices.length < 2) {
+      throw new Error(`${where}: needs at least two choices`);
+    }
+    if (!Number.isInteger(q.answer) || q.answer < 0 || q.answer >= q.choices.length) {
+      throw new Error(`${where}: answer is not one of the choices`);
+    }
+  });
+  return list;
+}
+
+export function loadQuestions() {
+  return validate(questions);
+}
+```
+
+`validate` throws an `Error` that names the question number and the problem. `loadQuestions` validates the imported data and returns it. Exporting `validate` as well lets the demo try it with bad data.
+
+Test it with `check_data.mjs`:
+
+```javascript title="check_data.mjs"
+import { loadQuestions, validate } from "./load.mjs";
+
+const questions = loadQuestions();
+console.log(`${questions.length} questions loaded`);
+console.log(questions[0].prompt);
+
+try {
+  validate([{ prompt: "?", choices: ["only one"], answer: 0 }]);
+} catch (error) {
+  console.log(error.message);
+}
+```
+
+Run `node check_data.mjs`:
+
+```text
+5 questions loaded
+Which keyword declares a constant?
+question 1: needs at least two choices
+```
+
+The data loads, and the bad question is reported by number. Stage 1 is done.
+
+## Stage 2: scoring
+
+The scoring needs no input or output at all, which makes it easy to check.
+
+```javascript title="score.mjs"
+export function isCorrect(question, picked) {
+  return picked === question.answer;
+}
+
+export function summarise(results) {
+  const correct = results.filter(Boolean).length;
+  const total = results.length;
+  const percent = total === 0 ? 0 : Math.round((correct / total) * 100);
+  return { correct, total, percent };
+}
+
+export function verdict(percent) {
+  if (percent >= 80) return "Excellent!";
+  if (percent >= 50) return "Good effort.";
+  return "Keep practising.";
+}
+```
+
+- `isCorrect` compares the chosen index with the stored answer.
+- `summarise` takes a list of `true` and `false` results. `filter(Boolean)` keeps the `true` ones, and the percentage is rounded. The check for an empty list avoids dividing by zero.
+- `verdict` turns a percentage into a message.
+
+```javascript title="score_demo.mjs"
+import { isCorrect, summarise, verdict } from "./score.mjs";
+
+const question = { prompt: "?", choices: ["a", "b"], answer: 1 };
+console.log(isCorrect(question, 1), isCorrect(question, 0));
+
+console.log(summarise([true, false, true, true]));
+console.log(summarise([]));
+console.log(verdict(100), verdict(50), verdict(0));
+```
+
+Run `node score_demo.mjs`:
+
+```text
+true false
+{ correct: 3, total: 4, percent: 75 }
+{ correct: 0, total: 0, percent: 0 }
+Excellent! Good effort. Keep practising.
+```
+
+Three of four is 75 percent. The empty list gives 0 percent and not `NaN`. Stage 2 is done.
+
+## Stage 3: asking, with validation
+
+This module reads the answers. It uses one line reader for the whole program, as the console lesson did, so that lines coming from a pipe are not lost. The reader is passed in as an argument, so `ask.mjs` does not create or close it.
+
+```javascript title="ask.mjs"
+export function parseChoice(text, count) {
+  const trimmed = text.trim();
+  const number = Number(trimmed);
+  if (trimmed === "" || !Number.isInteger(number)) return null;
+  if (number < 1 || number > count) return null;
+  return number - 1;
+}
+
+export async function readLine(lines, prompt) {
+  process.stdout.write(prompt);
+  const { value, done } = await lines.next();
+  return done ? null : value;
+}
+
+export async function askQuestion(lines, question, number) {
+  console.log(`\nQuestion ${number}: ${question.prompt}`);
+  question.choices.forEach((choice, i) => console.log(`  ${i + 1}) ${choice}`));
+
+  while (true) {
+    const text = await readLine(lines, "Your answer: ");
+    if (text === null) return null;
+    const picked = parseChoice(text, question.choices.length);
+    if (picked !== null) return picked;
+    console.log(`Please type a number from 1 to ${question.choices.length}.`);
+  }
+}
+```
+
+- `parseChoice` turns the typed text into a zero-based index, or `null` when the text is not a whole number from 1 to the number of choices. It checks for an empty string first, because `Number("")` is `0`. It uses `Number.isInteger`, so `"1.5"` is rejected.
+- `readLine` prints the prompt, waits for the next line and returns `null` if the input has ended.
+- `askQuestion` prints the question with numbered choices and loops until it gets a valid answer. It returns `null` if the input ends. The user sees the numbers 1 to 4, but the program works with indexes from 0.
+
+Check it with a demo that asks one question:
+
+```javascript title="ask_demo.mjs"
+import { createInterface } from "node:readline/promises";
+import { askQuestion, parseChoice } from "./ask.mjs";
+
+console.log(parseChoice("2", 4), parseChoice(" 4 ", 4), parseChoice("5", 4));
+console.log(parseChoice("abc", 4), parseChoice("", 4), parseChoice("1.5", 4));
+
+const rl = createInterface({ input: process.stdin });
+const lines = rl[Symbol.asyncIterator]();
+
+const question = { prompt: "Pick the second one", choices: ["a", "b", "c"], answer: 1 };
+const picked = await askQuestion(lines, question, 1);
+rl.close();
+
+console.log(`\nYou picked index ${picked}`);
+```
+
+Run `node ask_demo.mjs`. First type a word, then a number that is too big, then a valid one:
+
+```text frame="terminal"
+1 3 null
+null null null
+
+Question 1: Pick the second one
+  1) a
+  2) b
+  3) c
+Your answer: two
+Please type a number from 1 to 3.
+Your answer: 9
+Please type a number from 1 to 3.
+Your answer: 2
+
+You picked index 1
+```
+
+The first two lines are the `parseChoice` checks. Then bad answers are refused and the valid `2` is accepted as index 1. Stage 3 is done.
+
+## Stage 4: the main program
+
+`main.mjs` brings the modules together. It loads and checks the questions, asks each one, records whether the answer was right and prints the result.
+
+```javascript title="main.mjs"
+import { createInterface } from "node:readline/promises";
+import { loadQuestions } from "./load.mjs";
+import { askQuestion } from "./ask.mjs";
+import { isCorrect, summarise, verdict } from "./score.mjs";
+
+const rl = createInterface({ input: process.stdin });
+const lines = rl[Symbol.asyncIterator]();
+
+try {
+  const questions = loadQuestions();
+  const results = [];
+  console.log(`JavaScript quiz: ${questions.length} questions`);
+
+  for (const [i, question] of questions.entries()) {
+    const picked = await askQuestion(lines, question, i + 1);
+    if (picked === null) {
+      console.log("\nInput ended early.");
+      break;
+    }
+    const right = isCorrect(question, picked);
+    console.log(
+      right ? "Correct!" : `Not quite. The answer is ${question.choices[question.answer]}.`,
+    );
+    results.push(right);
+  }
+
+  const { correct, total, percent } = summarise(results);
+  console.log(`\nScore: ${correct}/${total} (${percent}%)`);
+  console.log(verdict(percent));
+} catch (error) {
+  console.error(`Quiz failed: ${error.message}`);
+  process.exitCode = 1;
+} finally {
+  rl.close();
+}
+```
+
+- The line reader is created once and given to `askQuestion` each time.
+- `questions.entries()` gives index and question together, and destructuring unpacks them.
+- If `askQuestion` returns `null`, the input ended early. The loop stops, and the score covers the questions answered.
+- Any error thrown inside the `try` block, such as a bad data file, is reported with `console.error`, and `process.exitCode = 1` marks the program as failed without cutting it off. `finally` always closes the reader.
+
+Run `node main.mjs` and answer as shown. Typing `abc` and `9` first shows the retry, then `3` is correct for question 1:
+
+```text frame="terminal"
+JavaScript quiz: 5 questions
+
+Question 1: Which keyword declares a constant?
+  1) var
+  2) let
+  3) const
+  4) def
+Your answer: abc
+Please type a number from 1 to 4.
+Your answer: 9
+Please type a number from 1 to 4.
+Your answer: 3
+Correct!
+
+Question 2: What does typeof null return?
+  1) null
+  2) object
+  3) undefined
+  4) number
+Your answer: 2
+Correct!
+
+Question 3: Which array method adds an item to the end?
+  1) push
+  2) pop
+  3) shift
+  4) unshift
+Your answer: 2
+Not quite. The answer is push.
+
+Question 4: Is 0.1 + 0.2 === 0.3 in JavaScript?
+  1) true
+  2) false
+Your answer: 2
+Correct!
+
+Question 5: Which file extension always makes Node treat a file as an ES module?
+  1) .mjs
+  2) .cjs
+  3) .json
+  4) .txt
+Your answer: 1
+Correct!
+
+Score: 4/5 (80%)
+Excellent!
+```
+
+The program is complete. To try the error path, change one `answer` in `questions.json` to `9` and run it again: it prints `Quiz failed: question 1: answer is not one of the choices` and exits with a failure code.
+
+## Common pitfalls
+
+- **Treating typed input as a number.** `readline` gives text. `Number("")` is `0`, so check for an empty string before you convert.
+- **Showing 1-based numbers and storing 0-based indexes.** Convert in one place, `parseChoice`, and nowhere else.
+- **Calling `rl.question` several times on piped input.** Lines can be lost. Read through one iterator, as this program does.
+- **Putting everything in `main.mjs`.** The small modules could be checked without typing answers.
+- **Forgetting `rl.close()`.** The program would wait for input and not exit. The `finally` block prevents this.
+- **Validating late.** Check data when it is loaded, so errors name the real cause.
+
+## Exercises
+
+<Exercise title="Review the missed questions">
+
+After the score, print the prompt and correct answer of every question the user got wrong. Do not change `ask.mjs`, `load.mjs` or `score.mjs`.
+
+<Solution>
+
+Collect the questions answered wrongly in a second array while the loop runs, then print them after the score.
+
+```javascript title="main_review.mjs"
+import { createInterface } from "node:readline/promises";
+import { loadQuestions } from "./load.mjs";
+import { askQuestion } from "./ask.mjs";
+import { isCorrect, summarise } from "./score.mjs";
+
+const rl = createInterface({ input: process.stdin });
+const lines = rl[Symbol.asyncIterator]();
+
+const questions = loadQuestions();
+const results = [];
+const missed = [];
+
+for (const [i, question] of questions.entries()) {
+  const picked = await askQuestion(lines, question, i + 1);
+  if (picked === null) break;
+  const right = isCorrect(question, picked);
+  results.push(right);
+  if (!right) missed.push(question);
+}
+rl.close();
+
+const { correct, total } = summarise(results);
+console.log(`\nScore: ${correct}/${total}`);
+
+if (missed.length > 0) {
+  console.log("Review these:");
+  for (const q of missed) {
+    console.log(`- ${q.prompt} -> ${q.choices[q.answer]}`);
+  }
+}
+```
+
+With the answers `3, 1, 1, 2, 1` the program gets only question 2 wrong. Its input file ends after those answers. The last lines of the output are:
+
+```text frame="terminal"
+Score: 4/5
+Review these:
+- What does typeof null return? -> object
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Shuffle the questions">
+
+Write `shuffle.mjs` with a function `shuffle(list, random = Math.random)` that returns a shuffled copy and leaves the original alone. The `random` parameter lets you pass in a fake random function so the result can be checked. Then show it working.
+
+<Solution>
+
+This is the Fisher-Yates shuffle. It walks backwards through a copy and swaps each item with a random earlier one.
+
+```javascript title="shuffle.mjs"
+export function shuffle(list, random = Math.random) {
+  const copy = [...list];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+```
+
+```javascript title="shuffle_demo.mjs"
+import { shuffle } from "./shuffle.mjs";
+
+const original = [1, 2, 3, 4, 5];
+
+const fixed = shuffle(original, () => 0);
+console.log(fixed, original);
+
+const real = shuffle(original);
+console.log(real.length, [...real].sort().join(""));
+```
+
+```text
+[ 2, 3, 4, 5, 1 ] [ 1, 2, 3, 4, 5 ]
+5 12345
+```
+
+With a `random` that always returns 0, the result is predictable, and the original is unchanged. With the real `Math.random`, the length stays 5 and the sorted items are the same five. To use it in the quiz, call `shuffle(loadQuestions())` in `main.mjs`.
+
+</Solution>
+
+</Exercise>
+
+## Going further
+
+Pick one and build it. Ask for the number of questions on the command line with `process.argv`. Add a `category` to each question and report the score per category. Or load a second questions file chosen by name with `import()`. Keep each new piece in its own module.
+
+## Summary
+
+- The quiz joined modules, JSON data, arrays of objects, validated input and error handling in one program.
+- Splitting by job (`load`, `score`, `ask`, `main`) let each stage be run and checked on its own.
+- Validate data when it is loaded, validate input in a loop, and report failures with a clear message and a failure exit code.
+- Passing dependencies in (the line reader, the random function) keeps modules simple to test.
+
+That is the end of the core beginner modules on data and projects.

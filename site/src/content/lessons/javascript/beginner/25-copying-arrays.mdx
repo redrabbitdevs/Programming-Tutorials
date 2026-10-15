@@ -1,0 +1,237 @@
+---
+language: javascript
+level: beginner
+module: Arrays, objects and data
+order: 25
+title: Sorting and non-mutating copies
+description: Sort arrays correctly with comparators, and use toSorted, toReversed, toSpliced and with to get changed copies without changing the original.
+minVersion: "22"
+objectives:
+  - Explain why sort changes the array and compares as text by default
+  - Write comparators for numbers, strings and several keys
+  - Use toSorted, toReversed, toSpliced and with to avoid mutation
+  - State what a stable sort guarantees
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/searching-and-sorting"]
+---
+
+Sorting algorithms and what makes one sort stable are explained in the [fundamentals lesson on searching and sorting](../../../fundamentals/beginner/searching-and-sorting/). This lesson is about the JavaScript method `sort`, which has two traps, and about the newer methods that return a changed copy instead of changing the array.
+
+## sort changes the array and compares text
+
+`sort` sorts **in place** and also returns the same array. With no argument it converts every item to a string and compares the text, one code unit at a time.
+
+```javascript title="sort_default.mjs"
+const numbers = [10, 9, 1, 100];
+const sorted = numbers.sort();
+console.log(sorted);
+console.log(sorted === numbers);
+
+console.log(["banana", "apple", "Cherry"].sort());
+console.log([3, undefined, 1, 2].sort());
+
+const nums = [10, 9, 1, 100];
+nums.sort((a, b) => a - b);
+console.log(nums);
+
+const names = ["Émile", "zoe", "Ada", "bob"];
+console.log([...names].sort());
+console.log([...names].sort((a, b) => a.localeCompare(b, "en")));
+```
+
+```text
+[ 1, 10, 100, 9 ]
+true
+[ 'Cherry', 'apple', 'banana' ]
+[ 1, 2, 3, undefined ]
+[ 1, 9, 10, 100 ]
+[ 'Ada', 'bob', 'zoe', 'Émile' ]
+[ 'Ada', 'bob', 'Émile', 'zoe' ]
+```
+
+Read the output line by line:
+
+- `[ 1, 10, 100, 9 ]` is a text order: `"10"` comes before `"9"` because `"1"` comes before `"9"`.
+- `sorted === numbers` is `true`. There is one array and two names for it.
+- `"Cherry"` comes before `"apple"`. Capital letters have lower code values than lowercase ones, so the default order puts all capitals first.
+- `undefined` always goes to the end, and the comparator is never called for it.
+- A comparator `(a, b) => a - b` fixes numbers. It returns a negative number when `a` goes first, a positive number when `b` goes first and zero when they are equal.
+- For human-readable text use `localeCompare`. Without it, `"Émile"` ends up after `"zoe"`, because accented letters have high code values. Passing a locale such as `"en"` makes the result the same on every machine.
+
+## Several keys
+
+To sort by one key and break ties with another, chain the comparisons with `||`. A comparison that finds a difference returns a non-zero number, which is truthy, so the later ones run only for ties. The example uses `toSorted`, described below, so the original stays as it was.
+
+```javascript title="sort_multi_key.mjs"
+const staff = [
+  { name: "Grace", dept: "eng", age: 45 },
+  { name: "Ada", dept: "ops", age: 36 },
+  { name: "Linus", dept: "eng", age: 30 },
+  { name: "Alan", dept: "ops", age: 36 },
+  { name: "Barbara", dept: "eng", age: 45 },
+];
+
+const sorted = staff.toSorted(
+  (a, b) =>
+    a.dept.localeCompare(b.dept, "en") ||
+    b.age - a.age ||
+    a.name.localeCompare(b.name, "en"),
+);
+
+for (const p of sorted) {
+  console.log(p.dept, p.age, p.name);
+}
+console.log(staff[0].name);
+```
+
+```text
+eng 45 Barbara
+eng 45 Grace
+eng 30 Linus
+ops 36 Ada
+ops 36 Alan
+Grace
+```
+
+The order is department first, then age from oldest to youngest (`b.age - a.age` reverses the direction), then name. Barbara and Grace have the same department and age, so the name decides.
+
+## Copies that do not change the original
+
+`sort`, `reverse` and `splice` change the array. ES2023 added copying versions of them, plus one for assigning at an index. They all run on Node 22.
+
+| Changes the array | Returns a changed copy |
+|---|---|
+| `sort(compare)` | `toSorted(compare)` |
+| `reverse()` | `toReversed()` |
+| `splice(start, count, ...items)` | `toSpliced(start, count, ...items)` |
+| `arr[i] = value` | `with(i, value)` |
+
+```javascript title="non_mutating.mjs"
+const original = [3, 1, 2];
+
+console.log(original.toSorted(), original);
+console.log(original.toReversed(), original);
+console.log(original.with(1, 99), original);
+console.log(original.toSpliced(1, 1, "a", "b"), original);
+
+original.reverse();
+console.log(original);
+```
+
+```text
+[ 1, 2, 3 ] [ 3, 1, 2 ]
+[ 2, 1, 3 ] [ 3, 1, 2 ]
+[ 3, 99, 2 ] [ 3, 1, 2 ]
+[ 3, 'a', 'b', 2 ] [ 3, 1, 2 ]
+[ 2, 1, 3 ]
+```
+
+The original `[3, 1, 2]` is the same after each call. The last two lines show that `reverse` changes it in place. `with` throws a `RangeError` if the index is outside the array. Before these methods existed, the usual pattern was `[...arr].sort()`, which still works everywhere.
+
+## Stable sorting and comparators that lie
+
+Since ES2019, `sort` is **stable**: items that compare as equal keep their original relative order. That lets you sort in several passes, and it means a tie in your comparator does not shuffle items.
+
+```javascript title="sort_stable.mjs"
+const tasks = [
+  { title: "write", priority: 2 },
+  { title: "test", priority: 1 },
+  { title: "deploy", priority: 2 },
+  { title: "plan", priority: 1 },
+];
+
+const byPriority = tasks.toSorted((a, b) => a.priority - b.priority);
+console.log(byPriority.map((t) => t.title));
+
+const broken = [5, 1, 4].sort((a, b) => a > b);
+console.log(broken);
+```
+
+```text
+[ 'test', 'plan', 'write', 'deploy' ]
+[ 5, 1, 4 ]
+```
+
+`test` and `plan` both have priority 1, and they stay in the order they had. The same holds for `write` and `deploy`.
+
+The second part sorts with `(a, b) => a > b`. That comparator returns `true` or `false`, which become 1 and 0 and are never negative, so it does not describe an order. The specification leaves the result of an inconsistent comparator up to the engine. Here the array comes back unchanged, and it could differ elsewhere. Always return a number.
+
+## Copying is shallow
+
+`toSorted`, `[...arr]` and `slice()` copy the array, not the objects inside it.
+
+```javascript title="sort_shallow.mjs"
+const books = [
+  { title: "B", year: 2001 },
+  { title: "A", year: 1999 },
+];
+
+const copy = [...books];
+copy.sort((a, b) => a.year - b.year);
+console.log(books.map((b) => b.title), copy.map((b) => b.title));
+
+copy[0].year = 1800;
+console.log(books[1].year);
+```
+
+```text
+[ 'B', 'A' ] [ 'A', 'B' ]
+1800
+```
+
+`copy` has its own order, so `books` kept `B, A`. But both arrays hold the same two objects, so changing `copy[0].year` also changed the object in `books`. The lesson on references and `structuredClone` later in this module shows how to copy deeply.
+
+## Common pitfalls
+
+- **Sorting numbers with no comparator.** The default order is text order.
+- **Forgetting that `sort` returns the same array.** `const sorted = arr.sort()` does not make a copy.
+- **A comparator that returns a boolean.** Return a number: negative, zero or positive.
+- **Using `a - b` on values that are not plain numbers.** If a value may be `NaN` or a string, the subtraction gives `NaN` and the order is unreliable. Clean the data first, or compare with `<` and `>` and return `-1`, `0` or `1`.
+- **Sorting text with the default order for display.** Use `localeCompare`.
+- **Thinking a copy is independent.** An array copy shares its objects with the original.
+
+## Exercises
+
+<Exercise title="Sort records by several keys">
+
+Given the `staff` array of `{ name, dept, age }` objects in the example, print them sorted by department (A to Z), then age (oldest first), then name (A to Z). The original array must not change.
+
+<Solution>
+
+The solution is `sort_multi_key.mjs` above. `toSorted` returns a new array. The comparator joins three comparisons with `||`. The final line prints `staff[0].name`, which is still `Grace`, the first person in the original order, so the original did not change.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Rewrite with a copy">
+
+This code changes `scores` by accident. Rewrite it so that `scores` stays as it is and `top` holds the three highest scores, highest first.
+
+```javascript
+const scores = [40, 100, 75, 9, 88];
+const top = scores.sort().reverse().slice(0, 3);
+```
+
+<Solution>
+
+```javascript
+const scores = [40, 100, 75, 9, 88];
+const top = scores.toSorted((a, b) => b - a).slice(0, 3);
+console.log(top, scores);
+```
+
+It prints `[ 100, 88, 75 ] [ 40, 100, 75, 9, 88 ]`. The original code had two bugs. `sort()` without a comparator sorts as text, so `100` would not end up first the way you expect, and `sort` and `reverse` both change `scores`. `toSorted` with `b - a` sorts numbers from high to low in a new array.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `sort` changes the array and, without a comparator, compares items as text. Always pass a comparator for numbers.
+- A comparator returns a negative number, zero or a positive number. Chain keys with `||`.
+- `toSorted`, `toReversed`, `toSpliced` and `with` return changed copies. The originals stay as they were.
+- `sort` is stable. A copy of an array is shallow: the objects inside are shared.
+
+Next: objects.

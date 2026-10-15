@@ -1,0 +1,305 @@
+---
+language: javascript
+level: beginner
+module: Arrays, objects and data
+order: 30
+title: JSON
+description: Parse and produce JSON with JSON.parse and JSON.stringify, use revivers, replacers, indentation and toJSON, and know what JSON cannot represent.
+minVersion: "22"
+objectives:
+  - Convert between JSON text and JavaScript values with parse and stringify
+  - Format output with an indent and filter it with a replacer
+  - Rebuild dates and other types with a reviver or toJSON
+  - List the values JSON cannot represent and handle parse errors
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/records-and-objects"]
+---
+
+**JSON** (JavaScript Object Notation) is a text format for data. It looks like JavaScript object syntax, but it is stricter: keys and strings need double quotes, there are no comments and no trailing commas, and the only values are objects, arrays, strings, numbers, `true`, `false` and `null`. Almost every web service, configuration file and data export uses it. The records that JSON describes are the ones from the [fundamentals lesson on records and objects](../../../fundamentals/beginner/records-and-objects/).
+
+JavaScript has a global `JSON` object with two functions that matter: `JSON.parse` turns text into a value, and `JSON.stringify` turns a value into text.
+
+## Parse and stringify
+
+```javascript title="json_basics.mjs"
+const text = '{"name":"Ada","age":36,"tags":["maths","code"],"address":null,"active":true}';
+
+const data = JSON.parse(text);
+console.log(data.name, data.tags[1], data.address, typeof data.age);
+
+const user = { name: "Ada", tags: ["maths", "code"], active: true };
+console.log(JSON.stringify(user));
+console.log(JSON.stringify(user, null, 2));
+console.log(JSON.stringify(user, null, "--"));
+
+console.log(JSON.stringify("hi"), JSON.stringify(42), JSON.stringify(null));
+
+try {
+  JSON.parse("{'name': 'Ada'}");
+} catch (error) {
+  console.log(error.name);
+}
+
+try {
+  JSON.parse("");
+} catch (error) {
+  console.log(error instanceof SyntaxError);
+}
+```
+
+```text
+Ada code null number
+{"name":"Ada","tags":["maths","code"],"active":true}
+{
+  "name": "Ada",
+  "tags": [
+    "maths",
+    "code"
+  ],
+  "active": true
+}
+{
+--"name": "Ada",
+--"tags": [
+----"maths",
+----"code"
+--],
+--"active": true
+}
+"hi" 42 null
+SyntaxError
+true
+```
+
+- `JSON.parse(text)` returns an object, array or primitive. `null` in the text becomes `null`.
+- `JSON.stringify(value)` returns compact text with no spaces.
+- The third argument sets the **indent**. A number gives that many spaces (up to 10), and a string is used as the indent itself. `JSON.stringify(user, null, 2)` is the usual way to make readable output. (The second argument is the replacer, covered below, and `null` means "none".)
+- Single quotes are not valid JSON. Bad text makes `JSON.parse` throw a `SyntaxError`, and so does empty text. The wording of the message differs between engines and versions, so test for the error class, not the message.
+
+Always wrap `JSON.parse` of outside data in `try` and `catch`, as the [error handling lesson](../errors-basics-js/) showed. Input from a file, network or user can be broken.
+
+## What JSON cannot represent
+
+`stringify` quietly changes values that JSON has no form for.
+
+```javascript title="json_lossy.mjs"
+const value = {
+  a: undefined,
+  b: () => 1,
+  c: Symbol("s"),
+  d: NaN,
+  e: Infinity,
+  f: new Date(Date.UTC(2024, 0, 15, 10, 30)),
+  g: new Map([["k", 1]]),
+  h: new Set([1, 2]),
+  i: [undefined, () => 1],
+  j: -0,
+};
+console.log(JSON.stringify(value));
+
+try {
+  JSON.stringify({ big: 10n });
+} catch (error) {
+  console.log(error.name);
+}
+
+const loop = {};
+loop.self = loop;
+try {
+  JSON.stringify(loop);
+} catch (error) {
+  console.log(error.name);
+}
+
+const back = JSON.parse(JSON.stringify({ when: new Date(Date.UTC(2024, 0, 15)) }));
+console.log(typeof back.when, back.when);
+```
+
+```text
+{"d":null,"e":null,"f":"2024-01-15T10:30:00.000Z","g":{},"h":{},"i":[null,null],"j":0}
+TypeError
+TypeError
+string 2024-01-15T00:00:00.000Z
+```
+
+| Value | In an object | In an array |
+|---|---|---|
+| `undefined`, function, symbol | property is left out | becomes `null` |
+| `NaN`, `Infinity`, `-Infinity` | becomes `null` | becomes `null` |
+| `-0` | becomes `0` | becomes `0` |
+| `Date` | becomes an ISO text through its `toJSON` method | same |
+| `Map`, `Set` | becomes `{}` (their contents are not enumerable properties) | same |
+| `BigInt` | **throws** a `TypeError` | throws |
+| circular reference | **throws** a `TypeError` | throws |
+
+The last two lines of the example show the round trip problem: a `Date` goes in, and a **string** comes out of `parse`. JSON has no date type, so you must convert it back yourself.
+
+## Replacers, revivers and toJSON
+
+`stringify` takes an optional second argument:
+
+- an **array of keys**, which keeps only those properties, or
+- a **function** `(key, value)`, which is called for every property and returns the value to use. Returning `undefined` leaves the property out.
+
+`parse` takes an optional second argument, a **reviver** function `(key, value)`, which can replace each parsed value. Use it to rebuild dates.
+
+An object can also define its own `toJSON()` method. `stringify` calls it and serialises whatever it returns. That is how `Date` produces its text.
+
+```javascript title="json_replacer_reviver.mjs"
+const user = { name: "Ada", password: "secret", age: 36, role: "admin" };
+
+console.log(JSON.stringify(user, ["name", "role"]));
+
+console.log(
+  JSON.stringify(user, (key, value) => (key === "password" ? undefined : value)),
+);
+
+const event = { title: "Launch", when: new Date(Date.UTC(2024, 5, 1, 9, 0)) };
+const text = JSON.stringify(event);
+console.log(text);
+
+const revived = JSON.parse(text, (key, value) =>
+  key === "when" ? new Date(value) : value,
+);
+console.log(revived.when instanceof Date, revived.when.getUTCFullYear());
+
+class Money {
+  constructor(cents) {
+    this.cents = cents;
+  }
+  toJSON() {
+    return `${(this.cents / 100).toFixed(2)} EUR`;
+  }
+}
+console.log(JSON.stringify({ price: new Money(1999) }));
+```
+
+```text
+{"name":"Ada","role":"admin"}
+{"name":"Ada","age":36,"role":"admin"}
+{"title":"Launch","when":"2024-06-01T09:00:00.000Z"}
+true 2024
+{"price":"19.99 EUR"}
+```
+
+The reviver checks `key === "when"` and turns that text back into a `Date`. It is called for nested values first, then for the object that contains them, with the final call having the key `""`. The replacer hides `password`, which is useful when you must not write a secret to a log. The `Money` class decides its own JSON form.
+
+## Load, edit and save a settings object
+
+Reading and writing a file together with JSON is a common task. The example uses a temporary folder so it can run anywhere.
+
+```javascript title="json_settings.mjs"
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const dir = mkdtempSync(join(tmpdir(), "settings-"));
+const file = join(dir, "settings.json");
+
+const defaults = { theme: "light", fontSize: 14, recent: [] };
+writeFileSync(file, JSON.stringify(defaults, null, 2) + "\n");
+
+const settings = JSON.parse(readFileSync(file, "utf8"));
+settings.theme = "dark";
+settings.recent.push("notes.txt");
+writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
+
+console.log(readFileSync(file, "utf8"));
+```
+
+```text
+{
+  "theme": "dark",
+  "fontSize": 14,
+  "recent": [
+    "notes.txt"
+  ]
+}
+```
+
+`readFileSync(file, "utf8")` returns the file text, `JSON.parse` turns it into an object, the program edits the object and `JSON.stringify` with an indent of 2 writes it back. The final `"\n"` makes the file end with a newline, as text files conventionally do. The `node:fs`, `node:os` and `node:path` modules are built into Node. Later lessons cover files in depth.
+
+A real program must handle a missing or damaged file. This version falls back to defaults and merges what it can read over them with the spread syntax from earlier in this module.
+
+```javascript title="json_safe_load.mjs"
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+function loadSettings(file, defaults) {
+  if (!existsSync(file)) return { ...defaults };
+  try {
+    return { ...defaults, ...JSON.parse(readFileSync(file, "utf8")) };
+  } catch (error) {
+    if (error instanceof SyntaxError) return { ...defaults };
+    throw error;
+  }
+}
+
+const dir = mkdtempSync(join(tmpdir(), "load-"));
+const defaults = { theme: "light", fontSize: 14 };
+
+console.log(loadSettings(join(dir, "missing.json"), defaults));
+
+writeFileSync(join(dir, "broken.json"), "{ theme: dark");
+console.log(loadSettings(join(dir, "broken.json"), defaults));
+
+writeFileSync(join(dir, "good.json"), '{"fontSize": 18}');
+console.log(loadSettings(join(dir, "good.json"), defaults));
+```
+
+```text
+{ theme: 'light', fontSize: 14 }
+{ theme: 'light', fontSize: 14 }
+{ theme: 'light', fontSize: 18 }
+```
+
+Only `SyntaxError` is caught, because a damaged file is expected. Any other error, such as a permission problem, is re-thrown so it is not hidden.
+
+## Common pitfalls
+
+- **Writing JSON by hand with single quotes, comments or trailing commas.** These are all invalid.
+- **Parsing without `try`.** Outside data is not trustworthy.
+- **Expecting dates to come back as dates.** `parse` returns strings. Use a reviver.
+- **Using `JSON.parse(JSON.stringify(x))` to deep copy.** It drops `undefined` and functions, turns dates into text and breaks on `BigInt` and cycles. Use `structuredClone`.
+- **Reading a number that is too large.** JSON numbers become ordinary JavaScript numbers, so integers beyond 2^53 lose precision. Send such values as strings.
+- **Stringifying a `Map` or `Set` directly.** You get `{}`. Convert with `Object.fromEntries(map)` or `[...set]`.
+
+## Exercises
+
+<Exercise title="Load, edit and save">
+
+Write a program that creates a settings file with `theme`, `fontSize` and an empty `recent` list, loads it, changes the theme to `"dark"`, adds `"notes.txt"` to `recent`, saves it and prints the file text.
+
+<Solution>
+
+The solution is `json_settings.mjs` above. It writes the defaults with `JSON.stringify(defaults, null, 2)`, reads and parses them, edits the parsed object and writes it again. The printed text shows `"theme": "dark"` and `"recent"` holding one item.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict the text">
+
+What does this print?
+
+```javascript
+console.log(JSON.stringify({ a: [1, undefined, 3], b: undefined, c: "x" }));
+```
+
+<Solution>
+
+It prints `{"a":[1,null,3],"c":"x"}`. The `undefined` inside the array became `null`, which keeps the array's length. The property `b` with value `undefined` was left out altogether.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `JSON.parse` turns text into values and throws a `SyntaxError` on bad input. `JSON.stringify` turns values into text, and its third argument sets the indent.
+- JSON has no `undefined`, functions, dates, maps, sets or `BigInt`. They are dropped, changed or rejected.
+- A replacer filters output, a reviver rebuilds values on input, and `toJSON` lets an object choose its own text.
+- Wrap parsing of outside data in `try`, and catch `SyntaxError` specifically.
+
+You have now seen arrays, objects, copies, collections and JSON. The next module splits code across files and builds a project.

@@ -1,0 +1,239 @@
+---
+language: javascript
+level: beginner
+module: Modules and a first project
+order: 33
+title: JSON modules, dynamic import and top-level await
+description: Import JSON files with import attributes, load modules while the program runs with import(), use top-level await, and find files with import.meta.
+minVersion: "22"
+objectives:
+  - Import a JSON file as a module with a with { type "json" } attribute
+  - Load a module on demand with import() and handle a missing one
+  - Use await at the top level of a module
+  - Locate files next to a module with import.meta.url and import.meta.dirname
+estimatedMinutes: 40
+fundamentals: []
+---
+
+Static `import` lines are fixed when the file is written and run before anything else. This lesson covers the other ways to bring in data and code: JSON files, modules chosen while the program runs, and the `await` keyword at the top of a file.
+
+## JSON modules
+
+A JSON file can be imported like a module. You must say what kind of file it is with an **import attribute**, `with { type: "json" }`. JSON modules are part of ES2025 and run on Node.js 22.
+
+```json title="config.json"
+{
+  "appName": "demo",
+  "port": 8080,
+  "features": ["search", "export"]
+}
+```
+
+```javascript title="load_config.mjs"
+import config from "./config.json" with { type: "json" };
+
+console.log(config.appName, config.port);
+console.log(config.features.includes("export"));
+
+config.port = 9090;
+const again = await import("./config.json", { with: { type: "json" } });
+console.log(again.default.port, again.default === config);
+
+try {
+  await import("./config.json");
+} catch (error) {
+  console.log(error.code);
+}
+```
+
+```text
+demo 8080
+true
+9090 true
+ERR_IMPORT_ATTRIBUTE_MISSING
+```
+
+- The JSON file's content is the **default export**. There are no named exports, so write `import config from "./config.json" with { type: "json" }`.
+- Without the attribute the import fails. The last statement in the example imports the file without it, and the error's `code` is `ERR_IMPORT_ATTRIBUTE_MISSING`.
+- The module is cached, as every module is. The second import returned the very same object (`again.default === config` is `true`), and the change to `config.port` is visible through it. Treat imported data as shared.
+- Older code and tutorials wrote `assert { type: "json" }`. That keyword was replaced by `with`. Use `with`.
+
+For a file that may change while the program runs, or that you want to handle errors for, read it with `readFileSync` and `JSON.parse`, as in the JSON lesson.
+
+## Dynamic import
+
+`import(specifier)` is an expression that loads a module **when it runs** and returns a promise for the module's namespace object. It works anywhere: in an `if`, in a function, in a loop. The specifier can be any string, including one built from a variable.
+
+```javascript title="shout.mjs"
+console.log("shout plugin loaded");
+
+export const name = "shout";
+
+export default function run(text) {
+  return text.toUpperCase() + "!";
+}
+```
+
+```javascript title="whisper.mjs"
+console.log("whisper plugin loaded");
+
+export const name = "whisper";
+
+export default function run(text) {
+  return text.toLowerCase() + "...";
+}
+```
+
+```javascript title="run_plugins.mjs"
+console.log("start");
+
+async function runPlugin(pluginName, text) {
+  try {
+    const plugin = await import(`./plugins/${pluginName}.mjs`);
+    return plugin.default(text);
+  } catch (error) {
+    if (error.code === "ERR_MODULE_NOT_FOUND") {
+      return `no plugin called ${pluginName}`;
+    }
+    throw error;
+  }
+}
+
+for (const name of ["shout", "whisper", "shout", "missing"]) {
+  console.log(await runPlugin(name, "Hello"));
+}
+```
+
+```text
+start
+shout plugin loaded
+HELLO!
+whisper plugin loaded
+hello...
+HELLO!
+no plugin called missing
+```
+
+- `start` prints first. Neither plugin ran until `import()` was called for it.
+- `await import(...)` waits for the module to load and run. The result has the module's exports, so `plugin.default` is the default export.
+- The second `shout` did not print `shout plugin loaded` again. A module is loaded and run once, and `import()` returns the cached one.
+- A name with no file makes the promise reject with the error code `ERR_MODULE_NOT_FOUND`. The example catches the error, answers for that one case and re-throws anything else.
+- Specifiers made from user input are dangerous. If `pluginName` came from a user, they could load any file. Check names against a list first.
+
+Dynamic import suits code that is large or rarely needed, code chosen from a configuration, and plugins. For everything else, use a static `import`, which is easier to read and check.
+
+## Top-level await
+
+The examples above used `await` outside any function. In an ES module that is allowed. This is **top-level await**, available since ES2022. The module pauses at the `await` line, and any module that imports it waits too.
+
+```javascript title="top_level_await.mjs"
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+console.log("before");
+await pause(20);
+console.log("after 20 ms");
+
+const results = await Promise.all([pause(10).then(() => "a"), pause(5).then(() => "b")]);
+console.log(results);
+```
+
+```text
+before
+after 20 ms
+[ 'a', 'b' ]
+```
+
+`await` accepts a promise and gives you its result. The `pause` helper returns a promise that resolves after a delay. A later module on asynchronous JavaScript explains promises. For now, three rules cover most uses:
+
+- Use `await` only inside an `async` function, or at the top of a module.
+- It does not work in CommonJS files. The next lesson explains the difference.
+- If a promise rejects, `await` throws, so wrap it in `try` and `catch` when you expect trouble.
+
+Do not use top-level `await` for work that is slow and not needed to start, because every importer waits for it.
+
+## import.meta: where am I?
+
+`import.meta` is an object with information about the current module.
+
+```javascript title="where_am_i.mjs"
+import { readFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+console.log(import.meta.url.startsWith("file://"));
+console.log(basename(import.meta.filename));
+console.log(basename(import.meta.dirname));
+console.log(fileURLToPath(import.meta.url) === import.meta.filename);
+
+const text = readFileSync(join(import.meta.dirname, "config.json"), "utf8");
+console.log(JSON.parse(text).appName);
+
+const sibling = new URL("./config.json", import.meta.url);
+console.log(JSON.parse(readFileSync(sibling, "utf8")).port);
+```
+
+```text
+true
+where_am_i.mjs
+dynamic
+true
+demo
+8080
+```
+
+- `import.meta.url` is the module's address as a `file:` URL.
+- `import.meta.filename` is the full path of the file, and `import.meta.dirname` is its folder. Both were added in Node.js 20.11 and 21.2, and stopped being experimental in 22.16 and 24.0. They exist only for modules loaded from files.
+- Files are found **relative to the current directory** when you use a plain relative path like `"config.json"` in `readFileSync`. That path changes depending on where the program is started. Building the path from `import.meta.dirname`, or from `new URL("./config.json", import.meta.url)`, always finds the file next to the module.
+
+## Common pitfalls
+
+- **Importing JSON without `with { type: "json" }`.** It fails with `ERR_IMPORT_ATTRIBUTE_MISSING`.
+- **Using `assert` instead of `with`.** The old keyword is not the standard.
+- **Forgetting `await` on `import()`.** You get a promise, not the module.
+- **Building import paths from untrusted input.** Only load names you expect.
+- **Using `__dirname` and `__filename` in a module.** They do not exist in ES modules. Use `import.meta.dirname` and `import.meta.filename`.
+- **Expecting an edited JSON file to reload.** Modules are cached for the life of the program.
+
+## Exercises
+
+<Exercise title="Load a JSON config">
+
+Write a module that imports `config.json` as a JSON module, prints the app name and port, and checks whether the `features` list contains `"export"`.
+
+<Solution>
+
+The first lines of `load_config.mjs` above are the solution:
+
+```javascript
+import config from "./config.json" with { type: "json" };
+
+console.log(config.appName, config.port);
+console.log(config.features.includes("export"));
+```
+
+It prints `demo 8080` and `true`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Lazily import a plugin">
+
+Write `runPlugin(name, text)` that imports `./plugins/NAME.mjs` when called and returns the result of its default export. If the plugin does not exist, return a message instead of crashing.
+
+<Solution>
+
+The function `runPlugin` in `run_plugins.mjs` above does this. It builds the path in a template literal, awaits `import()`, calls `plugin.default(text)` and catches errors. For `ERR_MODULE_NOT_FOUND` it returns `no plugin called ...`, and for any other error it throws again so real bugs are not hidden.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Import JSON with `import data from "./file.json" with { type: "json" }`. The attribute is required.
+- `import()` loads a module while the program runs and returns a promise. A missing file rejects with `ERR_MODULE_NOT_FOUND`.
+- Top-level `await` works in ES modules, and importers wait for it.
+- `import.meta.url`, `import.meta.filename` and `import.meta.dirname` locate the current file, so you can find files next to it.
+
+Next: reading the older module system you will meet in existing code.

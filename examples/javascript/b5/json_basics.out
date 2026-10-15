@@ -1,0 +1,21 @@
+Ada code null number
+{"name":"Ada","tags":["maths","code"],"active":true}
+{
+  "name": "Ada",
+  "tags": [
+    "maths",
+    "code"
+  ],
+  "active": true
+}
+{
+--"name": "Ada",
+--"tags": [
+----"maths",
+----"code"
+--],
+--"active": true
+}
+"hi" 42 null
+SyntaxError
+true

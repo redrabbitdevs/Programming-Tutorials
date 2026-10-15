@@ -1,0 +1,15 @@
+loaded_once.mjs is running
+Hello, world! Hello, Ada! world
+5 0.2
+120
+[Module: null prototype] {
+  TAX_RATE: 0.2,
+  add: [Function: add],
+  withTax: [Function: withTax]
+}
+true true
+0
+2
+TypeError
+started at boot
+undefined undefined undefined

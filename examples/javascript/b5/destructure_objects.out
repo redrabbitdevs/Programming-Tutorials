@@ -1,0 +1,11 @@
+Ada 36
+Ada guest
+London admin
+{
+  name: 'Ada',
+  address: { city: 'London', zip: 'N1' },
+  tags: [ 'admin', 'dev' ]
+}
+none 5 null
+Ada (36) Linus (0)
+Dr

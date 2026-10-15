@@ -1,0 +1,11 @@
+true false
+true false
+true false
+true
+[ 'x', 'y', 'label' ]
+[ 1, 2, undefined ]
+[ [ 'x', 1 ], [ 'y', 2 ], [ 'label', undefined ] ]
+a = 1
+b = 2
+{ apple: 2, pear: 4 }
+[ '1', '2', 'b', 'a' ]

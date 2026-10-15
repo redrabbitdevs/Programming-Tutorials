@@ -1,0 +1,8 @@
+[ 'apple', 'banana', 'cherry' ]
+apple cherry undefined
+3
+[ 'apple', 'blueberry', 'cherry' ]
+cherry blueberry
+cherry
+[ 1, 'two', true, null, [ 3, 4 ], { five: 5 } ]
+object true false

@@ -1,0 +1,27 @@
+[
+  {
+    "prompt": "Which keyword declares a constant?",
+    "choices": ["var", "let", "const", "def"],
+    "answer": 2
+  },
+  {
+    "prompt": "What does typeof null return?",
+    "choices": ["null", "object", "undefined", "number"],
+    "answer": 1
+  },
+  {
+    "prompt": "Which array method adds an item to the end?",
+    "choices": ["push", "pop", "shift", "unshift"],
+    "answer": 0
+  },
+  {
+    "prompt": "Is 0.1 + 0.2 === 0.3 in JavaScript?",
+    "choices": ["true", "false"],
+    "answer": 1
+  },
+  {
+    "prompt": "Which file extension always makes Node treat a file as an ES module?",
+    "choices": [".mjs", ".cjs", ".json", ".txt"],
+    "answer": 0
+  }
+]

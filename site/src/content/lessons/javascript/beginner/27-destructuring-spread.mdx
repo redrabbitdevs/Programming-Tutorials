@@ -1,0 +1,279 @@
+---
+language: javascript
+level: beginner
+module: Arrays, objects and data
+order: 27
+title: Destructuring, spread and rest
+description: Unpack arrays and objects into variables, set defaults and new names, and use spread and rest to copy, combine and collect values.
+minVersion: "22"
+objectives:
+  - Unpack arrays and objects with destructuring, including defaults and renaming
+  - Use spread to copy and combine arrays and objects
+  - Use rest to collect the remaining items or properties
+  - Merge user settings over defaults and say why the copy is shallow
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/memory-and-references"]
+---
+
+Three pieces of syntax use the same dots and the same brackets to do opposite jobs. **Destructuring** pulls values out of arrays and objects into variables. **Spread** (`...x` in a call, array or object literal) pours values in. **Rest** (`...x` in a pattern or parameter list) collects what is left. All three copy references, not the data behind them. The difference between a value and a reference is explained in the [fundamentals lesson on memory and references](../../../fundamentals/beginner/memory-and-references/).
+
+## Array destructuring
+
+The pattern on the left mirrors the shape of the array on the right. Position decides which item goes to which variable.
+
+```javascript title="destructure_arrays.mjs"
+const rgb = [255, 128, 0];
+const [red, green, blue] = rgb;
+console.log(red, green, blue);
+
+const [first, , third] = ["a", "b", "c"];
+console.log(first, third);
+
+const [head, ...tail] = [1, 2, 3, 4];
+console.log(head, tail);
+
+const [x = 10, y = 20] = [1];
+console.log(x, y);
+
+let a = 1;
+let b = 2;
+[a, b] = [b, a];
+console.log(a, b);
+
+const [q, r] = "hi";
+console.log(q, r);
+
+const [, second] = new Set(["p", "q"]);
+console.log(second);
+
+console.log(Object.entries({ k: 1 }).map(([key, value]) => key + value));
+```
+
+```text
+255 128 0
+a c
+1 [ 2, 3, 4 ]
+1 20
+2 1
+h i
+q
+[ 'k1' ]
+```
+
+- Leave a gap to skip an item: `const [first, , third]`.
+- `...tail` in a pattern collects the remaining items into a new array. It must come last.
+- `= 10` gives a **default**, used only when the item is `undefined`.
+- `[a, b] = [b, a]` swaps two variables without a temporary. The line before it ends with a semicolon, which matters: without one, a line starting with `[` would continue the previous statement.
+- Destructuring works on any **iterable**, so a string and a `Set` both work.
+
+## Object destructuring
+
+The pattern lists property names. Order does not matter.
+
+```javascript title="destructure_objects.mjs"
+const user = {
+  name: "Ada",
+  age: 36,
+  address: { city: "London", zip: "N1" },
+  tags: ["admin", "dev"],
+};
+
+const { name, age } = user;
+console.log(name, age);
+
+const { name: userName, role = "guest" } = user;
+console.log(userName, role);
+
+const { address: { city }, tags: [firstTag] } = user;
+console.log(city, firstTag);
+
+const { age: _age, ...rest } = user;
+console.log(rest);
+
+const { nickname = "none", missing = 5, nothing = 7 } = { nickname: undefined, nothing: null };
+console.log(nickname, missing, nothing);
+
+function describe({ name, age = 0 }) {
+  return `${name} (${age})`;
+}
+console.log(describe(user), describe({ name: "Linus" }));
+
+let title;
+({ title } = { title: "Dr" });
+console.log(title);
+```
+
+```text
+Ada 36
+Ada guest
+London admin
+{
+  name: 'Ada',
+  address: { city: 'London', zip: 'N1' },
+  tags: [ 'admin', 'dev' ]
+}
+none 5 null
+Ada (36) Linus (0)
+Dr
+```
+
+- `{ name, age }` creates variables called `name` and `age`.
+- `{ name: userName }` reads the property `name` and stores it in a variable called `userName`. The name before the colon is the property, and the name after it is the new variable. This is the opposite of an object literal and is easy to mix up.
+- `role = "guest"` is a default for a missing property.
+- Patterns nest: `address: { city }` reaches into the nested object, and `tags: [firstTag]` reaches into the nested array. The names `address` and `tags` are not created as variables here.
+- `...rest` collects the other properties into a new object. Here `age: _age` takes `age` out of the way so that `rest` has everything else.
+- A default applies only to `undefined`. `nickname` was `undefined`, so it got `"none"`. `nothing` was `null`, so it stayed `null`.
+- **Parameters** can be patterns too. `describe({ name, age = 0 })` takes one object and unpacks it. That is the usual way to write a function with named options, as the parameters lesson showed.
+- To assign to existing variables, put the whole assignment in parentheses: `({ title } = obj)`. Without them, the braces look like a block.
+
+## Spread: copy and combine
+
+In an array or object literal, `...x` inserts the items or properties of `x` at that spot. In a function call, it passes the items as separate arguments.
+
+```javascript title="spread_rest.mjs"
+const first = [1, 2];
+const second = [3, 4];
+console.log([...first, ...second, 5]);
+console.log([0, ...first]);
+console.log(Math.max(...first, ...second));
+console.log([..."abc"]);
+
+const base = { a: 1, b: 2 };
+console.log({ ...base, c: 3 });
+console.log({ ...base, b: 20 });
+console.log({ b: 20, ...base });
+
+console.log({ ...null, ...undefined, ...[9, 8] });
+
+function total(label, ...numbers) {
+  return `${label}: ${numbers.reduce((s, n) => s + n, 0)}`;
+}
+console.log(total("sum", 1, 2, 3));
+console.log(total("none"));
+```
+
+```text
+[ 1, 2, 3, 4, 5 ]
+[ 0, 1, 2 ]
+4
+[ 'a', 'b', 'c' ]
+{ a: 1, b: 2, c: 3 }
+{ a: 1, b: 20 }
+{ b: 2, a: 1 }
+{ '0': 9, '1': 8 }
+sum: 6
+none: 0
+```
+
+- `[...first, ...second, 5]` builds one array from two and a new item.
+- `Math.max(...first, ...second)` calls `max` with four arguments.
+- `[..."abc"]` spreads any iterable into an array of its items.
+- `{ ...base, c: 3 }` copies the properties of `base` into a new object and adds `c`.
+- **Later wins.** `{ ...base, b: 20 }` overrides `b`. `{ b: 20, ...base }` lets `base` override it again, so the 2 comes back.
+- Spreading `null` or `undefined` into an object adds nothing. Spreading an array into an object copies its indexes as keys, which is rarely what you want.
+- The last two lines show **rest parameters**: `...numbers` in a parameter list collects the extra arguments into a real array.
+
+Spread into an array literal and `slice()` both give a shallow copy, which is the next point.
+
+## Merging settings over defaults
+
+A common job is to start from defaults and apply what the user saved. Spread does it in one expression, but only one level deep.
+
+```javascript title="merge_settings.mjs"
+const defaults = {
+  theme: "light",
+  fontSize: 14,
+  editor: { tabWidth: 4, wrap: false },
+};
+
+const saved = {
+  fontSize: 16,
+  editor: { wrap: true },
+};
+
+const shallow = { ...defaults, ...saved };
+console.log(shallow);
+
+const merged = {
+  ...defaults,
+  ...saved,
+  editor: { ...defaults.editor, ...saved.editor },
+};
+console.log(merged);
+
+console.log(defaults.editor);
+```
+
+```text
+{ theme: 'light', fontSize: 16, editor: { wrap: true } }
+{ theme: 'light', fontSize: 16, editor: { tabWidth: 4, wrap: true } }
+{ tabWidth: 4, wrap: false }
+```
+
+The first merge replaced the whole `editor` object, so `tabWidth` was lost. The second merge spreads the nested objects too, and keeps `tabWidth: 4` from the defaults while taking `wrap: true` from the saved settings. The last line shows that the defaults were not touched: every spread made a new object, and nothing was assigned into `defaults`.
+
+Spread copies **one level**. Nested objects and arrays are shared between the original and the copy, unless you spread them yourself. The next lesson looks at that in detail.
+
+## Common pitfalls
+
+- **Mixing up rename syntax.** `{ name: userName }` reads `name` and creates `userName`.
+- **Expecting a default for `null`.** Defaults apply only to `undefined`. Use `??` for both.
+- **Destructuring `undefined` or `null`.** `const { a } = undefined` throws a `TypeError`. Give the value a fallback, `const { a } = maybeObject ?? {}`, or default the parameter.
+- **Starting a line with `{` or `[` after a line with no semicolon.** The parser joins the lines.
+- **Spreading an object where an array is expected,** or the reverse. Objects are not iterable, so `[...obj]` throws.
+- **Thinking spread is a deep copy.** Nested values are shared.
+
+## Exercises
+
+<Exercise title="Merge user settings over defaults">
+
+Write the merged settings from this lesson as one expression, so that nested `editor` options from the user override only the options they set and everything else comes from the defaults. Check that the defaults object is not changed.
+
+<Solution>
+
+The solution is the `merged` object in `merge_settings.mjs` above:
+
+```javascript
+const merged = {
+  ...defaults,
+  ...saved,
+  editor: { ...defaults.editor, ...saved.editor },
+};
+```
+
+`...defaults` and `...saved` handle the top level, with `saved` winning. The `editor` line then replaces the shallow result with a merge of the two nested objects. The output shows `{ tabWidth: 4, wrap: true }` for the merged `editor`, and `{ tabWidth: 4, wrap: false }` for the untouched defaults.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Swap and unpack">
+
+Without a temporary variable, swap `x` and `y` with destructuring. Then write a function `range([low, high])` that takes a two-item array and returns `high - low`.
+
+<Solution>
+
+```javascript
+let x = "left";
+let y = "right";
+[x, y] = [y, x];
+console.log(x, y);
+
+const range = ([low, high]) => high - low;
+console.log(range([3, 10]));
+```
+
+It prints `right left` and then `7`. The right side `[y, x]` is built first, and then its items are assigned to `x` and `y`. The parameter `[low, high]` is an array pattern, so the function unpacks its argument.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Destructuring unpacks arrays by position and objects by property name, with defaults (`= value`), renaming (`name: other`) and nesting.
+- Rest (`...rest`) collects what is left, in a pattern or in a parameter list.
+- Spread (`...x`) inserts items into an array, object or call. Later values override earlier ones in objects.
+- Defaults apply to `undefined` only, and spread copies only one level.
+
+Next: what "copy" really means, and how to make a deep one.
