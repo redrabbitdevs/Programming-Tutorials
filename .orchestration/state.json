@@ -1,6 +1,6 @@
 {
  "updated": "2026-10-15",
- "pr_counter": 71,
+ "pr_counter": 79,
  "phase": "content",
  "decisions": {
   "stack": "Astro + MDX, custom design (no stock docs theme), deployed to GitHub Pages",
@@ -108,8 +108,8 @@
   },
   {
    "id": "M8",
-   "name": "Python expert level (18 lessons, audited; P1 fixes in progress)",
-   "status": "pending"
+   "name": "Python expert level (19 lessons, audited and fixed)",
+   "status": "complete"
   },
   {
    "id": "M9",
@@ -123,11 +123,11 @@
   },
   {
    "id": "M8",
-   "name": "Python expert level (18 lessons, audited; P1 fixes in progress)",
-   "status": "in_progress"
+   "name": "Python expert level (19 lessons, audited and fixed)",
+   "status": "complete"
   }
  ],
- "in_progress": "Expert P1 fixes (lessons 01-07, 08-12); JavaScript B3+B4 (lessons 12-22)",
+ "in_progress": "W4 audit of JavaScript beginner level (Gap Finder + Improver)",
  "open_prs": [],
  "merged_prs": [
   {
@@ -393,12 +393,44 @@
   {
    "n": 70,
    "title": "Add JavaScript beginner modules B1 and B2 (lessons 01-11)"
+  },
+  {
+   "n": 71,
+   "title": "Record PRs 61-70 in state: Python expert level and audit, JavaScript B1-B2"
+  },
+  {
+   "n": 72,
+   "title": "Python expert E1 (lessons 01-07): fix gap-audit and review findings"
+  },
+  {
+   "n": 73,
+   "title": "Fix expert-audit items for E2 lessons 08-12; compile lesson C code in validate.sh"
+  },
+  {
+   "n": 74,
+   "title": "Add JavaScript beginner modules B3 and B4 (lessons 12-22)"
+  },
+  {
+   "n": 75,
+   "title": "Fix expert-audit items for E3 lessons 13-15"
+  },
+  {
+   "n": 76,
+   "title": "Add JavaScript beginner modules B5 and B6 (lessons 23-35)"
+  },
+  {
+   "n": 77,
+   "title": "Python expert: fix audit items for lessons 16-18, add capstone 19 and track ending"
+  },
+  {
+   "n": 78,
+   "title": "Add JavaScript beginner module B7: DOM basics, optional browser strand (lessons 36-40)"
   }
  ],
  "next_actions": [
-  "Merge expert P1 fix PRs for 01-07 and 08-12",
-  "Expert P1 fixes for 13-18: sqlite3/contextvars, Porting-to-3.15, free-threading readiness, CLI, security, pylock, observability; capstone and track ending; Python expert blurb; python.md status complete",
-  "JavaScript B3+B4, then B5-B7, then the W4 beginner audit",
+  "Triage the JS beginner audit into fix PRs",
+  "JavaScript intermediate I1-I6 (38 lessons)",
+  "Expert P2 items and build checks for -X names and fundamentals ids",
   "Retry W5 batch 3 when Wikipedia allows"
  ],
  "escalations": [],
@@ -697,11 +729,11 @@
   }
  },
  "lessons": {
-  "written": 163,
-  "planned": 267
+  "written": 193,
+  "planned": 268
  },
  "language_status": {
-  "python": "in_progress",
+  "python": "complete",
   "javascript": "in_progress"
  },
  "log": [
@@ -1010,6 +1042,12 @@
    "from": "advisor",
    "to": "github",
    "msg": "PRs 61-70 merged: Python expert E1-E3 (18 lessons), expert audit (gaps + review) and P0 fixes, JS research and validation, JavaScript B1-B2 (11 lessons), board scroll panels."
+  },
+  {
+   "t": "12:15",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PRs 71-78 merged: Python expert audit fixes and capstone; Python track complete (beginner to expert). JavaScript beginner level written (40 lessons, B1-B7); C extensions now compiled in CI."
   }
  ],
  "model_review": [
@@ -1082,7 +1120,8 @@
    "A-project",
    "E1",
    "E2",
-   "E3"
+   "E3",
+   "E-project"
   ],
   "fundamentals": [
    "F1",
@@ -1093,7 +1132,12 @@
   ],
   "javascript": [
    "B1",
-   "B2"
+   "B2",
+   "B3",
+   "B4",
+   "B5",
+   "B6",
+   "B7"
   ]
  },
  "catalog_fixes_needed": [],
