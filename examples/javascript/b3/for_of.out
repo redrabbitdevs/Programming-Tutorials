@@ -1,0 +1,14 @@
+red
+green
+blue
+h
+é
+l
+l
+o
+0 red
+1 green
+2 blue
+apples 4
+pears 0
+TypeError: plain is not iterable

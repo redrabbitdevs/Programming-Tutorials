@@ -1,0 +1,5 @@
+42
+3.5
+RangeError: empty input
+RangeError: not a number: "abc"
+TypeError: expected a string, got number

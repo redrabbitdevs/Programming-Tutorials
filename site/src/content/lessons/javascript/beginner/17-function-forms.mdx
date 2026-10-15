@@ -1,0 +1,289 @@
+---
+language: javascript
+level: beginner
+module: Functions
+order: 17
+title: Declarations, expressions and arrows
+description: Write functions as declarations, function expressions and arrow functions, and understand hoisting, implicit return and functions as values.
+minVersion: "22"
+objectives:
+  - Write a function as a declaration, an expression and an arrow function
+  - Explain which forms are hoisted and which are not
+  - Use implicit return and know the object-literal trap
+  - Treat a function as a value that can be stored and passed around
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/functions"]
+---
+
+A function packages code so that you can run it by name, give it inputs and get a result back. The [fundamentals lesson on functions](../../../fundamentals/beginner/functions/) covers why and how to design them. JavaScript gives you three syntaxes for writing one, and the differences matter.
+
+## Function declarations
+
+A **declaration** starts with the keyword `function`, followed by the name, the parameters in brackets and the body in braces. `return` sends a value back.
+
+```javascript title="declaration_hoisting.mjs"
+console.log(add(2, 3));
+
+function add(a, b) {
+  return a + b;
+}
+
+try {
+  console.log(multiply(2, 3));
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+
+const multiply = function (a, b) {
+  return a * b;
+};
+
+console.log(multiply(2, 3));
+```
+
+```text
+5
+ReferenceError: Cannot access 'multiply' before initialization
+6
+```
+
+The first call works even though it comes before the declaration. Function declarations are **hoisted**: the whole function is available from the top of its scope, so you can put the main logic first and the helpers below.
+
+## Function expressions
+
+A **function expression** produces a function as a value, and you store it in a variable. The function on the right has no name of its own, and the variable's name becomes the function's `name`.
+
+The second block in the example shows the cost. `multiply` is a `const`, so it follows the rules from the `let` and `const` lesson: it exists only after its line has run. Calling it earlier is a `ReferenceError` from the temporal dead zone. Only after the assignment can you call it.
+
+A function expression can also have its own name. The name is visible only inside the function, which is useful for recursion and for readable stack traces.
+
+```javascript title="named_expression.mjs"
+const factorial = function fact(n) {
+  return n <= 1 ? 1 : n * fact(n - 1);
+};
+
+console.log(factorial(5));
+console.log(factorial.name);
+console.log(typeof fact);
+```
+
+```text
+120
+fact
+undefined
+```
+
+`fact` calls itself from inside, and `factorial.name` reports the inner name. Outside, `fact` does not exist.
+
+## Arrow functions
+
+**Arrow functions** (ES2015) are a shorter expression form, written with `=>`. They have no name of their own either, and they are the usual style for small functions and callbacks.
+
+```javascript title="function_forms.mjs"
+// 1. Declaration
+function toFahrenheit(celsius) {
+  return celsius * 9 / 5 + 32;
+}
+
+// 2. Function expression
+const toFahrenheit2 = function (celsius) {
+  return celsius * 9 / 5 + 32;
+};
+
+// 3. Arrow function
+const toFahrenheit3 = (celsius) => celsius * 9 / 5 + 32;
+
+console.log(toFahrenheit(100), toFahrenheit2(0), toFahrenheit3(37));
+
+const square = (n) => n * n;
+const greet = (name, punctuation) => {
+  const text = `Hello, ${name}${punctuation}`;
+  return text;
+};
+const makePoint = (x, y) => ({ x, y });
+const noArgs = () => "no parameters";
+
+console.log(square(7), greet("Ada", "!"), makePoint(1, 2), noArgs());
+```
+
+```text
+212 32 98.6
+49 Hello, Ada! { x: 1, y: 2 } no parameters
+```
+
+The same job is written three ways at the top. Then the arrow syntax in its variations:
+
+- One parameter can drop its brackets, but many style guides keep them. Zero or several parameters always need them.
+- If the body is a single **expression**, you can leave out the braces and `return`. The value of the expression is returned. This is the **implicit return**.
+- With braces, it is an ordinary body and you must write `return` yourself.
+- To return an object literal with an implicit return, wrap it in brackets: `({ x, y })`. Without them, the `{` starts a function body, not an object.
+
+Arrows differ from the other two forms in more than looks. They have no `this` of their own, and they cannot be used with `new`.
+
+```javascript title="arrow_limits.mjs"
+const Point = (x, y) => ({ x, y });
+
+try {
+  new Point(1, 2);
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+
+function Plain(x) {
+  this.x = x;
+}
+console.log(new Plain(5).x);
+```
+
+```text
+TypeError: Point is not a constructor
+5
+```
+
+How `this` works in arrows is covered in the last lesson of this module. Which form to choose:
+
+| Form | Hoisted? | Use it for |
+|---|---|---|
+| Declaration | yes | named top-level functions and helpers |
+| Function expression | no | rarely needed today; older code, or when you want a named expression |
+| Arrow function | no | callbacks and short functions, stored in a `const` |
+
+Many teams use declarations for top-level functions and arrows for callbacks and small helpers. Pick one convention in a project and keep to it.
+
+## Return values
+
+A function returns `undefined` unless a `return` statement gives it a value. Forgetting `return` is a common mistake.
+
+```javascript title="missing_return.mjs"
+function noReturn(a, b) {
+  a + b;
+}
+
+function earlyReturn(n) {
+  if (n < 0) {
+    return;
+  }
+  return n * 2;
+}
+
+function asiReturn() {
+  return
+  42;
+}
+
+console.log(noReturn(1, 2));
+console.log(earlyReturn(-1), earlyReturn(4));
+console.log(asiReturn());
+```
+
+```text
+undefined
+undefined 8
+undefined
+```
+
+`noReturn` computes `a + b` and throws the answer away. `earlyReturn` uses a bare `return` to leave early, which also gives `undefined`. The last function is the line-break trap from the syntax lesson on automatic semicolon insertion: a semicolon is inserted after `return`, so `42` is never reached. Keep the value on the same line as `return`.
+
+## Functions are values
+
+In JavaScript a function is an ordinary value, just like a number or an object. You can store it in a variable, put it in an array or object, pass it as an argument and return it from another function.
+
+```javascript title="functions_as_values.mjs"
+function shout(text) {
+  return text.toUpperCase() + "!";
+}
+
+const alias = shout;
+console.log(alias("hey"));
+
+const tools = [shout, (text) => text.toLowerCase()];
+console.log(tools[0]("ready"), tools[1]("QUIET"));
+
+const actions = {
+  double: (n) => n * 2,
+  negate: (n) => -n,
+};
+console.log(actions.double(21), actions["negate"](5));
+
+function apply(fn, value) {
+  return fn(value);
+}
+console.log(apply(shout, "pass me"));
+console.log(apply((n) => n + 1, 41));
+
+console.log(typeof shout, shout.name, shout.length);
+console.log(alias === shout);
+```
+
+```text
+HEY!
+READY! quiet
+42 -5
+PASS ME!
+42
+function shout 1
+true
+```
+
+`alias` and `shout` are two names for the same function, so `alias === shout`. Functions in objects are how methods are written. `apply` takes a function as a parameter, and what it does depends on what you pass. A function has a `name` and a `length`, the number of declared parameters. The next two lessons use this idea heavily.
+
+`typeof` a function is `"function"`, even though functions are objects underneath.
+
+## Common pitfalls
+
+- **Calling a function expression before its line.** Only declarations are hoisted.
+- **Forgetting `return`.** The caller receives `undefined`.
+- **Putting the returned value on the next line.** A line break after `return` ends the statement.
+- **Returning an object literal from an arrow without brackets.** `() => { x: 1 }` is a function body with a label, not an object. Write `() => ({ x: 1 })`.
+- **Using an arrow function as a constructor.** `new` throws a `TypeError`.
+- **Calling without brackets.** `shout` is the function. `shout("hi")` runs it.
+
+## Exercise
+
+<Exercise title="Temperature converters in three styles">
+
+Write `celsiusToFahrenheit` as a declaration, `fahrenheitToCelsius` as a function expression and `celsiusToKelvin` as an arrow function. Print the Fahrenheit value of 100 °C, the Celsius value of 212 °F, the Kelvin value of 0 °C, and the round trip from 37 °C to Fahrenheit and back.
+
+<Solution>
+
+```javascript title="temperatures.mjs"
+// Declaration
+function celsiusToFahrenheit(c) {
+  return c * 9 / 5 + 32;
+}
+
+// Expression
+const fahrenheitToCelsius = function (f) {
+  return (f - 32) * 5 / 9;
+};
+
+// Arrow
+const celsiusToKelvin = (c) => c + 273.15;
+
+console.log(celsiusToFahrenheit(100));
+console.log(fahrenheitToCelsius(212));
+console.log(celsiusToKelvin(0));
+console.log(fahrenheitToCelsius(celsiusToFahrenheit(37)));
+```
+
+```text
+212
+100
+273.15
+37
+```
+
+Each function does one conversion. The round trip feeds the output of the first back into the second and returns `37`. This works out exactly for these numbers, but temperature maths uses floating-point, so compare results with a tolerance, as the numbers lesson explained, rather than with `===`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A declaration is hoisted and can be called above its definition. Expressions and arrows follow the rules of the variable that holds them.
+- Arrow functions are short, have implicit return for single expressions, and need brackets to return an object literal.
+- A function without `return` gives `undefined`.
+- Functions are values: store them, pass them and return them.
+
+Next: giving functions flexible parameters.

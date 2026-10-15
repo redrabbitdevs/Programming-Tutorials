@@ -1,0 +1,5 @@
+demo outer function inner function
+ReferenceError: innerValue is not defined
+block
+function
+module

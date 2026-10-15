@@ -1,0 +1,284 @@
+---
+language: javascript
+level: beginner
+module: Functions
+order: 18
+title: "Parameters: defaults, rest and spread"
+description: Use default parameters, rest parameters, spread in calls, destructured parameters and options objects.
+minVersion: "22"
+objectives:
+  - Give parameters default values and know when the default applies
+  - Collect extra arguments with a rest parameter
+  - Spread arrays into calls and copy arrays and objects with spread
+  - Accept an options object with destructuring
+  - Explain how arguments are passed
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/functions"]
+---
+
+How much a function can adapt to its caller depends on its parameters. JavaScript is relaxed about them, and modern syntax adds several features that replace older patterns. The [fundamentals lesson on functions](../../../fundamentals/beginner/functions/) explains parameters and arguments in general. Here is how JavaScript handles them.
+
+## Missing and extra arguments
+
+JavaScript does not check how many arguments you pass. Missing parameters are `undefined`. Extra arguments are ignored.
+
+```javascript title="arg_counts.mjs"
+function show(a, b, c) {
+  return [a, b, c];
+}
+
+console.log(show(1));
+console.log(show(1, 2, 3, 4, 5));
+console.log(show.length);
+```
+
+```text
+[ 1, undefined, undefined ]
+[ 1, 2, 3 ]
+3
+```
+
+This flexibility is why default values and rest parameters exist. The `length` property of a function counts its declared parameters: 3 here.
+
+## Default parameters
+
+A default value applies when the argument is `undefined`, either missing or passed explicitly as `undefined` (ES2015).
+
+```javascript title="default_params.mjs"
+function greet(name = "friend", greeting = "Hello") {
+  return `${greeting}, ${name}!`;
+}
+
+console.log(greet());
+console.log(greet("Ada"));
+console.log(greet(undefined, "Hi"));
+console.log(greet(null));
+console.log(greet(""));
+
+function rectangle(width, height = width) {
+  return { width, height };
+}
+console.log(rectangle(4), rectangle(4, 2));
+
+let calls = 0;
+function nextId(id = ++calls) {
+  return id;
+}
+console.log(nextId(), nextId(), nextId(99), nextId());
+```
+
+```text
+Hello, friend!
+Hello, Ada!
+Hi, friend!
+Hello, null!
+Hello, !
+{ width: 4, height: 4 } { width: 4, height: 2 }
+1 2 99 3
+```
+
+- `greet()` and `greet(undefined, "Hi")` use the defaults.
+- `greet(null)` does **not**. Only `undefined` triggers a default, so `null` and `""` are kept as given. This is the same rule as `??` from the null and undefined lesson, except that `??` also treats `null` as missing.
+- A default can use earlier parameters, as `height = width` does.
+- A default is calculated **each time** the function is called, and only when needed. In `nextId`, the counter moves on only when no id is given, which is why passing `99` leaves it alone.
+
+Put parameters that have defaults last, so that callers can leave them out.
+
+## Rest parameters
+
+A **rest parameter** gathers the remaining arguments into a real array. It must be the last parameter and is written with three dots.
+
+```javascript title="rest_spread.mjs"
+function sum(...numbers) {
+  let total = 0;
+  for (const n of numbers) {
+    total += n;
+  }
+  return total;
+}
+console.log(sum(), sum(1), sum(1, 2, 3));
+
+function log(level, ...messages) {
+  console.log(`[${level}]`, messages.join(" "));
+}
+log("info", "server", "started", "on", 8080);
+
+const scores = [72, 91, 85];
+console.log(Math.max(...scores), Math.min(...scores));
+console.log(sum(...scores, 10));
+
+const copy = [...scores, 100];
+console.log(copy, scores);
+
+const defaults = { theme: "light", size: 12 };
+const settings = { ...defaults, size: 16 };
+console.log(settings, defaults);
+```
+
+```text
+0 1 6
+[info] server started on 8080
+91 72
+258
+[ 72, 91, 85, 100 ] [ 72, 91, 85 ]
+{ theme: 'light', size: 16 } { theme: 'light', size: 12 }
+```
+
+`sum(...numbers)` accepts any number of arguments, including none. `log` takes one fixed parameter and collects the rest.
+
+Older code used a special `arguments` object for this. It is array-like but not an array, it does not exist inside arrow functions, and its use is discouraged. Use a rest parameter instead.
+
+## Spread
+
+The same three dots do the opposite when you write them in a call or in an array or object literal: **spread** unpacks a collection into separate items.
+
+In the example above:
+
+- `Math.max(...scores)` passes each score as a separate argument. `Math.max(scores)` with an array would give `NaN`.
+- `sum(...scores, 10)` mixes spread items with ordinary ones.
+- `[...scores, 100]` builds a **new** array with a copy of the items, and the original stays unchanged.
+- `{ ...defaults, size: 16 }` copies an object's own properties into a new object, then overrides `size`. When two sources have the same key, the later one wins. Spread in object literals arrived in ES2018.
+
+Spread makes a **shallow** copy: nested objects and arrays are shared between the copy and the original.
+
+## Destructured parameters and options objects
+
+When a function takes more than two or three inputs, or several are optional, calls like `createUser("ada", true, false)` are hard to read. Pass one **options object** and take it apart in the parameter list with destructuring.
+
+```javascript title="destructured_params.mjs"
+function formatName({ first, last, upper = false } = {}) {
+  const full = `${first ?? ""} ${last ?? ""}`.trim();
+  return upper ? full.toUpperCase() : full;
+}
+
+console.log(formatName({ first: "Ada", last: "Lovelace" }));
+console.log(formatName({ last: "Hopper", first: "Grace", upper: true }));
+console.log(formatName({ first: "Linus" }));
+console.log(JSON.stringify(formatName()));
+
+function distance([x1, y1], [x2, y2]) {
+  return Math.hypot(x2 - x1, y2 - y1);
+}
+console.log(distance([0, 0], [3, 4]));
+```
+
+```text
+Ada Lovelace
+GRACE HOPPER
+Linus
+""
+5
+```
+
+The braces in `{ first, last, upper = false }` pick named properties out of the argument, and each can have its own default. The `= {}` at the end is a default for the whole argument, so `formatName()` with nothing passed does not fail by trying to destructure `undefined`. Arrays can be taken apart too, as `distance` does with `[x1, y1]`.
+
+A common shape is one or two required positional parameters followed by an options object:
+
+```javascript title="options_object.mjs"
+function createUser(name, { admin = false, active = true } = {}) {
+  return { name, admin, active };
+}
+
+console.log(createUser("ada"));
+console.log(createUser("grace", { admin: true }));
+console.log(createUser("linus", { active: false, admin: true }));
+```
+
+```text
+{ name: 'ada', admin: false, active: true }
+{ name: 'grace', admin: true, active: true }
+{ name: 'linus', admin: true, active: false }
+```
+
+The caller names what they set, order does not matter, and new options can be added later without breaking existing calls.
+
+## How arguments are passed
+
+Every argument is passed as a copy of a value. For primitives, such as numbers and strings, that is a copy of the value, so changing the parameter does not touch the caller's variable. For objects and arrays, the copy is of the **reference**, so the function sees the same object. The general idea is in the [fundamentals lesson on memory and references](../../../fundamentals/beginner/memory-and-references/).
+
+```javascript title="pass_by_sharing.mjs"
+function reassign(value) {
+  value = "changed";
+  return value;
+}
+let text = "original";
+reassign(text);
+console.log(text);
+
+function addItem(list) {
+  list.push("new");
+}
+const items = ["old"];
+addItem(items);
+console.log(items);
+
+function replaceList(list) {
+  list = ["replacement"];
+}
+replaceList(items);
+console.log(items);
+```
+
+```text
+original
+[ 'old', 'new' ]
+[ 'old', 'new' ]
+```
+
+- `reassign` changes only its own `value` variable.
+- `addItem` changes the shared array, so the caller sees the new item.
+- `replaceList` assigns a new array to its own `list` variable, which does not affect the caller's.
+
+Functions that change their arguments surprise callers. When you can, return a new value instead.
+
+## Common pitfalls
+
+- **Expecting `null` to trigger a default.** Only `undefined` does.
+- **Putting a rest parameter anywhere but last.** It is a `SyntaxError`.
+- **Forgetting `= {}` on a destructured parameter.** Calling the function with no argument then throws a `TypeError`.
+- **Mutating an argument.** The caller's array or object changes. Copy first with spread if you need to modify.
+- **Assuming spread copies deeply.** It copies one level.
+- **Using `arguments`.** Prefer rest parameters.
+
+## Exercise
+
+<Exercise title="A flexible formatName">
+
+Write `formatName({ first, last, upper })` that returns the first and last name joined by a space. Either name may be missing, and `upper: true` makes the result upper case. With no argument at all, it should return an empty string. Test with `{ first: "Ada", last: "Lovelace" }`, `{ first: "Grace", last: "Hopper", upper: true }`, `{ last: "Turing" }` and no argument.
+
+<Solution>
+
+```javascript title="format_name_solution.mjs"
+function formatName({ first = "", last = "", upper = false } = {}) {
+  const full = [first, last].filter(Boolean).join(" ");
+  return upper ? full.toUpperCase() : full;
+}
+
+console.log(formatName({ first: "Ada", last: "Lovelace" }));
+console.log(formatName({ first: "Grace", last: "Hopper", upper: true }));
+console.log(formatName({ last: "Turing" }));
+console.log(JSON.stringify(formatName()));
+```
+
+```text
+Ada Lovelace
+GRACE HOPPER
+Turing
+""
+```
+
+The defaults for `first` and `last` are empty strings, so a missing name does not print `undefined`. `[first, last].filter(Boolean).join(" ")` drops empty names before joining, so there is no stray space when one is missing. The `= {}` makes the no-argument call work, and `JSON.stringify` prints `""` so you can see that the result is an empty string.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Missing arguments are `undefined` and extra ones are ignored.
+- A default applies only when the argument is `undefined`, and is evaluated at each call.
+- `...rest` gathers extra arguments into an array. `...spread` unpacks an array into a call or literal, or an object into an object literal.
+- Take an options object apart in the parameter list, with defaults, and add `= {}` so it can be omitted.
+- Objects are passed by sharing: the function can change what the caller's object contains, but not which object the caller holds.
+
+Next: how functions remember the variables around them.

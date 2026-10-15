@@ -1,0 +1,7 @@
+HEY!
+READY! quiet
+42 -5
+PASS ME!
+42
+function shout 1
+true

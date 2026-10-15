@@ -1,0 +1,325 @@
+---
+language: javascript
+level: beginner
+module: Functions
+order: 20
+title: Higher-order functions and callbacks
+description: Pass functions as arguments, return them from other functions, and use map, filter, reduce, partial application, once and debounce.
+minVersion: "22"
+objectives:
+  - Write functions that accept callbacks
+  - Write functions that return functions
+  - Use map, filter and reduce on arrays
+  - Build once, debounce, compose and partial application
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/paradigms"]
+---
+
+A **higher-order function** is a function that takes a function as an argument, returns a function, or both. Because JavaScript functions are ordinary values, this is everyday code. The idea belongs to the functional style described in the [fundamentals lesson on programming paradigms](../../../fundamentals/beginner/paradigms/). This lesson shows how it looks in JavaScript.
+
+## Callbacks
+
+A **callback** is a function you give to another function to call at the right moment. The caller decides what to do. The function that receives it decides when.
+
+```javascript title="callbacks.mjs"
+function repeat(times, action) {
+  for (let i = 0; i < times; i++) {
+    action(i);
+  }
+}
+repeat(3, (i) => console.log("run", i));
+
+function processAll(items, onItem, onDone) {
+  for (const item of items) {
+    onItem(item);
+  }
+  onDone(items.length);
+}
+processAll(
+  ["a", "b"],
+  (item) => console.log("item", item),
+  (count) => console.log("done,", count, "items"),
+);
+
+const words = ["pear", "fig", "banana"];
+words.forEach((word, index) => console.log(index, word));
+```
+
+```text
+run 0
+run 1
+run 2
+item a
+item b
+done, 2 items
+0 pear
+1 fig
+2 banana
+```
+
+`repeat` knows how to loop but not what to do on each pass. `processAll` takes two callbacks, one per item and one at the end. Arrays take callbacks everywhere. `forEach` calls yours once for each item, passing the item, its index and the array.
+
+Callbacks are also how JavaScript handles things that happen later, such as a timer firing or a file being read. A later module on asynchronous JavaScript builds on this.
+
+### Sorting with a comparator
+
+`sort` is a good example because its default behaviour surprises people. Without a callback it compares items as **text**, so `10` comes before `9`. A comparison callback fixes that. It receives two items and returns a negative number if the first goes first, a positive number if the second goes first, and zero if they are equal.
+
+```javascript title="sort_callback.mjs"
+const numbers = [10, 9, 1, 100];
+console.log([...numbers].sort());
+console.log([...numbers].sort((a, b) => a - b));
+console.log([...numbers].sort((a, b) => b - a));
+
+const people = [
+  { name: "Grace", age: 85 },
+  { name: "Ada", age: 36 },
+  { name: "Linus", age: 55 },
+];
+console.log(people.sort((a, b) => a.age - b.age).map((p) => p.name));
+```
+
+```text
+[ 1, 10, 100, 9 ]
+[ 1, 9, 10, 100 ]
+[ 100, 10, 9, 1 ]
+[ 'Ada', 'Linus', 'Grace' ]
+```
+
+`a - b` sorts numbers upward and `b - a` sorts them downward. `sort` changes the array it is called on, so the example copies it first with `[...numbers]`. The last line sorts the `people` array itself and then lists the names in age order.
+
+## map, filter and reduce
+
+Three array methods cover most loops over data. Each takes a callback and returns a result without changing the original array. The next module treats arrays in depth. Here is a preview.
+
+- `map` returns a new array with the callback applied to each item.
+- `filter` returns a new array with the items for which the callback returns a truthy value.
+- `reduce` combines all items into one value. The callback gets the running result and the next item, and the second argument is the starting value.
+
+```javascript title="map_filter_reduce.mjs"
+const prices = [4, 15, 8, 23];
+
+const doubled = prices.map((p) => p * 2);
+const cheap = prices.filter((p) => p < 10);
+const total = prices.reduce((sum, p) => sum + p, 0);
+
+console.log(doubled);
+console.log(cheap);
+console.log(total);
+
+const result = prices
+  .filter((p) => p > 5)
+  .map((p) => p * 1.1)
+  .reduce((sum, p) => sum + p, 0);
+console.log(result.toFixed(2));
+```
+
+```text
+[ 8, 30, 16, 46 ]
+[ 4, 8 ]
+50
+50.60
+```
+
+The last statement chains the three: keep prices above 5, add 10 percent to each, then add them up. Each step produces a new array, which the next step reads. The result is formatted with `toFixed(2)`, as the numbers lesson showed, to avoid long floating-point tails.
+
+These methods call your callback with more than the item: `map` passes the value, the index and the array. Functions that take optional extra parameters can then misbehave when passed directly:
+
+```javascript title="map_parseint.mjs"
+console.log(["1", "2", "3"].map(parseInt));
+console.log(["1", "2", "3"].map((s) => parseInt(s, 10)));
+console.log(["1", "2", "3"].map(Number));
+```
+
+```text
+[ 1, NaN, NaN ]
+[ 1, 2, 3 ]
+[ 1, 2, 3 ]
+```
+
+`parseInt` has a second parameter, the radix, and `map` supplies the index there. The call `parseInt("2", 1)` is `NaN` because 1 is not a valid radix. Wrap it in an arrow function, or use `Number`, which ignores the extras.
+
+## Functions that return functions
+
+Because closures keep their surroundings, a function can build and return new functions that are set up for a purpose.
+
+```javascript title="returning_functions.mjs"
+function multiplier(factor) {
+  return (n) => n * factor;
+}
+const double = multiplier(2);
+const triple = multiplier(3);
+console.log(double(5), triple(5), multiplier(10)(4));
+
+function compose(f, g) {
+  return (x) => f(g(x));
+}
+const addOne = (n) => n + 1;
+const doubleThenAddOne = compose(addOne, double);
+console.log(doubleThenAddOne(5));
+
+function partial(fn, ...preset) {
+  return (...rest) => fn(...preset, ...rest);
+}
+const volume = (w, h, d) => w * h * d;
+const volumeOfBox2x3 = partial(volume, 2, 3);
+console.log(volumeOfBox2x3(4));
+
+const bound = volume.bind(null, 2, 3);
+console.log(bound(5));
+```
+
+```text
+10 15 40
+11
+24
+30
+```
+
+- `multiplier(2)` returns a function that doubles. `multiplier(10)(4)` calls the returned function straight away.
+- `compose(f, g)` returns a function that applies `g` first and then `f`.
+- `partial` is **partial application**: it fixes the first arguments of a function and returns one that takes the rest. `volumeOfBox2x3(4)` supplies only the depth. The built-in `bind` does the same job: `volume.bind(null, 2, 3)`. (The first argument of `bind` is the `this` value. The next lesson covers `this`.)
+
+## Build your own: once
+
+`once(fn)` returns a version of `fn` that runs only the first time, and returns the same result afterwards. It is useful for set-up work.
+
+```javascript title="once.mjs"
+function once(fn) {
+  let called = false;
+  let result;
+  return (...args) => {
+    if (!called) {
+      called = true;
+      result = fn(...args);
+    }
+    return result;
+  };
+}
+
+const init = once((name) => {
+  console.log("initialising", name);
+  return name.toUpperCase();
+});
+
+console.log(init("db"));
+console.log(init("other"));
+console.log(init("again"));
+```
+
+```text
+initialising db
+DB
+DB
+DB
+```
+
+`called` and `result` live in the closure. `...args` collects the arguments of the call and `fn(...args)` passes them on. The message prints once, and the later calls return the stored `"DB"`, whatever arguments they get.
+
+## Build your own: debounce
+
+`debounce(fn, delay)` returns a function that waits until calls have stopped for `delay` milliseconds, and then runs `fn` once with the latest arguments. It is typical for search boxes: you want to search when the user pauses, not on every keystroke.
+
+```javascript title="debounce.mjs"
+function debounce(fn, delay) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+}
+
+const save = debounce((text) => console.log("saved:", text), 50);
+
+save("h");
+save("he");
+save("hel");
+console.log("typed three times");
+
+setTimeout(() => {
+  save("hello");
+  console.log("typed once more");
+}, 150);
+```
+
+```text
+typed three times
+saved: hel
+typed once more
+saved: hello
+```
+
+Each call cancels the pending timer with `clearTimeout` and starts a new one. `timer` is a closure variable shared by all calls. The three quick calls produce a single `saved: hel`. After a gap, one more call produces a second save. `setTimeout` runs a callback after a delay, and the program waits for pending timers before it exits. The lesson on asynchronous JavaScript covers timers properly.
+
+## Composing more than two
+
+The same idea extends to any number of functions with a rest parameter.
+
+```javascript title="compose_many.mjs"
+const compose = (...fns) => (x) => fns.reduceRight((value, fn) => fn(value), x);
+
+const trim = (s) => s.trim();
+const lower = (s) => s.toLowerCase();
+const exclaim = (s) => `${s}!`;
+
+const clean = compose(exclaim, lower, trim);
+console.log(clean("  HeLLo  "));
+```
+
+```text
+hello!
+```
+
+`reduceRight` walks the list of functions from the end, feeding each result into the next function, so `trim` runs first and `exclaim` last. Write small functions that each do one thing, then combine them.
+
+## Common pitfalls
+
+- **Passing a function with extra parameters straight to `map`.** `["1","2","3"].map(parseInt)` is the classic trap.
+- **Calling when you meant to pass.** `repeat(3, action())` passes the result of `action`, not `action` itself. Leave off the brackets to pass the function.
+- **Sorting numbers without a comparator.** The default order is by text.
+- **Forgetting that `sort` changes the array.** Copy first if the original matters.
+- **Callbacks that change shared state.** `map` and `filter` callbacks should compute a value, not change something else.
+- **Forgetting `return` inside `map` with braces.** An arrow with `{ }` needs an explicit `return`.
+
+## Exercises
+
+<Exercise title="Build once">
+
+Write `once(fn)` as described above, and test it with a function that prints a message and returns a value. Call the wrapped function three times with different arguments. Which call's arguments are used?
+
+<Solution>
+
+The code is the `once.mjs` example shown earlier in this lesson. Only the first call's arguments are used: the first call prints `initialising db` and returns `"DB"`, and the other two calls return the stored `"DB"` without running the original function.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Write a pipeline">
+
+Using `filter`, `map` and `reduce`, compute the total of the squares of the even numbers in `[1, 2, 3, 4, 5, 6]`. The answer is 56.
+
+<Solution>
+
+```javascript
+const total = [1, 2, 3, 4, 5, 6]
+  .filter((n) => n % 2 === 0)
+  .map((n) => n * n)
+  .reduce((sum, n) => sum + n, 0);
+console.log(total);
+```
+
+`filter` keeps 2, 4 and 6. `map` squares them to 4, 16 and 36. `reduce` adds them from a starting value of 0 to get 56.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A higher-order function takes or returns functions. A callback is a function passed in to be called later.
+- `sort` needs a comparator for numbers. `map`, `filter` and `reduce` replace most loops that build a result.
+- Functions can return functions: multipliers, `compose`, partial application and wrappers like `once` and `debounce`.
+- Pass a function by name, without brackets. Wrap it in an arrow if its extra parameters would interfere.
+
+Next: functions that call themselves.

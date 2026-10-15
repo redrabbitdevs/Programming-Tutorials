@@ -1,0 +1,9 @@
+parsing {"ok": true}
+done with {"ok": true}
+{ ok: true }
+parsing {oops
+invalid JSON
+done with {oops
+null
+finally runs before the function returns
+from try

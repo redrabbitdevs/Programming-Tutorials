@@ -1,0 +1,3 @@
+{ name: 'ada', admin: false, active: true }
+{ name: 'grace', admin: true, active: true }
+{ name: 'linus', admin: true, active: false }

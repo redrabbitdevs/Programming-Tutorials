@@ -1,0 +1,349 @@
+---
+language: javascript
+level: beginner
+module: Functions
+order: 22
+title: this (first look)
+description: Predict what this refers to in method calls, plain calls and arrow functions, and fix the common ways of losing it with bind.
+minVersion: "22"
+objectives:
+  - Say what this is in a method call and in a plain function call
+  - Explain how arrow functions treat this
+  - Recognise the situations that lose this
+  - Fix a lost this with an arrow wrapper, bind, call or apply
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/records-and-objects"]
+---
+
+Inside a function, the keyword `this` refers to some object, and which one depends on **how the function is called**, not where it is written. That is the opposite of how variables work, and it is the source of a well-known class of bugs. This lesson covers the four cases you will meet in everyday code. Objects themselves are introduced in the [fundamentals lesson on records and objects](../../../fundamentals/beginner/records-and-objects/), and classes, which use `this` a lot, come in a later module.
+
+All code in this course runs as ES modules, which are always in strict mode. The rules below are the strict-mode rules.
+
+## Method calls: the object before the dot
+
+When you call a function as `object.method()`, `this` inside is `object`.
+
+```javascript title="this_method.mjs"
+const user = {
+  name: "Ada",
+  greet() {
+    return `Hello, I am ${this.name}`;
+  },
+};
+
+console.log(user.greet());
+
+const other = { name: "Grace", greet: user.greet };
+console.log(other.greet());
+
+function whoAmI() {
+  return this;
+}
+console.log(whoAmI());
+console.log(user.greet.call({ name: "Linus" }));
+```
+
+```text
+Hello, I am Ada
+Hello, I am Grace
+undefined
+Hello, I am Linus
+```
+
+`user.greet()` has `this` set to `user`. The method was copied to `other` and called as `other.greet()`, so `this` is now `other`. The function does not belong to either object. Only the call decides.
+
+`whoAmI()` is a **plain call**, with nothing before the dot. In strict mode `this` is `undefined` there. (In sloppy-mode scripts it was the global object, which is one reason strict mode is better.) The last line sets `this` explicitly with `call`, which comes back below.
+
+The `greet() { ... }` form is the **method shorthand** for properties that hold functions.
+
+## Losing this
+
+Here is the common bug. If you take a method out of its object, the call has nothing before the dot, and `this` is gone.
+
+```javascript title="this_lost.mjs"
+const user = {
+  name: "Ada",
+  greet() {
+    return `Hello, I am ${this.name}`;
+  },
+};
+
+const detached = user.greet;
+try {
+  console.log(detached());
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+
+function runLater(callback) {
+  return callback();
+}
+try {
+  runLater(user.greet);
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+```
+
+```text
+TypeError: Cannot read properties of undefined (reading 'name')
+TypeError: Cannot read properties of undefined (reading 'name')
+```
+
+Both errors say the same thing: `this` is `undefined`, so `this.name` cannot be read. The first is a method saved in a variable. The second is a method passed as a callback, where the receiving function calls it plainly. Callbacks are where this goes wrong most often. For example, `setTimeout(user.greet, 100)` looks right, but the timer calls the method without `user`, so the method no longer sees the `user` object.
+
+## Fixing it: bind, arrows and call
+
+There are three fixes.
+
+1. **Wrap the call** in an arrow function that does the `object.method()` call itself.
+2. **`bind`** returns a new function with `this` fixed permanently.
+3. **`call` and `apply`** call a function once with a chosen `this`.
+
+```javascript title="this_fixes.mjs"
+const user = {
+  name: "Ada",
+  greet() {
+    return `Hello, I am ${this.name}`;
+  },
+};
+
+function runLater(callback) {
+  return callback();
+}
+
+console.log(runLater(user.greet.bind(user)));
+console.log(runLater(() => user.greet()));
+
+const bound = user.greet.bind({ name: "Grace" });
+console.log(bound());
+console.log(bound.call({ name: "ignored" }));
+```
+
+```text
+Hello, I am Ada
+Hello, I am Ada
+Hello, I am Grace
+Hello, I am Grace
+```
+
+`user.greet.bind(user)` and `() => user.greet()` both work as callbacks. A bound function cannot be re-bound: `bound` keeps `{ name: "Grace" }` even when `call` tries to give it another `this`.
+
+`call` and `apply` differ only in how they take the arguments: one by one, or in an array. `bind` can also fix some arguments, as in the partial application from the previous lesson.
+
+```javascript title="bind_call_apply.mjs"
+function introduce(greeting, punctuation) {
+  return `${greeting}, I am ${this.name}${punctuation}`;
+}
+
+const ada = { name: "Ada" };
+
+console.log(introduce.call(ada, "Hello", "!"));
+console.log(introduce.apply(ada, ["Hi", "?"]));
+
+const adaSays = introduce.bind(ada, "Hey");
+console.log(adaSays("."));
+```
+
+```text
+Hello, I am Ada!
+Hi, I am Ada?
+Hey, I am Ada.
+```
+
+## Arrow functions and this
+
+An arrow function has no `this` of its own. It uses the `this` of the code where it was **written**, as a variable from an outer scope. This is exactly what you want for a callback inside a method.
+
+```javascript title="this_arrow.mjs"
+const timer = {
+  label: "clock",
+  ticks: [1, 2, 3],
+  describeWithFunction() {
+    return this.ticks.map(function (t) {
+      return `${this?.label}:${t}`;
+    });
+  },
+  describeWithArrow() {
+    return this.ticks.map((t) => `${this.label}:${t}`);
+  },
+  arrowAsMethod: () => typeof this,
+};
+
+console.log(timer.describeWithFunction());
+console.log(timer.describeWithArrow());
+console.log(timer.arrowAsMethod());
+```
+
+```text
+[ 'undefined:1', 'undefined:2', 'undefined:3' ]
+[ 'clock:1', 'clock:2', 'clock:3' ]
+undefined
+```
+
+- In `describeWithFunction`, the callback to `map` is a plain function, so its `this` is `undefined`. The `this?.label` shows that as `undefined` where `this.label` would have thrown.
+- In `describeWithArrow`, the arrow takes the `this` of the method around it, which is `timer`, so the labels are right.
+- `arrowAsMethod` is the opposite mistake: an arrow used as a method. Its `this` is whatever `this` is at the top of the module, which is `undefined`. It does not get the object. **Do not write methods as arrow functions.** Use the shorthand.
+
+The rule of thumb: use method shorthand or `function` for methods that use `this`, and arrows for callbacks inside them.
+
+<Callout type="note">
+
+You can ignore `this` in functions that never use it. Most of the functions you write in this course, such as converters and helpers, are plain functions that take everything they need as parameters. `this` matters when you work with objects, classes and event handlers.
+
+</Callout>
+
+## Common pitfalls
+
+- **Passing `obj.method` as a callback.** It arrives without `obj`. Pass `obj.method.bind(obj)` or `() => obj.method()`.
+- **Assigning a method to a variable and calling it.** Same problem.
+- **Using an arrow function as an object method.** Its `this` is not the object.
+- **Using a regular function as a callback inside a method.** The callback gets its own `this`. Use an arrow.
+- **Forgetting that `this` depends on the call.** Read how the function is called, not where it is defined.
+- **Re-binding a bound function.** The first `bind` wins.
+
+## Exercise
+
+<Exercise title="Fix five lost-this bugs">
+
+This program has five problems with `this`. Run it, then fix each one without changing the shape of the data. Bug 5 does not throw, but the answer is still wrong.
+
+```javascript title="lost_this_bugs.mjs"
+const counter = {
+  count: 0,
+  step: 2,
+  increment() {
+    this.count += this.step;
+    return this.count;
+  },
+};
+
+function attempt(label, fn) {
+  try {
+    console.log(label, fn());
+  } catch (error) {
+    console.log(label, `${error.name}`);
+  }
+}
+
+// Bug 1: method copied into a variable.
+const inc = counter.increment;
+attempt("bug 1:", () => inc());
+
+// Bug 2: method passed as a callback.
+function twice(fn) {
+  return [fn(), fn()];
+}
+attempt("bug 2:", () => twice(counter.increment));
+
+// Bug 3: regular function inside a method.
+const report = {
+  prefix: "item",
+  list(items) {
+    return items.map(function (item) {
+      return `${this.prefix} ${item}`;
+    });
+  },
+};
+attempt("bug 3:", () => report.list(["a", "b"]));
+
+// Bug 4: arrow function as a method.
+const logger = {
+  name: "logger",
+  describe: () => `I am ${this.name}`,
+};
+attempt("bug 4:", () => logger.describe());
+
+// Bug 5: method called through another object's property.
+const wrapper = { run: counter.increment };
+attempt("bug 5:", () => wrapper.run());
+```
+
+```text
+bug 1: TypeError
+bug 2: TypeError
+bug 3: TypeError
+bug 4: TypeError
+bug 5: NaN
+```
+
+<Solution>
+
+1. `inc` is a detached method. Call it on the object: `counter.increment()`.
+2. `twice(counter.increment)` passes the bare method. Pass `counter.increment.bind(counter)`.
+3. The callback to `map` is a regular function with its own `this`. Make it an arrow function.
+4. `describe` is an arrow, so `this` is not `logger`. Use the method shorthand.
+5. `wrapper.run()` has `this` set to `wrapper`, which has no `count` or `step`, so the sum is `NaN`. Bind the method to `counter` when it is stored.
+
+```javascript title="lost_this_fixed.mjs"
+const counter = {
+  count: 0,
+  step: 2,
+  increment() {
+    this.count += this.step;
+    return this.count;
+  },
+};
+
+function attempt(label, fn) {
+  try {
+    console.log(label, fn());
+  } catch (error) {
+    console.log(label, `${error.name}`);
+  }
+}
+
+// Fix 1: call it on the object.
+attempt("bug 1:", () => counter.increment());
+
+// Fix 2: bind the method.
+function twice(fn) {
+  return [fn(), fn()];
+}
+attempt("bug 2:", () => twice(counter.increment.bind(counter)));
+
+// Fix 3: use an arrow function so it keeps the method's this.
+const report = {
+  prefix: "item",
+  list(items) {
+    return items.map((item) => `${this.prefix} ${item}`);
+  },
+};
+attempt("bug 3:", () => report.list(["a", "b"]));
+
+// Fix 4: use method syntax.
+const logger = {
+  name: "logger",
+  describe() {
+    return `I am ${this.name}`;
+  },
+};
+attempt("bug 4:", () => logger.describe());
+
+// Fix 5: bind it to the object that owns the data.
+const wrapper = { run: counter.increment.bind(counter) };
+attempt("bug 5:", () => wrapper.run());
+```
+
+```text
+bug 1: 2
+bug 2: [ 4, 6 ]
+bug 3: [ 'item a', 'item b' ]
+bug 4: I am logger
+bug 5: 8
+```
+
+The counter state carries on between the steps, which is why `bug 2` gives `[ 4, 6 ]`: the first fix already added 2.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `this` is set by how a function is called. In `object.method()` it is `object`. In a plain call in strict mode it is `undefined`.
+- Taking a method out of its object, or passing it as a callback, loses `this`.
+- Fix it with an arrow wrapper, `bind`, or `call` and `apply` for one-off calls.
+- Arrow functions use the `this` of their surroundings. They suit callbacks inside methods, not methods themselves.
+
+That completes the module on functions. Next up: arrays, objects and data.

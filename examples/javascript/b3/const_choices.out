@@ -1,0 +1,3 @@
+[ 'Ada', 'Grace', 'Linus' ]
+TypeError: Cannot assign to read only property 'id' of object '#<Object>'
+{ id: 1 }
