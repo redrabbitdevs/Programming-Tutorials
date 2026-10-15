@@ -4,19 +4,20 @@ level: expert
 module: CPython internals
 order: 12
 title: A tour of the C API
-description: Read and write a small CPython extension in C - PyObject pointers, owned and borrowed references, error returns, a method table, and the new PyModExport export hook of Python 3.15 - then build it for the stable ABIs abi3 and abi3t.
+description: "Read and write a small CPython extension in C: PyObject pointers, owned and borrowed references, error returns, argument parsing, a method table and the new PyModExport export hook of Python 3.15. Then build it for the stable ABIs abi3 and abi3t."
 minVersion: "3.15"
 objectives:
   - Explain what a PyObject pointer is and what the object header holds
   - Apply the rules for new, borrowed and stolen references
   - Follow the C API error convention of NULL or -1 with an exception set
+  - Parse positional and keyword arguments, and release references on every error path
   - Define a module with PySlot entries and a PyModExport_ hook
   - Choose between the version-specific ABI, abi3 and abi3t
 estimatedMinutes: 50
 fundamentals: []
 ---
 
-Every lesson in this module has pointed at C: the reference counts of [memory management](../memory-model/), the `Py_mod_gil` slot of [free-threading internals](../gil-internals/), the extension loaders of [the import system](../import-system/). This lesson reads and writes a complete small extension. You need a C compiler and the Python headers to build it, but you can follow the code without one.
+Every lesson in this module has pointed at C: the reference counts of [memory management](../memory-model/), the `Py_mod_gil` slot of [free-threading internals](../gil-internals/), the extension loaders of [the import system](../import-system/). This lesson reads and writes a complete small extension, `tally.c`, built up over several blocks. You need to read C pointers and know what `malloc` is for; if you do not, the [native extensions](../native-extensions/) lesson covers `ctypes`, cffi and Cython, which spare you this level. You need a C compiler and the Python headers to build it, but you can follow the code without one.
 
 ## PyObject
 
@@ -38,7 +39,7 @@ Errors follow one convention: a function that fails sets an exception and return
 
 `count_true(iterable)` counts the truthy items. Notice how each new reference is released on every path:
 
-```c
+```c title="tally.c"
 #include <Python.h>
 
 /* tally.count_true(iterable) -> int: how many items are truthy. */
@@ -64,7 +65,7 @@ count_true(PyObject *module, PyObject *iterable)
 
 `PyIter_Next` returns `NULL` both at the end and on an error, so the end of the loop has to ask which one it was:
 
-```c
+```c title="tally.c (continued)"
     Py_DECREF(it);
     if (PyErr_Occurred()) {                       /* iteration failed */
         return NULL;
@@ -75,13 +76,78 @@ count_true(PyObject *module, PyObject *iterable)
 
 The returned `int` is a new reference, and ownership passes to the caller, the interpreter.
 
+## Arguments and error paths
+
+`scale(seq, factor=2.0)` takes two arguments, the second optional and allowed as a keyword, and returns a new list. With `METH_VARARGS | METH_KEYWORDS`, the function receives a tuple and a dict, and [`PyArg_ParseTupleAndKeywords`](https://docs.python.org/3/c-api/arg.html) unpacks them: `O` stores an object, `|` starts the optional ones, `d` converts to a C `double`, and the name after `:` goes into error messages.
+
+```c title="tally.c (continued)"
+/* tally.scale(seq, factor=2.0) -> list of floats: each item * factor. */
+static PyObject *
+scale(PyObject *module, PyObject *args, PyObject *kwargs)
+{
+    static char *kwlist[] = {"seq", "factor", NULL};
+    PyObject *seq;
+    double factor = 2.0;                  /* default if not passed */
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|d:scale", kwlist,
+                                     &seq, &factor)) {
+        return NULL;                      /* TypeError is set */
+    }
+    PyObject *it = PyObject_GetIter(seq);
+    if (it == NULL) {
+        return NULL;
+    }
+    PyObject *result = PyList_New(0);
+    if (result == NULL) {
+        Py_DECREF(it);
+        return NULL;
+    }
+```
+
+From here the function owns two references, `it` and `result`, so every failure must release both. C code does that with one `error:` label:
+
+```c title="tally.c (continued)"
+    PyObject *item;
+    while ((item = PyIter_Next(it)) != NULL) {
+        double x = PyFloat_AsDouble(item);
+        Py_DECREF(item);
+        if (x == -1.0 && PyErr_Occurred()) {
+            goto error;                   /* not a number */
+        }
+        PyObject *value = PyFloat_FromDouble(x * factor);
+        if (value == NULL || PyList_Append(result, value) < 0) {
+            Py_XDECREF(value);
+            goto error;
+        }
+        Py_DECREF(value);                 /* the list holds its own */
+    }
+    if (PyErr_Occurred()) {
+        goto error;
+    }
+    Py_DECREF(it);
+    return result;
+
+error:                                    /* one exit for every failure */
+    Py_DECREF(it);
+    Py_DECREF(result);
+    return NULL;
+}
+```
+
+- `PyFloat_AsDouble` returns `-1.0` both for a real `-1.0` and on error, so only `PyErr_Occurred()` tells them apart.
+- `PyList_Append` does not steal, so `value` is released after it, while `PyList_SetItem` would have taken it over.
+- `Py_XDECREF` accepts `NULL`, which covers a failed `PyFloat_FromDouble`.
+
+`METH_FASTCALL` passes the arguments as a C array, with no tuple to build. The parser for that array, `PyArg_ParseArray`, is new in 3.15 and not in the Limited API, so `tally` uses the tuple form, which also builds for abi3t below.
+
 ## The module: slots and an export hook
 
 A module is described by an array of `PySlot` entries, and the shared library exports one function, `PyModExport_<name>`, that returns it ([PEP 793](https://peps.python.org/pep-0793/)):
 
-```c
+```c title="tally.c (continued)"
 static PyMethodDef tally_methods[] = {
     {"count_true", count_true, METH_O, "Count the truthy items."},
+    {"scale", (PyCFunction)(void (*)(void))scale,
+     METH_VARARGS | METH_KEYWORDS, "Multiply every item by factor."},
     {NULL, NULL, 0, NULL}
 };
 
@@ -105,9 +171,9 @@ PyModExport_tally(void)
 }
 ```
 
-- `METH_O` means the C function takes exactly one argument. `METH_NOARGS`, `METH_VARARGS` and `METH_FASTCALL` cover the other shapes.
+- `METH_O` means the C function takes exactly one argument. `METH_NOARGS`, `METH_VARARGS` and `METH_FASTCALL` cover the other shapes. The table's field is a plain `PyCFunction`, so `scale`, which takes a third argument, needs the cast.
 - `Py_mod_abi` with `PyABIInfo_VAR` lets Python refuse an extension compiled for an incompatible ABI instead of crashing.
-- `Py_mod_gil` is the free-threading promise from the GIL lesson. `count_true` keeps no shared state, so the promise holds.
+- `Py_mod_gil` is the free-threading promise from the GIL lesson. Neither function keeps shared state, so the promise holds.
 - Everything is `static` except the hook, so nothing clashes with other extensions.
 
 Before 3.15, the export was `PyInit_<name>`, returning a `PyModuleDef`. It still works, and is now soft deprecated: no new features, no plans for removal. If a library exports both, `PyInit_<name>` is ignored, so you can ship one source that supports older versions with `PyInit_` and 3.15 with `PyModExport_`. The [extension modules reference](https://docs.python.org/3/c-api/extension-modules.html) has both forms.
@@ -148,7 +214,24 @@ Traceback (most recent call last):
 TypeError: 'int' object is not iterable
 ```
 
-The `TypeError` was set by `PyObject_GetIter`; `count_true` only passed the `NULL` on.
+The `TypeError` was set by `PyObject_GetIter`; `count_true` only passed the `NULL` on. `scale` behaves like a Python function, keyword argument and default included, and each failure arrives as an ordinary exception:
+
+```console
+$ python3.15 -c "import tally; print(tally.scale([1, 2.5, True]))"
+[2.0, 5.0, 2.0]
+$ python3.15 -c "import tally; print(tally.scale(range(3), factor=0.5))"
+[0.0, 0.5, 1.0]
+$ python3.15 -c "import tally; tally.scale([1, 'two'])"
+Traceback (most recent call last):
+  ...
+TypeError: must be real number, not str
+$ python3.15 -c "import tally; tally.scale()"
+Traceback (most recent call last):
+  ...
+TypeError: scale() missing required argument 'seq' (pos 1)
+```
+
+The first message comes from `PyFloat_AsDouble`, the second from the parser, which used the name after `:`.
 
 ## Stable ABIs: abi3 and abi3t
 
@@ -210,7 +293,7 @@ Hello, Ada! False
 
 <Solution>
 
-```c
+```c title="hello.c"
 #include <Python.h>
 
 static PyObject *
@@ -229,7 +312,7 @@ static PyMethodDef hello_methods[] = {
 };
 ```
 
-```c
+```c title="hello.c (continued)"
 PyABIInfo_VAR(abi_info);
 
 static PySlot hello_slots[] = {
@@ -315,7 +398,8 @@ A wheel directory contains `tally.abi3.so`, `tally.abi3t.so` and `tally.cpython-
 
 - Every object is a `PyObject *` with a header you access through macros.
 - Know, for every call, whether you get a new or a borrowed reference, and whether you pass one in to be stolen. Release what you own on every path.
-- Failures set an exception and return `NULL` or `-1`; pass them on.
+- Failures set an exception and return `NULL` or `-1`; pass them on, releasing what you own, often through one `error:` label.
+- `PyArg_ParseTupleAndKeywords` turns a tuple and a dict into C values, with optional and keyword arguments.
 - Modules are `PySlot` arrays returned by a `PyModExport_<name>` hook; `PyInit_` is soft deprecated.
 - `Py_LIMITED_API` builds abi3; `Py_TARGET_ABI3T` builds abi3t, which loads on both kinds of build.
 - This completes the CPython internals module.

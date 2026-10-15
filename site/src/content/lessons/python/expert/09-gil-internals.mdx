@@ -44,7 +44,7 @@ switch interval: 0.005 seconds
 now: 0.001
 ```
 
-The switch happens between bytecode instructions. That is why the GIL never made your code thread-safe: `count += 1` is several instructions, and another thread can run between any two of them.
+The switch happens between bytecode instructions. That is why the GIL never made your code thread-safe: `count += 1` is several instructions, and another thread can run between any two of them. [Threads](../../advanced/threading/) showed the resulting race on purpose; here is the reason at the bytecode level.
 
 ```python title="not_atomic.py"
 import dis
@@ -73,7 +73,7 @@ LOAD_GLOBAL -> BINARY_OP -> STORE_GLOBAL
 
 Making every increment atomic would work, but atomic read-modify-write instructions are slow, and every object touch would pay. PEP 703 uses three techniques instead.
 
-**Biased reference counting.** Most objects are only ever used by the thread that created them, so the object header records an owner thread and keeps two counts: a local one the owner updates with fast non-atomic instructions, and a shared one other threads update atomically. In the PEP's design the header looks like this:
+**Biased reference counting.** Most objects are only ever used by the thread that created them, so the object header records an owner thread and keeps two counts: a local one the owner updates with fast non-atomic instructions, and a shared one other threads update atomically. In the PEP's design the header looks like this (a fragment of CPython's headers, not code you compile):
 
 ```c
 struct _object {
@@ -96,7 +96,7 @@ That last sentence is the cost: `sys.getrefcount` means even less on this build.
 
 ## Problem 2: object internals
 
-Each object has a one-byte `ob_mutex`. Built-in types such as `list`, `dict` and `set` take it internally, so concurrent use cannot corrupt them. C code uses it through **critical sections**:
+Each object has a one-byte `ob_mutex`. Built-in types such as `list`, `dict` and `set` take it internally, so concurrent use cannot corrupt them. C code uses it through **critical sections**. This fragment is one function from an extension; the module around it is the subject of [the C API tour](../c-api-tour/):
 
 ```c
 /* Pop the last item of a list, or return None if it is empty. */
@@ -125,7 +125,7 @@ The cyclic collector relied on reference counts staying still while it worked. O
 
 ## Extensions: Py_mod_gil
 
-A C extension may keep global state that assumes the GIL. So on the free-threaded build, importing an extension that has not declared support turns the GIL back on. An extension declares support with a slot:
+A C extension may keep global state that assumes the GIL. So on the free-threaded build, importing an extension that has not declared support turns the GIL back on. An extension declares support with one entry in its module's slot array, shown here as a fragment:
 
 ```c
 PySlot_DATA(Py_mod_gil, Py_MOD_GIL_NOT_USED),
@@ -148,6 +148,17 @@ The Steering Council's acceptance of PEP 703 set three phases, which [PEP 779](h
 - **Phase I** (3.13): the free-threaded build is available but explicitly experimental.
 - **Phase II** (3.14 onward): officially supported, still optional. This is where 3.15 is. <Since v="3.15" /> It added `abi3t`, a stable ABI for free-threaded builds ([PEP 803](https://peps.python.org/pep-0803/)).
 - **Phase III**: free-threading as the default build. What's New in 3.14 says any decision to transition "is still undecided".
+
+## When not to go free-threaded
+
+Free-threading pays only for parallel CPU-bound work in threads. For I/O-bound code, threads or asyncio on the default build already overlap the waiting, and for CPU-bound work that shares little, processes or subinterpreters may be simpler; [concurrency models](../../advanced/concurrency-models/) compares them. Everything else pays the single-threaded penalty, which What's New in 3.14 puts at roughly 5-10%, and gains nothing.
+
+Do not run production on `3.15t`, or declare `Py_MOD_GIL_NOT_USED`, before two things are done:
+
+- an audit of shared state: module-level caches and counters, class attributes, static C globals, and borrowed references from shared containers;
+- a stress test with many threads hammering that state, run repeatedly on `3.15t`.
+
+Until both are done, leave the slot out: a GIL switched back on with a warning is safer than a false promise.
 
 ## Common pitfalls
 

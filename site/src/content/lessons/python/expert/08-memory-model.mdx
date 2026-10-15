@@ -5,25 +5,26 @@ module: CPython internals
 order: 8
 title: Memory management
 description: How CPython frees objects with reference counting, why some objects are immortal, how the cyclic garbage collector finds what reference counting misses, what happened to the 3.14 incremental collector, and how weak references break cycles.
-minVersion: "3.12"
+minVersion: "3.11"
 objectives:
   - Explain when CPython frees an object and measure reference count changes
   - Say which objects are immortal and why that matters
   - Show a reference cycle surviving del and being reclaimed by the cyclic collector
   - State accurately which garbage collector 3.14 and 3.15 use
   - Break cycles and build caches with weak references
-estimatedMinutes: 45
+  - Find what keeps a leaking object alive with tracemalloc and gc
+estimatedMinutes: 50
 fundamentals:
   - fundamentals/beginner/18-memory-and-references
 ---
 
-The [fundamentals lesson on memory and references](../../../fundamentals/beginner/memory-and-references/) explained names, objects and garbage collection in general. This lesson is about how CPython specifically does it: two mechanisms working together, plus an exemption for objects that never die.
+The [fundamentals lesson on memory and references](../../../fundamentals/beginner/memory-and-references/) explained names, objects and garbage collection in general. This lesson is about how CPython specifically does it: two mechanisms working together, plus an exemption for objects that never die. If aliasing and copies still surprise you, [copying and references](../../advanced/copying-references/) is the place to revisit first.
 
 ## Reference counting
 
 Every CPython object starts with a header holding its **reference count** and its type. Binding a name, storing in a container or passing an argument adds a reference; unbinding removes one. When the count reaches zero, the object is freed **at that moment**, not at some later collection.
 
-`sys.getrefcount` reports the count. Its absolute value includes the temporary reference made by the call itself, and it differs between versions (3.14 started avoiding some increments with *borrowed* references). Differences are reliable:
+`sys.getrefcount` reports the count. Its absolute value includes the temporary reference made by the call itself, and it differs between versions (3.14 started avoiding some increments with *borrowed* references). Differences are reliable. The outputs in this lesson were checked on the default (GIL) build of 64-bit CPython 3.15.0; the free-threaded build has a larger object header and immortalises more objects, and where its output differs the text says so.
 
 ```python title="refcount_delta.py"
 import sys
@@ -76,7 +77,7 @@ This is why `with open(...)` matters for portability but plain CPython code ofte
 
 ## Immortal objects
 
-Since 3.12, some objects are **immortal** ([PEP 683](https://peps.python.org/pep-0683/)): `None`, `True`, `False`, small integers, the empty tuple, interned strings and other objects the runtime creates at startup. Their reference count is set to a huge value, and increments and decrements leave it alone, so they are never freed.
+<Since v="3.12" /> Some objects are **immortal** ([PEP 683](https://peps.python.org/pep-0683/)): `None`, `True`, `False`, small integers, the empty tuple, interned strings and other objects the runtime creates at startup. Their reference count is set to a huge value, and increments and decrements leave it alone, so they are never freed.
 
 Why bother? Every `x = None` used to write to `None`'s header. With immortality, read-only objects really are read-only: forked worker processes no longer copy the memory pages that hold them (copy-on-write), and threads in the free-threaded build stop contending on one shared counter.
 
@@ -171,6 +172,66 @@ If you tuned thresholds for early 3.14, retest on 3.14.5 or 3.15. And note that 
 ## Weak references
 
 A **weak reference** points at an object without keeping it alive. `weakref.ref(obj)` returns a callable that gives back the object, or `None` once it has been freed. Use them to break cycles that are only "back pointers" (child to parent, observer to subject), and for caches that should not keep their entries alive. `weakref.WeakValueDictionary`, `WeakKeyDictionary` and `WeakSet` do the bookkeeping for you. Not every type supports weak references: `list` and `dict` instances do not (subclasses of them do), `int` and `tuple` do not even when subclassed, and instances of your own classes do unless you set `__slots__` without `"__weakref__"`.
+
+## Hunting a leak
+
+Most leaks in Python are not cycles but forgotten strong references: a module-level list, a cache with no limit, or a class registry like the one built with `__init_subclass__` in [customising classes](../../advanced/class-customisation/). Work in this order:
+
+1. Confirm that memory grows with the work done, not just once at start-up.
+2. Compare two `tracemalloc` snapshots to find the line that allocates ([memory profiling](../memory-profiling/)).
+3. Count live objects by type with `gc.get_objects()` to find which type grows.
+4. Ask `gc.get_referrers()` what holds one of them, and follow the chain upwards.
+5. Check `gc.garbage` after `gc.collect()`; it should be empty.
+6. Fix the owner, with a weak reference, a limit or a clean-up, and repeat step 1.
+
+```python title="leak_hunt.py"
+import gc
+import tracemalloc
+from collections import Counter
+
+handled = []                    # the leak: nothing ever empties it
+
+
+class Request:
+    def __init__(self, n):
+        self.body = bytearray(1_000)
+        handled.append(self)
+
+
+def live_types():
+    return Counter(type(o).__name__ for o in gc.get_objects())
+
+
+tracemalloc.start()
+gc.collect()
+before, counts = tracemalloc.take_snapshot(), live_types()
+for n in range(500):
+    Request(n)
+gc.collect()
+```
+
+Then steps 2 to 4:
+
+```python title="leak_hunt.py (continued)"
+print("growing:", (live_types() - counts).most_common(1))
+top = tracemalloc.take_snapshot().compare_to(before, "lineno")[0]
+print("biggest new allocations: line", top.traceback[0].lineno,
+      f"(at least {top.size_diff // 100_000 * 100} kB)")
+
+suspect = next(o for o in gc.get_objects() if isinstance(o, Request))
+holders = gc.get_referrers(suspect)
+print("held by:", [type(h).__name__ for h in holders])
+print("the holder is handled:", any(h is handled for h in holders))
+```
+
+```text
+growing: [('Request', 500)]
+biggest new allocations: line 10 (at least 500 kB)
+held by: ['dict', 'list']
+the holder is handled: True
+```
+
+Line 10 is `self.body = bytearray(1_000)`. The `dict` is this module's globals, which hold `suspect` itself; the `list` is the leak. `get_objects()` lists only objects the collector tracks, so it sees the `Request` instances but not their `bytearray`s. The [gc documentation](https://docs.python.org/3/library/gc.html#gc.get_referrers) warns that `get_referrers()` is for debugging only.
 
 ## When not to touch the collector
 
@@ -349,4 +410,5 @@ The local `image` holds a strong reference until `load` returns, so the entry ca
 - Immortal objects (3.12+, [PEP 683](https://peps.python.org/pep-0683/)) never change their count and are never freed. Which objects qualify is an implementation detail.
 - The cyclic collector reclaims cycles. 3.15 and 3.14.5+ use the three-generation collector; the incremental collector of 3.14.0 to 3.14.4 was reverted.
 - Weak references break back-pointer cycles and keep caches from leaking.
+- To hunt a leak: snapshot diffs find the line, `gc.get_objects()` the type, `gc.get_referrers()` the owner.
 - Next: [the GIL and free-threading internals](../gil-internals/), where reference counting meets threads.
