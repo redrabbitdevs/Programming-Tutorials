@@ -241,7 +241,7 @@ These were planned in the earlier outline or in `gaps-intermediate.md` but are *
 | slug | title | objectives | key concepts | minVersion | exercise idea |
 |---|---|---|---|---|---|
 | `bytecode-dis` | Bytecode and dis | Read CPython bytecode | `dis`, code objects, `co_lines()` (not `co_lnotab`, removed in 3.15), specialisation | 3.12 | Explain the bytecode of 3 loops |
-| `memory-model` | Memory management | Explain reference counting and GC | refcounts, immortal objects (3.12), cyclic GC, incremental GC (3.14), `weakref` | 3.14 | Find and fix a reference cycle leak |
+| `memory-model` | Memory management | Explain reference counting and GC | refcounts, immortal objects (3.12), cyclic GC (generational; the 3.14 incremental GC was reverted in 3.14.5), `weakref` | 3.14 | Find and fix a reference cycle leak |
 | `gil-internals` | The GIL and free-threading internals | Understand what PEP 703 changed | biased reference counting, per-object locks, `Py_mod_gil`, PEP 779 phases | 3.14 | Read a free-threading bug report and explain the race |
 | `import-system` | The import system | Customise imports | finders, loaders, `exec_module` (not `load_module`, removed in 3.15), lazy import proxies (3.15), `.pth` startup files (PEP 829) | 3.15 | Write an import hook that logs imports |
 | `monitoring-debugging` | Monitoring and remote debugging | Instrument running programs | `sys.monitoring` (3.12, PEP 669), remote attach `python -m pdb -p` (3.14, PEP 768), frame pointers (3.15) | 3.14 | Coverage tool built on `sys.monitoring` |

@@ -14,7 +14,7 @@ objectives:
   - Explain what frame pointers give native profilers
 estimatedMinutes: 45
 fundamentals:
-  - fundamentals/beginner/debugging
+  - fundamentals/beginner/24-debugging
 ---
 
 Debuggers, profilers and coverage tools all need the interpreter to tell them what is happening. For most of Python's history that meant `sys.settrace`: a callback on every line of every traced function, paid whether the tool still needed it or not. This lesson covers the modern replacements: an event API with per-location switches, a safe way to attach to a process that is already running, and native stacks that system profilers can read.
@@ -171,7 +171,7 @@ exit code: 0
 
 `remote_exec` returns at once, with no way to learn when the script ran, so the file must stay in place until it has. An exception in the script, even `SystemExit`, is printed by the target and swallowed, so this cannot be used to kill a process.
 
-Attaching to another process is privileged, so the operating system limits it. On Linux you can generally attach to your own processes, unless the distribution's "Yama" ptrace restrictions or a container's seccomp profile forbid it. macOS disables debugging other processes by default; the Python binary has to be given a debugging entitlement. A program can opt out entirely with `-X disable_remote_debug` or `PYTHON_DISABLE_REMOTE_DEBUG=1` ([remote debugging HOWTO](https://docs.python.org/3/howto/remote_debugging.html)).
+Attaching to another process is privileged, so the operating system limits it. On Linux you can generally attach to your own processes, unless the distribution's "Yama" ptrace restrictions or a container's seccomp profile forbid it. macOS disables debugging other processes by default; the Python binary has to be given a debugging entitlement. A program can opt out entirely with `-X disable-remote-debug` (hyphens, not underscores) or `PYTHON_DISABLE_REMOTE_DEBUG=1` ([remote debugging HOWTO](https://docs.python.org/3/howto/remote_debugging.html)). Python ignores an `-X` name it does not recognise without any warning, so a misspelled option silently leaves attaching on. Check with `sys.is_remote_debug_enabled()`: `python3.15 -X disable-remote-debug -c "import sys; print(sys.is_remote_debug_enabled())"` prints `False`, and the same command without the option prints `True`.
 
 ## Frame pointers for native profilers
 

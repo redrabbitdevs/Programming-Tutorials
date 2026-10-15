@@ -55,7 +55,7 @@ All four leads were verified as accepted (PEP status "Final") and shipped in 3.1
 - **PEP 734**: multiple interpreters in the stdlib (`concurrent.interpreters`, `InterpreterPoolExecutor`). (3.14+)
 - **PEP 758**: `except A, B:` without parentheses (when there is no `as`). (3.14+)
 - **PEP 765**: `return`/`break`/`continue` that exit a `finally` block now emit a `SyntaxWarning`. (3.14+)
-- **PEP 768**: safe external debugger interface (`python -m pdb -p PID`). **PEP 784**: `compression.zstd`. Asyncio introspection (`python -m asyncio ps/pstree`). Syntax highlighting in the REPL. Incremental GC. Opt-in tail-call interpreter.
+- **PEP 768**: safe external debugger interface (`python -m pdb -p PID`). **PEP 784**: `compression.zstd`. Asyncio introspection (`python -m asyncio ps/pstree`). Syntax highlighting in the REPL. Incremental GC in 3.14.0-3.14.4 only: reverted in 3.14.5, and 3.15 uses the generational GC (What's New 3.14, "Garbage collection"). Opt-in tail-call interpreter.
 - **PEP 779**: free-threaded build **officially supported** (phase II). Single-thread overhead is about 5-10%.
 
 ### 3.13 (2024-10-07) - [What's New](https://docs.python.org/3/whatsnew/3.13.html)
@@ -115,6 +115,7 @@ All four leads were verified as accepted (PEP status "Final") and shipped in 3.1
 | `NamedTuple("P", x=int)` keyword form; `TypedDict("TD")` with no fields | Removed in 3.15 | Class syntax |
 | `datetime.utcnow()`, `utcfromtimestamp()` | Deprecated (3.12), no removal date | `datetime.now(tz=datetime.UTC)` |
 | `asyncio` policy system (`set_event_loop_policy` and related) | Deprecated, removal in 3.16 | `asyncio.run(..., loop_factory=...)`, `asyncio.Runner` |
+| Incremental garbage collector | Shipped in 3.14.0-3.14.4, reverted in 3.14.5; not in 3.15 | The generational cyclic GC |
 | `asyncio.iscoroutinefunction()` | Removal in 3.16 | `inspect.iscoroutinefunction()` |
 | `~True` / `~False` | Deprecated, removal in 3.16 | `not x` |
 | `profile` module | Deprecated in 3.15, removal in 3.17 | `profiling.tracing` (or `cProfile`, now an alias) |
