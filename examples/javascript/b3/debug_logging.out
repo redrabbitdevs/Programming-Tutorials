@@ -1,0 +1,13 @@
+order: { id: 1, item: 'pen', qty: 3, price: 1.5 }
+order: { id: 2, item: 'book', qty: 1, price: 12 }
+{ total: 16.5 }
+┌─────────┬────┬────────┬─────┬───────┐
+│ (index) │ id │ item   │ qty │ price │
+├─────────┼────┼────────┼─────┼───────┤
+│ 0       │ 1  │ 'pen'  │ 3   │ 1.5   │
+│ 1       │ 2  │ 'book' │ 1   │ 12    │
+└─────────┴────┴────────┴─────┴───────┘
+details
+  inside the group
+check: 1
+check: 2

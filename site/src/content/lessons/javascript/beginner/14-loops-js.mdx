@@ -1,0 +1,332 @@
+---
+language: javascript
+level: beginner
+module: Variables and control flow
+order: 14
+title: "Loops: for, while, for...of"
+description: Pick the right loop in JavaScript, including for, while, do...while, for...of, for...in, break, continue and labels.
+minVersion: "22"
+objectives:
+  - Write classic for, while and do...while loops
+  - Use for...of to walk arrays, strings, maps and other iterables
+  - Explain why for...in is for object keys and not for arrays
+  - Use break, continue and labels to control a loop
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/loops"]
+---
+
+Loops repeat work. The idea and the common patterns are in the [fundamentals lesson on loops](../../../fundamentals/beginner/loops/). JavaScript has several loop forms. In practice you choose between four of them, and this lesson shows when.
+
+## The classic for loop
+
+A `for` loop has three parts in its brackets: an initialiser, a condition checked before each pass, and an update run after each pass.
+
+```javascript title="for_loop.mjs"
+for (let i = 0; i < 3; i++) {
+  console.log("i is", i);
+}
+
+for (let i = 10; i > 0; i -= 4) {
+  console.log("countdown", i);
+}
+
+let sum = 0;
+for (let i = 1, j = 10; i < j; i++, j--) {
+  sum += i * j;
+}
+console.log(sum);
+```
+
+```text
+i is 0
+i is 1
+i is 2
+countdown 10
+countdown 6
+countdown 2
+110
+```
+
+Declare the counter with `let`. Each pass gets its own copy, as the previous lesson showed, and the counter does not exist after the loop. Any of the three parts can be a longer expression, as the last loop shows with two counters moving towards each other. It adds `1*10`, `2*9`, `3*8`, `4*7` and `5*6`, which is 110.
+
+Use a classic `for` when you need the index or an unusual step. For plain "every item" loops, `for...of` is shorter and cannot go wrong at the ends.
+
+## while and do...while
+
+`while` checks its condition before each pass, so it may run zero times. Use it when you do not know in advance how many passes you need.
+
+`do...while` checks after the pass, so the body always runs at least once.
+
+```javascript title="while_loops.mjs"
+let n = 27;
+let steps = 0;
+while (n !== 1) {
+  n = n % 2 === 0 ? n / 2 : 3 * n + 1;
+  steps++;
+}
+console.log("steps:", steps);
+
+let attempts = 0;
+do {
+  attempts++;
+  console.log("attempt", attempts);
+} while (attempts < 3);
+
+let neverRuns = 0;
+do {
+  neverRuns++;
+} while (false);
+console.log(neverRuns);
+```
+
+```text
+steps: 111
+attempt 1
+attempt 2
+attempt 3
+1
+```
+
+The first loop follows the Collatz sequence from 27 and counts 111 steps to reach 1. The `do...while` loops show the difference: the second one has a condition that is always false, yet its body ran once, so `neverRuns` ends as `1`.
+
+Every `while` needs something inside that eventually makes the condition false. A condition that never changes is an infinite loop. In a terminal, press `Ctrl+C` to stop it.
+
+## for...of
+
+`for...of` takes each value from an **iterable**. Arrays, strings, `Map`, `Set` and several other built-in types are iterable, and so are the results of methods like `entries()`.
+
+```javascript title="for_of.mjs"
+const colours = ["red", "green", "blue"];
+for (const colour of colours) {
+  console.log(colour);
+}
+
+for (const char of "héllo") {
+  console.log(char);
+}
+
+for (const [index, colour] of colours.entries()) {
+  console.log(index, colour);
+}
+
+const stock = new Map([["apples", 4], ["pears", 0]]);
+for (const [item, count] of stock) {
+  console.log(item, count);
+}
+
+const plain = { a: 1 };
+try {
+  for (const x of plain) {
+    console.log(x);
+  }
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+```
+
+```text
+red
+green
+blue
+h
+é
+l
+l
+o
+0 red
+1 green
+2 blue
+apples 4
+pears 0
+TypeError: plain is not iterable
+```
+
+- Over an array you get the values, in order.
+- Over a string you get one character at a time. It steps by code point, so a character outside the basic range, such as an emoji, comes through as one item even though it counts as two in `length`. The strings lesson explains why.
+- `colours.entries()` gives `[index, value]` pairs, and the `[index, colour]` on the left is destructuring, which later lessons cover. Use it when you want a value and its position without a classic loop.
+- A `Map` yields `[key, value]` pairs directly.
+- A plain object is **not** iterable. The `TypeError` says so. Loop over `Object.keys(obj)`, `Object.values(obj)` or `Object.entries(obj)` instead.
+
+Write the loop variable as `const` unless you assign to it inside the body. A new one is created for each pass.
+
+<Callout type="note">
+
+The array method `forEach` also visits every item, but you cannot stop it with `break` or `continue`. If you might leave early, use `for...of`.
+
+</Callout>
+
+## for...in
+
+`for...in` visits the **property names** of an object, as strings.
+
+```javascript title="for_in.mjs"
+const point = { x: 3, y: 4 };
+for (const key in point) {
+  console.log(key, point[key]);
+}
+
+for (const key in ["a", "b"]) {
+  console.log(key, typeof key);
+}
+
+for (const [key, value] of Object.entries(point)) {
+  console.log(`${key}=${value}`);
+}
+
+const parent = { inherited: true };
+const child = Object.create(parent);
+child.own = 1;
+for (const key in child) {
+  console.log(key);
+}
+console.log(Object.keys(child));
+```
+
+```text
+x 3
+y 4
+0 string
+1 string
+x=3
+y=4
+own
+inherited
+[ 'own' ]
+```
+
+It has two traps. On an array it gives the indexes as **strings** (`"0"`, `"1"`), not numbers and not the values. And it includes properties the object **inherits**, which is why `inherited` appears for `child`, after the object's own key.
+
+Use `for...of` for arrays. For an object's own keys, use `Object.keys` or `Object.entries` with `for...of`, as the third loop shows. Reach for `for...in` only if you specifically want inherited enumerable properties.
+
+## break, continue and labels
+
+`break` leaves the loop immediately. `continue` skips the rest of the current pass and moves on to the next.
+
+```javascript title="break_continue.mjs"
+for (let i = 1; i <= 10; i++) {
+  if (i % 2 === 0) continue;
+  if (i > 7) break;
+  console.log(i);
+}
+
+const grid = [
+  [1, 2, 3],
+  [4, 5, 6],
+  [7, 8, 9],
+];
+let found = null;
+search: for (const row of grid) {
+  for (const value of row) {
+    if (value * value > 20) {
+      found = value;
+      break search;
+    }
+  }
+}
+console.log("first value whose square exceeds 20:", found);
+```
+
+```text
+1
+3
+5
+7
+first value whose square exceeds 20: 5
+```
+
+The first loop skips even numbers with `continue` and stops at the first number above 7 with `break`.
+
+Inside nested loops a plain `break` leaves only the inner loop. A **label** names a loop so that `break` or `continue` can target an outer one. The second part reads: look through the grid, and as soon as a value has a square above 20, remember it and leave both loops. Labels are rare. A function that returns early is often a cleaner way to leave nested loops.
+
+## Choosing a loop
+
+| You want to... | Use |
+|---|---|
+| visit every item of an array, string, Map or Set | `for...of` |
+| count, or need the index or a custom step | classic `for` |
+| repeat until a condition changes, with unknown length | `while` |
+| run the body once before testing | `do...while` |
+| walk an object's own keys | `for...of` with `Object.keys` or `Object.entries` |
+
+## Common pitfalls
+
+- **Off-by-one errors.** `i <= array.length` runs one pass too many and reads `undefined`. The usual bound is `i < array.length`.
+- **Using `for...in` on arrays.** You get string indexes and possibly extra properties. Use `for...of`.
+- **Changing an array while looping over it.** Adding or removing items shifts the positions of the others. Loop over a copy, or build a new array.
+- **Floating-point counters.** `for (let x = 0; x !== 1; x += 0.1)` never ends, because `x` never lands exactly on `1`. Count with integers and divide.
+- **A `while` condition that never changes.** Check that the body moves towards the exit.
+
+## Exercises
+
+<Exercise title="Number-guessing game">
+
+Write a loop that plays a guessing game against a fixed secret number (37). Give it a list of guesses, `[50, 25, 37, 10]`. For each guess, print whether it is too high, too low or right, and stop when it is right. The guess after the correct one must not be tried. (A version that reads guesses from the keyboard uses the `node:readline/promises` module from the console lesson, with `await` in the loop.)
+
+<Solution>
+
+```javascript title="guessing_game.mjs"
+const secret = 37;
+const guesses = [50, 25, 37, 10];
+
+let tries = 0;
+for (const guess of guesses) {
+  tries++;
+  if (guess === secret) {
+    console.log(`Guess ${tries}: ${guess} is right`);
+    break;
+  }
+  console.log(`Guess ${tries}: ${guess} is too ${guess < secret ? "low" : "high"}`);
+}
+```
+
+```text
+Guess 1: 50 is too high
+Guess 2: 25 is too low
+Guess 3: 37 is right
+```
+
+`for...of` walks the guesses, `tries` counts them, and `break` leaves the loop when the guess is right, so `10` is never tried. The conditional operator picks "low" or "high" inside the template literal.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Multiplication table">
+
+Print a 5 by 5 multiplication table with the numbers lined up in columns four characters wide. Use nested loops and `padStart` from the strings lesson.
+
+<Solution>
+
+```javascript title="times_table.mjs"
+const size = 5;
+for (let row = 1; row <= size; row++) {
+  let line = "";
+  for (let col = 1; col <= size; col++) {
+    line += String(row * col).padStart(4);
+  }
+  console.log(line);
+}
+```
+
+```text
+   1   2   3   4   5
+   2   4   6   8  10
+   3   6   9  12  15
+   4   8  12  16  20
+   5  10  15  20  25
+```
+
+The outer loop picks the row and the inner loop builds one line, one cell at a time. `String(row * col)` turns the number into text, and `padStart(4)` pads it with spaces on the left to width 4. Each line is printed once its inner loop is done.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Use `for...of` to visit the items of arrays, strings, Maps and Sets. Use a classic `for` when you need the index or a special step, and `while` when the number of passes is not known.
+- `do...while` always runs the body once.
+- `for...in` gives property names as strings, including inherited ones. Do not use it on arrays.
+- `break` leaves a loop, `continue` skips to the next pass, and a label lets either one target an outer loop.
+
+Next: raising and handling errors with `throw`, `try`, `catch` and `finally`.

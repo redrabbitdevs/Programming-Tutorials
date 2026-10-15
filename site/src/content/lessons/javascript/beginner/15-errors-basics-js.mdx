@@ -1,0 +1,294 @@
+---
+language: javascript
+level: beginner
+module: Variables and control flow
+order: 15
+title: throw, try, catch and finally
+description: Raise errors with throw, handle them with try/catch/finally, and know the built-in error types, optional catch binding and error causes.
+minVersion: "22"
+objectives:
+  - Raise an error with throw new Error()
+  - Catch and inspect errors with try, catch and finally
+  - Recognise the common built-in error types
+  - Use optional catch binding and the cause option
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/errors-and-exceptions"]
+---
+
+Things go wrong at run time: input is malformed, a value is missing, a file is not there. The [fundamentals lesson on errors and exceptions](../../../fundamentals/beginner/errors-and-exceptions/) explains the idea of raising an error and handling it somewhere else. This lesson covers the JavaScript syntax and the built-in error types.
+
+## throw and catch
+
+`throw` stops the current function and hands an error to the nearest enclosing `try` block with a `catch`. If there is none, the program stops with an error message.
+
+```javascript title="throw_catch.mjs"
+function divide(a, b) {
+  if (b === 0) {
+    throw new Error("cannot divide by zero");
+  }
+  return a / b;
+}
+
+try {
+  console.log(divide(10, 2));
+  console.log(divide(1, 0));
+  console.log("not reached");
+} catch (error) {
+  console.log(error.name);
+  console.log(error.message);
+  console.log(error instanceof Error);
+}
+console.log("the program carries on");
+```
+
+```text
+5
+Error
+cannot divide by zero
+true
+the program carries on
+```
+
+`divide(10, 2)` works and prints 5. `divide(1, 0)` throws, so control jumps straight to `catch`, and the "not reached" line really is skipped. The caught value has a `name`, a `message`, and it is an instance of `Error`. After the `catch` block finishes, the program continues normally.
+
+Always throw an `Error` object, created with `new Error(message)`. It records a **stack trace**, the list of function calls that led to the error, which is what you need when debugging.
+
+## The built-in error types
+
+`Error` is the base type. The language itself throws a few specific subtypes, and you can throw them too, to say what kind of problem it was.
+
+| Type | Meaning | Example |
+|---|---|---|
+| `ReferenceError` | A name that does not exist, or the temporal dead zone | `undefinedVariable` |
+| `TypeError` | A value of the wrong type for the operation | `null.length`, assigning to a `const` |
+| `RangeError` | A value outside the allowed range | `new Array(-1)`, `(1.5).toFixed(101)` |
+| `SyntaxError` | Code or data that cannot be parsed | `JSON.parse("{bad json")` |
+| `URIError` | Bad input to the URI functions | `decodeURIComponent("%")` |
+
+```javascript title="error_types.mjs"
+const attempts = [
+  () => undefinedVariable,
+  () => null.length,
+  () => new Array(-1),
+  () => JSON.parse("{bad json"),
+  () => (1.5).toFixed(101),
+  () => decodeURIComponent("%"),
+];
+
+for (const attempt of attempts) {
+  try {
+    attempt();
+  } catch (error) {
+    console.log(error.name);
+  }
+}
+```
+
+```text
+ReferenceError
+TypeError
+RangeError
+SyntaxError
+RangeError
+URIError
+```
+
+Each of the six attempts fails in a different way, and the `name` property tells them apart. The messages carry the detail:
+
+```javascript title="error_messages.mjs"
+try {
+  undefinedVariable;
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+try {
+  null.length;
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+try {
+  new Array(-1);
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+```
+
+```text
+ReferenceError: undefinedVariable is not defined
+TypeError: Cannot read properties of null (reading 'length')
+RangeError: Invalid array length
+```
+
+Read the message first. "Cannot read properties of null (reading 'length')" names both the bad value and what you tried to do with it. The exact wording of engine messages can differ between JavaScript engines and versions, so match on `name` or `instanceof` in code, never on message text.
+
+In your own code, use `TypeError` for a wrong kind of input and `RangeError` for a value out of bounds, and plain `Error` for everything else. Making your own error classes comes after the lessons on classes.
+
+## finally
+
+A `finally` block runs after the `try` and `catch` blocks, whether or not an error happened, and even if the block returned. Use it for cleanup that must always happen.
+
+```javascript title="finally_demo.mjs"
+function readValue(text) {
+  try {
+    console.log("parsing", text);
+    return JSON.parse(text);
+  } catch {
+    console.log("invalid JSON");
+    return null;
+  } finally {
+    console.log("done with", text);
+  }
+}
+
+console.log(readValue('{"ok": true}'));
+console.log(readValue("{oops"));
+
+function finallyWins() {
+  try {
+    return "from try";
+  } finally {
+    console.log("finally runs before the function returns");
+  }
+}
+console.log(finallyWins());
+```
+
+```text
+parsing {"ok": true}
+done with {"ok": true}
+{ ok: true }
+parsing {oops
+invalid JSON
+done with {oops
+null
+finally runs before the function returns
+from try
+```
+
+For valid input the order is: parse, return a value, run `finally`. For invalid input, `catch` returns `null`, and `finally` still runs before the function hands back its result. In `finallyWins`, the message from `finally` prints before the returned `"from try"` reaches the caller. Avoid putting a `return` inside `finally`: it would replace the value that `try` or `catch` was about to return.
+
+The `catch {` in `readValue` has no `(error)` after it. That is **optional catch binding**, available since ES2019. Leave the name out when the handler does not need the error, instead of declaring an unused variable.
+
+## Adding context with cause
+
+Sometimes you catch a low-level error and want to throw a more helpful one while keeping the original. Pass the original as the `cause` option (ES2022).
+
+```javascript title="error_cause.mjs"
+function loadSettings(text) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error("could not load settings", { cause: error });
+  }
+}
+
+try {
+  loadSettings("{nope");
+} catch (error) {
+  console.log(error.message);
+  console.log(error.cause.name);
+  console.log(error.cause instanceof SyntaxError);
+}
+```
+
+```text
+could not load settings
+SyntaxError
+true
+```
+
+The new error says what the program was doing ("could not load settings"), and `error.cause` still holds the original `SyntaxError` with its details. Tools that print errors usually show the cause too.
+
+## Common pitfalls
+
+- **Throwing strings or other plain values.** JavaScript allows `throw "oops"`, but then there is no stack trace and no `name` or `message`. See the example after this list.
+- **Catching everything and ignoring it.** An empty `catch` hides bugs. At least log the error, or rethrow what you cannot handle with `throw error`.
+- **Wrapping large blocks in `try`.** Put only the line that can fail inside it, so a `catch` does not swallow unrelated mistakes.
+- **Matching on message text.** Messages differ between engines and versions. Check `error.name` or `error instanceof TypeError`.
+- **Using exceptions for normal flow.** A missing item in a list is often an ordinary result, not an error. Return `undefined` or `null` for it.
+- **Putting `return` in `finally`.** It overrides the value from `try` and `catch`.
+
+The first pitfall in code:
+
+```javascript title="throw_values.mjs"
+try {
+  throw "just a string";
+} catch (caught) {
+  console.log(typeof caught, caught instanceof Error, caught.stack);
+}
+
+try {
+  throw new Error("a real error");
+} catch (caught) {
+  console.log(typeof caught, caught instanceof Error, typeof caught.stack);
+}
+```
+
+```text
+string false undefined
+object true string
+```
+
+The thrown string has no `stack`, while the real error does. Always throw `Error` objects.
+
+## Exercise
+
+<Exercise title="A robust input-to-number converter">
+
+Write `toNumber(input)` that takes a string and returns a number. It should throw a `TypeError` if the input is not a string, and a `RangeError` if the text is empty after trimming, or does not make a number. Then write `tryConvert(input)` that calls it and returns either the number or the text `"<name>: <message>"` for the error. Try `"42"`, `" 3.5 "`, `""`, `"abc"` and `7`.
+
+<Solution>
+
+```javascript title="to_number.mjs"
+function toNumber(input) {
+  if (typeof input !== "string") {
+    throw new TypeError(`expected a string, got ${typeof input}`);
+  }
+  const text = input.trim();
+  if (text === "") {
+    throw new RangeError("empty input");
+  }
+  const value = Number(text);
+  if (Number.isNaN(value)) {
+    throw new RangeError(`not a number: "${text}"`);
+  }
+  return value;
+}
+
+function tryConvert(input) {
+  try {
+    return toNumber(input);
+  } catch (error) {
+    return `${error.name}: ${error.message}`;
+  } finally {
+    // runs for every input, success or failure
+  }
+}
+
+for (const input of ["42", " 3.5 ", "", "abc", 7]) {
+  console.log(tryConvert(input));
+}
+```
+
+```text
+42
+3.5
+RangeError: empty input
+RangeError: not a number: "abc"
+TypeError: expected a string, got number
+```
+
+`toNumber` checks the cheap things first and throws the error type that fits each case. `Number("abc")` gives `NaN` rather than throwing, so the function checks for that itself. `tryConvert` is the only place that catches, and it turns the error into text. The empty `finally` block is there only to show the shape. Delete it if you have no cleanup to do.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `throw new Error(message)` raises an error. `try`/`catch` handles it, and `finally` always runs.
+- Throw `Error` objects, not strings. They carry a `name`, a `message` and a stack trace.
+- The language throws `ReferenceError`, `TypeError`, `RangeError`, `SyntaxError` and `URIError`. Match on the type, not the message text.
+- `catch {` without a binding is allowed when you do not need the error. Pass `{ cause }` to keep the original error when you wrap it.
+
+Next: finding bugs with the console, stack traces and a debugger.

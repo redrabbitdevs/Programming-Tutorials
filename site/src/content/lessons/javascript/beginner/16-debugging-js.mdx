@@ -1,0 +1,286 @@
+---
+language: javascript
+level: beginner
+module: Variables and control flow
+order: 16
+title: Debugging JavaScript
+description: Find bugs with console output, stack traces, the debugger statement and the Node inspector.
+minVersion: "22"
+objectives:
+  - Read a stack trace from the top
+  - Use console methods to inspect values while a program runs
+  - Pause a program with the debugger statement and the Node inspector
+  - Work through a bug by writing a hypothesis and testing it
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/debugging"]
+---
+
+A bug is a mismatch between what you expected and what happened. The [fundamentals lesson on debugging](../../../fundamentals/beginner/debugging/) describes the method: reproduce, form a hypothesis, test it, fix, and check. This lesson shows the JavaScript tools for each step.
+
+## Read the error first
+
+When a program stops with an uncaught error, Node prints the location, the message and a **stack trace**. A stack trace lists the function calls that were active when the error was created, innermost first.
+
+The block below is what Node 26 prints for a small program in a made-up project folder, `/home/ada/shop/total.mjs`, where `outer` calls `inner` and `inner` throws:
+
+```text
+file:///home/ada/shop/total.mjs:2
+  throw new Error("something broke");
+        ^
+
+Error: something broke
+    at inner (file:///home/ada/shop/total.mjs:2:9)
+    at outer (file:///home/ada/shop/total.mjs:5:3)
+    at file:///home/ada/shop/total.mjs:7:1
+    at ModuleJob.run (node:internal/modules/esm/module_job:569:25)
+    at async node:internal/modules/esm/loader:650:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:105:5)
+
+Node.js v26.11.1
+```
+
+Read it from the top. The first lines say what happened and where. The `at` lines then say who called whom. The top `at` line is where the error was raised, the next is the caller, and so on, down to the start of the program. Each ends in `file:line:column`, which most terminals and editors let you click. Start at the top `at` line that is in **your** code. Lines inside `node:` modules are Node's internals.
+
+You can also reach the trace from code. The `stack` property is a string whose first line is `name: message`.
+
+```javascript title="stack_first_line.mjs"
+function inner() {
+  throw new Error("something broke");
+}
+function outer() {
+  inner();
+}
+
+try {
+  outer();
+} catch (error) {
+  const lines = error.stack.split("\n");
+  console.log(lines[0]);
+  console.log(lines[1].trim().startsWith("at inner"));
+  console.log(lines[2].trim().startsWith("at outer"));
+}
+```
+
+```text
+Error: something broke
+true
+true
+```
+
+The `stack` text is not standardised in detail and differs between engines, so use it for reading, not for parsing.
+
+## Looking at values with console
+
+The quickest debugging tool is printing. The aim is to see a value at the point where you suspect it goes wrong.
+
+```javascript title="debug_logging.mjs"
+const orders = [
+  { id: 1, item: "pen", qty: 3, price: 1.5 },
+  { id: 2, item: "book", qty: 1, price: 12 },
+];
+
+let total = 0;
+for (const order of orders) {
+  console.log("order:", order);
+  total += order.qty * order.price;
+}
+console.log({ total });
+console.table(orders);
+console.group("details");
+console.log("inside the group");
+console.groupEnd();
+console.count("check");
+console.count("check");
+```
+
+```text
+order: { id: 1, item: 'pen', qty: 3, price: 1.5 }
+order: { id: 2, item: 'book', qty: 1, price: 12 }
+{ total: 16.5 }
+┌─────────┬────┬────────┬─────┬───────┐
+│ (index) │ id │ item   │ qty │ price │
+├─────────┼────┼────────┼─────┼───────┤
+│ 0       │ 1  │ 'pen'  │ 3   │ 1.5   │
+│ 1       │ 2  │ 'book' │ 1   │ 12    │
+└─────────┴────┴────────┴─────┴───────┘
+details
+  inside the group
+check: 1
+check: 2
+```
+
+- `console.log("order:", order)` puts a label in front of the value. Labelled output is far easier to scan than a column of bare numbers.
+- `console.log({ total })` is a shortcut: the braces create an object whose key is the variable name, so the output shows `{ total: 16.5 }` and you do not need to type the label.
+- `console.table` lays an array of objects out as a table.
+- `console.group` indents the output until `console.groupEnd`. `console.count` counts how many times a line was reached, which answers "does this code even run?"
+- `console.assert(condition, ...message)` prints a message only when the condition is false. It goes to the error stream, as do `console.error` and `console.warn`, so you can separate those from normal output.
+
+Remove or silence the printing when you are done. Debugging output that stays in the code becomes noise.
+
+## Pausing with debugger
+
+Printing shows you values at the points you chose. A **debugger** lets you stop the program and look at everything, then step forward one line at a time.
+
+The statement `debugger;` marks a place to pause. It does nothing unless a debugger is attached.
+
+```javascript title="debugger_stmt.mjs"
+function average(numbers) {
+  let sum = 0;
+  for (const n of numbers) {
+    sum += n;
+  }
+  debugger; // pauses here only when a debugger is attached
+  return sum / numbers.length;
+}
+
+console.log(average([2, 4, 9]));
+```
+
+```text
+5
+```
+
+Run normally, the program just prints the average, 5. Run under the inspector, it stops on the `debugger` line. Node offers two ways to start it.
+
+1. `node --inspect-brk average.mjs` starts the program, waits for a debugger client, and pauses on the first line. Open `chrome://inspect` in Chrome (`edge://inspect` in Edge) and click "inspect" under your Node process. (`--inspect` starts the inspector without pausing at the first line, which is what you want for a program that keeps running.)
+2. In VS Code, use the Run and Debug panel to start the file under its built-in Node debugger. A click in the margin next to a line number sets a **breakpoint**, which pauses at that line without editing the code. Chrome DevTools offers breakpoints the same way.
+
+There is also a plain command-line debugger: `node inspect average.mjs`.
+
+Once paused you can:
+
+- read the current value of any variable in scope,
+- **step over** a line, **step into** a function call, or **step out** of the current function,
+- watch an expression as it changes,
+- see the **call stack**, the same list as in a stack trace but live, and click a caller to see its variables.
+
+The browser's DevTools offer the same features for code running in a page, under the "Sources" panel.
+
+## A debugging routine
+
+When something is wrong:
+
+1. **Reproduce it** with the smallest input you can.
+2. **Read the error** if there is one, and go to the first line in your code.
+3. **Write a hypothesis** in one sentence, such as "the loop runs one time too many". It must be something you can test.
+4. **Test it** with a print or a breakpoint. Do not change code yet.
+5. **Fix one thing**, run again, and check that the symptom is gone and nothing else broke.
+
+Writing the hypothesis down matters. It stops you changing code at random and gives you something to cross out when you are wrong.
+
+## Common pitfalls
+
+- **Changing code before understanding the bug.** Several guesses at once leave you unsure which one worked.
+- **Ignoring the first line of the error.** The message usually names the exact problem.
+- **Logging an object that you later change.** The console may show the object as it is when you expand it, not when it was printed. Log a copy, or a specific field.
+- **Leaving `debugger;` and `console.log` in finished code.** Remove them or use a proper logging tool.
+- **Debugging the wrong file.** Check that the code you edit is the code that runs.
+
+## Exercise
+
+<Exercise title="Fix four seeded bugs">
+
+This program has four bugs, one in each function. Run it. For each wrong output write down a hypothesis, test it with `console.log` or a breakpoint, and then fix the function. The expected output is `5`, `60`, `false [ 1, 2 ]` and `8`.
+
+```javascript title="seeded_bugs.mjs"
+function average(numbers) {
+  let sum = 0;
+  for (let i = 0; i <= numbers.length; i++) {
+    sum += numbers[i];
+  }
+  return sum / numbers.length;
+}
+
+function totalFromForm(fields) {
+  let total = 0;
+  for (const field of fields) {
+    total = total + field;
+  }
+  return total;
+}
+
+function isEmpty(list) {
+  if (list.length = 0) {
+    return true;
+  }
+  return false;
+}
+
+function double(n) {
+  n * 2;
+}
+
+console.log(average([2, 4, 9]));
+console.log(totalFromForm(["10", "20", "30"]));
+const list = [1, 2];
+console.log(isEmpty(list), list);
+console.log(double(4));
+```
+
+```text
+NaN
+0102030
+false []
+undefined
+```
+
+<Solution>
+
+Hypotheses and fixes, in order:
+
+1. **`average` prints `NaN`.** Hypothesis: the loop reads past the end of the array, because `<=` runs one pass too many and `numbers[3]` is `undefined`. Adding `undefined` to a number gives `NaN`. A `console.log(i, numbers[i])` inside the loop confirms it. Fix: use `<`.
+2. **`totalFromForm` prints `0102030`.** Hypothesis: the form fields are strings, so `+` joins text instead of adding. The coercion lesson covers this. Fix: convert with `Number(field)`.
+3. **`isEmpty([1, 2])` prints `false`, but the array is now empty.** Hypothesis: `list.length = 0` assigns instead of comparing, which clears the array and gives a falsy result. The second value printed, `[]`, gives it away. Fix: `list.length === 0`.
+4. **`double(4)` prints `undefined`.** Hypothesis: the function computes `n * 2` and throws the result away, because there is no `return`. Fix: add `return`.
+
+```javascript title="seeded_fixed.mjs"
+function average(numbers) {
+  let sum = 0;
+  for (let i = 0; i < numbers.length; i++) {
+    sum += numbers[i];
+  }
+  return sum / numbers.length;
+}
+
+function totalFromForm(fields) {
+  let total = 0;
+  for (const field of fields) {
+    total = total + Number(field);
+  }
+  return total;
+}
+
+function isEmpty(list) {
+  return list.length === 0;
+}
+
+function double(n) {
+  return n * 2;
+}
+
+console.log(average([2, 4, 9]));
+console.log(totalFromForm(["10", "20", "30"]));
+const list = [1, 2];
+console.log(isEmpty(list), list);
+console.log(double(4));
+```
+
+```text
+5
+60
+false [ 1, 2 ]
+8
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Read errors from the top: the message first, then the first `at` line in your own code.
+- Label what you print, and use `console.table`, `console.group` and `console.count` to see more at once.
+- `debugger;` and breakpoints pause the program. Start Node with `node --inspect-brk file.mjs` and attach Chrome DevTools or VS Code to step through it.
+- Debug with a routine: reproduce, hypothesise, test, fix one thing, check.
+
+Next module: functions.

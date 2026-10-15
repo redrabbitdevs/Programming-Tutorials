@@ -1,0 +1,3 @@
+120 [ '+50', '-30' ]
+undefined undefined
+RangeError: insufficient funds

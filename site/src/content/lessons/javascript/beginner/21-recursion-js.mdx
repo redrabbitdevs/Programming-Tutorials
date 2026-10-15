@@ -1,0 +1,280 @@
+---
+language: javascript
+level: beginner
+module: Functions
+order: 21
+title: Recursion in JavaScript
+description: Write recursive functions, walk nested data, memoise with a Map, and know the stack-size limit of JavaScript engines.
+minVersion: "22"
+objectives:
+  - Write a recursive function with a base case and a recursive case
+  - Walk nested arrays and object trees recursively
+  - Recognise RangeError "Maximum call stack size exceeded" and what causes it
+  - Convert a deep recursion to a loop
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/recursion"]
+---
+
+A recursive function calls itself on a smaller version of the problem until it reaches a case it can answer directly. The method, the base case and the call stack are explained in the [fundamentals lesson on recursion](../../../fundamentals/beginner/recursion/). This lesson shows recursion in JavaScript, and where it stops working.
+
+## Base case and recursive case
+
+Every recursive function needs a **base case** that returns without calling itself, and a **recursive case** that moves towards the base case.
+
+```javascript title="recursion_basics.mjs"
+function factorial(n) {
+  if (n <= 1) {
+    return 1;
+  }
+  return n * factorial(n - 1);
+}
+console.log(factorial(5), factorial(10));
+
+function countdown(n) {
+  if (n === 0) {
+    console.log("liftoff");
+    return;
+  }
+  console.log(n);
+  countdown(n - 1);
+}
+countdown(3);
+
+function power(base, exponent) {
+  if (exponent === 0) return 1;
+  return base * power(base, exponent - 1);
+}
+console.log(power(2, 10));
+```
+
+```text
+120 3628800
+3
+2
+1
+liftoff
+1024
+```
+
+In `factorial`, the base case is `n <= 1`, and each call asks for the factorial of a smaller number. Using `<=` rather than `=== 1` also stops `factorial(0)` and negative numbers from running forever. `countdown` prints on the way down and has nothing left to do at the bottom. `power` multiplies once per level.
+
+For large factorials, remember from the numbers lesson that an ordinary number loses precision above 2^53, and `BigInt` is the answer.
+
+## Recursion on nested data
+
+Recursion fits data that contains data of the same shape. Nested arrays and trees are the main cases.
+
+```javascript title="nested_sum.mjs"
+function nestedSum(value) {
+  if (typeof value === "number") {
+    return value;
+  }
+  let total = 0;
+  for (const item of value) {
+    total += nestedSum(item);
+  }
+  return total;
+}
+
+console.log(nestedSum([1, [2, [3, 4]], 5]));
+console.log(nestedSum([]));
+console.log(nestedSum([[[[10]]]]));
+```
+
+```text
+15
+0
+10
+```
+
+`nestedSum` asks one question: is this a number or a list? A number is the base case. A list is added up by calling `nestedSum` on each item, which may itself be a list. Writing this with loops needs a stack of your own. `nestedSum([])` is `0` because the loop does nothing.
+
+A tree of objects works the same way. Each node has a name and maybe a list of children.
+
+```javascript title="tree_walk.mjs"
+const tree = {
+  name: "project",
+  children: [
+    { name: "README.md" },
+    {
+      name: "src",
+      children: [
+        { name: "index.mjs" },
+        { name: "util", children: [{ name: "format.mjs" }] },
+      ],
+    },
+  ],
+};
+
+function printTree(node, depth = 0) {
+  console.log("  ".repeat(depth) + node.name);
+  for (const child of node.children ?? []) {
+    printTree(child, depth + 1);
+  }
+}
+
+function countFiles(node) {
+  if (!node.children) {
+    return 1;
+  }
+  return node.children.reduce((sum, child) => sum + countFiles(child), 0);
+}
+
+printTree(tree);
+console.log(countFiles(tree));
+```
+
+```text
+project
+  README.md
+  src
+    index.mjs
+    util
+      format.mjs
+3
+```
+
+`printTree` prints the node's name, indented by its depth, and then calls itself for each child with `depth + 1`. The expression `node.children ?? []` handles leaves, which have no `children`. `countFiles` returns 1 for a leaf and the sum of its children for a folder. The whole tree is handled by two or three lines per function, whatever its depth.
+
+## Memoisation
+
+Plain recursion can repeat work. The naive Fibonacci function recomputes the same values over and over, and its running time grows exponentially. **Memoisation** stores each result the first time it is computed.
+
+```javascript title="fib_memo.mjs"
+function fibSlow(n) {
+  return n < 2 ? n : fibSlow(n - 1) + fibSlow(n - 2);
+}
+
+function fibMemo(n, memo = new Map()) {
+  if (n < 2) return n;
+  if (memo.has(n)) return memo.get(n);
+  const value = fibMemo(n - 1, memo) + fibMemo(n - 2, memo);
+  memo.set(n, value);
+  return value;
+}
+
+console.log(fibSlow(20));
+console.log(fibMemo(20));
+console.log(fibMemo(50));
+```
+
+```text
+6765
+6765
+12586269025
+```
+
+`fibMemo` keeps a `Map` from `n` to its result and checks it first. With the cache, `fibMemo(50)` is instant. `fibSlow(50)` would take far too long to wait for. The `memo = new Map()` default parameter creates a fresh cache for each outermost call and passes it down. The values stay exact here because `fib(50)` is below 2^53.
+
+## The call stack has a limit
+
+Each call uses a slice of memory called a stack frame. JavaScript engines allow only a limited number of frames, and going past the limit throws a `RangeError`.
+
+```javascript title="stack_limit.mjs"
+let depth = 0;
+function recurse() {
+  depth++;
+  recurse();
+}
+
+try {
+  recurse();
+} catch (error) {
+  console.log(error.name);
+  console.log(error.message);
+  console.log(error instanceof RangeError);
+  console.log(depth > 1000);
+}
+```
+
+```text
+RangeError
+Maximum call stack size exceeded
+true
+true
+```
+
+The function has no base case, so it recurses until the engine stops it. The error is a `RangeError` with the message "Maximum call stack size exceeded". You can catch it, but you normally want to fix the cause. The message text is engine-specific, so test for the type rather than the text.
+
+The exact limit depends on the engine, its settings and how big each frame is, so the example only checks that it is above 1000. That is enough for trees and nested data of ordinary depth, and not enough for a recursion that goes once per item of a large list.
+
+Some languages reuse the frame for a call in the final position, a **tail call**, which removes the limit for that style of recursion. Do not count on that in JavaScript. Write code that stays within the stack limit, and switch to a loop when it might not.
+
+## When to use a loop instead
+
+If the recursion is linear, a loop is simpler, faster and has no limit.
+
+```javascript title="loop_instead.mjs"
+function sumTo(n) {
+  let total = 0;
+  for (let i = 1; i <= n; i++) {
+    total += i;
+  }
+  return total;
+}
+
+function sumToRecursive(n) {
+  return n === 0 ? 0 : n + sumToRecursive(n - 1);
+}
+
+console.log(sumTo(1_000_000));
+console.log(sumToRecursive(1000));
+try {
+  console.log(sumToRecursive(1_000_000));
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+```
+
+```text
+500000500000
+500500
+RangeError: Maximum call stack size exceeded
+```
+
+`sumTo(1_000_000)` with a loop is no problem. The recursive version handles 1000 levels, and a million overflows the stack. For depth that you do not control, such as a very deep tree or a long list, either use a loop or keep your own stack of work in an array. Keep recursion for problems that are naturally recursive and shallow.
+
+## Common pitfalls
+
+- **No base case, or a base case that is never reached.** The result is a stack overflow. Check that every call gets closer to the base case.
+- **Forgetting to `return` the recursive call.** `factorial(n - 1)` without `return` and a multiplication gives `undefined`.
+- **Using recursion for a list of unknown length.** A million items will overflow the stack.
+- **Repeating work.** Without memoisation, two recursive calls per level grow exponentially.
+- **Assuming tail calls are free.** Do not rely on them to avoid the stack limit.
+- **Mutating shared state in each call.** Pass what each call needs as parameters.
+
+## Exercises
+
+<Exercise title="Sum a nested array">
+
+Write `nestedSum(value)` that adds all the numbers in an array that can contain other arrays at any depth. `[1, [2, [3, 4]], 5]` gives 15.
+
+<Solution>
+
+The solution is `nested_sum.mjs`, shown earlier in this lesson. The base case is a number. The recursive case loops over a list and adds `nestedSum(item)` for each item. The empty array falls out naturally as `0`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Walk an object tree">
+
+Given the folder tree from this lesson, write `countFiles(node)` that counts the files, meaning the nodes with no `children`. For the example tree the answer is 3.
+
+<Solution>
+
+The solution is `countFiles` in `tree_walk.mjs`, shown above. A node without `children` counts as 1. Any other node returns the sum of `countFiles` over its children, which `reduce` adds up from a start value of 0.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A recursive function needs a base case and a recursive case that moves towards it.
+- Recursion fits nested arrays and trees. Check the type of each value to decide between base case and recursion.
+- A `Map` makes repeated recursion fast by caching results.
+- JavaScript has a call-stack limit and throws `RangeError: Maximum call stack size exceeded`. Do not rely on tail-call optimisation.
+- Use a loop for linear repetition and for depth you cannot bound.
+
+Next: the keyword `this`.

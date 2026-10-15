@@ -1,0 +1,306 @@
+---
+language: javascript
+level: beginner
+module: Variables and control flow
+order: 12
+title: let, const and block scope
+description: Declare variables the modern way with const and let, understand block scope and the temporal dead zone, and know why var is legacy.
+minVersion: "22"
+objectives:
+  - Choose between const and let for each variable
+  - Explain block scope and shadowing
+  - Explain the temporal dead zone and what var hoisting does differently
+  - Say what const does and does not protect
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/variables-and-assignment"]
+---
+
+A variable is a name for a value. What a variable is, and how assignment differs from comparison, is covered in the [fundamentals lesson on variables and assignment](../../../fundamentals/beginner/variables-and-assignment/). This lesson covers the three ways JavaScript lets you declare one and the scope rules that come with each.
+
+## const and let
+
+Modern JavaScript has two declarations you should use, `const` and `let`. Both arrived in ES2015.
+
+- `const` creates a name that cannot be assigned again.
+- `let` creates a name that can.
+
+```javascript title="let_const_basics.mjs"
+let score = 10;
+score = score + 5;
+console.log(score);
+
+const limit = 100;
+try {
+  limit = 200;
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+
+const scores = [10, 20];
+scores.push(30);
+console.log(scores);
+
+const config = { retries: 3 };
+config.retries = 5;
+console.log(config);
+```
+
+```text
+15
+TypeError: Assignment to constant variable.
+[ 10, 20, 30 ]
+{ retries: 5 }
+```
+
+`score` changes, so it is a `let`. Assigning to `limit` throws a `TypeError`, which the `catch` block reports. (Errors and `try`/`catch` get their own lesson later in this module.)
+
+The last two declarations show that **`const` does not make a value unchangeable**. It fixes the binding between the name and the value. If the value is an array or an object, you can still change what is inside it: `scores.push(30)` and `config.retries = 5` both work. A later lesson explains why, when it covers arrays and objects.
+
+The working rule is to **start with `const`** and change to `let` only when you find the variable must be reassigned. Readers then know that every `const` keeps its meaning for the whole scope, and every `let` is a warning that the value moves.
+
+## Block scope
+
+A **block** is the code between `{` and `}`: the body of an `if`, a loop or a function, or a bare pair of braces. Variables declared with `let` and `const` exist only inside the block where they are declared.
+
+```javascript title="block_scope.mjs"
+const outer = "outside";
+
+if (true) {
+  let inner = "inside";
+  const alsoInner = 42;
+  var leaky = "var ignores blocks";
+  console.log(outer, inner, alsoInner);
+}
+
+console.log(leaky);
+console.log(typeof inner);
+
+let name = "outer name";
+{
+  let name = "inner name";
+  console.log(name);
+}
+console.log(name);
+```
+
+```text
+outside inside 42
+var ignores blocks
+undefined
+inner name
+outer name
+```
+
+`inner` and `alsoInner` are visible inside the `if` block and nowhere else. `typeof inner` outside the block gives `"undefined"` because no such name exists there. (Using `typeof` on an undeclared name is the one case where it does not throw.)
+
+The `var` line behaves differently, and the output shows it: `leaky` is still available after the block. We come back to that below.
+
+The last four lines show **shadowing**. Declaring `name` again inside the braces creates a new, separate variable that hides the outer one until the block ends. Shadowing is legal, and it is also a common source of confusion. Prefer a different name when the two variables could be mixed up.
+
+The scope rules in general, including lifetime, are in the [fundamentals lesson on scope and lifetime](../../../fundamentals/beginner/scope-and-lifetime/). The scope of functions gets its own lesson later in this module.
+
+## The temporal dead zone
+
+You cannot use a `let` or `const` variable before its declaration line runs. The span between the start of the scope and that line is the **temporal dead zone**, and touching the variable there throws a `ReferenceError`.
+
+```javascript title="tdz.mjs"
+try {
+  console.log(later);
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+
+let later = "now it exists";
+console.log(later);
+```
+
+```text
+ReferenceError: Cannot access 'later' before initialization
+now it exists
+```
+
+The message is the one to remember: "Cannot access 'later' before initialization". It tells you the name exists in this scope but has no value yet. That is a bug you want to find early, and the dead zone turns it into an immediate error instead of a quiet `undefined`.
+
+## var and hoisting
+
+Before ES2015 the only declaration was `var`. It still works, and you will meet it in older code. It has two differences, both of which cause bugs.
+
+1. **`var` is scoped to the whole function, not the block.** A `var` inside an `if` or a loop is visible after it.
+2. **`var` is hoisted and starts as `undefined`.** The declaration is treated as if it were at the top of the function, so reading it early gives `undefined` instead of an error.
+
+```javascript title="var_hoisting.mjs"
+console.log(count);
+var count = 5;
+console.log(count);
+
+function demo() {
+  if (false) {
+    var hidden = "never assigned";
+  }
+  return hidden;
+}
+console.log(demo());
+```
+
+```text
+undefined
+5
+undefined
+```
+
+`count` is `undefined` on the first line, not an error. In `demo`, the assignment inside `if (false)` never runs, but `hidden` still exists for the whole function, so the function returns `undefined` quietly.
+
+The loop case is the one that bites hardest. Each pass of a `let` loop gets its own copy of the loop variable. A `var` loop has one variable shared by every pass.
+
+```javascript title="var_loop_bug.mjs"
+const withVar = [];
+for (var i = 0; i < 3; i++) {
+  withVar.push(() => i);
+}
+console.log(withVar.map((fn) => fn()));
+
+const withLet = [];
+for (let j = 0; j < 3; j++) {
+  withLet.push(() => j);
+}
+console.log(withLet.map((fn) => fn()));
+```
+
+```text
+[ 3, 3, 3 ]
+[ 0, 1, 2 ]
+```
+
+Each function remembers the variable, not the value it held when the function was created. With `var` there is one `i`, and by the time the functions run it is `3`. With `let` each pass has its own `j`. The lesson on closures later in this module explains why.
+
+Use `let` and `const` in everything you write. Read `var` when you meet it, and replace it with `const` or `let` when you edit that code.
+
+<Callout type="note">
+
+At the top level of an ES module such as `.mjs`, a `var` does not become a property of the global object. Modules have their own scope. Only in a classic script does a top-level `var` become global.
+
+</Callout>
+
+## Common pitfalls
+
+- **Treating `const` as "frozen".** `const` stops reassignment only. `Object.freeze` is a separate, shallow tool, and in a module it makes an assignment to a frozen property throw a `TypeError`.
+- **Declaring with `let` out of habit.** If a variable is never reassigned, make it `const`.
+- **Reading a variable above its declaration.** That is the temporal dead zone. Move the declaration up.
+- **Declaring the same name twice in one scope.** `let x; let x;` is a `SyntaxError`. `var x; var x;` is allowed and hides mistakes.
+- **Using a loop variable after the loop.** With `let` and `const` it is out of scope, which is usually what you want.
+
+## Exercises
+
+<Exercise title="Fix the var bugs">
+
+This older program uses `var` throughout. Run it, then rewrite it with `const` and `let` so that: the loop variable no longer leaks out of the loop, the callbacks print `step 1`, `step 2` and `step 3`, and `message` is not visible outside the `if`.
+
+```javascript title="var_bugs.mjs"
+var total = 0;
+var prices = [5, 10, 15];
+
+for (var i = 0; i < prices.length; i++) {
+  total += prices[i];
+}
+
+var callbacks = [];
+for (var n = 1; n <= 3; n++) {
+  callbacks.push(function () {
+    return "step " + n;
+  });
+}
+
+if (total > 20) {
+  var message = "big order";
+}
+
+console.log(total, i);
+console.log(callbacks.map(function (cb) { return cb(); }));
+console.log(message);
+```
+
+```text
+30 3
+[ 'step 4', 'step 4', 'step 4' ]
+big order
+```
+
+<Solution>
+
+```javascript title="var_fixed.mjs"
+let total = 0;
+const prices = [5, 10, 15];
+
+for (const price of prices) {
+  total += price;
+}
+
+const callbacks = [];
+for (let n = 1; n <= 3; n++) {
+  callbacks.push(() => `step ${n}`);
+}
+
+if (total > 20) {
+  const message = "big order";
+  console.log(message);
+}
+
+console.log(total, typeof price);
+console.log(callbacks.map((cb) => cb()));
+console.log(typeof message);
+```
+
+```text
+big order
+30 undefined
+[ 'step 1', 'step 2', 'step 3' ]
+undefined
+```
+
+`for (const price of prices)` replaces the indexed loop, so there is no `i` left over. The callbacks use `let n`, so each one captures its own copy. `message` is declared with `const` inside the block, so `typeof message` afterwards is `"undefined"`. `prices` and `callbacks` never get reassigned, so they are `const`, while `total` changes and stays `let`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="What does const protect?">
+
+Predict what this program prints, then run it.
+
+```javascript title="const_choices.mjs"
+const names = ["Ada", "Grace"];
+names.push("Linus");
+console.log(names);
+
+const frozen = Object.freeze({ id: 1 });
+try {
+  frozen.id = 2;
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+console.log(frozen);
+```
+
+<Solution>
+
+```text
+[ 'Ada', 'Grace', 'Linus' ]
+TypeError: Cannot assign to read only property 'id' of object '#<Object>'
+{ id: 1 }
+```
+
+Pushing to a `const` array works, because the array is changed, not the binding. Assigning to a property of a frozen object throws in a module, so the `catch` prints the error and the object keeps `id: 1`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Use `const` by default and `let` when a variable must be reassigned.
+- `let` and `const` are block-scoped. A name shadowed in an inner block hides the outer one until the block ends.
+- Using a `let` or `const` before its declaration is a `ReferenceError` (the temporal dead zone).
+- `var` is function-scoped and hoisted as `undefined`, and a `var` in a loop is shared by every pass. Treat it as legacy.
+- `const` fixes the binding, not the contents of the value.
+
+Next: choosing between code paths with `if`, `switch` and the conditional operator.

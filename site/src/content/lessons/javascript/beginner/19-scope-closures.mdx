@@ -1,0 +1,317 @@
+---
+language: javascript
+level: beginner
+module: Functions
+order: 19
+title: Scope and closures
+description: Understand lexical scope, and use closures to keep state private and to build functions that remember their surroundings.
+minVersion: "22"
+objectives:
+  - Describe the scope chain of a nested function
+  - Explain what a closure is and what it captures
+  - Build a counter factory and a function with private state
+  - Fix the closure-in-a-loop bug
+  - Say what module scope means in an ES module
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/scope-and-lifetime"]
+---
+
+Where a variable can be used is decided by where it is written. The [fundamentals lesson on scope and lifetime](../../../fundamentals/beginner/scope-and-lifetime/) introduces this. JavaScript adds a feature that builds on it, the closure, which is one of the language's most useful ideas and the cause of many bugs.
+
+## Lexical scope
+
+JavaScript uses **lexical scope**: a function can use the variables of the code around it, as written in the source. When the engine meets a name, it looks in the current scope, then in the scope that encloses it, and so on outwards. This chain ends at the module's top level.
+
+```javascript title="scope_levels.mjs"
+const appName = "demo";
+
+function outer() {
+  const level = "outer function";
+
+  function inner() {
+    const innerValue = "inner function";
+    console.log(appName, level, innerValue);
+  }
+
+  inner();
+  try {
+    console.log(innerValue);
+  } catch (error) {
+    console.log(`${error.name}: ${error.message}`);
+  }
+}
+
+outer();
+
+const x = "module";
+function shadow() {
+  const x = "function";
+  {
+    const x = "block";
+    console.log(x);
+  }
+  console.log(x);
+}
+shadow();
+console.log(x);
+```
+
+```text
+demo outer function inner function
+ReferenceError: innerValue is not defined
+block
+function
+module
+```
+
+`inner` sees its own variable, the variable of `outer`, and the module-level `appName`. The reverse does not work: `outer` cannot see `innerValue`, because it belongs to the inner function, so the lookup fails with a `ReferenceError`.
+
+The second half shows shadowing again. The innermost `x` wins within its own scope, and each outer `x` is back as soon as the inner scope ends.
+
+## Closures
+
+A **closure** is a function together with the variables it uses from the scope where it was created. The function keeps access to those variables even after the code that created them has finished.
+
+```javascript title="closure_counter.mjs"
+function makeCounter(start = 0) {
+  let count = start;
+  return () => {
+    count += 1;
+    return count;
+  };
+}
+
+const a = makeCounter();
+const b = makeCounter(100);
+
+console.log(a(), a(), a());
+console.log(b(), b());
+console.log(a());
+```
+
+```text
+1 2 3
+101 102
+4
+```
+
+`makeCounter` has finished running by the time the counter is used, but the returned arrow function still reads and updates `count`. Each call to `makeCounter` creates a **new** `count`, so the counters `a` and `b` are independent. Nothing outside can reach `count` except through the returned function.
+
+A closure captures the **variable**, not a copy of its value at that time:
+
+```javascript title="closure_live.mjs"
+let message = "first";
+const show = () => message;
+
+console.log(show());
+message = "second";
+console.log(show());
+
+function makeAdder(amount) {
+  return (n) => n + amount;
+}
+const addFive = makeAdder(5);
+const addTen = makeAdder(10);
+console.log(addFive(1), addTen(1));
+```
+
+```text
+first
+second
+6 11
+```
+
+`show` returns the current `message` every time it runs, so it sees the change to `"second"`. `makeAdder` shows the other common use of closures: building a function that has been given some configuration. `addFive` and `addTen` each remember their own `amount`.
+
+## Private state
+
+JavaScript objects have no hidden properties unless you use the class feature for it, which a later module covers. A closure gives a simple way to hide data: keep it in local variables and hand out only the functions that may use it.
+
+```javascript title="private_state.mjs"
+function createAccount(opening) {
+  let balance = opening;
+  const history = [];
+
+  return {
+    deposit(amount) {
+      balance += amount;
+      history.push(`+${amount}`);
+    },
+    withdraw(amount) {
+      if (amount > balance) {
+        throw new RangeError("insufficient funds");
+      }
+      balance -= amount;
+      history.push(`-${amount}`);
+    },
+    getBalance() {
+      return balance;
+    },
+    getHistory() {
+      return [...history];
+    },
+  };
+}
+
+const account = createAccount(100);
+account.deposit(50);
+account.withdraw(30);
+console.log(account.getBalance(), account.getHistory());
+console.log(account.balance, account.history);
+
+try {
+  account.withdraw(1000);
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+```
+
+```text
+120 [ '+50', '-30' ]
+undefined undefined
+RangeError: insufficient funds
+```
+
+`balance` and `history` exist only inside `createAccount`. Outside code can call `deposit`, `withdraw` and the getters, but `account.balance` is `undefined`: there is no such property. The rule that a balance cannot go negative can therefore not be bypassed. `getHistory` returns a copy, so callers cannot modify the real list either.
+
+## Closures in loops
+
+The loop bug from the `let` lesson is a closure bug. Functions created in a loop capture the loop's variable.
+
+```javascript title="closure_loop_fix.mjs"
+// Bug: every handler reports the same index.
+const buggy = [];
+for (var i = 0; i < 3; i++) {
+  buggy.push(() => `handler ${i}`);
+}
+console.log(buggy.map((h) => h()));
+
+// Fix 1: let gives each pass its own variable.
+const fixed1 = [];
+for (let i = 0; i < 3; i++) {
+  fixed1.push(() => `handler ${i}`);
+}
+console.log(fixed1.map((h) => h()));
+
+// Fix 2: a factory function captures the value as a parameter.
+function makeHandler(index) {
+  return () => `handler ${index}`;
+}
+const fixed2 = [];
+for (var j = 0; j < 3; j++) {
+  fixed2.push(makeHandler(j));
+}
+console.log(fixed2.map((h) => h()));
+```
+
+```text
+[ 'handler 3', 'handler 3', 'handler 3' ]
+[ 'handler 0', 'handler 1', 'handler 2' ]
+[ 'handler 0', 'handler 1', 'handler 2' ]
+```
+
+With `var` there is one `i` for the whole loop, and every handler reads it after the loop has ended. There are two ways to fix it. Use `let`, which creates a new variable per pass. Or call a function that takes the value as a parameter, as `makeHandler` does: each call has its own `index`. The second pattern works with `var` too, which is how this was solved before `let` existed.
+
+## Module scope
+
+In a file that Node treats as an ES module, such as a `.mjs` file, the top level is the **module scope**. Variables declared there are private to that file. They are not properties of the global object, and other files see them only if you export them (a later module covers `export` and `import`).
+
+```javascript title="module_scope.mjs"
+var topLevelVar = "var";
+const topLevelConst = "const";
+
+console.log(typeof globalThis.topLevelVar);
+console.log(typeof globalThis.topLevelConst);
+console.log(typeof globalThis.console);
+console.log(this);
+```
+
+```text
+undefined
+undefined
+object
+undefined
+```
+
+`globalThis` is the global object, and `console` lives there. The `var` and `const` of the module do not. At the top level of a module, `this` is `undefined`. In a classic script, such as a `<script>` tag without `type="module"` in a browser, top-level `var` and function declarations do become properties of the global object. Modules avoid that clutter.
+
+## Common pitfalls
+
+- **Expecting a closure to capture a value.** It captures the variable, so later changes are visible.
+- **Creating functions in a `var` loop.** All of them share one variable.
+- **Relying on closures for secrecy without care.** Returning the internal array itself, rather than a copy, leaks the state.
+- **Accidental globals.** Assigning to an undeclared name is a `ReferenceError` in modules, which is a good thing. Declare every variable.
+- **Holding on to large data.** A closure keeps its variables alive as long as the function exists. Do not capture a huge array if you only need one value from it.
+
+## Exercises
+
+<Exercise title="Counter factory">
+
+Write `makeCounter({ start, step })` that returns an object with `next()` and `reset()`. `next` adds `step` to the counter and returns it. `reset` goes back to `start`. The defaults are 0 and 1. Create a counter that steps by 2, and another that starts at 10, and check that they do not interfere.
+
+<Solution>
+
+```javascript title="counter_factory.mjs"
+function makeCounter({ start = 0, step = 1 } = {}) {
+  let value = start;
+  return {
+    next() {
+      value += step;
+      return value;
+    },
+    reset() {
+      value = start;
+    },
+  };
+}
+
+const evens = makeCounter({ step: 2 });
+console.log(evens.next(), evens.next(), evens.next());
+evens.reset();
+console.log(evens.next());
+
+const fromTen = makeCounter({ start: 10 });
+console.log(fromTen.next(), evens.next());
+```
+
+```text
+2 4 6
+2
+11 4
+```
+
+Each call to `makeCounter` creates its own `value`, which both methods close over. `evens` goes 2, 4, 6, resets, and then gives 2 again. `fromTen` is separate and gives 11, and `evens` continues to give 4 afterwards.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fix the closure in the loop">
+
+Run this program and explain why every handler reports the same number. Then fix it two ways.
+
+```javascript
+const handlers = [];
+for (var i = 0; i < 3; i++) {
+  handlers.push(() => `handler ${i}`);
+}
+console.log(handlers.map((h) => h()));
+```
+
+<Solution>
+
+All three arrow functions close over the same variable `i`. By the time they run, the loop has finished and `i` is `3`. The two fixes are in the `closure_loop_fix.mjs` example earlier in this lesson: declare the loop variable with `let`, or build each handler in a function that receives the value as a parameter.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A function can read variables from the scopes around where it was written, outward to the module level.
+- A closure keeps those variables alive and shared, so it sees later changes.
+- Each call of a factory creates new variables, which gives independent counters and private state.
+- A `var` loop shares one variable between all closures. Use `let`, or pass the value through a function.
+- Module-level variables in an ES module are private to the file.
+
+Next: functions that take and return other functions.
