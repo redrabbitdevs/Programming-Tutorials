@@ -5,7 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Sign up</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 24rem; }
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 1rem;
+        max-width: 24rem;
+      }
       label { display: block; margin-top: 0.75rem; }
       input { display: block; width: 100%; box-sizing: border-box; }
       .error { color: #b00020; min-height: 1.25em; margin: 0.25rem 0 0; }
@@ -29,13 +33,23 @@
 
       <label>
         Password
-        <input name="password" type="password" autocomplete="new-password" required />
+        <input
+          name="password"
+          type="password"
+          autocomplete="new-password"
+          required
+        />
       </label>
       <p class="error" data-error-for="password" aria-live="polite"></p>
 
       <label>
         Repeat the password
-        <input name="confirm" type="password" autocomplete="new-password" required />
+        <input
+          name="confirm"
+          type="password"
+          autocomplete="new-password"
+          required
+        />
       </label>
       <p class="error" data-error-for="confirm" aria-live="polite"></p>
 

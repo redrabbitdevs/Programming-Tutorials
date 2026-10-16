@@ -24,6 +24,10 @@ Every example in this course so far has been a module. Node.js treats a file as 
 
 The next lesson covers `package.json`. Until then, `.mjs` files are the simplest choice.
 
+There is also a third case you may stumble on. Since Node.js 22.7, a `.js` file with no `"type"` setting anywhere is run as CommonJS (the older system, covered two lessons on) first, and if that fails because the file contains `import` or `export`, Node runs it again as an ES module. This is called **syntax detection**. It means a `hello.js` that starts with `import` can work even though you never said it was a module. If a `package.json` exists but has no `"type"`, Node also prints a warning each time. A `.cjs` file, or a `package.json` with `"type": "commonjs"`, gets no second chance, and `import` there is a syntax error.
+
+Do not rely on syntax detection. Name the file `.mjs`, or set `"type": "module"`, so the file behaves the same on every Node.js version and in every tool that reads it.
+
 ## Named exports
 
 Put `export` in front of a declaration to make it available to other files.
@@ -93,7 +97,7 @@ export { add, withTax } from "./math.mjs";
 export { default as greet } from "./greeter.mjs";
 ```
 
-Now `main.mjs`:
+Now `main.mjs`, in three parts. Each part sits next to the idea it shows. The first part has the imports and the first checks.
 
 ```javascript title="main.mjs"
 import greet, { defaultName } from "./greeter.mjs";
@@ -109,25 +113,9 @@ console.log(add(2, 3), rate);
 console.log(math.withTax(100));
 console.log(math);
 console.log(addAgain === add, hello === greet);
-
-console.log(count);
-increment();
-increment();
-console.log(count);
-
-try {
-  count = 10;
-} catch (error) {
-  console.log(error.name);
-}
-
-console.log(message);
-
-const notGlobal = 1;
-console.log(globalThis.notGlobal, typeof this, typeof require);
 ```
 
-Run `node main.mjs`:
+Run `node main.mjs` with just this part:
 
 ```text
 loaded_once.mjs is running
@@ -140,11 +128,6 @@ Hello, world! Hello, Ada! world
   withTax: [Function: withTax]
 }
 true true
-0
-2
-TypeError
-started at boot
-undefined undefined undefined
 ```
 
 Go through it in order.
@@ -161,9 +144,50 @@ Go through it in order.
 
 An imported name is not a copy. It is a **read-only view** of the variable in the exporting module. When that module changes the variable, importers see the new value.
 
-In the output, `count` was `0` before the two `increment()` calls and `2` after. The importer did not do anything: the value changed inside `counter.mjs`, and the `count` it imported followed. Assigning to an import from the outside, as in `count = 10`, throws a `TypeError`. Only the module that owns a variable can change it, which is why `counter.mjs` exports an `increment` function.
+Add the next part to the end of `main.mjs`:
+
+```javascript title="main.mjs (continued)"
+console.log(count);
+increment();
+increment();
+console.log(count);
+
+try {
+  count = 10;
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+Run it again. The new lines at the end of the output are:
+
+```text
+0
+2
+TypeError
+```
+
+`count` was `0` before the two `increment()` calls and `2` after. The importer did not do anything: the value changed inside `counter.mjs`, and the `count` it imported followed. Assigning to an import from the outside, as in `count = 10`, throws a `TypeError`. Only the module that owns a variable can change it, which is why `counter.mjs` exports an `increment` function.
 
 ## Module scope and strict mode
+
+Add the last part of `main.mjs`:
+
+```javascript title="main.mjs (continued)"
+console.log(message);
+
+const notGlobal = 1;
+console.log(globalThis.notGlobal, typeof this, typeof require);
+```
+
+The last lines of output are:
+
+```text
+started at boot
+undefined undefined undefined
+```
+
+`message` comes from `other_user.mjs`, which imported `startedAt` from the module that ran once. The second line shows what module scope means:
 
 - **Top-level names belong to the module.** A `const` or function at the top of a module is not a global. `globalThis.notGlobal` is `undefined` in the output even though `notGlobal` exists in `main.mjs`. Two modules can use the same names without clashing.
 - **Modules are always strict.** The rules from the [strict mode lesson](../syntax-style-strict/) apply without writing `"use strict"`.
@@ -270,11 +294,40 @@ The output is the same as the single file. `totalByRegion` and `formatLine` can 
 
 <Exercise title="Predict the module">
 
-`a.mjs` contains `export let n = 1; export function bump() { n++; }`. `b.mjs` contains `import { n, bump } from "./a.mjs"; bump(); bump(); console.log(n);`. What does `b.mjs` print, and what would `n++` do if written in `b.mjs`?
+Save these two files in one folder. Before you run anything, predict what `live_b.mjs` prints.
+
+```javascript title="live_a.mjs"
+export let n = 1;
+
+export function bump() {
+  n++;
+}
+```
+
+```javascript title="live_b.mjs"
+import { n, bump } from "./live_a.mjs";
+
+bump();
+bump();
+console.log(n);
+
+try {
+  n++;
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+Expected result: two lines. Work out what they are, then run `node live_b.mjs` to check.
 
 <Solution>
 
-It prints `3`. The import is a live view of `n` in `a.mjs`, which `bump` increased twice. Writing `n++` in `b.mjs` throws a `TypeError` because an importer cannot assign to an imported binding.
+```text
+3
+TypeError
+```
+
+The import is a live view of `n` in `live_a.mjs`, which `bump` increased twice, so the first line is `3`. Writing `n++` in `live_b.mjs` throws a `TypeError`, because an importer cannot assign to an imported binding.
 
 </Solution>
 

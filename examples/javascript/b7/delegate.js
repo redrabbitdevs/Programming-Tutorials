@@ -32,7 +32,8 @@ list.addEventListener("click", (event) => {
 
 document.querySelector("#docs").addEventListener("click", (event) => {
   event.preventDefault();
-  status.textContent = "The link click was cancelled. The page stayed where it is.";
+  status.textContent =
+    "The link click was cancelled. The page stayed where it is.";
 });
 
 render();

@@ -1,35 +1,49 @@
-import { createInterface } from "node:readline/promises";
+import { createInterface } from "node:readline";
 import { loadQuestions } from "./load.mjs";
-import { askQuestion } from "./ask.mjs";
+import { parseChoice, showPrompt, showQuestion } from "./ask.mjs";
 import { isCorrect, summarise, verdict } from "./score.mjs";
 
-const rl = createInterface({ input: process.stdin });
-const lines = rl[Symbol.asyncIterator]();
+function runQuiz(questions) {
+  const rl = createInterface({ input: process.stdin });
+  const results = [];
+
+  console.log(`JavaScript quiz: ${questions.length} questions`);
+  showQuestion(questions[0], 1);
+
+  rl.on("line", (text) => {
+    if (results.length === questions.length) return;
+
+    const question = questions[results.length];
+    const picked = parseChoice(text, question.choices.length);
+    if (picked === null) {
+      console.log(`Please type a number from 1 to ${question.choices.length}.`);
+      showPrompt();
+      return;
+    }
+
+    const right = isCorrect(question, picked);
+    const answer = question.choices[question.answer];
+    console.log(right ? "Correct!" : `Not quite. The answer is ${answer}.`);
+    results.push(right);
+
+    if (results.length === questions.length) {
+      rl.close();
+    } else {
+      showQuestion(questions[results.length], results.length + 1);
+    }
+  });
+
+  rl.on("close", () => {
+    if (results.length < questions.length) console.log("\nInput ended early.");
+    const { correct, total, percent } = summarise(results);
+    console.log(`\nScore: ${correct}/${total} (${percent}%)`);
+    console.log(verdict(percent));
+  });
+}
 
 try {
-  const questions = loadQuestions();
-  const results = [];
-  console.log(`JavaScript quiz: ${questions.length} questions`);
-
-  for (const [i, question] of questions.entries()) {
-    const picked = await askQuestion(lines, question, i + 1);
-    if (picked === null) {
-      console.log("\nInput ended early.");
-      break;
-    }
-    const right = isCorrect(question, picked);
-    console.log(
-      right ? "Correct!" : `Not quite. The answer is ${question.choices[question.answer]}.`,
-    );
-    results.push(right);
-  }
-
-  const { correct, total, percent } = summarise(results);
-  console.log(`\nScore: ${correct}/${total} (${percent}%)`);
-  console.log(verdict(percent));
+  runQuiz(loadQuestions());
 } catch (error) {
   console.error(`Quiz failed: ${error.message}`);
   process.exitCode = 1;
-} finally {
-  rl.close();
 }

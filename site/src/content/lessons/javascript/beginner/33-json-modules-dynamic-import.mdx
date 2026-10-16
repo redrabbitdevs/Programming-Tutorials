@@ -17,6 +17,12 @@ fundamentals: []
 
 Static `import` lines are fixed when the file is written and run before anything else. This lesson covers the other ways to bring in data and code: JSON files, modules chosen while the program runs, and the `await` keyword at the top of a file.
 
+## A first look at await
+
+Some operations take time: loading a module, reading a file, waiting on a timer. JavaScript hands back a **promise** for such an operation, which is a placeholder for a result that is not ready yet. The keyword `await` pauses the code until the promise has its result, and then gives you that result. A rejected promise makes `await` throw an error instead.
+
+You may write `await` in two places: at the top level of an ES module, and inside a function whose definition starts with the keyword `async`. An `async` function always returns a promise itself. This is new syntax in the course, and this lesson uses only the simplest forms of it. Promises and `async` functions get their own lessons in the intermediate level, so for now read `await something()` as "wait for this, then continue".
+
 ## JSON modules
 
 A JSON file can be imported like a module. You must say what kind of file it is with an **import attribute**, `with { type: "json" }`. JSON modules are part of ES2025 and run on Node.js 22.
@@ -54,6 +60,7 @@ ERR_IMPORT_ATTRIBUTE_MISSING
 ```
 
 - The JSON file's content is the **default export**. There are no named exports, so write `import config from "./config.json" with { type: "json" }`.
+- `await import(...)` is the call form of `import`, covered in the next section. Here it loads the file a second time.
 - Without the attribute the import fails. The last statement in the example imports the file without it, and the error's `code` is `ERR_IMPORT_ATTRIBUTE_MISSING`.
 - The module is cached, as every module is. The second import returned the very same object (`again.default === config` is `true`), and the change to `config.port` is visible through it. Treat imported data as shared.
 - Older code and tutorials wrote `assert { type: "json" }`. That keyword was replaced by `with`. Use `with`.
@@ -64,7 +71,16 @@ For a file that may change while the program runs, or that you want to handle er
 
 `import(specifier)` is an expression that loads a module **when it runs** and returns a promise for the module's namespace object. It works anywhere: in an `if`, in a function, in a loop. The specifier can be any string, including one built from a variable.
 
-```javascript title="shout.mjs"
+Put the plugins in a folder called `plugins`, next to the file that loads them. The folder layout is:
+
+```text
+run_plugins.mjs
+plugins/
+  shout.mjs
+  whisper.mjs
+```
+
+```javascript title="plugins/shout.mjs"
 console.log("shout plugin loaded");
 
 export const name = "shout";
@@ -74,7 +90,7 @@ export default function run(text) {
 }
 ```
 
-```javascript title="whisper.mjs"
+```javascript title="plugins/whisper.mjs"
 console.log("whisper plugin loaded");
 
 export const name = "whisper";
@@ -83,6 +99,8 @@ export default function run(text) {
   return text.toLowerCase() + "...";
 }
 ```
+
+`run_plugins.mjs` goes next to the `plugins` folder, not inside it. Its `import()` path, `./plugins/${pluginName}.mjs`, starts from the folder where `run_plugins.mjs` lives.
 
 ```javascript title="run_plugins.mjs"
 console.log("start");
@@ -114,6 +132,7 @@ HELLO!
 no plugin called missing
 ```
 
+- The function is marked `async` so that it can use `await`. Calling it gives a promise, and the `await` in the loop waits for the answer.
 - `start` prints first. Neither plugin ran until `import()` was called for it.
 - `await import(...)` waits for the module to load and run. The result has the module's exports, so `plugin.default` is the default export.
 - The second `shout` did not print `shout plugin loaded` again. A module is loaded and run once, and `import()` returns the cached one.
@@ -127,23 +146,26 @@ Dynamic import suits code that is large or rarely needed, code chosen from a con
 The examples above used `await` outside any function. In an ES module that is allowed. This is **top-level await**, available since ES2022. The module pauses at the `await` line, and any module that imports it waits too.
 
 ```javascript title="top_level_await.mjs"
+import { readFile } from "node:fs/promises";
+
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 console.log("before");
 await pause(20);
 console.log("after 20 ms");
 
-const results = await Promise.all([pause(10).then(() => "a"), pause(5).then(() => "b")]);
-console.log(results);
+const file = new URL("./config.json", import.meta.url);
+const text = await readFile(file, "utf8");
+console.log(JSON.parse(text).features);
 ```
 
 ```text
 before
 after 20 ms
-[ 'a', 'b' ]
+[ 'search', 'export' ]
 ```
 
-`await` accepts a promise and gives you its result. The `pause` helper returns a promise that resolves after a delay. A later module on asynchronous JavaScript explains promises. For now, three rules cover most uses:
+`setTimeout` asks the runtime to call a function after a delay in milliseconds. The `pause` helper wraps it in a promise that is ready after that delay, so `await pause(20)` waits 20 ms. `readFile` from `node:fs/promises` is the same idea for a file: it returns a promise, and `await` gives you the text. Three rules cover most uses:
 
 - Use `await` only inside an `async` function, or at the top of a module.
 - It does not work in CommonJS files. The next lesson explains the difference.
@@ -181,6 +203,8 @@ demo
 8080
 ```
 
+Line 3 of the output is the name of the folder you saved the file in, so yours will differ.
+
 - `import.meta.url` is the module's address as a `file:` URL.
 - `import.meta.filename` is the full path of the file, and `import.meta.dirname` is its folder. Both were added in Node.js 20.11 and 21.2, and stopped being experimental in 22.16 and 24.0. They exist only for modules loaded from files.
 - Files are found **relative to the current directory** when you use a plain relative path like `"config.json"` in `readFileSync`. That path changes depending on where the program is started. Building the path from `import.meta.dirname`, or from `new URL("./config.json", import.meta.url)`, always finds the file next to the module.
@@ -196,34 +220,93 @@ demo
 
 ## Exercises
 
-<Exercise title="Load a JSON config">
+<Exercise title="Filter a JSON list">
 
-Write a module that imports `config.json` as a JSON module, prints the app name and port, and checks whether the `features` list contains `"export"`.
+Save this file as `books.json`. Write `recent_books.mjs`, which imports it as a JSON module and prints the titles of the books published after 1980, then the total number of books.
+
+```json title="books.json"
+[
+  { "title": "Dune", "year": 1965 },
+  { "title": "Neuromancer", "year": 1984 },
+  { "title": "Hyperion", "year": 1989 }
+]
+```
+
+Expected output:
+
+```text
+[ 'Neuromancer', 'Hyperion' ]
+3
+```
 
 <Solution>
 
-The first lines of `load_config.mjs` above are the solution:
+The JSON file's content is the default export, here an array, so `filter` and `map` work on it as on any array.
 
-```javascript
-import config from "./config.json" with { type: "json" };
+```javascript title="recent_books.mjs"
+import books from "./books.json" with { type: "json" };
 
-console.log(config.appName, config.port);
-console.log(config.features.includes("export"));
+const recent = books.filter((book) => book.year > 1980);
+console.log(recent.map((book) => book.title));
+console.log(books.length);
 ```
 
-It prints `demo 8080` and `true`.
+```text
+[ 'Neuromancer', 'Hyperion' ]
+3
+```
 
 </Solution>
 
 </Exercise>
 
-<Exercise title="Lazily import a plugin">
+<Exercise title="Load only allowed plugins">
 
-Write `runPlugin(name, text)` that imports `./plugins/NAME.mjs` when called and returns the result of its default export. If the plugin does not exist, return a message instead of crashing.
+Add a third plugin, `plugins/reverse.mjs`, whose default export returns the text reversed. Then write `run_allowed.mjs` with a `runPlugin(pluginName, text)` function that first checks the name against the list `["shout", "whisper", "reverse"]`. If the name is not on the list, it must return a message and must not call `import()`. Call it with `"reverse"`, `"../config"` and `"reverse"` again, using the text `"Hello"`.
+
+Expected output:
+
+```text
+reverse plugin loaded
+olleH
+"../config" is not an allowed plugin
+olleH
+```
 
 <Solution>
 
-The function `runPlugin` in `run_plugins.mjs` above does this. It builds the path in a template literal, awaits `import()`, calls `plugin.default(text)` and catches errors. For `ERR_MODULE_NOT_FOUND` it returns `no plugin called ...`, and for any other error it throws again so real bugs are not hidden.
+Checking the name before building the path keeps user input from choosing which file is loaded. The plugin prints its load message once, because the second `import()` of it is cached.
+
+```javascript title="plugins/reverse.mjs"
+console.log("reverse plugin loaded");
+
+export default function run(text) {
+  return [...text].reverse().join("");
+}
+```
+
+```javascript title="run_allowed.mjs"
+const allowed = ["shout", "whisper", "reverse"];
+
+async function runPlugin(pluginName, text) {
+  if (!allowed.includes(pluginName)) {
+    return `"${pluginName}" is not an allowed plugin`;
+  }
+  const plugin = await import(`./plugins/${pluginName}.mjs`);
+  return plugin.default(text);
+}
+
+for (const name of ["reverse", "../config", "reverse"]) {
+  console.log(await runPlugin(name, "Hello"));
+}
+```
+
+```text
+reverse plugin loaded
+olleH
+"../config" is not an allowed plugin
+olleH
+```
 
 </Solution>
 

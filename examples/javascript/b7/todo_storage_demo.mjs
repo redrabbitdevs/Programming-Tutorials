@@ -18,7 +18,8 @@ console.log(loadTodos(storage));
 storage.setItem("todos", "{not json");
 console.log(loadTodos(storage));
 
-storage.setItem("todos", JSON.stringify([{ id: 1, text: "ok", done: true }, { id: "x" }, null]));
+const mixed = [{ id: 1, text: "ok", done: true }, { id: "x" }, null];
+storage.setItem("todos", JSON.stringify(mixed));
 console.log(loadTodos(storage));
 
 const full = {

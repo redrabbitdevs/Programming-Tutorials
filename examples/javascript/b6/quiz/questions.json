@@ -20,7 +20,7 @@
     "answer": 1
   },
   {
-    "prompt": "Which file extension always makes Node treat a file as an ES module?",
+    "prompt": "Which extension always makes Node run a file as an ES module?",
     "choices": [".mjs", ".cjs", ".json", ".txt"],
     "answer": 0
   }

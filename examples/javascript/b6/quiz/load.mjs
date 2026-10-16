@@ -12,7 +12,8 @@ export function validate(list) {
     if (!Array.isArray(q.choices) || q.choices.length < 2) {
       throw new Error(`${where}: needs at least two choices`);
     }
-    if (!Number.isInteger(q.answer) || q.answer < 0 || q.answer >= q.choices.length) {
+    const { answer, choices } = q;
+    if (!Number.isInteger(answer) || answer < 0 || answer >= choices.length) {
       throw new Error(`${where}: answer is not one of the choices`);
     }
   });

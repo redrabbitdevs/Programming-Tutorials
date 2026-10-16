@@ -1,4 +1,10 @@
-import { addTodo, remaining, removeTodo, toggleTodo, visibleTodos } from "./todo_state.js";
+import {
+  addTodo,
+  remaining,
+  removeTodo,
+  toggleTodo,
+  visibleTodos,
+} from "./todo_state.js";
 import { getStorage, loadTodos, saveTodos } from "./todo_storage.js";
 
 const storage = getStorage(window);
@@ -33,14 +39,15 @@ function render() {
 
   summary.textContent = `${remaining(todos)} left`;
   for (const button of filters.querySelectorAll("button")) {
-    button.setAttribute("aria-pressed", String(button.dataset.filter === filter));
+    const pressed = button.dataset.filter === filter;
+    button.setAttribute("aria-pressed", String(pressed));
   }
 }
 
 function commit(next) {
   todos = next;
   const saved = saveTodos(storage, todos);
-  note.textContent = saved ? "" : "Could not save. Your list is lost when you close the page.";
+  note.textContent = saved ? "" : "Could not save. Your list will be lost.";
   render();
 }
 

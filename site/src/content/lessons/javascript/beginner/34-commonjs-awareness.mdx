@@ -33,6 +33,16 @@ function square(n) {
 module.exports = { add, square, label: "legacy" };
 ```
 
+The program below also loads one ES module, so create a third file first. It is explained in the section on using ESM from CommonJS, further down.
+
+```javascript title="modern.mjs"
+export function double(n) {
+  return n * 2;
+}
+
+export default "modern default";
+```
+
 ```javascript title="app.cjs"
 const path = require("node:path");
 const { add, square } = require("./legacy_math.cjs");
@@ -56,7 +66,7 @@ object object
 modern default
 ```
 
-Save these as `legacy_math.cjs` and `app.cjs` and run `node app.cjs`. The `.cjs` extension always means CommonJS. A `.js` file is CommonJS when the nearest `package.json` has no `"type": "module"` (or has `"type": "commonjs"`, which `npm init` writes).
+Save these three files (`legacy_math.cjs`, `modern.mjs` and `app.cjs`) in one folder and run `node app.cjs`. The `.cjs` extension always means CommonJS. A `.js` file is CommonJS when the nearest `package.json` says `"type": "commonjs"` (which `npm init` writes) and also, by default, when there is no `"type"` at all. In that last case Node 22.7 and later switches to ES modules if the file turns out to contain `import` or `export`, as the first lesson of this module described. Do not count on that.
 
 - `require("./legacy_math.cjs")` runs the file and returns its `module.exports`. Destructuring picks names out of it.
 - `require("node:path")` loads a built-in module.
@@ -109,14 +119,6 @@ CommonJS code can load an ES module with `require()`, as `app.cjs` did with `mod
 
 There is one limit: `require()` is synchronous, so it cannot load an ES module that uses top-level `await`. Node.js throws `ERR_REQUIRE_ASYNC_MODULE` in that case. Such a module must be loaded with `import()`, which returns a promise and works everywhere.
 
-```javascript title="modern.mjs"
-export function double(n) {
-  return n * 2;
-}
-
-export default "modern default";
-```
-
 ## Converting CommonJS to ESM
 
 The steps are mechanical.
@@ -130,7 +132,7 @@ The steps are mechanical.
 ## Common pitfalls
 
 - **Using `require` in a `.mjs` file.** It is not defined. Use `import`, or `createRequire`.
-- **Using `import` in a CommonJS file.** `import ... from` is a syntax error there. A dynamic `import()` call is allowed.
+- **Using `import` in a file that is definitely CommonJS.** In a `.cjs` file, or a `.js` file under `"type": "commonjs"`, `import ... from` is a syntax error. A dynamic `import()` call is allowed. In a `.js` file with no `"type"` at all, Node 22.7 and later retries it as an ES module, which hides the mistake until the file is run somewhere else.
 - **Using top-level `await` in a CommonJS file.** It is a syntax error.
 - **Writing `exports = ...`.** It exports nothing. Use `module.exports = ...`.
 - **Mixing both styles in one file.** Pick one per file.
@@ -205,13 +207,57 @@ Both versions print `12.57` and `12`.
 
 </Exercise>
 
-<Exercise title="Which is which?">
+<Exercise title="Repair an export">
 
-You find a file called `server.js` with `const express = require("express")` at the top and no `package.json` nearby. Is it CommonJS or ESM? What would you change to run it as ESM?
+This module is meant to export a `next` function, but the program that uses it crashes with `TypeError: counter.next is not a function`. Find the one line to change.
+
+```javascript title="counter_broken.cjs"
+let count = 0;
+
+function next() {
+  count += 1;
+  return count;
+}
+
+exports = { next };
+```
+
+```javascript title="use_counter_broken.cjs"
+const counter = require("./counter_broken.cjs");
+
+console.log(counter.next(), counter.next());
+```
+
+Expected output after the fix:
+
+```text title="Expected output"
+1 2
+```
 
 <Solution>
 
-It is CommonJS: `require` is its loading mechanism, and with no `package.json` setting `"type": "module"` a `.js` file is CommonJS. To run it as ESM, rename it to `server.mjs` (or add `"type": "module"` to a `package.json`) and change the first line to `import express from "express"`.
+`exports` starts as another name for `module.exports`. Assigning a new object to `exports` only rebinds that local name, so `module.exports` stays an empty object and `counter.next` is `undefined`. Assign to `module.exports` instead. The corrected module is saved here as `counter_fixed.cjs`, with a user that loads it:
+
+```javascript title="counter_fixed.cjs"
+let count = 0;
+
+function next() {
+  count += 1;
+  return count;
+}
+
+module.exports = { next };
+```
+
+```javascript title="use_counter_fixed.cjs"
+const counter = require("./counter_fixed.cjs");
+
+console.log(counter.next(), counter.next());
+```
+
+```text
+1 2
+```
 
 </Solution>
 
@@ -219,7 +265,7 @@ It is CommonJS: `require` is its loading mechanism, and with no `package.json` s
 
 ## Summary
 
-- CommonJS uses `require()` and `module.exports`. `.cjs` files, and `.js` files without `"type": "module"`, are CommonJS.
+- CommonJS uses `require()` and `module.exports`. `.cjs` files, and `.js` files under `"type": "commonjs"`, are CommonJS. A `.js` file with no `"type"` is CommonJS unless Node's syntax detection finds `import` or `export` in it.
 - ESM is the standard, static, strict system with live bindings and top-level `await`. Write new code as ESM.
 - ESM can import CommonJS: the default import is `module.exports`. `createRequire` gives ESM a `require`.
 - CommonJS can `require()` an ES module in Node.js 22.12 and later, unless that module uses top-level `await`.
