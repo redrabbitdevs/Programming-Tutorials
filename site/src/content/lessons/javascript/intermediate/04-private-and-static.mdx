@@ -1,0 +1,358 @@
+---
+language: javascript
+level: intermediate
+module: Objects, prototypes and classes
+order: 4
+title: Private members and static blocks
+description: Hide state and helpers with #private fields and methods, test for them with brand checks, and run set-up code with static blocks.
+minVersion: "22"
+objectives:
+  - Declare private fields, methods and static members with the # prefix
+  - Explain what code can and cannot see a private name
+  - Use #name in object as a brand check
+  - Initialise static state with a static block
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/15-records-and-objects"]
+---
+
+A class gives its users properties and methods, and every public one is a promise: once other code depends on `wallet.balance`, you cannot rename it or change how it works without breaking that code. Good design keeps the promise small. Hide the state and the helpers, and expose the few operations that make sense. That practice is called **encapsulation**, and the general idea is in the fundamentals lesson on [records and objects](../../../fundamentals/beginner/records-and-objects/).
+
+In [lesson 19](../../beginner/scope-closures/) you got private state from a closure. Classes have a built-in way, with names that start with `#`. Private members and static blocks are part of ES2022 and run on Node 22.
+
+## Private fields
+
+A name that starts with `#` is **private**. It must be declared in the class body, and it can be used only by code written inside that class body.
+
+```javascript title="private_fields.mjs"
+class Wallet {
+  #cents;
+
+  constructor(cents = 0) {
+    this.#cents = cents;
+  }
+
+  get balance() {
+    return this.#cents / 100;
+  }
+
+  deposit(cents) {
+    this.#cents += cents;
+    return this;
+  }
+}
+```
+
+`#cents` stores the money as whole cents, which avoids the rounding problems of fractions that you met in the number lessons. Outside code works with the public `balance` getter and the `deposit` method.
+
+```javascript title="private_fields.mjs (continued)"
+const wallet = new Wallet(250).deposit(50);
+console.log(wallet.balance, wallet.cents, wallet["#cents"]);
+console.log(Object.keys(wallet), JSON.stringify(wallet));
+console.log(wallet);
+```
+
+```text
+3 undefined undefined
+[] {}
+Wallet {}
+```
+
+- `wallet.cents` and `wallet["#cents"]` are just ordinary property lookups for names that do not exist, so they give `undefined`. A private name is not a string key.
+- Writing `wallet.#cents` outside the class is a `SyntaxError`, reported when the file is read, before any code runs.
+- Private fields do not appear in `Object.keys`, in `JSON.stringify` or in the console output. `Wallet {}` looks empty because, from outside, it is.
+
+This is stronger than the underscore convention (`_cents`), which only asks people not to touch a property. It also means the class can change `#cents` freely, since nothing else can depend on it.
+
+## Private methods and static privates
+
+Methods, getters, setters and static members can all be private too. The same rule applies: the name starts with `#` and only the class body can use it.
+
+```javascript title="private_methods.mjs"
+class Counter {
+  static #instances = 0;
+  #value = 0;
+
+  constructor() {
+    Counter.#instances += 1;
+  }
+
+  #clamp(n) {
+    return Math.min(Math.max(n, 0), 10);
+  }
+```
+
+```javascript title="private_methods.mjs (continued)"
+  add(n) {
+    this.#value = this.#clamp(this.#value + n);
+    return this.#value;
+  }
+
+  static get instances() {
+    return Counter.#instances;
+  }
+}
+```
+
+`#clamp` is a helper the class needs and its users should never call. `static #instances` is class-level state that is hidden but readable through the public static getter. Using it:
+
+```javascript title="private_methods.mjs (continued)"
+const counter = new Counter();
+console.log(counter.add(7), counter.add(7), counter.add(-20));
+new Counter();
+console.log(Counter.instances);
+```
+
+```text
+7 10 0
+2
+```
+
+The three `add` calls print `7`, `10` and `0`: the helper keeps the value between 0 and 10. After a second `new Counter()`, the static counter reads `2`. Notice that the code says `Counter.#instances`, not `this.#instances`, inside static code and the constructor. The static field lives on the class itself, not on instances.
+
+## Brand checks
+
+A private name also marks an object as having been built by this class, since only the class's constructor can create the field. The expression `#name in object` asks whether `object` has that private field, without reading it and without throwing.
+
+```javascript title="brand_check.mjs"
+class Wallet {
+  #cents = 0;
+
+  static isWallet(value) {
+    return #cents in value;
+  }
+
+  deposit(cents) {
+    this.#cents += cents;
+    return this;
+  }
+}
+```
+
+```javascript title="brand_check.mjs (continued)"
+console.log(Wallet.isWallet(new Wallet()), Wallet.isWallet({ cents: 0 }));
+
+try {
+  new Wallet().deposit.call({}, 5);
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+true false
+TypeError
+```
+
+`Wallet.isWallet` is true for a real wallet and false for an object that merely looks like one, so it is reliable where checking `"cents" in value` would not be. The second half shows the other side: a method that touches `this.#cents` throws a `TypeError` when its `this` is not a real instance, as happens when someone borrows it with `call` on a plain object. Private access cannot be faked.
+
+## Static blocks
+
+A **static block**, written `static { ... }`, is code that runs once, when the class is defined. It can see the class's private static members, which makes it useful when a static field needs more than a one-line initialiser, such as a loop or several related tables.
+
+```javascript title="static_block.mjs"
+class Level {
+  static #names = new Map();
+  static #byName = new Map();
+
+  static {
+    const names = ["debug", "info", "warn", "error"];
+    for (const [number, name] of names.entries()) {
+      Level.#names.set(number, name);
+      Level.#byName.set(name, number);
+    }
+  }
+```
+
+```javascript title="static_block.mjs (continued)"
+  static nameOf(number) {
+    return Level.#names.get(number) ?? "unknown";
+  }
+
+  static numberOf(name) {
+    return Level.#byName.get(name);
+  }
+}
+```
+
+```javascript title="static_block.mjs (continued)"
+console.log(Level.nameOf(2), Level.nameOf(9), Level.numberOf("error"));
+```
+
+```text
+warn unknown 3
+```
+
+The block fills two maps before anything uses the class. Inside it, `Level.#names` works because the block is part of the class body. The result is a class with a read-only look-up: the maps are private, and only `nameOf` and `numberOf` expose them. A class can have several static blocks, and they run in order along with the static fields.
+
+## Common pitfalls
+
+- **Using a private name that was not declared.** `this.#total = 0` with no `#total;` in the class body is a `SyntaxError`. Declare every private field first.
+- **Reaching for a private field from outside, from a subclass or from a test.** None of them can. A subclass has to use the public API of its parent (the next lesson shows how). If a test needs the data, expose a method or getter on purpose.
+- **Treating `#x` as the string `"#x"`.** `obj["#x"]` is an ordinary key and has nothing to do with the private field.
+- **Calling a private method on the wrong object.** `this.#helper()` throws a `TypeError` if `this` is not an instance, for example after detaching the method.
+- **Making everything private.** Private members are for details that may change. A class whose useful parts are all hidden cannot be used.
+- **Expecting `JSON.stringify` to include private state.** It will not. Provide a `toJSON` method if the object needs to be saved.
+
+## Exercises
+
+<Exercise title="Closure to class">
+
+This function hides its state in a closure:
+
+```javascript
+function createLimiter(max) {
+  let used = 0;
+  return {
+    tryUse() {
+      if (used >= max) return false;
+      used += 1;
+      return true;
+    },
+    get remaining() {
+      return max - used;
+    },
+  };
+}
+```
+
+Write a class `Limiter` with the same behaviour, where `max` and the used count are private fields. Create `new Limiter(2)`, print three `tryUse()` results on one line, and then print `remaining`, the value of `limiter.used` and `Object.keys(limiter)` on one line. The expected output is `true true false` and then `0 undefined []`.
+
+<Solution>
+
+`#max` and `#used` take the place of the two closure variables. The getter reads them the same way. Nothing outside can reach either one, which `limiter.used` being `undefined` and the empty key list confirm.
+
+```javascript title="limiter_class.mjs"
+class Limiter {
+  #max;
+  #used = 0;
+
+  constructor(max) {
+    this.#max = max;
+  }
+
+  tryUse() {
+    if (this.#used >= this.#max) {
+      return false;
+    }
+    this.#used += 1;
+    return true;
+  }
+
+  get remaining() {
+    return this.#max - this.#used;
+  }
+}
+```
+
+```javascript title="limiter_class.mjs (continued)"
+const limiter = new Limiter(2);
+console.log(limiter.tryUse(), limiter.tryUse(), limiter.tryUse());
+console.log(limiter.remaining, limiter.used, Object.keys(limiter));
+```
+
+```text
+true true false
+0 undefined []
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A private helper and a same-class check">
+
+Write a class `Cart` with a private array `#prices`, a method `add(price)` that returns `this`, a getter `total` that uses a private method `#sum()`, and a static method `sameSize(a, b)` that compares the item counts of two carts by reading `a.#prices` and `b.#prices`. Make `one` hold the price `5` and `two` hold `1` and `2`. Print both totals, then print `Cart.sameSize(one, another)` for a third cart holding `9`, and `Cart.sameSize(one, two)`. The expected output is `5 3` and then `true false`.
+
+<Solution>
+
+A static method is written inside the class body, so it may read the private field of any instance, not only of `this`. That is a useful property: `sameSize` compares two private arrays without making them public.
+
+```javascript title="private_total.mjs"
+class Cart {
+  #prices = [];
+
+  add(price) {
+    this.#prices.push(price);
+    return this;
+  }
+
+  get total() {
+    return this.#sum();
+  }
+
+  #sum() {
+    return this.#prices.reduce((sum, price) => sum + price, 0);
+  }
+
+  static sameSize(a, b) {
+    return a.#prices.length === b.#prices.length;
+  }
+}
+```
+
+```javascript title="private_total.mjs (continued)"
+const one = new Cart().add(5);
+const two = new Cart().add(1).add(2);
+console.log(one.total, two.total);
+console.log(Cart.sameSize(one, new Cart().add(9)), Cart.sameSize(one, two));
+```
+
+```text
+5 3
+true false
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A route table built in a static block">
+
+Write a class `Registry` with a private static `Map` named `#items`. Use a static block to add `"home"` for `"/"` and `"about"` for `"/about"`. Add a static getter `names` that returns the keys as an array and a static method `path(name)` that returns the stored path or `undefined`. Print the names, and then print `path("about")` and `path("none")` on one line. The expected output is `[ 'home', 'about' ]` and then `/about undefined`.
+
+<Solution>
+
+The static block runs once when the class is created, so the map is already filled when the first call arrives. Static methods use `Registry.#items` because there is no instance.
+
+```javascript title="registry_static.mjs"
+class Registry {
+  static #items = new Map();
+
+  static {
+    Registry.#items.set("home", "/");
+    Registry.#items.set("about", "/about");
+  }
+
+  static get names() {
+    return [...Registry.#items.keys()];
+  }
+
+  static path(name) {
+    return Registry.#items.get(name);
+  }
+}
+```
+
+```javascript title="registry_static.mjs (continued)"
+console.log(Registry.names);
+console.log(Registry.path("about"), Registry.path("none"));
+```
+
+```text
+[ 'home', 'about' ]
+/about undefined
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A name starting with `#` is private. It must be declared in the class body and is usable only inside it. It is not a string key and does not show up in `Object.keys`, `JSON.stringify` or the console.
+- Fields, methods, getters, setters and static members can all be private.
+- `#name in object` is a reliable brand check. Touching a private name on a foreign object throws a `TypeError`.
+- A `static { ... }` block runs once at class definition and can see private static members, which suits non-trivial set-up.
+- Hide details that may change, and expose a small public surface.
+
+Next: [inheritance and composition](../inheritance-composition/), building one class on another and knowing when not to.

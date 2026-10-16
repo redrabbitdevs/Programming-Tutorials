@@ -1,0 +1,372 @@
+---
+language: javascript
+level: intermediate
+module: Objects, prototypes and classes
+order: 1
+title: this, call, apply and bind
+description: Apply the full set of rules that decide what this is, including new, and use call, apply, bind, thisArg and globalThis on purpose.
+minVersion: "22"
+objectives:
+  - State the four rules that decide this and the order they win in
+  - Explain what new does to a function and why a bound function ignores it
+  - Borrow a method with call and pass this to callbacks with call, thisArg or bind
+  - Reach the global object with globalThis instead of this
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/09-functions", "fundamentals/beginner/15-records-and-objects"]
+---
+
+[Lesson 22](../../beginner/this-basics/) showed you the common ways `this` goes wrong and the usual repairs. This lesson puts those cases into one rule set, adds the one rule that lesson skipped (`new`), and then treats `call`, `apply` and `bind` as tools you reach for on purpose, for example to borrow a method or to write a function that decides what `this` its callbacks see.
+
+The rule set matters because it is also what you need to read other people's code. When a callback misbehaves, you are going to ask "how was this function called?", and the answer is always one of four things.
+
+## Four rules, in order
+
+Every call falls under the first rule that fits, checked from the top:
+
+1. **`new`**: the function is called with `new`, and `this` is a fresh object.
+2. **Explicit**: the function is called through `call` or `apply`, or it is a function made by `bind`, and `this` is the object you passed.
+3. **Implicit**: the call is written `object.method()`, and `this` is `object`.
+4. **Default**: none of the above. In a module, which is always strict, `this` is `undefined`.
+
+Arrow functions sit outside this list. They have no `this` of their own, so they use the one from the code around them.
+
+Rules 2 to 4 can be told apart with one function:
+
+```javascript title="binding_rules.mjs"
+function describe() {
+  return this === undefined ? "no this" : this.label;
+}
+
+const box = { label: "box", describe };
+const crate = { label: "crate" };
+
+console.log(describe());
+console.log(box.describe());
+console.log(describe.call(crate));
+console.log(box.describe.call(crate));
+```
+
+```text
+no this
+box
+crate
+crate
+```
+
+The plain call has no object, so it gets the default. `box.describe()` gets `box` from the dot. `call(crate)` overrides that, and the last line shows the order at work: it is still written as `box.describe`, but the explicit `crate` wins over the implicit `box`.
+
+## The new rule
+
+A function called with `new` becomes a **constructor call**. JavaScript creates an empty object, runs the function with `this` set to that object, and gives you that object back, unless the function returns an object of its own. A function written to be called this way is a **constructor function**, and by convention its name starts with a capital letter.
+
+```javascript title="new_binding.mjs"
+function Counter(start) {
+  this.value = start;
+}
+
+const c = new Counter(3);
+console.log(c.value, c instanceof Counter);
+```
+
+```text
+3 true
+```
+
+`this.value = start` fills in the new object. `c instanceof Counter` is true because the object was made by `Counter`, which [the next lesson](../prototypes/) explains. The call without `new` shows why the rule matters:
+
+```javascript title="new_binding.mjs (continued)"
+try {
+  Counter(1);
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+TypeError
+```
+
+Without `new`, rule 4 applies, `this` is `undefined`, and the assignment to `this.value` throws. (This is the strict-mode behaviour. In old non-strict scripts the same mistake silently wrote `value` onto the global object, which is one more reason modules are strict.) [Lesson 3](../classes/) introduces `class`, which makes the forgotten `new` an error at the call and is the modern way to write this pattern.
+
+## Explicit this: call, apply and bind
+
+You met `call(thisArg, ...args)`, `apply(thisArg, argsArray)` and `bind(thisArg, ...preset)` in lesson 22. Two uses are worth knowing beyond fixing a lost `this`.
+
+The first is **borrowing**. Because `this` is chosen at the call, a function that only needs `this` to have certain properties works on any object that has them. Array methods only need `length` and numbered keys, so they work on "array-like" objects and even on strings:
+
+```javascript title="borrow_method.mjs"
+const arrayLike = { 0: "a", 1: "b", 2: "c", length: 3 };
+
+const joined = Array.prototype.join.call(arrayLike, "-");
+console.log(joined);
+
+const upper = Array.prototype.map.call("abc", (ch) => ch.toUpperCase());
+console.log(upper);
+```
+
+```text
+a-b-c
+[ 'A', 'B', 'C' ]
+```
+
+`Array.prototype` is where arrays keep their methods, and the next lesson explains why. For now, read `Array.prototype.join.call(x, "-")` as "run the array method `join` with `this` set to `x`".
+
+The second is knowing what `bind` produces. The result is a new function with its own name and length, and its `this` is fixed for good:
+
+```javascript title="bind_details.mjs"
+function add(a, b, c) {
+  return a + b + c;
+}
+
+const addTen = add.bind(null, 10);
+console.log(addTen.name, addTen.length);
+console.log(addTen(1, 2));
+
+const again = addTen.bind(null, 20);
+console.log(again(3));
+```
+
+```text
+bound add 2
+13
+33
+```
+
+The name records where the function came from, which helps in stack traces. The length counts the parameters that are left to supply. The last two lines show that binding again cannot change the `this`, though presetting more arguments does work: `again(3)` is `10 + 20 + 3`. The `null` is fine here because `add` never reads `this`.
+
+A bound function also meets the `new` rule. If you call one with `new`, the object that `new` creates wins, and the bound `this` is ignored:
+
+```javascript title="new_beats_bind.mjs"
+function Counter(start) {
+  this.value = start;
+}
+
+const BoundCounter = Counter.bind({ ignored: true }, 10);
+const made = new BoundCounter();
+console.log(made.value, "ignored" in made);
+
+const spy = { ignored: true };
+const plain = Counter.bind(spy, 10);
+plain.call({});
+console.log(spy);
+```
+
+```text
+10 false
+{ ignored: true, value: 10 }
+```
+
+The preset argument `10` still applies, so `made.value` is `10`, but the new object has no `ignored` property. Meanwhile `plain.call({})` could not redirect the bound function: it filled in `spy`, not the object passed to `call`. So `new` beats `bind`, and `bind` beats `call`.
+
+## Giving callbacks a this
+
+Most APIs call your function without saying anything about `this`. Some let you choose. The array methods `map`, `filter`, `forEach` and a few others take a second argument, `thisArg`, which becomes `this` in a regular function callback:
+
+```javascript title="this_arg.mjs"
+const scale = { factor: 3 };
+
+const withFunction = [1, 2, 3].map(function (n) {
+  return n * this.factor;
+}, scale);
+console.log(withFunction);
+
+const withArrow = [1, 2, 3].map((n) => n * this?.factor, scale);
+console.log(withArrow);
+```
+
+```text
+[ 3, 6, 9 ]
+[ NaN, NaN, NaN ]
+```
+
+The regular function sees `scale` as `this`. The arrow ignores `thisArg`, since an arrow never takes a `this` from its caller, so `this?.factor` is `undefined` and the products are `NaN`. When you write an arrow, you do not need `thisArg`, because the arrow already uses the surrounding `this`.
+
+You can build the same behaviour into your own APIs. A function that stores and later calls listeners can call each one with `call`, so listeners written as regular functions can read the object that triggered them:
+
+```javascript title="callback_this.mjs"
+const button = {
+  name: "save",
+  handlers: [],
+  on(fn) {
+    this.handlers.push(fn);
+  },
+  click() {
+    for (const fn of this.handlers) {
+      fn.call(this, "clicked");
+    }
+  },
+};
+```
+
+```javascript title="callback_this.mjs (continued)"
+button.on(function (what) {
+  console.log(`${this.name} ${what}`);
+});
+button.on((what) => console.log(`${this?.name} ${what}`));
+button.click();
+```
+
+```text
+save clicked
+undefined clicked
+```
+
+This is how the browser treats event listeners: in a regular function, `this` is the element that fired the event. Because arrows cannot receive `this`, they have to find their object in the surrounding code instead, which is why the second listener printed `undefined`.
+
+## globalThis
+
+At the top level of a module, `this` is `undefined`, and so is the `this` of a plainly called function. To reach the global object, the one that holds `console`, `setTimeout` and friends, use `globalThis`. It works the same in Node.js, in browsers and in workers.
+
+```javascript title="global_this.mjs"
+console.log(this);
+console.log(typeof globalThis);
+console.log(globalThis.setTimeout === setTimeout);
+
+const hidden = 1;
+console.log(globalThis.hidden);
+
+globalThis.shared = 42;
+console.log(shared);
+```
+
+```text
+undefined
+object
+true
+undefined
+42
+```
+
+`hidden` is a module-level `const`, and module scope is not the global object, so `globalThis.hidden` is `undefined`. Setting a property on `globalThis` does create a global that any code can read by its bare name. Treat that as something to avoid in programs, and as something to recognise when you find it in someone else's.
+
+## Common pitfalls
+
+- **Calling a constructor function without `new`.** In a module this throws a `TypeError`. Start constructor names with a capital letter so the omission is easy to spot, or use a class.
+- **Expecting `bind` twice to change `this`.** The first `bind` fixes it. Later `bind` and `call` cannot change it, though a later `bind` can preset more arguments.
+- **Passing `thisArg` to an arrow function.** It is ignored. Use a regular function or rely on the arrow's surrounding `this`.
+- **Borrowing a method that touches more than it should.** A borrowed method works only if `this` has everything it reads. A missing property gives `undefined`, not an error, so the failure can be quiet.
+- **Reading `this` at the top of a module and expecting the global object.** It is `undefined`. Write `globalThis` when you mean the global object.
+- **Detaching a method with destructuring.** `const { describe } = box` loses `box` exactly as `const describe = box.describe` does.
+
+## Exercises
+
+<Exercise title="Write your own bind">
+
+Write `myBind(fn, thisArg, ...preset)`, which returns a function that calls `fn` with `this` set to `thisArg`, the preset arguments first and then the arguments of the call. Do not use the built-in `bind`. Test it with a `greet(greeting, punctuation)` function that reads `this.name`, bound to `{ name: "Ada" }` with the preset `"Hi"`. Calling the result with `"!"` and then `"?"` should print `Hi, Ada!` and `Hi, Ada?`.
+
+Hint: the function you return needs rest parameters, and `call` accepts spread arguments.
+
+<Solution>
+
+The returned function remembers `fn`, `thisArg` and `preset` through a closure. When it runs, it forwards everything to `fn.call`, spreading the preset arguments and then the new ones.
+
+```javascript title="my_bind.mjs"
+function myBind(fn, thisArg, ...preset) {
+  return function (...args) {
+    return fn.call(thisArg, ...preset, ...args);
+  };
+}
+
+function greet(greeting, punctuation) {
+  return `${greeting}, ${this.name}${punctuation}`;
+}
+
+const sayHi = myBind(greet, { name: "Ada" }, "Hi");
+console.log(sayHi("!"));
+console.log(sayHi("?"));
+```
+
+```text
+Hi, Ada!
+Hi, Ada?
+```
+
+The built-in `bind` does a little more. It also handles `new`, the `name` and the `length`. A simplified version like this covers the part you use every day.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Make a constructor safe to call without new">
+
+This constructor throws when someone forgets `new`:
+
+```javascript
+function Point(x, y) {
+  this.x = x;
+  this.y = y;
+}
+```
+
+Change it so that `Point(3, 4)` behaves exactly like `new Point(3, 4)`. Printing `new Point(1, 2)` and `Point(3, 4)` should give `Point { x: 1, y: 2 }` and `Point { x: 3, y: 4 }`.
+
+Hint: when the function is called plainly, `this` is `undefined`, and `undefined instanceof Point` is `false`.
+
+<Solution>
+
+When the check finds that `this` is not a `Point`, the function calls itself with `new` and returns the result. A constructor that returns an object makes `new` use that object instead of its own.
+
+```javascript title="safe_point.mjs"
+function Point(x, y) {
+  if (!(this instanceof Point)) {
+    return new Point(x, y);
+  }
+  this.x = x;
+  this.y = y;
+}
+
+console.log(new Point(1, 2));
+console.log(Point(3, 4));
+```
+
+```text
+Point { x: 1, y: 2 }
+Point { x: 3, y: 4 }
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Who wins, bind or call?">
+
+Predict the output before you run it. The function `increment(by)` adds `by` to `this.count` and returns the new count. Create `first = { count: 0 }` and `other = { count: 100 }`, and `incFirst = increment.bind(first)`. Then print `incFirst(2)` and `incFirst(3)` on one line, print `incFirst.call(other, 10)`, and finally print `first.count` and `other.count` on one line. The expected output is `2 5`, then `15`, then `15 100`.
+
+<Solution>
+
+`bind` fixed `this` to `first`, so `call(other, 10)` ran on `first` as well: it took the count from 5 to 15 and `other` was never touched.
+
+```javascript title="bind_wins.mjs"
+function increment(by) {
+  this.count += by;
+  return this.count;
+}
+
+const first = { count: 0 };
+const other = { count: 100 };
+
+const incFirst = increment.bind(first);
+console.log(incFirst(2), incFirst(3));
+console.log(incFirst.call(other, 10));
+console.log(first.count, other.count);
+```
+
+```text
+2 5
+15
+15 100
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `this` comes from the call: `new`, then explicit (`call`, `apply`, `bind`), then `object.method()`, then the default, `undefined` in modules.
+- `new` makes an empty object, runs the function with `this` set to it, and returns it. Forgetting `new` leaves `this` as `undefined`.
+- `bind` makes a new function with `this` fixed. `call` and a second `bind` cannot change it, but `new` ignores it.
+- Borrow a method with `call` when the object has the properties it reads. Use `thisArg` or `call` to give callbacks a `this`. Arrows ignore both.
+- `globalThis` is the global object everywhere. Module-level `const` and `let` are not on it.
+
+Next: [prototypes](../prototypes/), the objects behind `instanceof`, `Array.prototype` and every method call.

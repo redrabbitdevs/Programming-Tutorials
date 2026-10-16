@@ -1,0 +1,7 @@
+for...of: pear
+for...of: fig
+for...of: apple
+pear [ 'fig', 'apple' ]
+3 9
+[ 4, 3, 5 ]
+{ pear: 4, fig: 3, apple: 5 }

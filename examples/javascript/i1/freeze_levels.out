@@ -1,0 +1,4 @@
+normal     add:ok change:ok delete:ok
+noExtend   add:TypeError change:ok delete:ok
+sealed     add:TypeError change:ok delete:TypeError
+frozen     add:TypeError change:TypeError delete:TypeError

@@ -1,0 +1,5 @@
+{ value: 'x', done: false }
+{ value: 'y', done: false }
+{ value: undefined, done: true }
+{ value: undefined, done: true }
+function true

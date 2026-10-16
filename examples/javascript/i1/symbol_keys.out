@@ -1,0 +1,6 @@
+42 undefined
+[ 'name' ] {"name":"Ada"}
+[ Symbol(id) ]
+{ name: 'Ada', Symbol(id): 42 }
+for...in: name
+42

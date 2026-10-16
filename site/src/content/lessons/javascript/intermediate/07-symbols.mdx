@@ -1,0 +1,356 @@
+---
+language: javascript
+level: intermediate
+module: Objects, prototypes and classes
+order: 7
+title: Symbols
+description: Create unique symbol values, use them as property keys, share them through the registry, and hook into the language with well-known symbols such as Symbol.toPrimitive.
+minVersion: "22"
+objectives:
+  - Create symbols and explain why two symbols are never equal
+  - Use symbols as property keys that stay out of keys, loops and JSON
+  - Share a symbol across files with Symbol.for
+  - Customise conversion with Symbol.toPrimitive and Symbol.toStringTag
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/03-values-and-types"]
+---
+
+Strings are the usual property keys, and they have one weakness: any two pieces of code that pick the same string pick the same property. A library that stores a hidden `id` on your object can collide with your own `id`. The **symbol**, the seventh primitive type that [lesson 6](../../beginner/primitives-and-typeof/) listed and left alone, solves this. A symbol is a value that is guaranteed to be unique. The language also uses a family of built-in symbols as hooks, so that your objects can take part in things like conversion and iteration. That second use is why symbols belong in this module, and why the next module needs them.
+
+## Creating symbols
+
+`Symbol(description)` returns a new symbol every time. The description is only a label for people.
+
+```javascript title="symbol_basics.mjs"
+const a = Symbol("id");
+const b = Symbol("id");
+
+console.log(typeof a, a === b, a === a);
+console.log(a.description, a.toString(), String(a));
+console.log(Symbol().description);
+```
+
+```text
+symbol false true
+id Symbol(id) Symbol(id)
+undefined
+```
+
+```javascript title="symbol_basics.mjs (continued)"
+try {
+  console.log(`${a}`);
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+TypeError
+```
+
+- `a` and `b` have the same description but are different values. The only symbol equal to `a` is `a`.
+- `description` reads the label back, and `toString()` or `String(a)` shows it as `Symbol(id)`.
+- Symbols are never converted to text implicitly, so putting one in a template literal throws a `TypeError`. That keeps a symbol from sneaking into a string key by accident. Call `String(symbol)` or read `.description` when you want text.
+
+You do not write `new Symbol()`. A symbol is a primitive, like a number, not an object.
+
+## Symbols as property keys
+
+Put a symbol in square brackets to use it as a key. This is the **computed property name** syntax: the expression between the brackets is evaluated, and its result is the key. It works in object literals, in classes and in assignments such as `obj[key] = value`.
+
+```javascript title="symbol_keys.mjs"
+const id = Symbol("id");
+const user = { name: "Ada", [id]: 42 };
+
+console.log(user[id], user.id);
+console.log(Object.keys(user), JSON.stringify(user));
+console.log(Object.getOwnPropertySymbols(user));
+console.log(user);
+```
+
+```text
+42 undefined
+[ 'name' ] {"name":"Ada"}
+[ Symbol(id) ]
+{ name: 'Ada', Symbol(id): 42 }
+```
+
+The property is real: `user[id]` reads it, and `user.id` looks for a string key and finds nothing. The next lines show how the property is treated:
+
+- `Object.keys`, `for...in` and `JSON.stringify` skip symbol keys, so a library can attach data without it appearing in your output.
+- `Object.getOwnPropertySymbols` lists them, and the console shows them.
+- They are not private. Anyone with the symbol, or with `getOwnPropertySymbols`, can read the property. For real privacy use `#` names.
+
+```javascript title="symbol_keys.mjs (continued)"
+for (const key in user) {
+  console.log("for...in:", key);
+}
+
+const copy = { ...user };
+console.log(copy[id]);
+```
+
+```text
+for...in: name
+42
+```
+
+The loop prints only `name`. Spread, however, copies own enumerable symbol keys, so `copy[id]` is still `42`. A symbol key is out of the way, but it does travel with copies.
+
+## The global registry
+
+`Symbol()` always makes a new symbol, which is what you want for a private-by-convention key. Sometimes two files must agree on one symbol without importing it from each other. `Symbol.for(key)` looks the key up in a global registry and creates the symbol only the first time.
+
+```javascript title="symbol_registry.mjs"
+const local = Symbol("shared");
+const first = Symbol.for("app.shared");
+const second = Symbol.for("app.shared");
+
+console.log(first === second, first === local);
+console.log(Symbol.keyFor(first), Symbol.keyFor(local));
+```
+
+```text
+true false
+app.shared undefined
+```
+
+Both calls to `Symbol.for("app.shared")` return the same symbol, while the local `Symbol("shared")` is a different one. `Symbol.keyFor` goes the other way, and returns `undefined` for a symbol that is not registered. Prefix registry keys with something like your package name, since the registry is shared by all the code in the program.
+
+## Well-known symbols
+
+The language defines a set of symbols as properties of `Symbol`. If an object has a method stored under one of them, the matching operation uses it. They are the protocols of JavaScript, and they are spelled with `Symbol.` and a name.
+
+The first is `Symbol.toPrimitive`. When an object meets an operator or a template literal, JavaScript converts it to a primitive and calls this method with a **hint**: `"string"`, `"number"` or `"default"`.
+
+```javascript title="to_primitive.mjs"
+class Duration {
+  constructor(seconds) {
+    this.seconds = seconds;
+  }
+
+  [Symbol.toPrimitive](hint) {
+    if (hint === "string") {
+      const minutes = Math.floor(this.seconds / 60);
+      return `${minutes}m ${this.seconds % 60}s`;
+    }
+    return this.seconds;
+  }
+}
+```
+
+```javascript title="to_primitive.mjs (continued)"
+const d = new Duration(90);
+console.log(`${d}`, String(d));
+console.log(+d, d * 2, d > 60);
+console.log(d + 10, `${d}` + "!");
+```
+
+```text
+1m 30s 1m 30s
+90 180 true
+100 1m 30s!
+```
+
+The method is written with a computed name, `[Symbol.toPrimitive](hint)`. A template literal or `String(d)` asks for the `"string"` hint. Unary `+` and `*` ask for `"number"`. The comparison `d > 60` uses `"number"` too. The `+` operator asks for `"default"` since it could be adding or joining text, and the example returns the number for every hint but `"string"`, so `d + 10` is `100`.
+
+`Symbol.toStringTag` changes the label that `Object.prototype.toString` prints between `[object ` and `]`.
+
+```javascript title="to_string_tag.mjs"
+const report = { [Symbol.toStringTag]: "Report" };
+
+console.log(Object.prototype.toString.call(report));
+console.log(String(report));
+console.log(Object.prototype.toString.call([]));
+console.log(Object.prototype.toString.call(new Map()));
+```
+
+```text
+[object Report]
+[object Report]
+[object Array]
+[object Map]
+```
+
+The built-in types, such as `Map`, define it themselves. `Symbol.iterator` is the most important of the family. A string, an array, a `Map` and a `Set` keep a method under it, and `for...of`, spread and destructuring call that method.
+
+```javascript title="well_known.mjs"
+console.log(Symbol.iterator.description, typeof [][Symbol.iterator]);
+
+const letters = "ab"[Symbol.iterator]();
+console.log(letters.next());
+console.log(letters.next());
+console.log(letters.next());
+```
+
+```text
+Symbol.iterator function
+{ value: 'a', done: false }
+{ value: 'b', done: false }
+{ value: undefined, done: true }
+```
+
+The method returns an iterator, an object with a `next()` method, which hands out one value at a time. The [next module](../iteration-protocol/) is about writing your own.
+
+## Symbols as WeakMap keys
+
+A symbol made with `Symbol()` can also be a key in a `WeakMap`, a collection that holds its keys weakly. Registered symbols from `Symbol.for` cannot, since the registry keeps them alive forever. This is an ES2023 feature and runs on Node 22. [Lesson 12](../weak-collections/) explains `WeakMap`.
+
+```javascript title="weak_key.mjs"
+const cache = new WeakMap();
+const key = Symbol("job");
+
+cache.set(key, "result");
+console.log(cache.get(key), cache.has(key));
+
+try {
+  cache.set(Symbol.for("registered"), "no");
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+result true
+TypeError
+```
+
+## Common pitfalls
+
+- **Using a symbol in a template literal or with `+`.** It throws a `TypeError`. Call `.description` or `String(symbol)`.
+- **Looking for a symbol property with a string.** `user.id` is not `user[id]`.
+- **Expecting symbols to be private.** They only stay out of normal enumeration. Use `#` names for privacy.
+- **Creating a new `Symbol("x")` on every call.** Each is different. Create the symbol once, at the top of a module, and reuse it.
+- **Forgetting the brackets when defining a symbol key in a literal.** `{ id: 1 }` makes the string key `"id"`. Write `{ [id]: 1 }`.
+- **Writing `JSON.stringify(user)` and expecting symbol data in it.** It will not be there.
+
+## Exercises
+
+<Exercise title="Money with Symbol.toPrimitive">
+
+Write a class `Money` whose constructor takes a number of cents. Give it a `[Symbol.toPrimitive](hint)` method that returns text like `"$12.50"` for the `"string"` hint, and the amount in dollars, as a number, for every other hint. Create `price = new Money(1250)` and `tip = new Money(300)`. Print `${price}`, `price + tip` and `price > tip` on one line. Then print `Total: ` followed by a new `Money` built from `price * 100 + tip * 100`, inside a template literal. The expected output is `$12.50 15.5 true` and then `Total: $15.50`.
+
+<Solution>
+
+In a template literal the hint is `"string"`, so the method formats the text. In `+` and `>` the hint is `"default"` or `"number"`, so it returns dollars as a number, and the arithmetic happens on those numbers. Multiplying by 100 asks for a number too, which gets back to cents.
+
+```javascript title="money_primitive.mjs"
+class Money {
+  constructor(cents) {
+    this.cents = cents;
+  }
+
+  [Symbol.toPrimitive](hint) {
+    if (hint === "string") {
+      return `$${(this.cents / 100).toFixed(2)}`;
+    }
+    return this.cents / 100;
+  }
+}
+```
+
+```javascript title="money_primitive.mjs (continued)"
+const price = new Money(1250);
+const tip = new Money(300);
+console.log(`${price}`, price + tip, price > tip);
+console.log(`Total: ${new Money(price * 100 + tip * 100)}`);
+```
+
+```text
+$12.50 15.5 true
+Total: $15.50
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Hidden ids that never clash">
+
+Create a symbol `id` with the description `"id"` and a function `tag(object, value)` that stores the value on the object under that symbol and returns the object. Tag `{ item: "lamp" }` with `7`. Build a second object `{ item: "desk", [Symbol("id")]: 99 }` that uses a different symbol with the same label. Print the two values you get by reading both objects with your `id` symbol, then print the keys of the first object together with its `JSON.stringify` result, then the number of symbols on the first object, and finally whether two `Symbol("id")` values are equal. The expected output is `7 undefined`, `[ 'item' ] {"item":"lamp"}`, `1` and `false`.
+
+<Solution>
+
+The second object has a symbol with the label `"id"`, but not your symbol, so reading it with yours finds nothing. Neither symbol shows up in `Object.keys` or in the JSON text.
+
+```javascript title="hidden_ids.mjs"
+const id = Symbol("id");
+
+function tag(object, value) {
+  object[id] = value;
+  return object;
+}
+```
+
+```javascript title="hidden_ids.mjs (continued)"
+const order = tag({ item: "lamp" }, 7);
+const other = { item: "desk", [Symbol("id")]: 99 };
+
+console.log(order[id], other[id]);
+console.log(Object.keys(order), JSON.stringify(order));
+console.log(Object.getOwnPropertySymbols(order).length);
+console.log(Symbol("id") === Symbol("id"));
+```
+
+```text
+7 undefined
+[ 'item' ] {"item":"lamp"}
+1
+false
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Constants that cannot be faked">
+
+Make a frozen object `Color` with two symbol constants, `RED` described as `"red"` and `GREEN` described as `"green"`. Write `describe(color)` with a `switch` that returns `"stop"` for `Color.RED`, `"go"` for `Color.GREEN` and `"unknown"` for anything else. Print the results for the two constants, then for the string `"red"` and for a fresh `Symbol("red")`, and finally print the description and the `toString()` of `Color.RED`. The expected output is `stop go`, `unknown unknown` and `red Symbol(red)`.
+
+<Solution>
+
+A `switch` compares with `===`, and only the exact symbol stored in `Color` is equal to itself. The string `"red"` and a new symbol with the same label both fall through to the default.
+
+```javascript title="symbol_enum.mjs"
+const Color = Object.freeze({
+  RED: Symbol("red"),
+  GREEN: Symbol("green"),
+});
+
+function describe(color) {
+  switch (color) {
+    case Color.RED:
+      return "stop";
+    case Color.GREEN:
+      return "go";
+    default:
+      return "unknown";
+  }
+}
+```
+
+```javascript title="symbol_enum.mjs (continued)"
+console.log(describe(Color.RED), describe(Color.GREEN));
+console.log(describe("red"), describe(Symbol("red")));
+console.log(Color.RED.description, Color.RED.toString());
+```
+
+```text
+stop go
+unknown unknown
+red Symbol(red)
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `Symbol(label)` makes a unique primitive. Two symbols are equal only if they are the same symbol. They never convert to text on their own.
+- A symbol key, written `[sym]` in a literal or class, is skipped by `Object.keys`, `for...in` and `JSON.stringify`, but it is not private. `Object.getOwnPropertySymbols` lists them, and spread copies them.
+- `Symbol.for(key)` gives the same symbol to everyone who asks with the same key, and `Symbol.keyFor` reverses it.
+- Well-known symbols let objects join language protocols: `Symbol.toPrimitive` for conversion, `Symbol.toStringTag` for labels and `Symbol.iterator` for loops.
+- Symbols made with `Symbol()` can be keys of a `WeakMap`.
+
+Next module: iteration and collections, which starts with [iterables and iterators](../iteration-protocol/), the protocol behind `Symbol.iterator`.

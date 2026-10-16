@@ -1,0 +1,8 @@
+{ value: 'ready', done: false }
+got a
+{ value: 'ready', done: false }
+caught boom
+{ value: 'recovered', done: false }
+{ value: 'ready', done: false }
+{ value: 'bye', done: true }
+{ value: undefined, done: true }

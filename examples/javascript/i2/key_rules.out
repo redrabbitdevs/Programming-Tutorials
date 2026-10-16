@@ -1,0 +1,8 @@
+object ok
+array ok
+function ok
+number TypeError
+string TypeError
+null TypeError
+symbol ok
+registered TypeError

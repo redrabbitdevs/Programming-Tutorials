@@ -1,0 +1,12 @@
+array:
+map 1
+map 2
+map 3
+filter 1
+filter 2
+filter 3
+iterator:
+map 1
+filter 1
+map 2
+filter 2

@@ -1,0 +1,8 @@
+created
+start
+{ value: 1, done: false }
+middle
+{ value: 2, done: false }
+end
+{ value: 3, done: true }
+{ value: undefined, done: true }

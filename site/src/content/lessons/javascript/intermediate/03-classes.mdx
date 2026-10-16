@@ -1,0 +1,457 @@
+---
+language: javascript
+level: intermediate
+module: Objects, prototypes and classes
+order: 3
+title: Classes
+description: Write classes with constructors, methods, fields, static members and accessors, and see that they are syntax over constructor functions and prototypes.
+minVersion: "22"
+objectives:
+  - Write a class with a constructor, methods, fields and accessors
+  - Add static methods and fields and say what they belong to
+  - Explain that a class is a constructor function with its methods on the prototype
+  - Choose between a method and an arrow function field for a handler
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/15-records-and-objects", "fundamentals/beginner/23-paradigms"]
+---
+
+Last lesson you built objects by hand: a constructor function for the data, and methods stored on its `prototype`. A **class** is the same machinery with a syntax that keeps the pieces together and gets some details right. Classes are the standard way to describe "many objects with the same shape and behaviour" in modern JavaScript, so you will read and write them constantly. They do not add a new object system. The prototype chain from [lesson 2](../prototypes/) is still what runs underneath.
+
+## A first class
+
+A class has a `constructor` method that runs on `new`, and any number of methods. Inside them, `this` is the new object, by the `new` rule from [lesson 1](../this-in-depth/).
+
+```javascript title="class_basics.mjs"
+class Rectangle {
+  constructor(width, height) {
+    this.width = width;
+    this.height = height;
+  }
+
+  area() {
+    return this.width * this.height;
+  }
+
+  toString() {
+    return `${this.width}x${this.height}`;
+  }
+}
+```
+
+There are no commas between members and no `function` keyword. Methods can use everything you know about methods on object literals. `toString` is special only because template literals call it when they turn an object into text.
+
+```javascript title="class_basics.mjs (continued)"
+const r = new Rectangle(4, 3);
+console.log(r.area(), `${r}`);
+console.log(r);
+```
+
+```text
+12 4x3
+Rectangle { width: 4, height: 3 }
+```
+
+`width` and `height` are own properties, set by the constructor. `area` and `toString` are not on the object, as the log shows. They are shared by all instances, exactly like the methods you put on a prototype by hand.
+
+## What a class really is
+
+A class is a function, and its methods live on its `prototype` object.
+
+```javascript title="class_sugar.mjs"
+class Point {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+
+  norm() {
+    return Math.hypot(this.x, this.y);
+  }
+}
+```
+
+```javascript title="class_sugar.mjs (continued)"
+const p = new Point(3, 4);
+console.log(typeof Point, Object.getPrototypeOf(p) === Point.prototype);
+console.log(Object.hasOwn(p, "norm"), Object.hasOwn(Point.prototype, "norm"));
+console.log(Object.keys(Point.prototype));
+console.log(p.norm === new Point(0, 0).norm);
+```
+
+```text
+function true
+false true
+[]
+true
+```
+
+The first line says `typeof Point` is `"function"` and that instances are linked to `Point.prototype`. `norm` is not on the instance but is on the prototype, and two instances share one function. Class methods are not enumerable, which is why `Object.keys(Point.prototype)` is empty and why a `for...in` loop over an instance does not list methods.
+
+Classes also tighten some rules that constructor functions left loose:
+
+```javascript title="class_rules.mjs"
+class Point {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+}
+
+try {
+  Point(1, 2);
+} catch (error) {
+  console.log(error.name, error.message);
+}
+```
+
+```text
+TypeError Class constructor Point cannot be invoked without 'new'
+```
+
+```javascript title="class_rules.mjs (continued)"
+try {
+  new Later();
+} catch (error) {
+  console.log(error.name);
+}
+
+class Later {}
+```
+
+```text
+ReferenceError
+```
+
+- Calling a class without `new` is a `TypeError` with a clear message, instead of the confusing failure of lesson 1.
+- A class declaration is not usable before its line runs. Reading it earlier is a `ReferenceError`, the same behaviour `let` and `const` have.
+- Everything inside a class body is strict mode, whether or not the file is.
+
+## Fields and static members
+
+A **field** declares an own property of every instance, with an optional initial value. Writing `count = 0` in the class body gives each new object its own `count`, starting at 0. A **static** member belongs to the class itself, not to its instances. Fields and static members are part of ES2022 and run on Node 22.
+
+```javascript title="fields_static.mjs"
+class Counter {
+  count = 0;
+  static created = 0;
+
+  constructor() {
+    Counter.created += 1;
+  }
+
+  increment() {
+    this.count += 1;
+    return this;
+  }
+
+  static starting(n) {
+    const counter = new Counter();
+    counter.count = n;
+    return counter;
+  }
+}
+```
+
+The first half defines `count` as an instance field, `created` as a static field and `starting` as a static method. Inside `increment`, `return this` allows chaining. Now use them:
+
+```javascript title="fields_static.mjs (continued)"
+const a = new Counter().increment().increment();
+const b = Counter.starting(10);
+console.log(a.count, b.count, Counter.created);
+console.log(Object.hasOwn(a, "created"), a.starting);
+```
+
+```text
+2 10 2
+false undefined
+```
+
+`a.count` is `2` after two chained increments. `Counter.starting(10)` is a **static factory**: it is called on the class, builds an instance and returns it, a common way to offer a second way to create objects. `Counter.created` is `2`, shared by the class, and the instance does not have it: `Object.hasOwn(a, "created")` is `false`, and `a.starting` is `undefined`.
+
+## Getters and setters
+
+You wrote `get` and `set` in object literals in [lesson 26](../../beginner/objects-js/). In a class they work the same way, and they are stored on the prototype.
+
+```javascript title="class_accessors.mjs"
+class Temperature {
+  celsius = 0;
+
+  get fahrenheit() {
+    return (this.celsius * 9) / 5 + 32;
+  }
+
+  set fahrenheit(value) {
+    this.celsius = ((value - 32) * 5) / 9;
+  }
+}
+```
+
+```javascript title="class_accessors.mjs (continued)"
+const t = new Temperature();
+t.celsius = 100;
+console.log(t.fahrenheit);
+
+t.fahrenheit = 32;
+console.log(t.celsius);
+console.log(Object.keys(t), "fahrenheit" in t);
+```
+
+```text
+212
+0
+[ 'celsius' ] true
+```
+
+Reading `fahrenheit` runs the getter, and assigning to it runs the setter, which stores the result in `celsius`. Only `celsius` is a stored property, so `Object.keys(t)` lists just that, though `"fahrenheit" in t` is `true` because the accessor is found on the prototype. A computed value like this cannot get out of date, which is the main reason to use a getter over a second field.
+
+## Methods, arrow fields and this
+
+[Lesson 1](../this-in-depth/) said a method loses its `this` when you detach it. Class bodies are strict, so the detached call has `this === undefined`, and it throws. An arrow function in a **field** fixes that, because the arrow is created inside the constructor's scope, where `this` is the new instance.
+
+```javascript title="class_this.mjs"
+class Button {
+  constructor(label) {
+    this.label = label;
+  }
+
+  press() {
+    return `pressed ${this.label}`;
+  }
+
+  click = () => `clicked ${this.label}`;
+}
+```
+
+```javascript title="class_this.mjs (continued)"
+const save = new Button("save");
+const other = new Button("open");
+console.log(save.press === other.press, save.click === other.click);
+
+const { press, click } = save;
+console.log(click());
+try {
+  press();
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+true false
+clicked save
+TypeError
+```
+
+`press` is a shared prototype method, and `click` is a different arrow function created for each instance. Destructuring detaches both. `click()` still works because its `this` was fixed when the instance was built. `press()` has no object and throws the `TypeError`.
+
+The trade-off is memory and style: every instance carries its own copy of each arrow field, and arrow fields are not on the prototype, so subclasses cannot override them with a normal method. Use ordinary methods by default. Reach for an arrow field for the few functions you hand off as callbacks.
+
+## Common pitfalls
+
+- **Forgetting `new`.** Calling a class like a function throws a `TypeError`.
+- **Using a class before its declaration.** The name exists but is not initialised until its line runs.
+- **Putting commas between members.** A class body is not an object literal. A comma is a syntax error.
+- **Passing a method as a callback.** `button.addEventListener("click", this.press)` loses `this`. Wrap it in an arrow, bind it, or use an arrow field.
+- **Expecting static members on instances.** `a.starting` is `undefined`. Call `Counter.starting(...)`.
+- **Putting a mutable value in a field and sharing it by mistake.** Fields are evaluated for every instance, so `items = []` gives each instance its own array. The sharing bug of lesson 2 only occurs with prototype properties.
+
+## Exercises
+
+<Exercise title="A bank account">
+
+Write a class `Account` whose constructor takes an `owner` and sets `balance` to `0`. Give it `deposit(amount)`, which throws a `RangeError` with the message `"deposit must be positive"` when the amount is not above zero, `withdraw(amount)`, which throws a `RangeError` with `"insufficient funds"` when the amount is more than the balance, and a getter `summary` that returns `"<owner>: <balance>"`. Both methods should return `this` so calls chain. Deposit 100 and withdraw 30 in one chained statement and print the summary, then attempt `withdraw(500)` and `deposit(0)` inside `try`/`catch`, printing `"<name>: <message>"` for each, and finally print the balance. The expected output is `Ada: 70`, `RangeError: insufficient funds`, `RangeError: deposit must be positive` and `70`.
+
+<Solution>
+
+Each method checks its input first and only then changes `balance`, so a failed call leaves the account unchanged. That is why the balance is still `70` at the end.
+
+```javascript title="bank_account.mjs"
+class Account {
+  constructor(owner) {
+    this.owner = owner;
+    this.balance = 0;
+  }
+
+  deposit(amount) {
+    if (amount <= 0) {
+      throw new RangeError("deposit must be positive");
+    }
+    this.balance += amount;
+    return this;
+  }
+```
+
+```javascript title="bank_account.mjs (continued)"
+  withdraw(amount) {
+    if (amount > this.balance) {
+      throw new RangeError("insufficient funds");
+    }
+    this.balance -= amount;
+    return this;
+  }
+
+  get summary() {
+    return `${this.owner}: ${this.balance}`;
+  }
+}
+```
+
+```javascript title="bank_account.mjs (continued)"
+const account = new Account("Ada").deposit(100).withdraw(30);
+console.log(account.summary);
+
+for (const action of [() => account.withdraw(500), () => account.deposit(0)]) {
+  try {
+    action();
+  } catch (error) {
+    console.log(`${error.name}: ${error.message}`);
+  }
+}
+console.log(account.balance);
+```
+
+```text
+Ada: 70
+RangeError: insufficient funds
+RangeError: deposit must be positive
+70
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="From constructor function to class">
+
+Here is a stack written with a constructor function:
+
+```javascript
+function Stack() {
+  this.items = [];
+}
+Stack.prototype.push = function (value) {
+  this.items.push(value);
+  return this;
+};
+Stack.prototype.pop = function () {
+  return this.items.pop();
+};
+```
+
+Rewrite it as a class with the same `push` and `pop`, add a method `peek()` that returns the last item without removing it, a getter `size`, and a static method `Stack.from(values)` that returns a stack holding the values in order. Use `Stack.from([1, 2, 3])`, then print `size` and `peek()`, then print two `pop()` results and the size, and finally print the `peek()` of an empty stack. The expected output is `3 3`, `3 2 1` and `undefined`.
+
+<Solution>
+
+The `items` array becomes a field, so each stack has its own. The methods move into the class body, and `size` is a getter so callers write `stack.size` without parentheses. `Array.prototype.at(-1)` reads the last element, and gives `undefined` for an empty array.
+
+```javascript title="stack_class.mjs"
+class Stack {
+  items = [];
+
+  static from(values) {
+    const stack = new Stack();
+    for (const value of values) {
+      stack.push(value);
+    }
+    return stack;
+  }
+
+  push(value) {
+    this.items.push(value);
+    return this;
+  }
+```
+
+```javascript title="stack_class.mjs (continued)"
+  pop() {
+    return this.items.pop();
+  }
+
+  peek() {
+    return this.items.at(-1);
+  }
+
+  get size() {
+    return this.items.length;
+  }
+}
+```
+
+```javascript title="stack_class.mjs (continued)"
+const stack = Stack.from([1, 2, 3]);
+console.log(stack.size, stack.peek());
+console.log(stack.pop(), stack.pop(), stack.size);
+console.log(new Stack().peek());
+```
+
+```text
+3 3
+3 2 1
+undefined
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Keep the greeting after detaching">
+
+This class works when called as `ada.greet()` but fails when the method is passed around:
+
+```javascript
+class Greeter {
+  constructor(name) {
+    this.name = name;
+  }
+
+  greet() {
+    return `Hello, ${this.name}`;
+  }
+}
+```
+
+Change it so that a `greet` taken off the object still works. Test it with `callTwice(fn)`, which returns `[fn(), fn()]`, called with `ada.greet` for a `Greeter("Ada")`, and with `greet` destructured from `new Greeter("Grace")` and called directly. The expected output is `[ 'Hello, Ada', 'Hello, Ada' ]` and then `Hello, Grace`.
+
+<Solution>
+
+Turning `greet` into an arrow function field gives each instance a function whose `this` is that instance, so passing it around or destructuring it no longer matters.
+
+```javascript title="greeter_fix.mjs"
+class Greeter {
+  constructor(name) {
+    this.name = name;
+  }
+
+  greet = () => `Hello, ${this.name}`;
+}
+
+function callTwice(fn) {
+  return [fn(), fn()];
+}
+
+const ada = new Greeter("Ada");
+console.log(callTwice(ada.greet));
+
+const { greet } = new Greeter("Grace");
+console.log(greet());
+```
+
+```text
+[ 'Hello, Ada', 'Hello, Ada' ]
+Hello, Grace
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A class has a `constructor`, methods without commas, optional fields, and `static` members. It must be called with `new`.
+- Underneath, a class is a function whose methods sit on `prototype`, so instances share them and lookup works as in lesson 2.
+- Fields (`count = 0`) create own properties per instance. Static members belong to the class and are called on it.
+- `get` and `set` in a class are stored on the prototype and behave as properties.
+- Class bodies are strict and classes are not usable before their declaration.
+- Prefer methods. Use an arrow function field when a function is handed off and must keep its instance.
+
+Next: [private members and static blocks](../private-and-static/), which make fields truly hidden from outside code.

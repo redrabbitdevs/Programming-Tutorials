@@ -1,0 +1,485 @@
+---
+language: javascript
+level: intermediate
+module: Iteration and collections
+order: 13
+title: Stacks, queues, trees and graphs in JavaScript
+description: Build classic data structures idiomatically in JavaScript, with arrays as stacks, a head-indexed queue, linked nodes, binary search trees and graphs walked breadth-first.
+minVersion: "22"
+objectives:
+  - Use an array as a stack and explain why shift is a poor queue
+  - Build a queue, a linked list and a binary search tree with classes and nodes
+  - Represent a graph with a Map of Sets and walk it breadth-first
+  - Solve small problems with a stack and with BFS
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/16-stacks-queues-linked", "fundamentals/beginner/17-trees-and-graphs"]
+---
+
+JavaScript has no built-in stack, queue, tree or graph type. It has arrays, objects, `Map` and `Set`, and a few lines of code are usually enough to turn those into the structure you need. What these structures are, and what operations cost, is in the fundamentals lessons on [stacks, queues and linked lists](../../../fundamentals/beginner/stacks-queues-linked/) and on [trees and graphs](../../../fundamentals/beginner/trees-and-graphs/). This lesson is about writing them the JavaScript way, using the classes, private fields, generators and collections from this module.
+
+## Arrays as stacks
+
+A **stack** adds and removes at one end, last in, first out. An array already does that with `push` and `pop`, and `at(-1)` looks at the top without removing it.
+
+```javascript title="stack_array.mjs"
+const stack = [];
+stack.push("a");
+stack.push("b");
+stack.push("c");
+
+console.log(stack.at(-1), stack.length);
+console.log(stack.pop(), stack.pop(), stack);
+```
+
+```text
+c 3
+c b [ 'a' ]
+```
+
+```javascript title="stack_array.mjs (continued)"
+function reverse(text) {
+  const letters = [...text];
+  let result = "";
+  while (letters.length > 0) {
+    result += letters.pop();
+  }
+  return result;
+}
+console.log(reverse("stack"));
+```
+
+```text
+kcats
+```
+
+`reverse` shows the idea in use: pushing letters and popping them gives them back in the opposite order. Here the array is consumed with `pop` in a `while` loop. (`[...text].reverse().join("")` is shorter in practice. The point is the stack.) For a stack, a plain array is the right structure, and wrapping it in a class only helps when you want to hide the array.
+
+## Queues
+
+A **queue** adds at the back and removes from the front, first in, first out. It is tempting to use `push` and `shift` on an array, and for short queues that is fine. The catch is that `shift` removes the first item, so every other item has to move down one place. On a large queue, or a loop that does it millions of times, that renumbering adds up. A queue that tracks where its front is avoids it.
+
+```javascript title="queue_class.mjs"
+class Queue {
+  #items = new Map();
+  #head = 0;
+
+  enqueue(value) {
+    this.#items.set(this.#head + this.#items.size, value);
+  }
+
+  dequeue() {
+    const value = this.#items.get(this.#head);
+    if (this.#items.delete(this.#head)) {
+      this.#head += 1;
+    }
+    return value;
+  }
+
+  get size() {
+    return this.#items.size;
+  }
+}
+```
+
+```javascript title="queue_class.mjs (continued)"
+const queue = new Queue();
+queue.enqueue("first");
+queue.enqueue("second");
+console.log(queue.dequeue(), queue.size);
+console.log(queue.dequeue(), queue.dequeue(), queue.size);
+```
+
+```text
+first 1
+second undefined 0
+```
+
+The queue stores items in a `Map` under increasing numeric keys and remembers the key of the front item in `#head`. `enqueue` adds under the next free key, which is `#head` plus the number of items. `dequeue` reads the front item and removes it, and only then moves `#head` on. Dequeuing from an empty queue finds nothing, deletes nothing, and returns `undefined`. Nothing is shifted, and the private fields keep callers from touching the keys.
+
+## Linked lists
+
+A **linked list** is a chain of nodes where each node holds a value and a reference to the next node. Adding at the front is quick, because only a new node and one reference change. Reaching the n-th item means following n references, which is the cost of not having an array's numbered slots.
+
+```javascript title="linked_list.mjs"
+class ListNode {
+  constructor(value, next = null) {
+    this.value = value;
+    this.next = next;
+  }
+}
+```
+
+```javascript title="linked_list.mjs (continued)"
+class LinkedList {
+  #head = null;
+  #size = 0;
+
+  prepend(value) {
+    this.#head = new ListNode(value, this.#head);
+    this.#size += 1;
+    return this;
+  }
+
+  get size() {
+    return this.#size;
+  }
+
+  *[Symbol.iterator]() {
+    for (let node = this.#head; node !== null; node = node.next) {
+      yield node.value;
+    }
+  }
+}
+```
+
+```javascript title="linked_list.mjs (continued)"
+const list = new LinkedList().prepend(3).prepend(2).prepend(1);
+console.log([...list], list.size);
+console.log(Math.max(...list));
+```
+
+```text
+[ 1, 2, 3 ] 3
+3
+```
+
+`prepend` makes a node that points at the old head and makes it the new head, so the items come out in the reverse order they were added. The generator method `*[Symbol.iterator]` from [lesson 9](../generators/) walks the chain with a `for` loop whose step is `node = node.next`. Because the list is iterable, spread, `Math.max(...list)`, `for...of` and the iterator helpers all work on it without any more code.
+
+## Binary search trees
+
+A **tree** is nodes with children, and a **binary search tree** keeps smaller values in the left child and larger ones in the right. Each step of a search discards one side. Each node is a plain object, and the operations are short recursive functions, as in the [recursion lesson](../../beginner/recursion-js/).
+
+```javascript title="bst.mjs"
+function insert(node, value) {
+  if (node === null) {
+    return { value, left: null, right: null };
+  }
+  if (value < node.value) {
+    node.left = insert(node.left, value);
+  } else {
+    node.right = insert(node.right, value);
+  }
+  return node;
+}
+```
+
+```javascript title="bst.mjs (continued)"
+function contains(node, value) {
+  if (node === null) {
+    return false;
+  }
+  if (value === node.value) {
+    return true;
+  }
+  return contains(value < node.value ? node.left : node.right, value);
+}
+```
+
+```javascript title="bst.mjs (continued)"
+function height(node) {
+  if (node === null) {
+    return 0;
+  }
+  return 1 + Math.max(height(node.left), height(node.right));
+}
+```
+
+```javascript title="bst.mjs (continued)"
+let root = null;
+for (const n of [5, 2, 8, 1, 9, 3]) {
+  root = insert(root, n);
+}
+console.log(contains(root, 3), contains(root, 7), height(root));
+console.log(root.left.value, root.right.value);
+```
+
+```text
+true false 3
+2 8
+```
+
+`insert` returns the node it was given, or a new node if the spot was empty, and the caller stores the result. That makes the first insert and the later ones the same code. `contains` goes left or right according to the comparison. `height` counts the levels. For the values 5, 2, 8, 1, 9, 3 the tree has three levels, and the root has 2 on its left and 8 on its right.
+
+How well a search tree performs depends on its shape. Inserting already sorted values makes every node go right, and the tree turns into a list. Self-balancing trees fix that, and in real programs you would usually use a `Map` or a sorted array instead of writing a tree. Walking the tree in order, with `yield*` recursion as in the generators lesson, gives the values sorted.
+
+## Graphs
+
+A **graph** is nodes connected by edges. The usual representation is an **adjacency list**: for each node, the nodes next to it. In JavaScript a `Map` from node name to a `Set` of neighbours is clear, because a set ignores a repeated edge and tests for one in a single call.
+
+```javascript title="graph_bfs.mjs"
+const graph = new Map();
+
+function addEdge(a, b) {
+  for (const [from, to] of [[a, b], [b, a]]) {
+    if (!graph.has(from)) {
+      graph.set(from, new Set());
+    }
+    graph.get(from).add(to);
+  }
+}
+```
+
+```javascript title="graph_bfs.mjs (continued)"
+addEdge("home", "shop");
+addEdge("home", "park");
+addEdge("shop", "mall");
+addEdge("park", "mall");
+addEdge("mall", "cinema");
+console.log(graph.get("home"), graph.size);
+```
+
+```text
+Set(2) { 'shop', 'park' } 5
+```
+
+`addEdge` adds the edge in both directions, which makes the graph undirected, creating a node's set the first time it appears. The five edges produce a graph of five places, and `home` has two neighbours.
+
+**Breadth-first search** (BFS) visits nodes in order of distance from the start: first the start, then everything one step away, then two steps, and so on. It uses a queue, and a record of what has been seen so nothing is queued twice.
+
+```javascript title="graph_bfs.mjs (continued)"
+function distances(start) {
+  const dist = new Map([[start, 0]]);
+  const queue = [start];
+  for (let i = 0; i < queue.length; i++) {
+    const place = queue[i];
+    for (const next of graph.get(place)) {
+      if (!dist.has(next)) {
+        dist.set(next, dist.get(place) + 1);
+        queue.push(next);
+      }
+    }
+  }
+  return dist;
+}
+```
+
+```javascript title="graph_bfs.mjs (continued)"
+console.log(distances("home"));
+```
+
+```text
+Map(5) {
+  'home' => 0,
+  'shop' => 1,
+  'park' => 1,
+  'mall' => 2,
+  'cinema' => 3
+}
+```
+
+The code keeps the queue as an array and walks it with an index, instead of using `shift`, so it is still efficient for big graphs. `dist` is both the record of the distance and the "seen" check: a node that is in it has been queued already. Every node's first visit is by a shortest route, since BFS reaches closer nodes first, which is why BFS finds shortest paths when every edge counts the same. Replace "queue" with "stack" and the same loop becomes depth-first search.
+
+## Common pitfalls
+
+- **Using `shift` for a large queue.** It renumbers every remaining item. Use a head index or a structure like the one above.
+- **Forgetting the "seen" set in a graph walk.** A cycle makes the loop run forever.
+- **Modifying a node's `next` before saving it.** In list code, keep `const next = current.next` before you relink, or the rest of the list is lost.
+- **Comparing nodes by their contents.** Nodes are objects, compared by identity. Compare the `value`.
+- **Inserting sorted data into a plain binary search tree.** It turns into a list. Shuffle the input or use a balanced structure.
+- **Popping from an empty stack and trusting the result.** `pop()` gives `undefined`, which looks like a stored value. Check `length` when it matters.
+- **Recursing very deeply on a long chain.** A recursive walk over a list of a hundred thousand nodes can overflow the call stack. Use a loop for long chains.
+
+## Exercises
+
+<Exercise title="Balanced brackets">
+
+Write `balanced(text)` that returns whether every `(`, `[` and `{` in the text is closed by the matching bracket in the right order. Ignore other characters. Use an array as a stack. Print `JSON.stringify(text)` and the result for `(a[b]{c})`, `(]`, `((`, the empty string and `a)`, one per line. The expected output is `"(a[b]{c})" true`, `"(]" false`, `"((" false`, `"" true` and `"a)" false`.
+
+<Solution>
+
+Opening brackets are pushed. A closing bracket pops the stack and must match the opener for its kind, and the text is balanced only if the stack is empty at the end. Popping an empty stack gives `undefined`, which never matches, so the unmatched `a)` is rejected.
+
+```javascript title="brackets.mjs"
+function balanced(text) {
+  const pairs = new Map([[")", "("], ["]", "["], ["}", "{"]]);
+  const stack = [];
+  for (const ch of text) {
+    if ("([{".includes(ch)) {
+      stack.push(ch);
+    } else if (pairs.has(ch)) {
+      if (stack.pop() !== pairs.get(ch)) {
+        return false;
+      }
+    }
+  }
+  return stack.length === 0;
+}
+```
+
+```javascript title="brackets.mjs (continued)"
+for (const text of ["(a[b]{c})", "(]", "((", "", "a)"]) {
+  console.log(JSON.stringify(text), balanced(text));
+}
+```
+
+```text
+"(a[b]{c})" true
+"(]" false
+"((" false
+"" true
+"a)" false
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Shortest path in a grid">
+
+A grid is an array of strings. `S` is the start, `E` is the exit, `#` is a wall and `.` is open floor. Moves go up, down, left or right, not diagonally. Write `shortestPath(grid)` that returns the number of steps from `S` to `E` using breadth-first search, or `-1` if there is no route. Keep a set of visited cells, with keys like `"x,y"`. Print the result for `["S.#", "..#", "#.E"]`, then for `["S#E"]` and `["SE"]`. The expected output is `4`, `-1` and `1`.
+
+<Solution>
+
+Each queue entry holds a cell and its distance. Looking up `grid[ny]?.[nx]` gives `undefined` outside the grid, so edges need no special checks. A cell is marked seen when it is queued, which keeps it from being queued twice. In the first grid the route goes right, down, down, right. `for...of` over an array sees items pushed during the loop, so the queue needs no index.
+
+```javascript title="grid_path.mjs"
+function findStart(grid) {
+  for (const [y, row] of grid.entries()) {
+    const x = row.indexOf("S");
+    if (x !== -1) {
+      return [x, y];
+    }
+  }
+}
+
+const moves = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+```
+
+```javascript title="grid_path.mjs (continued)"
+function shortestPath(grid) {
+  const start = findStart(grid);
+  const seen = new Set([start.join(",")]);
+  const queue = [[...start, 0]];
+  for (const [x, y, steps] of queue) {
+    if (grid[y][x] === "E") {
+      return steps;
+    }
+    for (const [dx, dy] of moves) {
+      const [nx, ny] = [x + dx, y + dy];
+      const cell = grid[ny]?.[nx];
+      if (cell === undefined || cell === "#" || seen.has(`${nx},${ny}`)) {
+        continue;
+      }
+      seen.add(`${nx},${ny}`);
+      queue.push([nx, ny, steps + 1]);
+    }
+  }
+  return -1;
+}
+```
+
+```javascript title="grid_path.mjs (continued)"
+console.log(shortestPath(["S.#", "..#", "#.E"]));
+console.log(shortestPath(["S#E"]));
+console.log(shortestPath(["SE"]));
+```
+
+```text
+4
+-1
+1
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Reverse a linked list">
+
+This class and two helpers build a list of nodes from an array and turn a list back into an array:
+
+```javascript
+class ListNode {
+  constructor(value, next = null) {
+    this.value = value;
+    this.next = next;
+  }
+}
+
+function fromArray(values) {
+  let head = null;
+  for (const value of [...values].reverse()) {
+    head = new ListNode(value, head);
+  }
+  return head;
+}
+
+function toArray(head) {
+  const values = [];
+  for (let node = head; node !== null; node = node.next) {
+    values.push(node.value);
+  }
+  return values;
+}
+```
+
+Write `reverse(head)` that reverses the list in place by changing each node's `next`, and returns the new head. It must work for an empty list, where the head is `null`. Print the array for `reverse` of the list `1, 2, 3, 4`. Then print the array for a one-item list `7` together with `reverse(null)`. The expected output is `[ 4, 3, 2, 1 ]` and then `[ 7 ] null`.
+
+<Solution>
+
+Walk the list with two references. For each node, save its `next`, point it backwards at `previous`, and step both references forward. When `current` becomes `null`, `previous` is the old last node, which is the new head. The helpers `fromArray` and `toArray` only build the input and show the result.
+
+```javascript title="reverse_list.mjs"
+class ListNode {
+  constructor(value, next = null) {
+    this.value = value;
+    this.next = next;
+  }
+}
+```
+
+```javascript title="reverse_list.mjs (continued)"
+function fromArray(values) {
+  let head = null;
+  for (const value of [...values].reverse()) {
+    head = new ListNode(value, head);
+  }
+  return head;
+}
+
+function toArray(head) {
+  const values = [];
+  for (let node = head; node !== null; node = node.next) {
+    values.push(node.value);
+  }
+  return values;
+}
+```
+
+```javascript title="reverse_list.mjs (continued)"
+function reverse(head) {
+  let previous = null;
+  let current = head;
+  while (current !== null) {
+    const next = current.next;
+    current.next = previous;
+    previous = current;
+    current = next;
+  }
+  return previous;
+}
+```
+
+```javascript title="reverse_list.mjs (continued)"
+console.log(toArray(reverse(fromArray([1, 2, 3, 4]))));
+console.log(toArray(reverse(fromArray([7]))), reverse(null));
+```
+
+```text
+[ 4, 3, 2, 1 ]
+[ 7 ] null
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- An array is a stack with `push`, `pop` and `at(-1)`.
+- `shift` makes a poor queue for large data. Keep a head index, as the `Queue` class does with a `Map` and a private `#head`.
+- A linked list is nodes holding a value and a `next`. Add `*[Symbol.iterator]` to make it work with spread, `for...of` and the iterator helpers.
+- A binary search tree is nodes with `left` and `right`, handled with short recursive functions. An unbalanced tree degrades into a list.
+- A graph is a `Map` from node to a `Set` of neighbours. Breadth-first search uses a queue and a seen record, and finds shortest paths when all edges are equal.
+
+That completes the first two intermediate modules. The classes, symbols and iterators here are what the rest of the level builds on.

@@ -1,0 +1,6 @@
+true false
+true true false
+[ 'own' ]
+for...in: own
+for...in: kind
+for...in: shared

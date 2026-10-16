@@ -1,0 +1,549 @@
+---
+language: javascript
+level: intermediate
+module: Iteration and collections
+order: 9
+title: Generators
+description: Write generator functions with function* and yield to produce sequences lazily, delegate with yield*, and control a generator with next, return and throw.
+minVersion: "22"
+objectives:
+  - Write a generator function and explain when its body runs
+  - Build finite and infinite sequences with yield
+  - Delegate to other iterables and generators with yield*
+  - Use next(value), return() and throw() and know how finally runs on early exit
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/09-functions", "fundamentals/beginner/08-loops"]
+---
+
+Writing an iterator by hand, as in [the last lesson](../iteration-protocol/), means an object, a `next` method, a counter in a closure and the `{ value, done }` bookkeeping. A **generator** does the bookkeeping for you. It is a function that can pause in the middle, hand a value to its caller, and continue later from the same spot with all its local variables intact. The result is an iterator that you write like an ordinary loop.
+
+## function* and yield
+
+A generator function is declared with `function*`. Calling it does **not** run the body. It returns a **generator object**, and the body runs a piece at a time as `next()` is called, up to the next `yield`.
+
+```javascript title="gen_basics.mjs"
+function* steps() {
+  console.log("start");
+  yield 1;
+  console.log("middle");
+  yield 2;
+  console.log("end");
+  return 3;
+}
+```
+
+```javascript title="gen_basics.mjs (continued)"
+const gen = steps();
+console.log("created");
+console.log(gen.next());
+console.log(gen.next());
+console.log(gen.next());
+console.log(gen.next());
+```
+
+```text
+created
+start
+{ value: 1, done: false }
+middle
+{ value: 2, done: false }
+end
+{ value: 3, done: true }
+{ value: undefined, done: true }
+```
+
+Follow the output line by line:
+
+- `created` comes first and `start` has not been printed: calling `steps()` ran nothing.
+- The first `next()` runs the body up to `yield 1`, which pauses there. The result is `{ value: 1, done: false }`.
+- The second `next()` resumes right after the `yield`, prints `middle` and stops at `yield 2`.
+- The third `next()` prints `end` and reaches `return 3`. Now `done` is `true`, and the returned `3` is the final `value`.
+- After that the generator is finished and every call gives `{ value: undefined, done: true }`.
+
+The `return` value is the one thing to remember: consumers such as `for...of` and spread ignore the final value, since they stop when `done` is `true`. Use `yield` for the values you want delivered.
+
+## Generators are iterators and iterables
+
+The generator object has `next()`, and its `[Symbol.iterator]()` returns itself, so it works wherever the protocol does, and it is one-shot like any iterator.
+
+```javascript title="gen_iterable.mjs"
+function* letters() {
+  yield "a";
+  yield "b";
+  return "ignored";
+}
+```
+
+```javascript title="gen_iterable.mjs (continued)"
+const gen = letters();
+console.log(gen[Symbol.iterator]() === gen);
+console.log([...gen], [...gen]);
+console.log([...letters()], Array.from(letters()));
+```
+
+```text
+true
+[ 'a', 'b' ] []
+[ 'a', 'b' ] [ 'a', 'b' ]
+```
+
+The first spread uses up the generator, so the second is empty. Calling `letters()` again gives a new generator, and a fresh run. The `return "ignored"` value never appears.
+
+Generators are also the easy way to make a class iterable. A generator method is written `*name() {}`, and with the computed name from lesson 7 it becomes `*[Symbol.iterator]() {}`:
+
+```javascript title="gen_iterable.mjs (continued)"
+class Countdown {
+  constructor(from) {
+    this.from = from;
+  }
+
+  *[Symbol.iterator]() {
+    for (let n = this.from; n >= 1; n--) {
+      yield n;
+    }
+  }
+}
+```
+
+```javascript title="gen_iterable.mjs (continued)"
+console.log([...new Countdown(3)]);
+```
+
+```text
+[ 3, 2, 1 ]
+```
+
+Compare it with the `Countdown` class of the previous lesson. The loop is the same one you would write to print the numbers, with `yield` in place of `console.log`. The state is just the loop variable, and since every call creates a new generator, each use starts afresh.
+
+## Infinite sequences
+
+A generator pauses at each `yield`, so an infinite loop inside one is safe. It only runs as far as the consumer asks.
+
+```javascript title="ids_infinite.mjs"
+function* ids(prefix) {
+  let n = 1;
+  while (true) {
+    yield `${prefix}-${n}`;
+    n += 1;
+  }
+}
+```
+
+```javascript title="ids_infinite.mjs (continued)"
+const orderIds = ids("order");
+console.log(orderIds.next().value, orderIds.next().value);
+```
+
+```text
+order-1 order-2
+```
+
+```javascript title="ids_infinite.mjs (continued)"
+for (const id of orderIds) {
+  console.log(id);
+  if (id.endsWith("4")) {
+    break;
+  }
+}
+```
+
+```text
+order-3
+order-4
+```
+
+```javascript title="ids_infinite.mjs (continued)"
+console.log(orderIds.next());
+```
+
+```text
+{ value: undefined, done: true }
+```
+
+The generator keeps `n` between calls, so two `next()` calls give the first two ids, and the `for...of` loop continues with the third. The `break` ends the loop at `order-4` and, as [lesson 8](../iteration-protocol/) described, calls the iterator's `return()`. For a generator that **finishes** it. The last line shows it: the generator is done, and a new `next()` gives nothing.
+
+## Delegating with yield*
+
+`yield*` hands control to another iterable and yields each of its values in turn. It accepts any iterable: another generator, an array, a string.
+
+```javascript title="yield_star.mjs"
+function* inner() {
+  yield "a";
+  yield "b";
+  return "inner finished";
+}
+```
+
+```javascript title="yield_star.mjs (continued)"
+function* outer() {
+  yield 1;
+  const result = yield* inner();
+  yield result;
+  yield* [2, 3];
+  yield* "xy";
+}
+```
+
+```javascript title="yield_star.mjs (continued)"
+console.log([...outer()]);
+```
+
+```text
+[ 1, 'a', 'b', 'inner finished', 2, 3, 'x', 'y' ]
+```
+
+`yield* inner()` produced `"a"` and `"b"`. The whole `yield*` expression evaluates to the generator's **return** value, so `result` holds `"inner finished"`, which the next line yields. Arrays and strings are delegated to item by item. Delegation makes recursion over nested data short, since a generator can `yield*` itself:
+
+```javascript title="flatten_gen.mjs"
+function* flatten(items) {
+  for (const item of items) {
+    if (Array.isArray(item)) {
+      yield* flatten(item);
+    } else {
+      yield item;
+    }
+  }
+}
+```
+
+```javascript title="flatten_gen.mjs (continued)"
+const nested = [1, [2, [3, 4]], 5, [[6]]];
+console.log([...flatten(nested)]);
+```
+
+```text
+[ 1, 2, 3, 4, 5, 6 ]
+```
+
+```javascript title="flatten_gen.mjs (continued)"
+for (const value of flatten(nested)) {
+  if (value > 2) {
+    console.log("first above 2:", value);
+    break;
+  }
+}
+```
+
+```text
+first above 2: 3
+```
+
+This is the generator form of the nested-array recursion from [lesson 21](../../beginner/recursion-js/). The loop at the bottom finds the first value above 2 and stops, and the rest of the array is never visited, because nothing asked for it.
+
+## Sending values in
+
+`next` can take an argument. It becomes the value of the `yield` expression that the generator is paused on, which lets the caller send data in as well as read data out.
+
+```javascript title="gen_two_way.mjs"
+function* runningTotal() {
+  let total = 0;
+  while (true) {
+    const amount = yield total;
+    total += amount;
+  }
+}
+```
+
+```javascript title="gen_two_way.mjs (continued)"
+const gen = runningTotal();
+console.log(gen.next());
+console.log(gen.next(5));
+console.log(gen.next(10));
+console.log(gen.next(-3).value);
+```
+
+```text
+{ value: 0, done: false }
+{ value: 5, done: false }
+{ value: 15, done: false }
+12
+```
+
+The first `next()` has nothing to answer, so it only runs the generator up to its first `yield`, and any argument to that first call is discarded. After that, `gen.next(5)` makes `yield total` evaluate to `5`, so `amount` is `5`, the total is `5` and the loop pauses on the next `yield` with that total. This two-way style is used sparingly in everyday code, but it explains how the next two methods work.
+
+## return() and throw()
+
+A generator object has two more methods besides `next`. `return(value)` ends the generator early, as if a `return` had been executed at the paused `yield`. `throw(error)` throws an error at the paused `yield`, where a `try`/`catch` inside the generator can handle it.
+
+```javascript title="gen_return_throw.mjs"
+function* resilient() {
+  while (true) {
+    try {
+      const input = yield "ready";
+      console.log("got", input);
+    } catch (error) {
+      console.log("caught", error.message);
+      yield "recovered";
+    }
+  }
+}
+```
+
+```javascript title="gen_return_throw.mjs (continued)"
+const gen = resilient();
+console.log(gen.next());
+console.log(gen.next("a"));
+console.log(gen.throw(new Error("boom")));
+console.log(gen.next());
+console.log(gen.return("bye"));
+console.log(gen.next());
+```
+
+```text
+{ value: 'ready', done: false }
+got a
+{ value: 'ready', done: false }
+caught boom
+{ value: 'recovered', done: false }
+{ value: 'ready', done: false }
+{ value: 'bye', done: true }
+{ value: undefined, done: true }
+```
+
+- `next("a")` resumed the paused `yield "ready"` with the value `"a"`, so `got a` was printed.
+- `throw(new Error("boom"))` raised the error at that same spot. The `catch` printed `caught boom` and the generator yielded `"recovered"`.
+- `return("bye")` ended it with `{ value: "bye", done: true }`, and later calls report the end.
+
+The most important use of `return()` is cleanup. A `finally` block in a generator runs when the generator ends early, and `break` in a loop triggers that.
+
+```javascript title="gen_cleanup.mjs"
+function* reader() {
+  try {
+    yield 1;
+    yield 2;
+    yield 3;
+  } finally {
+    console.log("closed");
+  }
+}
+```
+
+```javascript title="gen_cleanup.mjs (continued)"
+for (const n of reader()) {
+  console.log("read", n);
+  if (n === 2) {
+    break;
+  }
+}
+```
+
+```text
+read 1
+read 2
+closed
+```
+
+```javascript title="gen_cleanup.mjs (continued)"
+const [first] = reader();
+console.log("first:", first);
+```
+
+```text
+closed
+first: 1
+```
+
+Both the `break` and the destructuring that took one item stopped before the end, and both ran `finally`, which printed `closed`. If the generator holds a file or connection, this is where it is released.
+
+## Lazy pipelines
+
+Small generators that take an iterable and return a generator compose like the array methods you know, but they process one item at a time and never build a full intermediate array.
+
+```javascript title="lazy_pipeline.mjs"
+function* naturals() {
+  let n = 1;
+  while (true) {
+    yield n++;
+  }
+}
+
+function* filter(iterable, test) {
+  for (const item of iterable) {
+    if (test(item)) {
+      yield item;
+    }
+  }
+}
+```
+
+```javascript title="lazy_pipeline.mjs (continued)"
+function* map(iterable, fn) {
+  for (const item of iterable) {
+    yield fn(item);
+  }
+}
+
+function* take(iterable, count) {
+  if (count <= 0) {
+    return;
+  }
+  for (const item of iterable) {
+    yield item;
+    count -= 1;
+    if (count === 0) {
+      return;
+    }
+  }
+}
+```
+
+```javascript title="lazy_pipeline.mjs (continued)"
+const odd = filter(naturals(), (n) => n % 2 === 1);
+const squares = map(odd, (n) => n * n);
+console.log([...take(squares, 4)]);
+```
+
+```text
+[ 1, 9, 25, 49 ]
+```
+
+`naturals()` is infinite, yet the pipeline finishes: `take` asks for four items and then stops. Each number travels all the way through `filter`, `map` and `take` before the next one starts. Writing helpers like these by hand shows how the machinery works. [The next lesson](../iterator-helpers/) covers the built-in versions, which you will usually reach for.
+
+## Common pitfalls
+
+- **Expecting the body to run on the call.** `steps()` only creates the generator. Nothing happens until the first `next()`.
+- **Using `return` for values you want delivered.** Consumers ignore it. Use `yield`.
+- **Forgetting that a generator is one-shot.** Iterate the same generator object twice and the second pass is empty. Call the function again.
+- **Spreading an infinite generator.** It never ends. Use `take` or `break`.
+- **Writing a generator as an arrow function.** There is no such thing. Use `function*`, or a `*method()` in a class or object literal.
+- **Calling `yield` inside a callback.** `yield` works only directly in the generator body, not in a nested function such as the callback of `forEach`. Use a `for...of` loop.
+- **Forgetting the star in `yield*`.** `yield inner()` gives the generator object itself instead of its values.
+
+## Exercises
+
+<Exercise title="Fibonacci">
+
+Write an infinite generator `fibonacci()` that yields 0, 1, 1, 2, 3, 5 and so on. Collect the first ten values by looping over it and breaking when ten are collected, and print them joined with spaces. Then create a second generator, call `next()` twice to skip the first two values, and print the next two values on one line. The expected output is `0 1 1 2 3 5 8 13 21 34` and then `1 2`.
+
+<Solution>
+
+The generator keeps the last two numbers in `a` and `b` and swaps them with one destructuring assignment. The loop checks the length at the top, so it stops before taking an eleventh value. For the skipped values the `next()` results are simply not used.
+
+```javascript title="fib_gen.mjs"
+function* fibonacci() {
+  let [a, b] = [0, 1];
+  while (true) {
+    yield a;
+    [a, b] = [b, a + b];
+  }
+}
+```
+
+```javascript title="fib_gen.mjs (continued)"
+const first = [];
+for (const value of fibonacci()) {
+  if (first.length === 10) {
+    break;
+  }
+  first.push(value);
+}
+console.log(first.join(" "));
+```
+
+```text
+0 1 1 2 3 5 8 13 21 34
+```
+
+```javascript title="fib_gen.mjs (continued)"
+const sequence = fibonacci();
+sequence.next();
+sequence.next();
+console.log(sequence.next().value, sequence.next().value);
+```
+
+```text
+1 2
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Walk a tree with yield*">
+
+A binary tree node is an object `{ value, left, right }` where `left` and `right` are other nodes or `null`. Write `inOrder(tree)`, a generator that yields the values of the left subtree, then the node's own value, then the right subtree, using `yield*` for the recursion. It should yield nothing for `null`. Build the tree with root 4, whose left child is 2 (with children 1 and 3) and whose right child is 6 (with children 5 and 7). Print the values joined by spaces, then the largest value using `Math.max(...inOrder(tree))`, then `Array.from(inOrder(...))` for a single node 9, and finally the spread of `inOrder(null)`. The expected output is `1 2 3 4 5 6 7`, `7`, `[ 9 ]` and `[]`.
+
+<Solution>
+
+Each call delegates to the generator for the left subtree, yields its own value and delegates to the right subtree. The `null` case returns at once, and since `return` here gives no value, the delegation yields nothing. For a binary search tree the in-order walk gives sorted output, which is why the values come out 1 to 7.
+
+```javascript title="tree_walk.mjs"
+function node(value, left = null, right = null) {
+  return { value, left, right };
+}
+
+function* inOrder(tree) {
+  if (tree === null) {
+    return;
+  }
+  yield* inOrder(tree.left);
+  yield tree.value;
+  yield* inOrder(tree.right);
+}
+```
+
+```javascript title="tree_walk.mjs (continued)"
+const tree = node(4, node(2, node(1), node(3)), node(6, node(5), node(7)));
+console.log([...inOrder(tree)].join(" "));
+console.log(Math.max(...inOrder(tree)));
+console.log(Array.from(inOrder(node(9))));
+console.log([...inOrder(null)]);
+```
+
+```text
+1 2 3 4 5 6 7
+7
+[ 9 ]
+[]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Split into chunks">
+
+Write a generator `chunked(items, size)` that yields consecutive pieces of at most `size` items, using `slice`. Print `[...chunked([1, 2, 3, 4, 5], 2)]`, the same for the string `"abcdef"` with size 3, and for an empty array with size 4. Then make `pages = chunked([10, 20, 30], 2)` and print the `value` of two `next()` calls and the `done` of a third, on one line. The expected output is `[ [ 1, 2 ], [ 3, 4 ], [ 5 ] ]`, `[ 'abc', 'def' ]`, `[]` and `[ 10, 20 ] [ 30 ] true`.
+
+<Solution>
+
+The loop moves the start index forward by `size`, and `slice` stops at the end of the input, so the last piece can be shorter. Strings have `slice` too, which is why the string gives pieces of text. Because the generator is lazy, a huge input would be cut up only as fast as the pages are read.
+
+```javascript title="chunked_gen.mjs"
+function* chunked(items, size) {
+  for (let start = 0; start < items.length; start += size) {
+    yield items.slice(start, start + size);
+  }
+}
+```
+
+```javascript title="chunked_gen.mjs (continued)"
+console.log([...chunked([1, 2, 3, 4, 5], 2)]);
+console.log([...chunked("abcdef", 3)]);
+console.log([...chunked([], 4)]);
+
+const pages = chunked([10, 20, 30], 2);
+console.log(pages.next().value, pages.next().value, pages.next().done);
+```
+
+```text
+[ [ 1, 2 ], [ 3, 4 ], [ 5 ] ]
+[ 'abc', 'def' ]
+[]
+[ 10, 20 ] [ 30 ] true
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A `function*` returns a generator object without running the body. Each `next()` runs to the next `yield`, which pauses with the yielded value. The `return` value, if any, ends the sequence and is ignored by loops and spread.
+- A generator is an iterator and an iterable (one-shot). A `*[Symbol.iterator]()` method is the shortest way to make a class iterable.
+- Infinite loops are safe in generators because they run only on demand.
+- `yield*` delegates to any iterable, evaluates to the delegate's return value, and makes recursion over trees and nested arrays concise.
+- `next(value)` sends a value into a paused `yield`. `return(value)` ends the generator, and `throw(error)` raises an error at the `yield`. `finally` blocks run on early exit, including `break`.
+- Small generators compose into lazy pipelines that never build the full intermediate list.
+
+Next: [iterator helpers](../iterator-helpers/), the built-in `map`, `filter` and `take` for iterators.

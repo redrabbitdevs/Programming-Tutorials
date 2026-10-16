@@ -1,0 +1,372 @@
+---
+language: javascript
+level: intermediate
+module: Objects, prototypes and classes
+order: 2
+title: Prototypes and the prototype chain
+description: Explain how property lookup follows the prototype chain, and create, inspect and share behaviour through prototypes with Object.create and constructor functions.
+minVersion: "22"
+objectives:
+  - Explain how JavaScript looks up a property along the prototype chain
+  - Create objects with a chosen prototype using Object.create and read it with Object.getPrototypeOf
+  - Tell own properties from inherited ones and predict shadowing
+  - Share methods through a constructor function's prototype property
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/15-records-and-objects"]
+---
+
+In [the objects lesson](../../beginner/objects-js/) you called `list.push(3)` and `user.toString()` without asking where those methods live. An array literal has no `push` property of its own. The method is found because every object keeps a hidden link to another object, called its **prototype**, and a lookup that fails on the object itself continues on the prototype, then on the prototype's prototype, until it either finds the name or reaches `null`. That sequence of links is the **prototype chain**, and it is the mechanism behind inheritance in JavaScript, including the `class` syntax of the next lesson.
+
+This lesson is about the mechanism itself, so the examples use plain objects.
+
+## Property lookup
+
+`Object.create(proto)` makes a new empty object whose prototype is `proto`. Read the prototype of any object with `Object.getPrototypeOf`.
+
+```javascript title="proto_basics.mjs"
+const animal = {
+  sound: "...",
+  speak() {
+    return `${this.name} says ${this.sound}`;
+  },
+};
+
+const dog = Object.create(animal);
+dog.name = "Rex";
+dog.sound = "woof";
+
+console.log(dog.speak());
+```
+
+```text
+Rex says woof
+```
+
+`dog` has no `speak`, so the lookup goes up to `animal` and finds it there. The call is written `dog.speak()`, so by the implicit rule from [the previous lesson](../this-in-depth/), `this` is `dog`, and the method reads `dog`'s own `name` and `sound`. Had `dog` not set `sound`, the lookup would have found `animal.sound`, `"..."`.
+
+```javascript title="proto_basics.mjs (continued)"
+console.log(Object.getPrototypeOf(dog) === animal);
+console.log(dog);
+```
+
+```text
+true
+{ name: 'Rex', sound: 'woof' }
+```
+
+`getPrototypeOf` confirms the link. The logged object shows only its own properties: the inherited `speak` is real but not listed, since the console prints what the object owns.
+
+Older code reaches the prototype through a property called `__proto__`. It is deprecated, so use `Object.getPrototypeOf` to read it and `Object.create` to choose it. `Object.setPrototypeOf` can change a prototype after the fact, but it is rarely the right tool: decide the prototype when you create the object.
+
+## Own and inherited properties
+
+A property is **own** if it sits on the object itself, and **inherited** if the lookup finds it further up. Several tools treat the two differently.
+
+```javascript title="own_vs_inherited.mjs"
+const base = { kind: "base", shared() {} };
+const child = Object.create(base);
+child.own = 1;
+
+console.log(Object.hasOwn(child, "own"), Object.hasOwn(child, "kind"));
+console.log("own" in child, "kind" in child, "missing" in child);
+console.log(Object.keys(child));
+
+for (const key in child) {
+  console.log("for...in:", key);
+}
+```
+
+```text
+true false
+true true false
+[ 'own' ]
+for...in: own
+for...in: kind
+for...in: shared
+```
+
+- `Object.hasOwn(obj, key)` asks about own properties only.
+- The `in` operator searches the whole chain.
+- `Object.keys` (and `entries` and `values`) list own enumerable properties.
+- `for...in` also walks the chain and includes inherited enumerable ones, which is the reason [lesson 14](../../beginner/loops-js/) told you to prefer `for...of` with `Object.keys` or `Object.entries`.
+
+## Shadowing
+
+Reading searches the chain. **Writing** does not: an assignment always creates or changes an own property on the object you assigned to. An own property with the same name as an inherited one is said to **shadow** it.
+
+```javascript title="shadowing.mjs"
+const defaults = { colour: "grey", size: 10 };
+const widget = Object.create(defaults);
+
+console.log(widget.colour);
+widget.colour = "red";
+console.log(widget.colour, defaults.colour);
+
+delete widget.colour;
+console.log(widget.colour);
+
+defaults.size = 12;
+console.log(widget.size);
+```
+
+```text
+grey
+red grey
+grey
+12
+```
+
+`widget.colour` first finds the inherited `"grey"`. Assigning `"red"` puts a new own property on `widget` and leaves `defaults` alone. Deleting it uncovers `"grey"` again, because the lookup is repeated on every read. The last two lines show that the link is live: changing `defaults.size` later changes what `widget.size` finds, since `widget` never copied it.
+
+## The chain of a built-in
+
+Every built-in value sits on a chain too. An array's prototype is `Array.prototype`, which holds `map`, `push` and the other array methods. Its prototype is `Object.prototype`, which holds `toString` and `hasOwnProperty`. The prototype of `Object.prototype` is `null`, which ends the chain.
+
+```javascript title="array_chain.mjs"
+const list = [1, 2];
+const arrayProto = Object.getPrototypeOf(list);
+const objectProto = Object.getPrototypeOf(arrayProto);
+
+console.log(arrayProto === Array.prototype);
+console.log(objectProto === Object.prototype);
+console.log(Object.getPrototypeOf(objectProto));
+```
+
+```text
+true
+true
+null
+```
+
+```javascript title="array_chain.mjs (continued)"
+console.log(Object.hasOwn(list, "map"), "map" in list);
+console.log(Object.hasOwn(arrayProto, "map"));
+console.log(Object.hasOwn(objectProto, "hasOwnProperty"));
+```
+
+```text
+false true
+true
+true
+```
+
+`list` owns `0`, `1` and `length`, and no `map`. The method is found one step up. `hasOwnProperty` is another step above that. In prose the chain of `[1, 2]` reads:
+
+```text
+[1, 2]  ->  Array.prototype  ->  Object.prototype  ->  null
+```
+
+This is also why functions and objects share methods like `toString`: their chains meet at `Object.prototype`.
+
+## Constructor functions and the prototype property
+
+[Lesson 1](../this-in-depth/) showed `new` building an object from a constructor function. There is one more thing `new` does: it sets the new object's prototype to the function's `prototype` property. Every ordinary function has one, starting out as an object that holds a single `constructor` property pointing back at the function. Put shared methods on that object, and every instance finds them by lookup.
+
+```javascript title="constructor_prototype.mjs"
+function Person(name) {
+  this.name = name;
+}
+
+Person.prototype.greet = function () {
+  return `Hi, I am ${this.name}`;
+};
+```
+
+```javascript title="constructor_prototype.mjs (continued)"
+const ada = new Person("Ada");
+const grace = new Person("Grace");
+
+console.log(ada.greet(), "/", grace.greet());
+console.log(ada.greet === grace.greet);
+console.log(Object.getPrototypeOf(ada) === Person.prototype);
+console.log(ada.constructor === Person, Object.hasOwn(ada, "constructor"));
+console.log(ada);
+```
+
+```text
+Hi, I am Ada / Hi, I am Grace
+true
+true
+true false
+Person { name: 'Ada' }
+```
+
+Both people use the same `greet` function: `ada.greet === grace.greet`. Each instance stores only its own data (`name`), and the method is stored once. That is the reason methods go on the prototype instead of being created in the constructor. `ada.constructor` works because the lookup finds `constructor` on `Person.prototype`, not because `ada` owns it, and `instanceof` from lesson 1 asks whether `Person.prototype` appears in the chain of `ada`.
+
+Notice the `function` keyword on `greet`. An arrow would not get the instance as `this`, so methods that use `this` must be regular functions or shorthand methods.
+
+## Objects with no prototype
+
+`Object.create(null)` makes an object at the end of its own chain: nothing is inherited, not even `toString`. That makes it a safe dictionary for keys you do not control. You saw the same thing in the result of `Object.groupBy` in [lesson 29](../../beginner/map-and-set/).
+
+```javascript title="null_proto.mjs"
+const plain = {};
+const bare = Object.create(null);
+
+console.log("toString" in plain, "toString" in bare);
+console.log(Object.getPrototypeOf(bare));
+
+bare.hasOwnProperty = "just data";
+console.log(bare.hasOwnProperty);
+console.log(Object.keys(bare));
+```
+
+```text
+true false
+null
+just data
+[ 'hasOwnProperty' ]
+```
+
+A key called `hasOwnProperty` is just data here. On a normal object, assigning to that name would shadow the real method and break any code that called it. The cost is that such an object lacks `toString` and friends, so it cannot be put in a template literal directly. Use it for lookup tables and keep it away from code that expects an ordinary object.
+
+## Common pitfalls
+
+- **Putting mutable data on a prototype.** An array or object stored on the prototype is shared by every instance, so one instance's `push` shows up in all of them. Keep per-instance data in the constructor and put only functions (and constants) on the prototype.
+- **Expecting assignment to change the prototype.** `child.x = 1` creates an own property. It never writes to the prototype, even when the prototype has an `x`.
+- **Using `__proto__`.** It is deprecated. Use `Object.getPrototypeOf` and `Object.create`.
+- **Using an arrow function as a prototype method.** It cannot see the instance as `this`.
+- **Adding methods to `Object.prototype` or `Array.prototype`.** Every object in the program sees them, which breaks `for...in` loops and surprises other code. Leave built-in prototypes alone.
+- **Checking a key with `obj.key` on an object from outside.** The key may be inherited. Use `Object.hasOwn(obj, key)` when it must be own.
+
+## Exercises
+
+<Exercise title="Name the chain of any value">
+
+Write `chain(value)` that returns the names of the objects on the prototype chain of `value`, nearest first, stopping before `null`. A name is the `constructor.name` of that prototype object. Use `Object.getPrototypeOf` in a loop. Print the chain for `[]`, `new Map()`, `() => {}`, `5` and `Object.create(null)`. The expected output is `[ 'Array', 'Object' ]`, `[ 'Map', 'Object' ]`, `[ 'Function', 'Object' ]`, `[ 'Number', 'Object' ]` and `[]`.
+
+<Solution>
+
+Start with the prototype of `value` and keep stepping up until it is `null`. A number works too, because `Object.getPrototypeOf` accepts primitives and returns the prototype of their wrapper type. The last case has no prototype at all, so the loop never runs.
+
+```javascript title="chain_names.mjs"
+function chain(value) {
+  const names = [];
+  let proto = Object.getPrototypeOf(value);
+  while (proto !== null) {
+    names.push(proto.constructor.name);
+    proto = Object.getPrototypeOf(proto);
+  }
+  return names;
+}
+
+console.log(chain([]));
+console.log(chain(new Map()));
+console.log(chain(() => {}));
+console.log(chain(5));
+console.log(chain(Object.create(null)));
+```
+
+```text
+[ 'Array', 'Object' ]
+[ 'Map', 'Object' ]
+[ 'Function', 'Object' ]
+[ 'Number', 'Object' ]
+[]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A chain of vehicles">
+
+Create a `vehicle` object with `wheels: 0` and a `describe()` method that returns `"<name> has <wheels> wheels"` using `this`. Make `car`, `bike` and `cart` with `Object.create(vehicle)`. Give `car` the name `"Civic"` and 4 wheels, `bike` the name `"Bike"` and 2 wheels, and `cart` only the name `"Cart"`. Print the three descriptions, then print whether `cart` owns a `wheels` property. The expected output is `Civic has 4 wheels`, `Bike has 2 wheels`, `Cart has 0 wheels` and `false`.
+
+<Solution>
+
+`cart` never assigns `wheels`, so `this.wheels` finds the inherited `0`, and `Object.hasOwn` reports that `cart` does not own it.
+
+```javascript title="vehicle_chain.mjs"
+const vehicle = {
+  wheels: 0,
+  describe() {
+    return `${this.name} has ${this.wheels} wheels`;
+  },
+};
+
+const car = Object.create(vehicle);
+car.name = "Civic";
+car.wheels = 4;
+
+const bike = Object.create(vehicle);
+bike.name = "Bike";
+bike.wheels = 2;
+
+const cart = Object.create(vehicle);
+cart.name = "Cart";
+```
+
+```javascript title="vehicle_chain.mjs (continued)"
+console.log(car.describe());
+console.log(bike.describe());
+console.log(cart.describe());
+console.log(Object.hasOwn(cart, "wheels"));
+```
+
+```text
+Civic has 4 wheels
+Bike has 2 wheels
+Cart has 0 wheels
+false
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fix the shared basket">
+
+This constructor has a bug: all baskets end up with the same items.
+
+```javascript
+function Basket() {}
+Basket.prototype.items = [];
+Basket.prototype.add = function (item) {
+  this.items.push(item);
+  return this;
+};
+```
+
+With it, `new Basket().add("apple")` and `new Basket().add("pear")` both report `[ 'apple', 'pear' ]`. Fix the code so the first basket holds `[ 'apple' ]` and the second `[ 'pear' ]`, then print the two item lists on one line, and print whether the two baskets share an array. The expected output is `[ 'apple' ] [ 'pear' ]` and then `false`.
+
+<Solution>
+
+The single array lived on the prototype, so every basket found and changed the same one. Create the array in the constructor so that each instance owns its own, and keep only the method on the prototype.
+
+```javascript title="shared_basket.mjs"
+function Basket() {
+  this.items = [];
+}
+
+Basket.prototype.add = function (item) {
+  this.items.push(item);
+  return this;
+};
+
+const first = new Basket().add("apple");
+const second = new Basket().add("pear");
+
+console.log(first.items, second.items);
+console.log(first.items === second.items);
+```
+
+```text
+[ 'apple' ] [ 'pear' ]
+false
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Every object has a prototype, another object or `null`. A property lookup walks up this chain until it finds the name or reaches the end.
+- `Object.create(proto)` sets the prototype. `Object.getPrototypeOf` reads it. Avoid `__proto__`.
+- Writes go to the object itself and shadow inherited properties. `delete` uncovers them again.
+- `Object.hasOwn` and `Object.keys` see own properties. `in` and `for...in` see inherited ones too.
+- `new F()` links the new object to `F.prototype`, so methods stored there are shared by all instances. Never put mutable data there.
+- `Object.create(null)` gives an object with no inherited properties.
+
+Next: [classes](../classes/), a cleaner syntax for the constructor and prototype pattern you just built by hand.

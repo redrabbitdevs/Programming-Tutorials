@@ -1,0 +1,4 @@
+TypeError 1.0
+[ 'name', 'version' ] {"name":"app","version":"1.0"}
+{ name: 'app', version: '1.0' } abc123 true
+[ 'name', 'version', 'token' ]

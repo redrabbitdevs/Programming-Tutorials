@@ -1,0 +1,4 @@
+Rex makes a sound: woof
+true true
+true
+Dog { name: 'Rex', breed: 'collie' }
