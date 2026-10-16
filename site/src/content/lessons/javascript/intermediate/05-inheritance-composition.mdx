@@ -1,0 +1,458 @@
+---
+language: javascript
+level: intermediate
+module: Objects, prototypes and classes
+order: 5
+title: Inheritance vs composition
+description: Build classes on other classes with extends and super, subclass Error and Array, add behaviour with mixins, and decide when composing small parts is the better design.
+minVersion: "22"
+objectives:
+  - Write a subclass with extends and super, and override a method
+  - Create a custom error class that works with instanceof and cause
+  - Combine behaviour with a mixin function or with plain composition
+  - Choose between inheritance and composition for a design
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/15-records-and-objects", "fundamentals/beginner/23-paradigms"]
+---
+
+One class can be built on another. The new class, the **subclass**, gets everything the **superclass** has, and adds or changes what it needs. In JavaScript this is the prototype chain from [lesson 2](../prototypes/) wired up for you: the prototype of the subclass's prototype is the superclass's prototype. Inheritance is a strong tool and an easy one to overuse, so the second half of this lesson looks at the alternative, composition, and at how to choose.
+
+## extends and super
+
+`extends` names the superclass. Inside the subclass, `super(...)` calls the superclass constructor, and `super.method(...)` calls a method of the superclass.
+
+```javascript title="extends_basics.mjs"
+class Animal {
+  constructor(name) {
+    this.name = name;
+  }
+
+  speak() {
+    return `${this.name} makes a sound`;
+  }
+}
+```
+
+```javascript title="extends_basics.mjs (continued)"
+class Dog extends Animal {
+  constructor(name, breed) {
+    super(name);
+    this.breed = breed;
+  }
+
+  speak() {
+    return `${super.speak()}: woof`;
+  }
+}
+```
+
+`Dog` calls `super(name)` so that `Animal` can set up `name`, then adds its own `breed`. Its `speak` replaces `Animal`'s, which is **overriding**, and it still reuses the original through `super.speak()`. If a subclass has no constructor, JavaScript supplies one that passes all arguments to `super`.
+
+```javascript title="extends_basics.mjs (continued)"
+const rex = new Dog("Rex", "collie");
+console.log(rex.speak());
+console.log(rex instanceof Dog, rex instanceof Animal);
+console.log(Object.getPrototypeOf(Dog.prototype) === Animal.prototype);
+console.log(rex);
+```
+
+```text
+Rex makes a sound: woof
+true true
+true
+Dog { name: 'Rex', breed: 'collie' }
+```
+
+`instanceof` follows the chain, so `rex` is both a `Dog` and an `Animal`. The third line is the lesson 2 chain with a name: the prototype of `Dog.prototype` is `Animal.prototype`. The log shows only the own properties.
+
+## The rules of super
+
+Two rules trip people up, and both follow from how objects get built.
+
+```javascript title="super_rules.mjs"
+class Base {
+  static create() {
+    return new this();
+  }
+}
+```
+
+```javascript title="super_rules.mjs (continued)"
+class Derived extends Base {
+  constructor() {
+    try {
+      this.ready = true;
+    } catch (error) {
+      console.log(error.name);
+    }
+    super();
+    this.ready = true;
+  }
+}
+```
+
+```javascript title="super_rules.mjs (continued)"
+console.log(Derived.create() instanceof Derived);
+console.log(Object.getPrototypeOf(Derived) === Base);
+```
+
+```text
+ReferenceError
+true
+true
+```
+
+- **A subclass constructor must call `super()` before it touches `this`.** In a subclass, the object is created by the superclass constructor, so before `super()` there is no `this`. The `try` block shows that reading it first throws a `ReferenceError`.
+- **Static members are inherited too.** The class `Derived` itself has `Base` as its prototype, so `Derived.create()` finds the static method on `Base`. Inside it, `this` is the class the method was called on, so `new this()` builds a `Derived`, not a `Base`.
+
+## Subclassing built-ins
+
+You can extend `Error`, `Array`, `Map` and other built-in classes. The most common case by far is `Error`, so that callers can tell your failures apart with `instanceof`.
+
+```javascript title="error_subclass.mjs"
+class ValidationError extends Error {
+  constructor(field, message, options) {
+    super(message, options);
+    this.name = "ValidationError";
+    this.field = field;
+  }
+}
+```
+
+The constructor passes the message and the options object to `Error`, which is how the `cause` option from [lesson 15](../../beginner/errors-basics-js/) is supported. It then sets `name`, which controls how the error prints, and a `field` of its own.
+
+```javascript title="error_subclass.mjs (continued)"
+function parseAge(text) {
+  const age = Number(text);
+  if (!Number.isInteger(age)) {
+    throw new ValidationError("age", `not a whole number: ${text}`);
+  }
+  return age;
+}
+```
+
+```javascript title="error_subclass.mjs (continued)"
+try {
+  parseAge("4.5");
+} catch (error) {
+  console.log(error instanceof ValidationError, error instanceof Error);
+  console.log(error.name, error.field, error.message);
+  console.log(String(error));
+}
+```
+
+```text
+true true
+ValidationError age not a whole number: 4.5
+ValidationError: not a whole number: 4.5
+```
+
+Catching code can use `instanceof ValidationError` to handle this failure and let others pass, and still read the standard `message`. Because `ValidationError` is an `Error`, it also records a stack trace.
+
+Subclassing `Array` works, and the array methods that make new arrays, such as `map` and `filter`, return instances of your subclass:
+
+```javascript title="array_subclass.mjs"
+class Stack extends Array {
+  peek() {
+    return this.at(-1);
+  }
+}
+
+const stack = new Stack();
+stack.push(1, 2, 3);
+console.log(stack.length, stack.peek(), Array.isArray(stack));
+
+const doubled = stack.map((n) => n * 2);
+console.log(doubled instanceof Stack, doubled.peek());
+console.log(stack);
+```
+
+```text
+3 3 true
+true 6
+Stack(3) [ 1, 2, 3 ]
+```
+
+Reach for this only when you need a real array with extra methods. In most programs a function that takes an array, or a class that holds an array in a private field, is simpler.
+
+## Mixins
+
+JavaScript classes have a single superclass. A **mixin** is a function that takes a class and returns a subclass with extra behaviour, so features can be stacked.
+
+```javascript title="mixin.mjs"
+const Serializable = (Base) =>
+  class extends Base {
+    serialize() {
+      return JSON.stringify(this);
+    }
+  };
+
+const Comparable = (Base) =>
+  class extends Base {
+    compareTo(other) {
+      return this.value - other.value;
+    }
+  };
+```
+
+```javascript title="mixin.mjs (continued)"
+class Item {
+  constructor(value) {
+    this.value = value;
+  }
+}
+
+class Product extends Serializable(Comparable(Item)) {}
+```
+
+```javascript title="mixin.mjs (continued)"
+const a = new Product(3);
+console.log(a.serialize(), a.compareTo(new Product(1)));
+console.log(a instanceof Item);
+```
+
+```text
+{"value":3} 2
+true
+```
+
+Each mixin is an arrow function that returns a class expression extending whatever it is given. `Product` ends up with the methods of `Comparable`, `Serializable` and `Item`, in a chain of three prototypes. Mixins work, but each one deepens the chain, and a name clash between two of them is resolved silently by order. Treat them as a tool for a few cross-cutting features, not as a default.
+
+## Composition
+
+Inheritance models "is a": a `Dog` is an `Animal`. **Composition** models "has a" or "can do": an object is made by putting parts together. The question is which one keeps your code easier to change.
+
+Inheritance fails when the real world does not fit a tree. Say a `Bird` class gets a `fly` method, and then you need a penguin. A penguin is a bird that cannot fly, so you either break the promise that every `Bird` can `fly` or restructure the whole hierarchy. With composition, abilities are small pieces of behaviour that you attach where they apply:
+
+```javascript title="composition.mjs"
+const canSwim = (self) => ({
+  swim: () => `${self.name} swims`,
+});
+
+const canFly = (self) => ({
+  fly: () => `${self.name} flies`,
+});
+```
+
+```javascript title="composition.mjs (continued)"
+function createDuck(name) {
+  const self = { name };
+  return Object.assign(self, canSwim(self), canFly(self));
+}
+
+function createPenguin(name) {
+  const self = { name };
+  return Object.assign(self, canSwim(self));
+}
+```
+
+```javascript title="composition.mjs (continued)"
+const duck = createDuck("Duck");
+const penguin = createPenguin("Pingu");
+console.log(duck.swim(), duck.fly());
+console.log(penguin.swim(), penguin.fly);
+```
+
+```text
+Duck swims Duck flies
+Pingu swims undefined
+```
+
+`canSwim` and `canFly` return objects of methods that use the creature they were given. `Object.assign` copies them onto the new object, so each factory lists what that creature can do. The penguin was just never given `fly`, and nothing else had to change.
+
+A rule of thumb that holds up in practice:
+
+- Use inheritance when the subclass really is a more specific kind of the superclass, anywhere the superclass is expected the subclass works, and you control both. Errors are the textbook case.
+- Prefer composition when you are mainly reusing code, when behaviours vary independently, or when the hierarchy would be more than two levels deep.
+- Whichever you choose, keep the public surface small and the classes short.
+
+## Common pitfalls
+
+- **Touching `this` before `super()`.** It throws a `ReferenceError`. Call `super()` first.
+- **Forgetting to pass the message or options to `super` in an error subclass.** The message is empty and `cause` is lost.
+- **Forgetting to set `name`.** The error prints as a plain `Error`, which makes logs harder to read.
+- **Overriding a method with a different meaning.** If `Square` changes what `area()` returns, code that works with `Rectangle` breaks. Subclasses must keep the promises of their parent.
+- **Deep hierarchies.** Each level makes a change ripple further. If you are past two levels, look at composition.
+- **Subclassing to reuse a few lines.** If it is not an "is a" relationship, call a function or hold the other object in a field instead.
+
+## Exercises
+
+<Exercise title="A shape hierarchy">
+
+Write a base class `Shape` with a getter `name` that returns the class name in lower case (`this.constructor.name.toLowerCase()`), an `area()` method that throws an `Error`, and a `describe()` method that returns `"<name> area <area with 2 decimals>"`. Add subclasses `Circle(radius)` and `Rectangle(width, height)` that override `area()`, and `Square(side)` that extends `Rectangle`. Print the description of `new Circle(2)`, `new Rectangle(3, 4)` and `new Square(3)`, one per line. The expected output is `circle area 12.57`, `rectangle area 12.00` and `square area 9.00`.
+
+<Solution>
+
+`describe()` is written once on `Shape` and calls `this.area()`, which finds whichever override the instance has. `Square` needs no `area()` of its own, since passing the side twice to `Rectangle` is enough.
+
+```javascript title="shapes_inherit.mjs"
+class Shape {
+  get name() {
+    return this.constructor.name.toLowerCase();
+  }
+
+  area() {
+    throw new Error("area() must be overridden");
+  }
+
+  describe() {
+    return `${this.name} area ${this.area().toFixed(2)}`;
+  }
+}
+```
+
+```javascript title="shapes_inherit.mjs (continued)"
+class Circle extends Shape {
+  constructor(radius) {
+    super();
+    this.radius = radius;
+  }
+
+  area() {
+    return Math.PI * this.radius ** 2;
+  }
+}
+```
+
+```javascript title="shapes_inherit.mjs (continued)"
+class Rectangle extends Shape {
+  constructor(width, height) {
+    super();
+    this.width = width;
+    this.height = height;
+  }
+
+  area() {
+    return this.width * this.height;
+  }
+}
+```
+
+```javascript title="shapes_inherit.mjs (continued)"
+class Square extends Rectangle {
+  constructor(side) {
+    super(side, side);
+  }
+}
+
+for (const shape of [new Circle(2), new Rectangle(3, 4), new Square(3)]) {
+  console.log(shape.describe());
+}
+```
+
+```text
+circle area 12.57
+rectangle area 12.00
+square area 9.00
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="The same shapes, composed">
+
+Write the same program without classes or `extends`. Make factory functions `circle(radius)`, `rectangle(width, height)` and `square(side)` that return objects with a `name` and an `area()` function, and one standalone function `describe(shape)`. Build `square` out of `rectangle`. The output must match the previous exercise: `circle area 12.57`, `rectangle area 12.00` and `square area 9.00`.
+
+<Solution>
+
+Each factory returns a plain object that carries its own `area`. `square` spreads the result of `rectangle(side, side)` and replaces the `name`. The function `describe` works with anything that has a `name` and an `area`, so it needs no common parent.
+
+```javascript title="shapes_compose.mjs"
+function circle(radius) {
+  return { name: "circle", area: () => Math.PI * radius ** 2 };
+}
+
+function rectangle(width, height) {
+  return { name: "rectangle", area: () => width * height };
+}
+
+function square(side) {
+  return { ...rectangle(side, side), name: "square" };
+}
+
+function describe(shape) {
+  return `${shape.name} area ${shape.area().toFixed(2)}`;
+}
+
+for (const shape of [circle(2), rectangle(3, 4), square(3)]) {
+  console.log(describe(shape));
+}
+```
+
+```text
+circle area 12.57
+rectangle area 12.00
+square area 9.00
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="An error hierarchy">
+
+Write `HttpError`, a subclass of `Error` with a `status` property, and `NotFoundError`, a subclass of `HttpError` that takes a path and uses status 404 and the message `"no page at <path>"`. Both set their own `name` and pass the options through to `super`. Write `load(path)`, which catches an inner `Error("disk read failed")` and rethrows a `NotFoundError` with the inner error as its `cause`. Call `load("/missing")` in a `try`, and in the `catch` print whether the error is an instance of `NotFoundError` and of `HttpError` on one line, then `"<name> <status>: <message>"`, then the message of the cause. The expected output is `true true`, `NotFoundError 404: no page at /missing` and `disk read failed`.
+
+<Solution>
+
+`NotFoundError` supplies the status and the message and hands the options on, so the `cause` reaches `Error`. Each class sets `name` after `super`, because `super` has already created the object.
+
+```javascript title="http_errors.mjs"
+class HttpError extends Error {
+  constructor(status, message, options) {
+    super(message, options);
+    this.name = "HttpError";
+    this.status = status;
+  }
+}
+```
+
+```javascript title="http_errors.mjs (continued)"
+class NotFoundError extends HttpError {
+  constructor(path, options) {
+    super(404, `no page at ${path}`, options);
+    this.name = "NotFoundError";
+  }
+}
+```
+
+```javascript title="http_errors.mjs (continued)"
+function load(path) {
+  try {
+    throw new Error("disk read failed");
+  } catch (cause) {
+    throw new NotFoundError(path, { cause });
+  }
+}
+```
+
+```javascript title="http_errors.mjs (continued)"
+try {
+  load("/missing");
+} catch (error) {
+  console.log(error instanceof NotFoundError, error instanceof HttpError);
+  console.log(`${error.name} ${error.status}: ${error.message}`);
+  console.log(error.cause.message);
+}
+```
+
+```text
+true true
+NotFoundError 404: no page at /missing
+disk read failed
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `class B extends A` makes `B.prototype` inherit from `A.prototype` and `B` inherit the static members of `A`. `super(...)` runs the parent constructor and must come before `this`. `super.method()` calls the parent's version.
+- Override a method by defining it again. Keep the parent's promises.
+- Extend `Error` for custom failures: pass `message` and `options` to `super`, and set `name`.
+- A mixin is a function from a class to a subclass. It is a way to stack features, at the cost of a longer chain.
+- Composition builds objects from small parts. Prefer it when behaviours vary independently or when the hierarchy does not fit a tree.
+
+Next: [property attributes and immutability](../property-descriptors/), the settings behind every property.

@@ -1,0 +1,455 @@
+---
+language: javascript
+level: intermediate
+module: Iteration and collections
+order: 8
+title: Iterables and iterators
+description: Learn the iteration protocol behind for...of, spread and destructuring, and make your own objects iterable with Symbol.iterator.
+minVersion: "22"
+objectives:
+  - Describe the iterable and iterator protocols and the shape of a next() result
+  - Name the language features that consume an iterable
+  - Make a class iterable with a [Symbol.iterator]() method
+  - Explain lazy and infinite sequences, early exit with return(), and one-shot iterators
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/08-loops", "fundamentals/beginner/13-sequences-and-arrays"]
+---
+
+You have used `for...of` on arrays, strings, maps and sets since [lesson 14](../../beginner/loops-js/), and spread and destructuring since [lesson 27](../../beginner/destructuring-spread/). They all ask the value the same question: "can you give me your items, one at a time?" The question has a precise form, called the **iteration protocol**, and anything that answers it can be used in all of those places. This lesson shows the protocol, and then writes an object that follows it.
+
+## Iterators by hand
+
+The protocol has two halves, both plain objects with plain methods.
+
+- An **iterator** is an object with a `next()` method. Each call returns an object `{ value, done }`. While there are items, `done` is `false` and `value` is the next item. When the items run out, `done` is `true`.
+- An **iterable** is an object with a method stored under `Symbol.iterator` (the well-known symbol from [lesson 7](../symbols/)). Calling it returns a new iterator.
+
+A `Set` can show it, if you take by hand the steps that `for...of` normally does for you:
+
+```javascript title="manual_iteration.mjs"
+const letters = new Set(["x", "y"]);
+const iterator = letters[Symbol.iterator]();
+
+console.log(iterator.next());
+console.log(iterator.next());
+console.log(iterator.next());
+console.log(iterator.next());
+
+console.log(typeof iterator.next, iterator[Symbol.iterator]() === iterator);
+```
+
+```text
+{ value: 'x', done: false }
+{ value: 'y', done: false }
+{ value: undefined, done: true }
+{ value: undefined, done: true }
+function true
+```
+
+The first two calls give the items. The third says `done: true`, and further calls keep saying so. The last line shows two facts: the object has a `next` function, and calling its `[Symbol.iterator]()` returns itself. Built-in iterators are also iterable, so you can pass one to `for...of`.
+
+A loop like `for (const x of things) { ... }` does this: it gets the iterator from `things`, calls `next()` until `done` is `true`, and runs the body with each `value`. That is all it does, and it is why it works on so many different objects.
+
+## What counts as iterable
+
+Arrays, strings, `Map`, `Set`, the results of `map.keys()` and `array.entries()`, and a few more are iterable. A plain object is not:
+
+```javascript title="not_iterable.mjs"
+const user = { name: "Ada", role: "admin" };
+
+try {
+  for (const item of user) {
+    console.log(item);
+  }
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+TypeError
+```
+
+```javascript title="not_iterable.mjs (continued)"
+try {
+  console.log([...user]);
+} catch (error) {
+  console.log(error.name);
+}
+
+console.log([...Object.entries(user)]);
+```
+
+```text
+TypeError
+[ [ 'name', 'Ada' ], [ 'role', 'admin' ] ]
+```
+
+Both `for...of` and array spread throw a `TypeError`, because the object has no `Symbol.iterator` method. (Spread inside an object literal, `{ ...user }`, is a different feature and does work.) `Object.entries(user)` gives an array, and arrays are iterable, which is the usual fix.
+
+The language features that take any iterable are, from the ones you know to the ones you will meet:
+
+```javascript title="consumers.mjs"
+const words = new Set(["pear", "fig", "apple"]);
+
+for (const word of words) {
+  console.log("for...of:", word);
+}
+```
+
+```text
+for...of: pear
+for...of: fig
+for...of: apple
+```
+
+```javascript title="consumers.mjs (continued)"
+const [first, ...others] = words;
+console.log(first, others);
+console.log([...words].length, Math.max(...new Set([3, 9, 4])));
+```
+
+```text
+pear [ 'fig', 'apple' ]
+3 9
+```
+
+```javascript title="consumers.mjs (continued)"
+console.log(Array.from(words, (word) => word.length));
+console.log(Object.fromEntries(Array.from(words, (w) => [w, w.length])));
+```
+
+```text
+[ 4, 3, 5 ]
+{ pear: 4, fig: 3, apple: 5 }
+```
+
+- `for...of` visits each item.
+- Array destructuring takes the first items, and `...others` collects the rest into an array.
+- Spread, in an array literal or in a call such as `Math.max(...items)`, unpacks the items.
+- `Array.from(iterable, mapFn)` builds an array, and can transform as it goes.
+- `new Set(iterable)`, `new Map(iterable)` and `Object.fromEntries(iterable)` build collections.
+
+Because the protocol is the same everywhere, once your own object is iterable, all of these work on it.
+
+## Writing an iterable
+
+To make a class iterable, give it a method named `[Symbol.iterator]` that returns an iterator. The square brackets are the computed name syntax from lesson 7.
+
+```javascript title="countdown.mjs"
+class Countdown {
+  constructor(from) {
+    this.from = from;
+  }
+
+  [Symbol.iterator]() {
+    let current = this.from;
+    return {
+      next() {
+        if (current < 1) {
+          return { value: undefined, done: true };
+        }
+        return { value: current--, done: false };
+      },
+    };
+  }
+}
+```
+
+Each call of `[Symbol.iterator]()` creates a fresh `current` and returns a new iterator object. The `next` method closes over `current`, returns `{ value, done: false }` and moves on, and finally returns `done: true`. Notice that the result for the last step has a `value` of `undefined`, which loops ignore.
+
+```javascript title="countdown.mjs (continued)"
+const launch = new Countdown(3);
+console.log([...launch]);
+console.log(Array.from(launch, (n) => `T-${n}`));
+```
+
+```text
+[ 3, 2, 1 ]
+[ 'T-3', 'T-2', 'T-1' ]
+```
+
+```javascript title="countdown.mjs (continued)"
+for (const n of launch) {
+  console.log(n);
+}
+```
+
+```text
+3
+2
+1
+```
+
+Spread, `Array.from` and `for...of` all work, and the same `launch` can be used again and again, because every use gets its own iterator and its own `current`. That is the reason the state lives in the iterator, not in the iterable.
+
+## Lazy and infinite sequences
+
+An iterator makes each value when `next()` is called, not before. Nothing says the sequence must end, so an iterator can describe something infinite. The consumer decides how much to take.
+
+```javascript title="infinite_iterable.mjs"
+const naturals = {
+  [Symbol.iterator]() {
+    let n = 1;
+    return { next: () => ({ value: n++, done: false }) };
+  },
+};
+```
+
+```javascript title="infinite_iterable.mjs (continued)"
+for (const n of naturals) {
+  if (n > 3) {
+    break;
+  }
+  console.log(n);
+}
+```
+
+```text
+1
+2
+3
+```
+
+```javascript title="infinite_iterable.mjs (continued)"
+const [a, b, c] = naturals;
+console.log(a, b, c);
+```
+
+```text
+1 2 3
+```
+
+`naturals` has no end, and the loop stops it with `break`. Destructuring takes exactly three items and no more, so it works on an infinite iterable too. What you must not do is spread or `Array.from` an infinite iterable, because they try to collect everything and the program never finishes.
+
+This on-demand behaviour is called **lazy evaluation**, and it is the main reason to use iterators over arrays: you pay only for what you use. The next two lessons build on it.
+
+## Stopping early: return()
+
+Some iterators hold a resource, such as an open file or a timer. When a consumer stops before the end, the iterator needs a chance to clean up. The protocol allows an optional `return()` method for that. `for...of` calls it when the loop ends early, by `break`, `return` or an exception. Destructuring calls it when it has taken all the items it needs.
+
+```javascript title="return_cleanup.mjs"
+const source = {
+  [Symbol.iterator]() {
+    let n = 0;
+    return {
+      next() {
+        n += 1;
+        return { value: n, done: n > 5 };
+      },
+      return() {
+        console.log("cleanup after", n);
+        return { done: true };
+      },
+    };
+  },
+};
+```
+
+```javascript title="return_cleanup.mjs (continued)"
+for (const n of source) {
+  if (n === 2) {
+    break;
+  }
+}
+```
+
+```text
+cleanup after 2
+```
+
+```javascript title="return_cleanup.mjs (continued)"
+const [first] = source;
+console.log("first:", first);
+console.log([...source].length);
+```
+
+```text
+cleanup after 1
+first: 1
+5
+```
+
+The `break` at `2` printed `cleanup after 2`, and `const [first] = source` took one item and printed `cleanup after 1`. The last line spreads all the items to the end, so no cleanup was needed and `return()` was not called. Most iterators do not have a `return()` method. The ones that read files or sockets, and generators in the next lesson, rely on it.
+
+## Iterator or iterable?
+
+The two words are easy to mix up, so look at what happens when you use each one twice:
+
+```javascript title="one_shot.mjs"
+const numbers = [1, 2, 3];
+console.log([...numbers], [...numbers]);
+
+const iterator = numbers.values();
+console.log([...iterator], [...iterator]);
+console.log(iterator[Symbol.iterator]() === iterator);
+```
+
+```text
+[ 1, 2, 3 ] [ 1, 2, 3 ]
+[ 1, 2, 3 ] []
+true
+```
+
+An array is an **iterable**: every `[...numbers]` asks for a fresh iterator, so you can loop as often as you like. The iterator from `numbers.values()` is **one-shot**: the first spread consumes it and the second finds it already at the end. It is still iterable, because its `[Symbol.iterator]()` returns itself, but returning itself means it keeps its position. When you write a class, make the iterable create a new iterator on each call, as `Countdown` did.
+
+## Common pitfalls
+
+- **Using `for...of` on a plain object.** It throws a `TypeError`. Loop over `Object.keys`, `Object.values` or `Object.entries`.
+- **Spreading or collecting an infinite iterable.** The program runs forever. Take a fixed number first.
+- **Keeping the position in the iterable instead of in the iterator.** The second loop then finds the sequence finished. Create the state inside `[Symbol.iterator]()`.
+- **Reusing an exhausted iterator.** `numbers.values()` can be consumed once. Call the method again for a new one.
+- **Forgetting that `next()` must return an object.** Returning a bare value gives a `TypeError` in the loop. Return `{ value, done }`.
+- **Never returning `done: true`.** A loop over such an iterator runs forever. That is right for a deliberately infinite sequence and a bug otherwise.
+
+## Exercises
+
+<Exercise title="An iterable Range class">
+
+Write a class `Range` whose constructor takes `start`, `end` and an optional `step` (default `1`) and whose instances are iterable. It counts from `start` up to, but not including, `end`, in steps of `step`. Create `new Range(0, 10, 3)` and print it spread twice on one line, to prove that it can be used again. Then print `Array.from(new Range(1, 4), (n) => n * n)`, and finally destructure the first two items of `new Range(5, 100)` and print them. The expected output is `[ 0, 3, 6, 9 ] [ 0, 3, 6, 9 ]`, `[ 1, 4, 9 ]` and `5 6`.
+
+<Solution>
+
+The iterator is created fresh in `[Symbol.iterator]()`, with its own copy of the counter, so each spread starts from `start` again. The range is never turned into an array: the destructuring takes two items and stops, even though the range is 95 items long.
+
+```javascript title="range_class.mjs"
+class Range {
+  constructor(start, end, step = 1) {
+    Object.assign(this, { start, end, step });
+  }
+
+  [Symbol.iterator]() {
+    let current = this.start;
+    const { end, step } = this;
+    return {
+      next() {
+        const done = current >= end;
+        const value = done ? undefined : current;
+        current += step;
+        return { value, done };
+      },
+    };
+  }
+}
+```
+
+```javascript title="range_class.mjs (continued)"
+const range = new Range(0, 10, 3);
+console.log([...range], [...range]);
+console.log(Array.from(new Range(1, 4), (n) => n * n));
+const [low, high] = new Range(5, 100);
+console.log(low, high);
+```
+
+```text
+[ 0, 3, 6, 9 ] [ 0, 3, 6, 9 ]
+[ 1, 4, 9 ]
+5 6
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Take the first n">
+
+Write `take(iterable, count)` that returns an array of at most the first `count` items of any iterable, and an empty array when `count` is zero. It must work on infinite iterables, so stop with `break` rather than collecting everything first. Test it with an infinite object `evens` that produces 2, 4, 6 and so on, with the string `"hello"`, with a `Set` of two items and a count of 5, and with `[1, 2, 3]` and a count of 0. The expected output is `[ 2, 4, 6, 8 ]`, `[ 'h', 'e', 'l' ]`, `[ 1, 2 ]` and `[]`.
+
+<Solution>
+
+Check the count of zero first, because a loop that pushes before it tests would take one item too many. The loop stops with `break` as soon as the result is long enough, which also calls the iterator's `return()` if it has one. A short iterable such as the set simply ends the loop early.
+
+```javascript title="take_function.mjs"
+function take(iterable, count) {
+  const result = [];
+  if (count <= 0) {
+    return result;
+  }
+  for (const item of iterable) {
+    result.push(item);
+    if (result.length === count) {
+      break;
+    }
+  }
+  return result;
+}
+```
+
+```javascript title="take_function.mjs (continued)"
+const evens = {
+  [Symbol.iterator]() {
+    let n = 0;
+    return { next: () => ({ value: (n += 2), done: false }) };
+  },
+};
+```
+
+```javascript title="take_function.mjs (continued)"
+console.log(take(evens, 4));
+console.log(take("hello", 3));
+console.log(take(new Set([1, 2]), 5));
+console.log(take([1, 2, 3], 0));
+```
+
+```text
+[ 2, 4, 6, 8 ]
+[ 'h', 'e', 'l' ]
+[ 1, 2 ]
+[]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Zip two iterables by hand">
+
+Write `zip(first, second)` that pairs up the items of two iterables and returns an array of two-item arrays, stopping when either one runs out. Do not use `for...of`. Get an iterator from each argument with `[Symbol.iterator]()` and call `next()` yourself. Print `zip([1, 2, 3], "ab")`, `zip(new Set(["x"]), new Set(["y", "z"]))` and `zip([], [1])`. The expected output is `[ [ 1, 'a' ], [ 2, 'b' ] ]`, `[ [ 'x', 'y' ] ]` and `[]`.
+
+<Solution>
+
+Each loop step calls `next()` on both iterators and stops if either reports `done`. Taking both results before the check means a finished second iterator is noticed in the same step.
+
+```javascript title="zip_function.mjs"
+function zip(first, second) {
+  const a = first[Symbol.iterator]();
+  const b = second[Symbol.iterator]();
+  const pairs = [];
+
+  while (true) {
+    const left = a.next();
+    const right = b.next();
+    if (left.done || right.done) {
+      return pairs;
+    }
+    pairs.push([left.value, right.value]);
+  }
+}
+```
+
+```javascript title="zip_function.mjs (continued)"
+console.log(zip([1, 2, 3], "ab"));
+console.log(zip(new Set(["x"]), new Set(["y", "z"])));
+console.log(zip([], [1]));
+```
+
+```text
+[ [ 1, 'a' ], [ 2, 'b' ] ]
+[ [ 'x', 'y' ] ]
+[]
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- An **iterator** has a `next()` method that returns `{ value, done }`. An **iterable** has a `[Symbol.iterator]()` method that returns an iterator.
+- `for...of`, spread, array destructuring, `Array.from`, `new Set`, `new Map` and `Object.fromEntries` all work on any iterable. Plain objects are not iterable.
+- Make a class iterable by adding `[Symbol.iterator]()`, and keep the position state inside the iterator it returns, so the object can be used repeatedly.
+- Iterators are lazy and can be infinite. Take what you need with `break` or destructuring.
+- An optional `return()` method lets an iterator clean up when a consumer stops early.
+- Array iterators from `values()` are one-shot, while the array itself can be iterated again.
+
+Next: [generators](../generators/), functions that write iterators for you.

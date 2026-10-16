@@ -1,0 +1,4 @@
+Map(3) { 'apple' => 5, 'plum' => 12, 'fig' => 3 }
+[ 'plum', 'apple', 'fig', 'pear' ]
+24
+99 5

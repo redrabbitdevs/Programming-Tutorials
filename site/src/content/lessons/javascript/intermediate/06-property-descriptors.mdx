@@ -1,0 +1,451 @@
+---
+language: javascript
+level: intermediate
+module: Objects, prototypes and classes
+order: 6
+title: Property attributes and immutability
+description: Read and set the attributes behind every property with property descriptors, and compare preventExtensions, seal and freeze for protecting objects.
+minVersion: "22"
+objectives:
+  - Read a property's descriptor and say what writable, enumerable and configurable control
+  - Create read-only and hidden properties with Object.defineProperty
+  - Define accessor properties with get and set in a descriptor
+  - Compare preventExtensions, seal and freeze, and write a deep freeze
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/15-records-and-objects", "fundamentals/beginner/18-memory-and-references"]
+---
+
+So far a property has been a name and a value. Behind each one the engine keeps a few more settings: may it be assigned to, does it show up in loops, can it be removed. Normally you never see them, because a plain `{ a: 1 }` sets all of them to the permissive default. This lesson shows where they are, how to change them, and how they explain behaviour you have already seen: why class methods do not appear in `Object.keys`, why an assignment to a frozen object fails, and why `Object.freeze` from [lesson 28](../../beginner/copies-and-references/) is shallow.
+
+## Descriptors
+
+The settings of a property are collected in a **property descriptor**, an object you can read with `Object.getOwnPropertyDescriptor(object, name)`.
+
+```javascript title="descriptor_read.mjs"
+const user = {
+  name: "Ada",
+  get label() {
+    return `user ${this.name}`;
+  },
+};
+
+console.log(Object.getOwnPropertyDescriptor(user, "name"));
+console.log(Object.getOwnPropertyDescriptor(user, "label"));
+console.log(Object.getOwnPropertyDescriptor([1, 2], "length"));
+```
+
+```text
+{ value: 'Ada', writable: true, enumerable: true, configurable: true }
+{
+  get: [Function: get label],
+  set: undefined,
+  enumerable: true,
+  configurable: true
+}
+{ value: 2, writable: true, enumerable: false, configurable: false }
+```
+
+A **data property** has a `value` and three flags:
+
+- `writable`: whether assignment can change the value.
+- `enumerable`: whether the property shows up in `Object.keys`, `for...in`, spread and `JSON.stringify`.
+- `configurable`: whether the property can be deleted or have its attributes changed.
+
+The getter in the literal is an **accessor property**. It has `get` and `set` functions instead of `value` and `writable`, plus the same `enumerable` and `configurable` flags. The array's `length` is a data property that is writable but not configurable, so it cannot be deleted.
+
+The same view explains class methods:
+
+```javascript title="descriptor_read.mjs (continued)"
+class Point {
+  norm() {}
+}
+console.log(Object.getOwnPropertyDescriptor(Point.prototype, "norm"));
+```
+
+```text
+{
+  value: [Function: norm],
+  writable: true,
+  enumerable: false,
+  configurable: true
+}
+```
+
+Methods are writable and configurable but not enumerable, which is why methods do not show up when you list an instance's keys or loop over its properties.
+
+## Creating properties with defineProperty
+
+`Object.defineProperty(object, name, descriptor)` creates a property, or changes an existing one, with the attributes you give. This is the opposite of object literals: **every flag you leave out is `false`**.
+
+```javascript title="define_property.mjs"
+const product = { name: "lamp" };
+
+Object.defineProperty(product, "sku", { value: "L-100" });
+console.log(Object.getOwnPropertyDescriptor(product, "sku"));
+```
+
+```text
+{
+  value: 'L-100',
+  writable: false,
+  enumerable: false,
+  configurable: false
+}
+```
+
+```javascript title="define_property.mjs (continued)"
+Object.defineProperty(product, "price", {
+  value: 20,
+  writable: true,
+  enumerable: true,
+  configurable: true,
+});
+console.log(Object.keys(product), product.sku);
+```
+
+```text
+[ 'name', 'price' ] L-100
+```
+
+`sku` gets the value and nothing else, so it cannot be changed, listed or deleted. `price` spells out the permissive flags and behaves like an ordinary property. `Object.defineProperties(object, { name: descriptor, ... })` defines several at once, and `Object.getOwnPropertyDescriptors(object)` returns all descriptors.
+
+## writable and enumerable
+
+A non-writable property keeps its value. In a module, which is strict, an attempt to assign throws a `TypeError`. A non-enumerable property is hidden from enumeration but is otherwise normal.
+
+```javascript title="writable_enumerable.mjs"
+const config = { name: "app" };
+Object.defineProperty(config, "version", {
+  value: "1.0",
+  writable: false,
+  enumerable: true,
+});
+Object.defineProperty(config, "token", {
+  value: "abc123",
+  enumerable: false,
+});
+```
+
+```javascript title="writable_enumerable.mjs (continued)"
+try {
+  config.version = "2.0";
+} catch (error) {
+  console.log(error.name, config.version);
+}
+
+console.log(Object.keys(config), JSON.stringify(config));
+console.log({ ...config }, config.token, "token" in config);
+console.log(Object.getOwnPropertyNames(config));
+```
+
+```text
+TypeError 1.0
+[ 'name', 'version' ] {"name":"app","version":"1.0"}
+{ name: 'app', version: '1.0' } abc123 true
+[ 'name', 'version', 'token' ]
+```
+
+- The assignment to `version` throws, and the value stays `"1.0"`.
+- `Object.keys`, `JSON.stringify` and spread (`{ ...config }`) leave out `token`, so it is a way to keep a value out of serialised output. This is not security: `config.token` still works, `in` still finds it, and `Object.getOwnPropertyNames` lists it. It only removes the property from the places that enumerate.
+
+## configurable
+
+When `configurable` is `false`, the property is locked in place. You cannot delete it and you cannot redefine it in most ways.
+
+```javascript title="configurable.mjs"
+const item = { count: 1 };
+Object.defineProperty(item, "id", {
+  value: 7,
+  writable: true,
+  configurable: false,
+});
+
+try {
+  delete item.id;
+} catch (error) {
+  console.log("delete:", error.name);
+}
+```
+
+```text
+delete: TypeError
+```
+
+```javascript title="configurable.mjs (continued)"
+try {
+  Object.defineProperty(item, "id", { enumerable: true });
+} catch (error) {
+  console.log("redefine:", error.name);
+}
+
+item.id = 8;
+Object.defineProperty(item, "id", { writable: false });
+console.log(item.id, Object.getOwnPropertyDescriptor(item, "id").writable);
+```
+
+```text
+redefine: TypeError
+8 false
+```
+
+Both attempts throw. Changing the value is still allowed while `writable` is `true`, so `item.id = 8` works. One more change is allowed: turning `writable` from `true` to `false`. That step is one-way, and the descriptor ends up read-only, as the last line shows.
+
+## Accessors in a descriptor
+
+An accessor property is defined with `get` and `set` in the descriptor. This is how you add a computed property to an object that already exists, including one you did not write.
+
+```javascript title="accessor_define.mjs"
+const temperature = { celsius: 20 };
+
+Object.defineProperty(temperature, "fahrenheit", {
+  get() {
+    return (this.celsius * 9) / 5 + 32;
+  },
+  set(value) {
+    this.celsius = ((value - 32) * 5) / 9;
+  },
+  enumerable: true,
+  configurable: true,
+});
+```
+
+```javascript title="accessor_define.mjs (continued)"
+console.log(temperature.fahrenheit);
+temperature.fahrenheit = 212;
+console.log(temperature.celsius, Object.keys(temperature));
+```
+
+```text
+68
+100 [ 'celsius', 'fahrenheit' ]
+```
+
+A descriptor cannot mix `value` or `writable` with `get` or `set`. Here `enumerable: true` makes the property show up in `Object.keys`, like a getter written in an object literal. Leave it out and the property is hidden.
+
+## preventExtensions, seal and freeze
+
+Three functions apply a whole-object lock, from lightest to heaviest:
+
+- `Object.preventExtensions(object)` stops new properties from being added.
+- `Object.seal(object)` also marks every existing property non-configurable, so nothing can be added or deleted.
+- `Object.freeze(object)` also marks every data property non-writable, so values cannot change either.
+
+A helper that tries all three operations shows the differences:
+
+```javascript title="freeze_levels.mjs"
+function probe(label, object) {
+  const results = [];
+  for (const [action, fn] of [
+    ["add", () => (object.extra = 1)],
+    ["change", () => (object.value = 2)],
+    ["delete", () => delete object.value],
+  ]) {
+    try {
+      fn();
+      results.push(`${action}:ok`);
+    } catch (error) {
+      results.push(`${action}:${error.name}`);
+    }
+  }
+  console.log(label.padEnd(10), results.join(" "));
+}
+```
+
+```javascript title="freeze_levels.mjs (continued)"
+probe("normal", { value: 1 });
+probe("noExtend", Object.preventExtensions({ value: 1 }));
+probe("sealed", Object.seal({ value: 1 }));
+probe("frozen", Object.freeze({ value: 1 }));
+```
+
+```text
+normal     add:ok change:ok delete:ok
+noExtend   add:TypeError change:ok delete:ok
+sealed     add:TypeError change:ok delete:TypeError
+frozen     add:TypeError change:TypeError delete:TypeError
+```
+
+Each row loses one more ability. In a module the failures are `TypeError`s. In older sloppy scripts they were silently ignored, which hid many bugs. `Object.isExtensible`, `Object.isSealed` and `Object.isFrozen` ask which level an object is at.
+
+```javascript title="freeze_checks.mjs"
+const sealed = Object.seal({ a: 1 });
+const frozen = Object.freeze({ a: 1 });
+
+console.log(Object.isExtensible(sealed), Object.isSealed(sealed));
+console.log(Object.isFrozen(sealed), Object.isFrozen(frozen));
+```
+
+```text
+false true
+false true
+```
+
+A sealed object is not frozen because its values can still change. All three functions are **shallow**, as lesson 28 showed: they lock the object you give, not the objects it points to. A frozen array whose element is an object still lets you change that object. The deep freeze exercise below fixes that.
+
+Freezing also has a cost for design: you cannot "unfreeze" an object, so freeze values that are truly constants, such as configuration, and copy before changing. For data that changes, build a new object with spread, as lesson 27 showed.
+
+## Common pitfalls
+
+- **Forgetting that defineProperty defaults to `false`.** A property defined with only `value` is read-only, hidden and permanent. List the flags you want.
+- **Expecting a non-enumerable property to be private.** It still can be read, assigned (if writable) and found with `in`. For real privacy use the `#` names of lesson 4.
+- **Assuming `freeze` is deep.** Nested objects and arrays stay mutable. Freeze them too, or copy before sharing.
+- **Mixing `get` with `value` in a descriptor.** It throws a `TypeError`.
+- **Redefining a non-configurable property.** The engine throws. Decide the flags when you first define it.
+- **Relying on silent failure.** Sloppy code ignores writes to read-only properties. Modules throw, so a script that worked in a `.js` file may start failing as an ES module.
+
+## Exercises
+
+<Exercise title="A read-only config object">
+
+Create an empty object `settings` and, with `Object.defineProperties`, give it two visible read-only properties, `host` set to `"localhost"` and `port` set to `8080`, and a hidden read-only property `secret` set to `"s3cr3t"`. Try to assign `settings.port = 9090` inside `try`/`catch`, printing the error name. Then print the port together with `Object.keys(settings)`, and finally the result of `JSON.stringify(settings)` together with `settings.secret`. The expected output is `TypeError`, `8080 [ 'host', 'port' ]` and `{"host":"localhost","port":8080} s3cr3t`.
+
+<Solution>
+
+Leaving out `writable` makes a property read-only, and `enumerable: true` is what makes `host` and `port` visible to `Object.keys` and `JSON.stringify`. `secret` leaves both flags out, so it is read-only and hidden, but still readable by name.
+
+```javascript title="readonly_config.mjs"
+const settings = {};
+
+Object.defineProperties(settings, {
+  host: { value: "localhost", enumerable: true },
+  port: { value: 8080, enumerable: true },
+  secret: { value: "s3cr3t" },
+});
+```
+
+```javascript title="readonly_config.mjs (continued)"
+try {
+  settings.port = 9090;
+} catch (error) {
+  console.log(error.name);
+}
+
+console.log(settings.port, Object.keys(settings));
+console.log(JSON.stringify(settings), settings.secret);
+```
+
+```text
+TypeError
+8080 [ 'host', 'port' ]
+{"host":"localhost","port":8080} s3cr3t
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A deep freeze">
+
+Write `deepFreeze(value)` that freezes an object and everything reachable through its properties, and returns the value. Skip values that are not objects, and take care that `null` is not an object for this purpose. Freeze `{ db: { host: "localhost", ports: [1, 2] } }` with it, then try three changes in a loop, each inside `try`/`catch`: setting `config.db.host`, calling `config.db.ports.push(3)` and deleting `config.db`. Print the error name for each, or `changed` if it works, and finally print the config. The expected output is three lines of `TypeError`, followed by `{ db: { host: 'localhost', ports: [ 1, 2 ] } }`.
+
+<Solution>
+
+The function freezes the children first with a recursive call and then the object itself. The `typeof value === "object" && value !== null` check stops at numbers, strings and `null`. Arrays are objects, so `push` on the frozen array throws too.
+
+```javascript title="deep_freeze.mjs"
+function deepFreeze(value) {
+  if (typeof value === "object" && value !== null) {
+    for (const child of Object.values(value)) {
+      deepFreeze(child);
+    }
+    Object.freeze(value);
+  }
+  return value;
+}
+
+const config = deepFreeze({ db: { host: "localhost", ports: [1, 2] } });
+```
+
+```javascript title="deep_freeze.mjs (continued)"
+for (const change of [
+  () => (config.db.host = "remote"),
+  () => config.db.ports.push(3),
+  () => delete config.db,
+]) {
+  try {
+    change();
+    console.log("changed");
+  } catch (error) {
+    console.log(error.name);
+  }
+}
+console.log(config);
+```
+
+```text
+TypeError
+TypeError
+TypeError
+{ db: { host: 'localhost', ports: [ 1, 2 ] } }
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Copy an object that has a getter">
+
+Given this object:
+
+```javascript
+const source = {
+  first: "Ada",
+  last: "Lovelace",
+  get full() {
+    return `${this.first} ${this.last}`;
+  },
+};
+```
+
+Make `assigned` with `Object.assign({}, source)` and `cloned` with `Object.defineProperties({}, Object.getOwnPropertyDescriptors(source))`. Change `first` to `"Grace"` on both copies, and print the `full` of each on one line, separated by `" | "`. Then print the `value` of the descriptor of `assigned.full`, and the `typeof` the `get` of the descriptor of `cloned.full`. The expected output is `Ada Lovelace | Grace Lovelace`, then `Ada Lovelace` and `function`.
+
+<Solution>
+
+`Object.assign` reads each property with an ordinary get, so it runs the getter once and stores the resulting string as plain data. The copy is a snapshot, and changing `first` does not change `full`. Copying the descriptors keeps the accessor itself, so `cloned` still computes `full` from its own `first`.
+
+```javascript title="copy_accessors.mjs"
+const source = {
+  first: "Ada",
+  last: "Lovelace",
+  get full() {
+    return `${this.first} ${this.last}`;
+  },
+};
+```
+
+```javascript title="copy_accessors.mjs (continued)"
+const assigned = Object.assign({}, source);
+const cloned = Object.defineProperties(
+  {},
+  Object.getOwnPropertyDescriptors(source),
+);
+```
+
+```javascript title="copy_accessors.mjs (continued)"
+assigned.first = "Grace";
+cloned.first = "Grace";
+console.log(assigned.full, "|", cloned.full);
+console.log(Object.getOwnPropertyDescriptor(assigned, "full").value);
+console.log(typeof Object.getOwnPropertyDescriptor(cloned, "full").get);
+```
+
+```text
+Ada Lovelace | Grace Lovelace
+Ada Lovelace
+function
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Every property has attributes. A data property has `value`, `writable`, `enumerable` and `configurable`. An accessor has `get` and `set` instead of the first two.
+- Properties from literals and assignments have all flags `true`. `Object.defineProperty` defaults every missing flag to `false`.
+- Non-writable properties reject assignment with a `TypeError` in modules. Non-enumerable ones are hidden from `Object.keys`, `for...in`, spread and `JSON.stringify`, but not private.
+- Non-configurable properties cannot be deleted or redefined, apart from the one-way step of making them non-writable.
+- `preventExtensions`, `seal` and `freeze` lock a whole object at increasing strength, and all are shallow. Write a recursive freeze for nested data.
+- `Object.assign` copies values. Copy descriptors to keep accessors.
+
+Next: [symbols](../symbols/), unique keys that let objects take part in the language's own protocols.

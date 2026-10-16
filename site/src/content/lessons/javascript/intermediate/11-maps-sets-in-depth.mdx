@@ -1,0 +1,456 @@
+---
+language: javascript
+level: intermediate
+module: Iteration and collections
+order: 11
+title: Map and Set in depth
+description: Go beyond the basics of Map and Set with composite keys, transformations, mutation during iteration, lazy upserts with getOrInsertComputed, and set-like arguments.
+minVersion: "22"
+objectives:
+  - Choose keys for a Map when the natural key is a pair or an object
+  - Filter, sort and merge maps by going through entries
+  - Predict what happens when a Map or Set changes during iteration
+  - Use getOrInsert and getOrInsertComputed, and know the difference
+  - Pass any set-like object to the Set methods
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/14-maps-and-sets", "fundamentals/beginner/20-big-o"]
+---
+
+[Lesson 29](../../beginner/map-and-set/) introduced `Map`, `Set`, the set operations and `getOrInsert`. This lesson is about the situations where they bite: keys that are not simple, collections you reshape, loops that change what they loop over, and the choice between the two upsert methods. The general trade-offs of hash-based collections are in the fundamentals lessons on [maps and sets](../../../fundamentals/beginner/maps-and-sets/) and [Big-O](../../../fundamentals/beginner/big-o/). Here the focus is on JavaScript's behaviour.
+
+## Choosing keys
+
+A `Map` compares keys by identity for objects and arrays. That means two arrays with the same contents are two different keys, which surprises people who want a coordinate pair as a key.
+
+```javascript title="composite_keys.mjs"
+const visited = new Map();
+visited.set([0, 0], "origin");
+console.log(visited.get([0, 0]));
+```
+
+```text
+undefined
+```
+
+```javascript title="composite_keys.mjs (continued)"
+const key = (x, y) => `${x},${y}`;
+const grid = new Map();
+grid.set(key(0, 0), "origin");
+grid.set(key(2, 3), "tree");
+console.log(grid.get(key(2, 3)), grid.get(key(9, 9)));
+```
+
+```text
+tree undefined
+```
+
+```javascript title="composite_keys.mjs (continued)"
+const nested = new Map();
+nested.set(2, new Map([[3, "tree"]]));
+console.log(nested.get(2)?.get(3));
+```
+
+```text
+tree
+```
+
+The first lookup finds nothing, because `[0, 0]` in `get` is a new array. Two fixes are common:
+
+- **Build a string key** from the parts, such as `"2,3"`. It is simple, and works as long as the parts cannot contain the separator.
+- **Nest maps**: an outer map by `x` holding inner maps by `y`. This needs two lookups, and the optional chaining `?.` handles a missing outer entry.
+
+If one of the parts can be a string that holds your separator, pick a separator that cannot occur, or use nested maps.
+
+## Reshaping maps and sets
+
+Maps have no `filter` or `sort` of their own. Go through the entries instead: spread the map into an array of `[key, value]` pairs, use the array methods, and give the result back to `new Map`. Because the pair is an array, destructuring in the callback reads well, and `[, count]` skips the key.
+
+```javascript title="map_transform.mjs"
+const stock = new Map([
+  ["apple", 5],
+  ["pear", 0],
+  ["plum", 12],
+  ["fig", 3],
+]);
+
+const inStock = new Map([...stock].filter(([, count]) => count > 0));
+console.log(inStock);
+```
+
+```text
+Map(3) { 'apple' => 5, 'plum' => 12, 'fig' => 3 }
+```
+
+```javascript title="map_transform.mjs (continued)"
+const byCount = new Map([...stock].sort((a, b) => b[1] - a[1]));
+console.log([...byCount.keys()]);
+```
+
+```text
+[ 'plum', 'apple', 'fig', 'pear' ]
+```
+
+```javascript title="map_transform.mjs (continued)"
+const doubled = new Map(stock.entries().map(([name, n]) => [name, n * 2]));
+console.log(doubled.get("plum"));
+```
+
+```text
+24
+```
+
+```javascript title="map_transform.mjs (continued)"
+const merged = new Map([...stock, ["apple", 99], ["kiwi", 1]]);
+console.log(merged.get("apple"), merged.size);
+```
+
+```text
+99 5
+```
+
+- `filter` on the entries drops `pear`, and the new map keeps the original order.
+- A map remembers insertion order, so sorting the pairs and building a new map gives a map whose keys come out sorted.
+- The entries iterator has the helper methods from [the previous lesson](../iterator-helpers/), so `stock.entries().map(...)` transforms lazily with no spread.
+- Merging is a spread of two lists of entries: later pairs win. `apple` ends with 99, and the map has five entries.
+
+Sets work the same way: `new Set([...set].filter(...))`, or `set.values().filter(...)` followed by `new Set(...)`.
+
+## Changing a collection while looping
+
+Maps and sets visit entries in insertion order, and they look at the collection as it is on each step, so changes during the loop have defined effects.
+
+```javascript title="iterate_mutate.mjs"
+const queue = new Map([["a", 1], ["b", 2], ["c", 3]]);
+
+for (const [name, value] of queue) {
+  console.log("visit", name);
+  if (name === "a") {
+    queue.delete("b");
+    queue.set("d", 4);
+  }
+}
+console.log([...queue.keys()]);
+```
+
+```text
+visit a
+visit c
+visit d
+[ 'a', 'c', 'd' ]
+```
+
+```javascript title="iterate_mutate.mjs (continued)"
+const seen = new Set([1]);
+for (const n of seen) {
+  if (n < 4) {
+    seen.add(n + 1);
+  }
+}
+console.log([...seen]);
+```
+
+```text
+[ 1, 2, 3, 4 ]
+```
+
+- An entry that is deleted before it is reached is **not** visited. `b` was deleted while handling `a`, so the loop goes from `a` to `c`.
+- An entry added during the loop **is** visited. `d` was added at the end and the loop reaches it.
+- The `Set` loop keeps adding `n + 1` until 4, so it finishes with four numbers.
+
+These rules make it safe to delete the current entry in a loop and to run a work-list algorithm that adds new items as it goes. They also make accidental infinite loops possible, as when every step adds a new item. Be careful when adding inside a loop, and ask whether you want the new entries to be visited.
+
+## Two kinds of upsert
+
+An **upsert** is "read it, creating it first if it is missing". [Lesson 29](../../beginner/map-and-set/) showed `getOrInsert(key, defaultValue)`. There is a sibling, `getOrInsertComputed(key, callback)`, and the difference matters when the default is costly or has side effects. <Since v="26" /> Both methods are part of ES2026 and need Node 26.
+
+With `getOrInsert` the default is an argument, so it is evaluated on every call, whether or not it is used. With `getOrInsertComputed` the callback runs only when the key is missing, and it receives the key.
+
+```javascript title="upsert_lazy.mjs"
+let created = 0;
+const makeList = () => {
+  created += 1;
+  return [];
+};
+
+const eager = new Map();
+for (const word of ["ant", "bee", "ape"]) {
+  eager.getOrInsert(word[0], makeList()).push(word);
+}
+console.log(created);
+```
+
+```text
+3
+```
+
+```javascript title="upsert_lazy.mjs (continued)"
+created = 0;
+const lazy = new Map();
+for (const word of ["ant", "bee", "ape"]) {
+  lazy.getOrInsertComputed(word[0], makeList).push(word);
+}
+console.log(created, lazy);
+```
+
+```text
+2 Map(2) { 'a' => [ 'ant', 'ape' ], 'b' => [ 'bee' ] }
+```
+
+The eager version built three lists, and two were thrown away because their keys already existed. The lazy version made only two. For an empty array that costs very little, but when the default is a large structure, a database call or a random id, use `getOrInsertComputed`.
+
+On Node 22 and 24 neither method exists, and a small function gives the same behaviour:
+
+```javascript title="upsert_fallback.mjs"
+function getOrInsertComputed(map, key, create) {
+  if (!map.has(key)) {
+    map.set(key, create(key));
+  }
+  return map.get(key);
+}
+
+const index = new Map();
+for (const word of ["ant", "bee", "ape"]) {
+  getOrInsertComputed(index, word[0], () => []).push(word);
+}
+console.log(index);
+```
+
+```text
+Map(2) { 'a' => [ 'ant', 'ape' ], 'b' => [ 'bee' ] }
+```
+
+It checks with `has`, sets and then reads, so it needs three lookups where the real methods need one. It also avoids the trap of writing `map.get(key) ?? map.set(key, [])`, which returns the **map** when the key is new, because `set` returns the map. If your code must run on older Node versions, use this helper.
+
+## Set methods take set-likes
+
+In [lesson 29](../../beginner/map-and-set/) the set methods were given other sets. They accept any **set-like** object, which means an object with a numeric `size`, a `has(value)` method and a `keys()` method that returns an iterator. A `Map` fits that description, with its keys as the members. An array does not.
+
+```javascript title="set_like.mjs"
+const wanted = new Set(["a", "b", "c"]);
+const stockLevels = new Map([["b", 4], ["c", 0], ["z", 9]]);
+
+console.log(wanted.intersection(stockLevels));
+console.log(wanted.difference(stockLevels));
+```
+
+```text
+Set(2) { 'b', 'c' }
+Set(1) { 'a' }
+```
+
+```javascript title="set_like.mjs (continued)"
+try {
+  wanted.union(["x"]);
+} catch (error) {
+  console.log(error.name);
+}
+console.log(wanted.union(new Set(["x"])).size);
+```
+
+```text
+TypeError
+4
+```
+
+`wanted.intersection(stockLevels)` keeps the names that are keys of the map. This avoids building a temporary set just to ask "which of these are in stock?". An array has no `size` or `has`, so `union(["x"])` throws a `TypeError`. Wrap it in `new Set(...)` first.
+
+## Sets as lookup tables
+
+Most set code in practice is not set algebra but lookups. Build the set once, and test against it many times.
+
+```javascript title="set_lookup.mjs"
+const orders = [
+  { id: 1, customer: "ada" },
+  { id: 2, customer: "bob" },
+  { id: 3, customer: "ada" },
+  { id: 4, customer: "cyd" },
+];
+const blocked = new Set(["bob", "cyd"]);
+```
+
+```javascript title="set_lookup.mjs (continued)"
+const allowed = orders.filter((order) => !blocked.has(order.customer));
+console.log(allowed.map((order) => order.id));
+```
+
+```text
+[ 1, 3 ]
+```
+
+```javascript title="set_lookup.mjs (continued)"
+const customers = new Set(orders.map((order) => order.customer));
+console.log(customers.size, [...customers].join(","));
+```
+
+```text
+3 ada,bob,cyd
+```
+
+Searching an array with `includes` for every order repeats the search each time. A set built once makes each test a single `has`. The same idea gives the usual way to count distinct values, `new Set(values).size`.
+
+## Common pitfalls
+
+- **Using an array or object as a key and looking it up with a copy.** Keys are compared by identity. Use a string key, nested maps, or the original object.
+- **Writing `map.get(k) ?? map.set(k, v)`.** `set` returns the map, not the value. Use `getOrInsert`.
+- **Calling `getOrInsert` with an expensive default.** It is computed every time. Use `getOrInsertComputed`.
+- **Using the methods on an old Node.** Both upserts need Node 26. Write the helper instead.
+- **Passing an array to a set method.** Arrays are not set-like. Convert them with `new Set(array)`.
+- **Adding entries during a loop without thinking.** New entries are visited, so a loop that always adds can run forever.
+- **Expecting `JSON.stringify` to print a Map or Set.** Both give `{}`. Convert with `[...map]` or `[...set]` first.
+
+## Exercises
+
+<Exercise title="Group log lines by level">
+
+<Since v="26" /> Split each line below into its level (the first word) and message (the rest), and collect the messages per level in a map, using `getOrInsert` to create each list. The lines are `WARN low disk`, `INFO boot`, `ERROR no route`, `INFO ready`, `WARN slow query` and `INFO idle`. Print one line per level, in the order the levels first appeared, as `LEVEL (count): message; message`. The expected output is `WARN (2): low disk; slow query`, `INFO (3): boot; ready; idle` and `ERROR (1): no route`.
+
+<Solution>
+
+Destructuring with `...rest` splits off the level, and `rest.join(" ")` rebuilds the message. `getOrInsert` returns the list for the level, new or existing, so `push` can follow directly. The map keeps the order of first insertion, which gives the required order.
+
+```javascript title="group_log.mjs"
+const lines = [
+  "WARN low disk",
+  "INFO boot",
+  "ERROR no route",
+  "INFO ready",
+  "WARN slow query",
+  "INFO idle",
+];
+```
+
+```javascript title="group_log.mjs (continued)"
+const byLevel = new Map();
+for (const line of lines) {
+  const [level, ...rest] = line.split(" ");
+  byLevel.getOrInsert(level, []).push(rest.join(" "));
+}
+```
+
+```javascript title="group_log.mjs (continued)"
+for (const [level, messages] of byLevel) {
+  console.log(`${level} (${messages.length}): ${messages.join("; ")}`);
+}
+```
+
+```text
+WARN (2): low disk; slow query
+INFO (3): boot; ready; idle
+ERROR (1): no route
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A search index">
+
+<Since v="26" /> Build an inverted index from three documents, numbered 1 to 3: `the quick brown fox`, `the lazy dog` and `a quick dog and a fox`. The index is a map from each word to a set of the numbers of the documents that contain it, created with `getOrInsertComputed` so that no throwaway set is made. Print the set for `quick`. Then print the documents that contain both `fox` and `dog`, using `intersection`, followed by the number of documents containing `cat`, using optional chaining so an unknown word gives `0`. The expected output is `Set(2) { 1, 3 }` and then `Set(1) { 3 } 0`.
+
+<Solution>
+
+A set per word means a word that appears twice in a document is stored once. `intersection` combines the two sets, and `index.get("cat")?.size ?? 0` turns "no entry" into 0.
+
+```javascript title="inverted_index.mjs"
+const docs = new Map([
+  [1, "the quick brown fox"],
+  [2, "the lazy dog"],
+  [3, "a quick dog and a fox"],
+]);
+```
+
+```javascript title="inverted_index.mjs (continued)"
+const index = new Map();
+for (const [id, text] of docs) {
+  for (const word of text.split(" ")) {
+    index.getOrInsertComputed(word, () => new Set()).add(id);
+  }
+}
+```
+
+```javascript title="inverted_index.mjs (continued)"
+console.log(index.get("quick"));
+const both = index.get("fox").intersection(index.get("dog"));
+console.log(both, index.get("cat")?.size ?? 0);
+```
+
+```text
+Set(2) { 1, 3 }
+Set(1) { 3 } 0
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A least-recently-used cache">
+
+A map remembers insertion order, so its first key is always the oldest. Use that to write a class `LruCache` that keeps at most `limit` entries in a private map. `get(key)` returns the value, or `undefined`, and marks the entry as recently used by deleting and re-inserting it. `set(key, value)` stores the entry as the most recent, and if the cache is now over the limit it removes the oldest one, which is the first key in the map. A getter `keys` returns the keys, oldest first. With a limit of 2, set `a` and `b`, get `a`, set `c`, then print `cache.keys`, `cache.get("b")` and `cache.get("a")` on one line. The expected output is `[ 'a', 'c' ] undefined 1`.
+
+<Solution>
+
+Reading `a` moved it behind `b`, so `b` was the oldest when `c` arrived and was evicted. `keys().next().value` takes the first key without copying the whole map.
+
+```javascript title="lru_cache.mjs"
+class LruCache {
+  #limit;
+  #entries = new Map();
+
+  constructor(limit) {
+    this.#limit = limit;
+  }
+
+  get(key) {
+    if (!this.#entries.has(key)) {
+      return undefined;
+    }
+    const value = this.#entries.get(key);
+    this.#entries.delete(key);
+    this.#entries.set(key, value);
+    return value;
+  }
+```
+
+```javascript title="lru_cache.mjs (continued)"
+  set(key, value) {
+    this.#entries.delete(key);
+    this.#entries.set(key, value);
+    if (this.#entries.size > this.#limit) {
+      const oldest = this.#entries.keys().next().value;
+      this.#entries.delete(oldest);
+    }
+  }
+
+  get keys() {
+    return [...this.#entries.keys()];
+  }
+}
+```
+
+```javascript title="lru_cache.mjs (continued)"
+const cache = new LruCache(2);
+cache.set("a", 1);
+cache.set("b", 2);
+cache.get("a");
+cache.set("c", 3);
+console.log(cache.keys, cache.get("b"), cache.get("a"));
+```
+
+```text
+[ 'a', 'c' ] undefined 1
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Object and array keys are compared by identity. Use a string key built from the parts, or nested maps, for composite keys.
+- Reshape a map by spreading its entries, using array methods or the entries iterator's helpers, and passing the result to `new Map`. Insertion order is kept, so sorting before building sorts the map.
+- During a loop, an entry deleted before it is reached is skipped, and an entry added is visited.
+- <Since v="26" /> `getOrInsert` evaluates its default every time. `getOrInsertComputed` calls its callback only for a missing key. On older Node, write a helper with `has`, `set` and `get`.
+- The Set methods accept any set-like object (`size`, `has`, `keys`), including a `Map`, but not an array.
+- Build a set once for repeated membership tests.
+
+Next: [weak collections](../weak-collections/), which hold objects without keeping them alive.

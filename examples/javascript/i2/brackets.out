@@ -1,0 +1,5 @@
+"(a[b]{c})" true
+"(]" false
+"((" false
+"" true
+"a)" false

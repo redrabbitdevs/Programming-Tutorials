@@ -1,0 +1,362 @@
+---
+language: javascript
+level: intermediate
+module: Iteration and collections
+order: 12
+title: WeakMap, WeakSet and WeakRef
+description: Attach data to objects without keeping them alive using WeakMap and WeakSet, and learn why WeakRef and FinalizationRegistry are tools of last resort.
+minVersion: "22"
+objectives:
+  - Explain what weak references are and what garbage collection does
+  - Use a WeakMap to attach data to an object without changing or retaining it
+  - Use a WeakSet to mark objects as seen
+  - Describe WeakRef and FinalizationRegistry and why not to rely on them
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/18-memory-and-references"]
+---
+
+A program that keeps a reference to an object keeps the object in memory. When nothing refers to an object any more, the engine's **garbage collector** may reclaim it, and you never have to free memory yourself (the idea is in the fundamentals lesson on [memory and references](../../../fundamentals/beginner/memory-and-references/)). A `Map` is a reference holder like any other. Put an object in a map as a key and the map keeps it alive, even if every other part of the program has finished with it. For a long-running program, such as a server or a page that stays open, that is a **memory leak**.
+
+Weak collections solve one specific problem: associating extra data with an object **for as long as the object exists**, without being the reason that it exists.
+
+## WeakMap
+
+A `WeakMap` looks like a `Map` with fewer features. Its keys must be objects (or non-registered symbols), and it holds them **weakly**: if the key object is otherwise unreachable, the entry can disappear along with it.
+
+```javascript title="weakmap_basics.mjs"
+const notes = new WeakMap();
+const page = { url: "/home" };
+
+notes.set(page, "needs review");
+console.log(notes.get(page), notes.has(page), notes.has({ url: "/home" }));
+```
+
+```text
+needs review true false
+```
+
+```javascript title="weakmap_basics.mjs (continued)"
+try {
+  notes.set("/home", "oops");
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+TypeError
+```
+
+```javascript title="weakmap_basics.mjs (continued)"
+console.log(notes.size, typeof notes[Symbol.iterator], typeof notes.clear);
+console.log(notes.delete(page), notes.has(page));
+```
+
+```text
+undefined undefined undefined
+true false
+```
+
+- `set`, `get`, `has` and `delete` work as in `Map`. Lookup is by identity, so a second object with the same contents is a different key.
+- A primitive key, such as a string, is a `TypeError`. A weak reference to a string would be meaningless, since strings have no identity to lose.
+- There is no `size`, no iteration and no `clear`. The collector can remove an entry at any time, so a count or a list of entries would give different answers at different moments. The only questions you can ask are about a key you already hold.
+
+That restriction is the price of weakness. If you need to list or count entries, use a `Map`.
+
+## Attaching data to objects you do not own
+
+The main use is adding information to objects that belong to someone else: DOM elements, objects returned by a library, function arguments. Writing a new property onto them can clash with their own properties, and it will show up when anyone prints or copies the object. A `WeakMap` keeps the extra data on the side.
+
+```javascript title="visit_counts.mjs"
+const visits = new WeakMap();
+
+function track(page) {
+  visits.set(page, (visits.get(page) ?? 0) + 1);
+  return visits.get(page);
+}
+```
+
+```javascript title="visit_counts.mjs (continued)"
+const home = { url: "/home" };
+const about = { url: "/about" };
+
+track(home);
+track(home);
+console.log(track(home), track(about));
+console.log(home);
+```
+
+```text
+3 1
+{ url: '/home' }
+```
+
+The page objects are unchanged, and the counts are looked up by identity. When a `page` object is no longer used anywhere else, its count can be collected with it. With a plain `Map` the counts, and the pages, would stay for the lifetime of the map.
+
+The same pattern gives a cache of computed results for objects:
+
+```javascript title="memo_weak.mjs"
+let calls = 0;
+const cache = new WeakMap();
+
+function describe(shape) {
+  if (cache.has(shape)) {
+    return cache.get(shape);
+  }
+  calls += 1;
+  const text = `${shape.w}x${shape.h} = ${shape.w * shape.h}`;
+  cache.set(shape, text);
+  return text;
+}
+```
+
+```javascript title="memo_weak.mjs (continued)"
+const box = { w: 3, h: 4 };
+console.log(describe(box), describe(box), calls);
+console.log(describe({ w: 3, h: 4 }), calls);
+```
+
+```text
+3x4 = 12 3x4 = 12 1
+3x4 = 12 2
+```
+
+The second `describe(box)` hit the cache, so `calls` stayed at 1. The call with a new object that looks the same is a miss, since the cache key is the object and not its contents. Use this for data derived from an object you only need while that object lives. It would be a bad cache if you wanted results to survive after the object is dropped.
+
+Before classes had `#private` fields, a `WeakMap` was also the way to keep truly private data for an object. You will still see it, and the exercise below practises it.
+
+## WeakSet
+
+A `WeakSet` is a weak set of objects, with only `add`, `has` and `delete`. Its main use is to mark objects as "seen", especially to stop a walk through linked objects from going round in a circle.
+
+```javascript title="weakset_visited.mjs"
+const a = { name: "a", next: [] };
+const b = { name: "b", next: [] };
+const c = { name: "c", next: [] };
+a.next.push(b);
+b.next.push(c);
+c.next.push(a);
+```
+
+```javascript title="weakset_visited.mjs (continued)"
+function walk(node, seen = new WeakSet()) {
+  if (seen.has(node)) {
+    return [];
+  }
+  seen.add(node);
+  return [node.name, ...node.next.flatMap((n) => walk(n, seen))];
+}
+```
+
+```javascript title="weakset_visited.mjs (continued)"
+console.log(walk(a));
+```
+
+```text
+[ 'a', 'b', 'c' ]
+```
+
+The three nodes point to one another in a ring: `a` to `b`, `b` to `c` and `c` back to `a`. Without the `seen` check, `walk` would recurse forever. Each node is added on its first visit, and a node found again is skipped. The marks are not stored on the nodes, and they go away with the set. `flatMap` here is the array method from [lesson 24](../../beginner/array-methods/).
+
+## WeakRef and FinalizationRegistry
+
+Two more tools let you observe the collector. Both are advanced, easy to misuse, and rarely needed.
+
+- A `WeakRef` holds an object without keeping it alive. `ref.deref()` returns the object if it still exists, or `undefined` if it has been collected.
+- A `FinalizationRegistry` lets you ask for a callback after an object has been collected, to clean up something outside the object. `register(object, label, token)` starts watching, and `unregister(token)` stops.
+
+```javascript title="weakref_basics.mjs"
+const target = { big: "pretend this is large" };
+const ref = new WeakRef(target);
+
+console.log(ref.deref() === target);
+```
+
+```text
+true
+```
+
+```javascript title="weakref_basics.mjs (continued)"
+const current = ref.deref();
+if (current !== undefined) {
+  console.log(current.big);
+}
+```
+
+```text
+pretend this is large
+```
+
+```javascript title="weakref_basics.mjs (continued)"
+const registry = new FinalizationRegistry((label) => {
+  console.log("cleaned up", label);
+});
+const token = {};
+registry.register(target, "target", token);
+console.log(registry.unregister(token), registry.unregister(token));
+```
+
+```text
+true false
+```
+
+While `target` is still in use, `deref()` returns it. The sensible habit is to call `deref()` once, keep the result in a variable, and check it for `undefined`, as the middle block does. The registry callback did not run here, since `target` is still alive. `unregister` returns `true` the first time and `false` once the token has gone.
+
+Why you should not build programs around these:
+
+- **When an object is collected is up to the engine.** It differs between engines, versions and runs, and nothing guarantees that a collection happens at all before the program ends.
+- **The cleanup callback may never be called**, or may be called late. Code that must release a resource (close a file, release a lock) needs an explicit step, such as `try`/`finally`, not a callback that might not come.
+- **Behaviour you can observe becomes behaviour people depend on**, which makes programs harder to reason about and to test.
+
+Reach for `WeakRef` only for optional caches where losing the entry costs time and nothing else. For almost everything else, a `WeakMap` or `WeakSet` is the right size of tool.
+
+## Which keys are allowed?
+
+Objects, arrays and functions are objects, so they work as weak keys. Symbols made with `Symbol()` are allowed too, as ES2023 added, and run on Node 22. Registered symbols from `Symbol.for` are not, because the registry keeps them forever and they could never become unreachable. The exercises include a check of the full list.
+
+## Common pitfalls
+
+- **Using a weak collection when you need to list the contents.** There is no iteration or `size`. Use a `Map` or `Set`.
+- **Using a primitive as a key.** It throws a `TypeError`. Wrap the value or use a `Map`.
+- **Expecting a "same-looking" object to find the entry.** Lookup is by identity.
+- **Testing that an entry disappeared.** You cannot see collection from inside the program, and you should not write code or tests that wait for it.
+- **Holding the key somewhere else by accident.** The entry lives as long as anything refers to the key, for example a `Map` or an array that lists all the objects. Then nothing is ever released.
+- **Using `FinalizationRegistry` for required cleanup.** The callback may never run. Clean up explicitly.
+
+## Exercises
+
+<Exercise title="Hand out ids lazily">
+
+Write `idOf(object)` that gives every object a unique number on first use and the same number afterwards, without adding a property to the object. Keep the numbers in a `WeakMap` and a counter starting at 1. Print `idOf(first)`, `idOf(second)` and `idOf(first)` again on one line for two empty objects. Then print `idOf([])` for a fresh array together with `first`, to show that the object itself was not changed. The expected output is `1 2 1` and then `3 {}`.
+
+<Solution>
+
+The first call for an object finds no entry, stores the next number and advances the counter. Later calls read the stored number. A new array is a new key, so it gets 3, and the printed `first` has no extra property.
+
+```javascript title="object_ids.mjs"
+const ids = new WeakMap();
+let nextId = 1;
+
+function idOf(object) {
+  if (!ids.has(object)) {
+    ids.set(object, nextId);
+    nextId += 1;
+  }
+  return ids.get(object);
+}
+```
+
+```javascript title="object_ids.mjs (continued)"
+const first = {};
+const second = {};
+console.log(idOf(first), idOf(second), idOf(first));
+console.log(idOf([]), first);
+```
+
+```text
+1 2 1
+3 {}
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Private counters">
+
+Keep private state in a `WeakMap` instead of on the object. Write `createCounter()` that returns a new empty object and records a count of 0 for it in a module-level `WeakMap`. Write `increment(counter)` that adds 1 to that object's count and returns it. Create two counters `a` and `b`, increment `a` three times and `b` once, and print the last results on one line. Then print `Object.keys(a)` and `JSON.stringify(a)` on one line. The expected output is `3 1` and then `[] {}`.
+
+<Solution>
+
+The counters are ordinary empty objects, and the numbers live only in the map, which only the two functions can reach. That is why the keys list and the JSON are empty. When a counter is no longer used, its count can be collected with it.
+
+```javascript title="weak_private.mjs"
+const counts = new WeakMap();
+
+function createCounter() {
+  const counter = {};
+  counts.set(counter, 0);
+  return counter;
+}
+```
+
+```javascript title="weak_private.mjs (continued)"
+function increment(counter) {
+  counts.set(counter, counts.get(counter) + 1);
+  return counts.get(counter);
+}
+```
+
+```javascript title="weak_private.mjs (continued)"
+const a = createCounter();
+const b = createCounter();
+increment(a);
+increment(a);
+console.log(increment(a), increment(b));
+console.log(Object.keys(a), JSON.stringify(a));
+```
+
+```text
+3 1
+[] {}
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Which values can be weak keys?">
+
+Make an object whose properties hold eight candidate keys: an empty object, an empty array, an arrow function, the number `1`, the string `"text"`, `null`, a symbol made with `Symbol("local")` and a symbol made with `Symbol.for("shared")`. Loop over its entries and try to `set` each value as a key on a new `WeakMap` inside `try`/`catch`. Print the property name followed by `ok` or the error name. The expected output is `object ok`, `array ok`, `function ok`, `number TypeError`, `string TypeError`, `null TypeError`, `symbol ok` and `registered TypeError`, one per line.
+
+<Solution>
+
+The first three are objects. The primitives throw. The local symbol is accepted, and the registered symbol is rejected. A new `WeakMap` per attempt means one failure cannot affect another.
+
+```javascript title="key_rules.mjs"
+const keys = {
+  object: {},
+  array: [],
+  function: () => {},
+  number: 1,
+  string: "text",
+  null: null,
+  symbol: Symbol("local"),
+  registered: Symbol.for("shared"),
+};
+```
+
+```javascript title="key_rules.mjs (continued)"
+for (const [label, key] of Object.entries(keys)) {
+  try {
+    new WeakMap().set(key, true);
+    console.log(label, "ok");
+  } catch (error) {
+    console.log(label, error.name);
+  }
+}
+```
+
+```text
+object ok
+array ok
+function ok
+number TypeError
+string TypeError
+null TypeError
+symbol ok
+registered TypeError
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A `Map` that holds an object as a key keeps that object alive. A `WeakMap` or `WeakSet` does not, so its entries can go when the object does.
+- Keys must be objects, or symbols that are not from `Symbol.for`. A primitive key is a `TypeError`. There is no `size`, iteration or `clear`.
+- Use a `WeakMap` to attach data or cache results for objects you do not own, and a `WeakSet` to mark objects as seen.
+- `WeakRef` and `FinalizationRegistry` observe the garbage collector, which gives no guarantee about when or whether it acts. Do not depend on them for correctness or for required cleanup.
+
+Next: [stacks, queues, trees and graphs](../data-structures-js/), building classic data structures with the tools of this module.

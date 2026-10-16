@@ -1,0 +1,4 @@
+Set(2) { 'b', 'c' }
+Set(1) { 'a' }
+TypeError
+4

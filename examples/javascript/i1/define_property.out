@@ -1,0 +1,7 @@
+{
+  value: 'L-100',
+  writable: false,
+  enumerable: false,
+  configurable: false
+}
+[ 'name', 'price' ] L-100

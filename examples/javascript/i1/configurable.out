@@ -1,0 +1,3 @@
+delete: TypeError
+redefine: TypeError
+8 false

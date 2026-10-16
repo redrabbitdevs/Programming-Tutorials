@@ -1,0 +1,4 @@
+Symbol.iterator function
+{ value: 'a', done: false }
+{ value: 'b', done: false }
+{ value: undefined, done: true }

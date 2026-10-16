@@ -1,0 +1,14 @@
+{ value: 'Ada', writable: true, enumerable: true, configurable: true }
+{
+  get: [Function: get label],
+  set: undefined,
+  enumerable: true,
+  configurable: true
+}
+{ value: 2, writable: true, enumerable: false, configurable: false }
+{
+  value: [Function: norm],
+  writable: true,
+  enumerable: false,
+  configurable: true
+}

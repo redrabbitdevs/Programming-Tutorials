@@ -1,0 +1,8 @@
+Set(2) { 'shop', 'park' } 5
+Map(5) {
+  'home' => 0,
+  'shop' => 1,
+  'park' => 1,
+  'mall' => 2,
+  'cinema' => 3
+}

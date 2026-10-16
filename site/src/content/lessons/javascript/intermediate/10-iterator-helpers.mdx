@@ -1,0 +1,448 @@
+---
+language: javascript
+level: intermediate
+module: Iteration and collections
+order: 10
+title: Iterator helpers
+description: Process iterators lazily with the built-in map, filter, take, drop, flatMap and reduce methods, wrap iterables with Iterator.from, and join sequences with Iterator.concat.
+minVersion: "22"
+objectives:
+  - Chain map, filter, take and drop on an iterator and finish with toArray
+  - Explain how lazy helpers differ from array methods in order of execution
+  - Wrap iterables and iterator-like objects with Iterator.from
+  - Use flatMap, reduce, some, every, find and forEach on iterators
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/13-sequences-and-arrays", "fundamentals/beginner/20-big-o"]
+---
+
+In [the generators lesson](../generators/) you wrote `filter`, `map` and `take` as generator functions to process an infinite sequence. You will rarely need to write them again, because modern JavaScript has them built in. **Iterator helpers** are methods on every iterator that let you chain `map`, `filter` and friends the way you do with arrays, but one item at a time and without building the intermediate arrays. They are part of ES2025 and run on Node 22 and newer.
+
+## The helpers on a generator
+
+Every generator object, and every iterator from a built-in such as `array.values()`, `map.entries()` or `set.values()`, inherits from a global called `Iterator`, which carries the helper methods.
+
+```javascript title="helpers_basics.mjs"
+function* naturals() {
+  let n = 1;
+  while (true) {
+    yield n++;
+  }
+}
+```
+
+```javascript title="helpers_basics.mjs (continued)"
+const firstSquares = naturals()
+  .filter((n) => n % 2 === 0)
+  .map((n) => n * n)
+  .take(4)
+  .toArray();
+console.log(firstSquares);
+```
+
+```text
+[ 4, 16, 36, 64 ]
+```
+
+```javascript title="helpers_basics.mjs (continued)"
+console.log([10, 20, 30].values().map((n) => n + 1).toArray());
+console.log(new Set([1, 2, 3]).values().drop(1).toArray());
+```
+
+```text
+[ 11, 21, 31 ]
+[ 2, 3 ]
+```
+
+The chain reads like an array pipeline: keep the even numbers, square them, take four, and collect. Nothing in it is an array until `toArray()`. The source `naturals()` is infinite, which would hang a chain of array methods, but `take(4)` ends the work after four results.
+
+The last two lines apply the same helpers to the iterators of an array and a set. A plain array does not have these methods, only its `values()` iterator does, so you call `.values()` first. Methods that exist on arrays, such as `filter` and `map`, are not the same ones. The array versions return arrays, and the iterator versions return iterators.
+
+## Lazy, one item at a time
+
+The helpers are lazy. `map`, `filter`, `take`, `drop` and `flatMap` return a new iterator and do no work until something pulls values from it. Compare the order of events in an array chain and an iterator chain:
+
+```javascript title="lazy_vs_array.mjs"
+const show = (label) => (n) => {
+  console.log(label, n);
+  return n;
+};
+
+console.log("array:");
+[1, 2, 3].map(show("map")).filter(show("filter")).slice(0, 2);
+```
+
+```text
+array:
+map 1
+map 2
+map 3
+filter 1
+filter 2
+filter 3
+```
+
+```javascript title="lazy_vs_array.mjs (continued)"
+console.log("iterator:");
+[1, 2, 3]
+  .values()
+  .map(show("map"))
+  .filter(show("filter"))
+  .take(2)
+  .toArray();
+```
+
+```text
+iterator:
+map 1
+filter 1
+map 2
+filter 2
+```
+
+The array methods finish a whole stage before the next starts, so all three `map` calls come before any `filter` call, and an extra `slice` is needed to get only two results. The iterator chain pulls one value at a time all the way through: item 1 goes through `map` then `filter`, then item 2. The `take(2)` ends after the second item has passed, so the third item is never mapped. On a big or infinite source, that is the difference between finishing and not.
+
+The same laziness means the helpers return iterators, so they have one use. Call `toArray()` to turn the rest of the iterator into an array.
+
+## Methods that end the chain
+
+Some helpers consume the iterator and return a plain value, much like the array versions:
+
+```javascript title="terminal_helpers.mjs"
+const words = ["pear", "fig", "apple", "kiwi"];
+
+console.log(words.values().reduce((total, w) => total + w.length, 0));
+console.log(words.values().some((w) => w.length > 4));
+console.log(words.values().every((w) => w.length > 2));
+console.log(words.values().find((w) => w.startsWith("k")));
+```
+
+```text
+16
+true
+true
+kiwi
+```
+
+```javascript title="terminal_helpers.mjs (continued)"
+words.values().forEach((w, index) => {
+  console.log(index, w);
+});
+
+console.log(words.values().map((w, index) => `${index}:${w}`).toArray());
+```
+
+```text
+0 pear
+1 fig
+2 apple
+3 kiwi
+[ '0:pear', '1:fig', '2:apple', '3:kiwi' ]
+```
+
+- `reduce` folds the values into one. As with arrays, give it a starting value when the iterator might be empty.
+- `some`, `every` and `find` stop as soon as the answer is known.
+- `forEach` runs a function for each value and returns `undefined`.
+- Callbacks for `map`, `filter`, `forEach` and the rest receive the value and a counter, not the array index you may be used to: the counter counts from 0 for the values that reach that step.
+
+The full list is `map`, `filter`, `take`, `drop`, `flatMap` (which return iterators) and `reduce`, `toArray`, `forEach`, `some`, `every`, `find` (which consume).
+
+## Iterator.from
+
+The helpers live on the shared prototype, so objects that follow the protocol but do not inherit from it, such as the hand-written iterables of [lesson 8](../iteration-protocol/), do not have them. `Iterator.from(value)` wraps any iterable or iterator-like object into a real iterator:
+
+```javascript title="iterator_from.mjs"
+const evens = {
+  [Symbol.iterator]() {
+    let n = 0;
+    return { next: () => ({ value: (n += 2), done: false }) };
+  },
+};
+
+console.log(typeof evens.take);
+console.log(Iterator.from(evens).take(3).toArray());
+```
+
+```text
+undefined
+[ 2, 4, 6 ]
+```
+
+```javascript title="iterator_from.mjs (continued)"
+const countdown = {
+  n: 3,
+  next() {
+    return this.n > 0
+      ? { value: this.n--, done: false }
+      : { value: undefined, done: true };
+  },
+};
+console.log(Iterator.from(countdown).map((n) => n * 10).toArray());
+```
+
+```text
+[ 30, 20, 10 ]
+```
+
+`evens.take` is `undefined` because the object is a plain one. After `Iterator.from`, `take(3)` works. The second example is an iterator with a `next()` method but no `[Symbol.iterator]`; `Iterator.from` accepts it as well. If the value already is an iterator that inherits the helpers, `Iterator.from` returns it as it is.
+
+## Flattening with flatMap
+
+`flatMap` calls a function that returns an iterable, and yields all the values from each result in turn.
+
+```javascript title="flat_map_helper.mjs"
+const pages = [[1, 2], [3], [], [4, 5]];
+
+console.log(Iterator.from(pages).flatMap((page) => page).toArray());
+console.log(pages.values().flatMap((page) => page.map((n) => n * 2)).toArray());
+```
+
+```text
+[ 1, 2, 3, 4, 5 ]
+[ 2, 4, 6, 8, 10 ]
+```
+
+```javascript title="flat_map_helper.mjs (continued)"
+try {
+  Iterator.from(["ab"]).flatMap((word) => word).toArray();
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+TypeError
+```
+
+```javascript title="flat_map_helper.mjs (continued)"
+console.log(
+  Iterator.from(["ab"])
+    .flatMap((word) => Iterator.from(word))
+    .toArray(),
+);
+```
+
+```text
+[ 'a', 'b' ]
+```
+
+Empty inner arrays are skipped, as with `Array.prototype.flatMap`. One difference catches people out: the function must return an iterator or an iterable **object**. A bare string is rejected with a `TypeError`, even though strings are iterable, so wrap it, as in `Iterator.from(word)`.
+
+## Cleanup comes for free
+
+When `take` has the values it needs, it closes the source iterator by calling its `return()`, so a generator's `finally` block runs, as the previous lesson showed.
+
+```javascript title="take_closes.mjs"
+function* lines() {
+  try {
+    yield "first";
+    yield "second";
+    yield "third";
+  } finally {
+    console.log("source closed");
+  }
+}
+```
+
+```javascript title="take_closes.mjs (continued)"
+const found = lines().take(2).toArray();
+console.log(found);
+```
+
+```text
+source closed
+[ 'first', 'second' ]
+```
+
+```javascript title="take_closes.mjs (continued)"
+const all = lines().toArray();
+console.log(all.length);
+```
+
+```text
+source closed
+3
+```
+
+`source closed` appears before the first array is printed, because `take(2)` stopped early and closed the generator. The second generator runs to its natural end, which also runs `finally`. Either way the resource is released.
+
+## Iterator.concat
+
+<Since v="26" /> `Iterator.concat(...iterables)` joins several iterables into one iterator, yielding all the values of the first, then the second, and so on. It is part of ES2026 and needs Node 26. On Node 22 `Iterator.concat` does not exist.
+
+```javascript title="concat_helper.mjs"
+const joined = Iterator.concat([1, 2], new Set([3]), [4].values());
+console.log(joined.toArray());
+```
+
+```text
+[ 1, 2, 3, 4 ]
+```
+
+```javascript title="concat_helper.mjs (continued)"
+function* tail() {
+  yield "x";
+  yield "y";
+}
+
+const mixed = Iterator.concat(["w"], tail());
+console.log(mixed.map((s) => s.toUpperCase()).toArray());
+```
+
+```text
+[ 'W', 'X', 'Y' ]
+```
+
+Anything iterable can be joined, including arrays, sets, iterators and generators, and the result has all the helpers. As with `flatMap`, each argument must be an object, so do not pass a bare string.
+
+Other helpers have been proposed, such as `Iterator.zip` for walking sequences side by side and `chunks`, `windows` and `join` on iterators. They are not in the language yet, and neither Node 22 nor Node 26 has them. The `zip` function you wrote in [lesson 8](../iteration-protocol/) and the `chunked` generator of [lesson 9](../generators/) do those jobs today.
+
+## When to use an iterator pipeline
+
+Use array methods when the data is small and already in an array, when you need the length or random access, or when you will read the result more than once. Use iterator helpers when:
+
+- the source is infinite or very large and you need only the start,
+- you want to stop early once a condition is met,
+- a long chain would otherwise create several large temporary arrays.
+
+If you only need one result from an array, `find` on the array is just as good. The benefit is real when the chain has several steps and a lazy source.
+
+## Common pitfalls
+
+- **Calling a helper on an array.** `[1, 2].map(...)` is the array method. For the lazy version, write `[1, 2].values().map(...)`.
+- **Forgetting `toArray()`.** The chain returns an iterator, and `console.log` shows `Object [Iterator Helper] {}` instead of your values.
+- **Reusing a consumed iterator.** Each helper returns a one-shot iterator. Build the chain again, with a function if you need it twice.
+- **Spreading or collecting an infinite iterator before `take`.** Put `take` before `toArray`, not after.
+- **Passing a string to `flatMap` or `concat`.** They reject bare strings. Use `Iterator.from("text")`.
+- **Expecting the index of the original array in callbacks.** The second argument is a running counter for that step, which differs after a `filter` or `drop`.
+- **Using helpers on Node older than 22.** They are missing. `Iterator.concat` needs Node 26.
+
+## Exercises
+
+<Exercise title="The first ten primes">
+
+Write `countFrom(start)`, an infinite generator, and `isPrime(n)`. Use the helpers on `countFrom(2)` to get the first ten primes as an array, and print them joined by spaces. Then add them up using `reduce` on the iterator of the same array and print the sum. The expected output is `2 3 5 7 11 13 17 19 23 29` and then `129`.
+
+<Solution>
+
+`filter` keeps the primes of the infinite sequence, and `take(10)` stops after ten, so the program ends. `isPrime` tries divisors up to the square root of `n`. Calling `values()` on the resulting array lets `reduce` run as an iterator helper, with `0` as the starting value.
+
+```javascript title="primes_helpers.mjs"
+function* countFrom(start) {
+  let n = start;
+  while (true) {
+    yield n++;
+  }
+}
+
+function isPrime(n) {
+  for (let d = 2; d * d <= n; d++) {
+    if (n % d === 0) {
+      return false;
+    }
+  }
+  return n > 1;
+}
+```
+
+```javascript title="primes_helpers.mjs (continued)"
+const primes = countFrom(2).filter(isPrime).take(10).toArray();
+console.log(primes.join(" "));
+console.log(primes.values().reduce((sum, p) => sum + p, 0));
+```
+
+```text
+2 3 5 7 11 13 17 19 23 29
+129
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="How many lines were read?">
+
+Given the six lines `INFO start`, `ERROR disk full`, `INFO retry`, `ERROR timeout`, `ERROR crash` and `INFO done`, find the messages of the first two `ERROR` lines, without the `ERROR ` prefix, using a lazy chain on the array's `values()`. Count how many lines the filter looked at, by incrementing a counter inside its callback. Print the two messages as an array, then `checked N of 6 lines`. The expected output is `[ 'disk full', 'timeout' ]` and then `checked 4 of 6 lines`.
+
+<Solution>
+
+The chain stops as soon as `take(2)` has two results, which happens at the fourth line, so the last two lines are never examined. An array pipeline would have tested all six lines. `slice(6)` removes the six characters of `ERROR `.
+
+```javascript title="log_pipeline.mjs"
+const lines = [
+  "INFO start",
+  "ERROR disk full",
+  "INFO retry",
+  "ERROR timeout",
+  "ERROR crash",
+  "INFO done",
+];
+```
+
+```javascript title="log_pipeline.mjs (continued)"
+let checked = 0;
+const firstTwo = lines
+  .values()
+  .filter((line) => {
+    checked += 1;
+    return line.startsWith("ERROR");
+  })
+  .map((line) => line.slice(6))
+  .take(2)
+  .toArray();
+```
+
+```javascript title="log_pipeline.mjs (continued)"
+console.log(firstTwo);
+console.log(`checked ${checked} of ${lines.length} lines`);
+```
+
+```text
+[ 'disk full', 'timeout' ]
+checked 4 of 6 lines
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A window over paged data">
+
+An API returns its items in pages: `[[1, 2], [3, 4, 5], [6]]`. Write a function `items()` that returns a fresh iterator over all the items, using `flatMap` on the page array's `values()`. Print all items as an array. Then print items 2 to 4 using `drop(1)` and `take(3)`. On one line print whether any item is above 5, and whether all items are below 6. Print the first item divisible by 4, and then the sum of all items using `reduce` without a starting value. The expected output is `[ 1, 2, 3, 4, 5, 6 ]`, `[ 2, 3, 4 ]`, `true false`, `4` and `21`.
+
+<Solution>
+
+`items` is a function because an iterator can be used once, so every question builds a new one. `drop(1)` skips the first item, and `take(3)` ends after three. `reduce` without a starting value uses the first item as the start, which is fine when the sequence cannot be empty.
+
+```javascript title="page_window.mjs"
+const pages = [[1, 2], [3, 4, 5], [6]];
+
+const items = () => pages.values().flatMap((page) => page);
+
+console.log(items().toArray());
+console.log(items().drop(1).take(3).toArray());
+console.log(items().some((n) => n > 5), items().every((n) => n < 6));
+console.log(items().find((n) => n % 4 === 0));
+console.log(items().reduce((sum, n) => sum + n));
+```
+
+```text
+[ 1, 2, 3, 4, 5, 6 ]
+[ 2, 3, 4 ]
+true false
+4
+21
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Iterator helpers are methods on iterators: `map`, `filter`, `take`, `drop`, `flatMap` return lazy iterators, and `reduce`, `toArray`, `forEach`, `some`, `every`, `find` finish the chain. They are ES2025 and run on Node 22 and newer.
+- They process one item at a time through the whole chain, so they can work on infinite sources and stop early. Array methods do one stage at a time on whole arrays.
+- Generators and the iterators of arrays, maps and sets have the helpers. Use `array.values()` to start a lazy chain, and `Iterator.from` to wrap other iterables and iterator-like objects.
+- `take` closes the source when it is done, so `finally` blocks run.
+- <Since v="26" /> `Iterator.concat` joins iterables and needs Node 26. `zip`, `chunks`, `windows` and `join` are not available yet.
+
+Next: [Map and Set in depth](../maps-sets-in-depth/), going beyond the basics of the beginner lesson.
