@@ -1,0 +1,11 @@
+start 0
+start 1
+done 1
+start 2
+done 2
+start 3
+done 0
+start 4
+done 3
+done 4
+[ 4, 1, 2, 2, 3 ] peak: 2

@@ -1,0 +1,8 @@
+attempt 1 failed: glitch 1
+  waiting 5 ms
+attempt 2 failed: glitch 2
+  waiting 10 ms
+worked on attempt 3
+attempt 1 failed: server down
+  waiting 5 ms
+gave up after 2 tries <- server down

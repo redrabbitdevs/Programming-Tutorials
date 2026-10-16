@@ -1,0 +1,4 @@
+step 1 got start
+caught: step 1 failed
+step 3 got recovered
+finally runs last

@@ -1,0 +1,4 @@
+loaded { name: 'app', retries: 3 }
+done with app
+error: no config named missing
+done with missing

@@ -1,0 +1,4 @@
+Promise { <pending> }
+Promise { 'ready' }
+Promise { 42 }
+caught nope

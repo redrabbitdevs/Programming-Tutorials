@@ -1,0 +1,4 @@
+before tick
+after 999 ms
+fired
+after 1000 ms

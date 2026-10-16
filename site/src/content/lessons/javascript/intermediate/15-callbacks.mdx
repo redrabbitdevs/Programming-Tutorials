@@ -1,0 +1,512 @@
+---
+language: javascript
+level: intermediate
+module: Asynchronous JavaScript
+order: 15
+title: Callbacks and their problems
+description: Read and write error-first callback code, see why nested callbacks and inverted control cause bugs, and convert callback APIs with util.promisify.
+minVersion: "22"
+objectives:
+  - Write and call functions that use the error-first callback convention
+  - Explain callback nesting and the control you give away when you pass a callback
+  - Spot the double-callback and sometimes-synchronous bugs
+  - Read Node's callback-style APIs such as fs.readFile
+  - Convert a callback API to a promise-returning one with util.promisify
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/09-functions"]
+---
+
+Before promises existed, JavaScript had one tool for "do this when the result is ready": pass a function and let the other side call it. You already used that idea in the [higher-order functions lesson](../../beginner/higher-order-functions/). Callbacks are still everywhere, in Node's older APIs, in browser events and in countless libraries. You need to read them fluently, and to know exactly where they hurt, because that is the reason promises were added to the language.
+
+## Error-first callbacks
+
+A function that finishes later cannot `return` its result, and it cannot `throw` to the code that called it, because that code has moved on. So it hands both outcomes to a callback. Node settled on one convention for this: the callback is the **last** argument, and its **first** parameter is the error. On success the first argument is `null` and the result follows.
+
+```javascript title="cb_basic.mjs"
+function loadUser(id, callback) {
+  setTimeout(() => {
+    if (id <= 0) {
+      callback(new Error(`bad id: ${id}`));
+      return;
+    }
+    callback(null, { id, name: `user${id}` });
+  }, 10 + id * 10);
+}
+```
+
+```javascript title="cb_basic.mjs (continued)"
+loadUser(1, (error, user) => {
+  if (error) {
+    console.log("failed:", error.message);
+    return;
+  }
+  console.log("loaded", user);
+});
+loadUser(0, (error) => console.log("failed:", error.message));
+console.log("requests sent");
+```
+
+```text
+requests sent
+failed: bad id: 0
+loaded { id: 1, name: 'user1' }
+```
+
+Look at the order of the output. `requests sent` comes first because `loadUser` returns immediately. Then the failure for id 0 arrives before the success for id 1. The simulated work takes longer for larger ids, so the results come in the order they finish, not the order you asked. With callbacks that is normal, and you have to keep it in mind.
+
+Two habits make this convention safe:
+
+- Check `error` first in every callback, and `return` after handling it.
+- Do not mix styles: an error goes in the first argument, never as a `throw` inside the asynchronous part.
+
+## Callback nesting
+
+When one step needs the result of the previous one, the next call goes inside the callback. Three steps, a user, their orders and the total, show the shape. First the three callback functions, in a helper module:
+
+```javascript title="cb_helpers.mjs"
+export function getUser(id, callback) {
+  setTimeout(() => callback(null, { id, name: "Ada" }), 5);
+}
+
+export function getOrders(user, callback) {
+  setTimeout(() => callback(null, [12, 30, 8]), 5);
+}
+
+export function getTotal(orders, callback) {
+  const total = orders.reduce((sum, amount) => sum + amount, 0);
+  setTimeout(() => callback(null, total), 5);
+}
+```
+
+Now the steps one inside the other:
+
+```javascript title="cb_pyramid.mjs"
+import { getUser, getOrders, getTotal } from "./cb_helpers.mjs";
+
+getUser(1, (error, user) => {
+  if (error) return console.log("error:", error.message);
+  getOrders(user, (error, orders) => {
+    if (error) return console.log("error:", error.message);
+    getTotal(orders, (error, total) => {
+      if (error) return console.log("error:", error.message);
+      console.log(user.name, "spent", total);
+    });
+  });
+});
+```
+
+```text
+Ada spent 50
+```
+
+Every step adds a level of indentation, and every level needs its own `if (error)` line. The error check is repeated three times and each one is easy to forget. This staircase has a name: **callback hell**, or the pyramid of doom. It gets worse when the steps are loops, or when two of them must run side by side.
+
+You can flatten the staircase by giving each callback a name. It helps a little:
+
+```javascript title="cb_flat.mjs"
+import { getUser, getOrders, getTotal } from "./cb_helpers.mjs";
+
+function showTotal(user) {
+  return (error, total) => {
+    if (error) return console.log("error:", error.message);
+    console.log(user.name, "spent", total);
+  };
+}
+
+function onOrders(user) {
+  return (error, orders) => {
+    if (error) return console.log("error:", error.message);
+    getTotal(orders, showTotal(user));
+  };
+}
+
+getUser(1, (error, user) => {
+  if (error) return console.log("error:", error.message);
+  getOrders(user, onOrders(user));
+});
+```
+
+```text
+Ada spent 50
+```
+
+The result is the same, but the order of reading no longer matches the order of running: you have to jump upward to follow it. Naming callbacks makes nesting shallower, not simpler.
+
+## Inversion of control
+
+The deeper problem is not indentation. When you pass a callback, you give away control of when and how often it is called. The code that receives it decides, and you have to trust that code to keep promises that nothing in the language enforces. These are the bugs that follow.
+
+**Called twice.** This is the commonest slip: forgetting to `return` after the error branch, so the success branch runs as well.
+
+```javascript title="cb_twice.mjs"
+function checkBad(value, callback) {
+  if (value < 0) {
+    callback(new Error("negative"));
+  }
+  callback(null, Math.sqrt(value));
+}
+```
+
+```javascript title="cb_twice.mjs (continued)"
+function checkGood(value, callback) {
+  if (value < 0) {
+    return callback(new Error("negative"));
+  }
+  callback(null, Math.sqrt(value));
+}
+```
+
+```javascript title="cb_twice.mjs (continued)"
+const show = (error, root) => console.log(error ? "error" : "ok", root);
+
+console.log("bad:");
+checkBad(-4, show);
+console.log("good:");
+checkGood(-4, show);
+checkGood(16, show);
+```
+
+```text
+bad:
+error undefined
+ok NaN
+good:
+error undefined
+ok 4
+```
+
+`checkBad` calls back twice for a negative value: once with the error, and again with `NaN`, because the function carried on. A callback that does work, such as charging a card, would do it twice. `checkGood` returns right after calling back with the error.
+
+**Never called.** If the other side forgets or crashes before calling back, your code waits without any sign of what went wrong. Nothing in the language reports a callback that never comes.
+
+**Sometimes synchronous.** A function that calls back at once in some cases and later in others makes its callers guess about the order of their own code.
+
+```javascript title="cb_zalgo.mjs"
+const cache = new Map([["a", 1]]);
+
+function lookup(key, callback) {
+  if (cache.has(key)) {
+    callback(cache.get(key));
+  } else {
+    setTimeout(() => callback(-1), 5);
+  }
+}
+
+console.log("start");
+lookup("a", (value) => console.log("a ->", value));
+lookup("b", (value) => console.log("b ->", value));
+console.log("end");
+```
+
+```text
+start
+a -> 1
+end
+b -> -1
+```
+
+Look at the output: `a -> 1` printed before `end`, but `b -> -1` printed after it. If code after the call depends on a variable that the callback sets, it works for `a` and fails for `b`. The rule is to be consistent: a function that takes a callback should always call it later, never now. The fix is to defer the cached case with `queueMicrotask`, which you met in the [event loop lesson](../event-loop/).
+
+```javascript title="cb_zalgo_fixed.mjs"
+const cache = new Map([["a", 1]]);
+
+function lookup(key, callback) {
+  if (cache.has(key)) {
+    queueMicrotask(() => callback(cache.get(key)));
+  } else {
+    setTimeout(() => callback(-1), 5);
+  }
+}
+
+console.log("start");
+lookup("a", (value) => console.log("a ->", value));
+lookup("b", (value) => console.log("b ->", value));
+console.log("end");
+```
+
+```text
+start
+end
+a -> 1
+b -> -1
+```
+
+Now both callbacks run after `end`. The microtask runs before the timer, so `a` still arrives first, and the caller can always rely on the code after the call running before any callback.
+
+## Node's callback APIs
+
+Many functions in Node core take error-first callbacks. `fs.readFile` is the classic. This example reads a small file called `notes.txt`, which has three lines:
+
+```text title="notes.txt"
+alpha
+beta
+gamma
+```
+
+```javascript title="cb_readfile.mjs"
+import { readFile } from "node:fs";
+
+const notes = new URL("./notes.txt", import.meta.url);
+const missing = new URL("./missing.txt", import.meta.url);
+
+readFile(notes, "utf8", (error, text) => {
+  if (error) {
+    console.log("could not read:", error.code);
+    return;
+  }
+  console.log("notes has", text.split("\n").length - 1, "lines");
+  readFile(missing, "utf8", (error) => {
+    console.log("second read:", error.code);
+  });
+});
+```
+
+```text
+notes has 3 lines
+second read: ENOENT
+```
+
+Both reads follow the convention. The second read is started inside the first callback, because the two reads could otherwise finish in either order. The error object has a `code`, here `ENOENT` for "no such file". The file is found with `new URL("./notes.txt", import.meta.url)`, as in the [lesson on JSON modules](../../beginner/json-modules-dynamic-import/), so the path does not depend on the folder the program is started from.
+
+## From callbacks to promises: util.promisify
+
+`util.promisify` takes a function in the error-first style and returns a version that returns a promise. The promise fulfils with the value, or rejects with the error. The next lesson explains promises. For now, think of `await` as "wait for the result", and of a rejection as a thrown error.
+
+```javascript title="cb_promisify.mjs"
+import { promisify } from "node:util";
+import { readFile } from "node:fs";
+import { getUser } from "./cb_helpers.mjs";
+
+const readFileAsync = promisify(readFile);
+const getUserAsync = promisify(getUser);
+
+const notes = new URL("./notes.txt", import.meta.url);
+const text = await readFileAsync(notes, "utf8");
+console.log(text.split("\n")[0]);
+console.log(await getUserAsync(7));
+
+try {
+  await readFileAsync(new URL("./missing.txt", import.meta.url));
+} catch (error) {
+  console.log("rejected with", error.code);
+}
+```
+
+```text
+alpha
+{ id: 7, name: 'Ada' }
+rejected with ENOENT
+```
+
+Both `readFile` and our own `getUser` work, because both take the callback last and call it as `(error, value)`. The missing file turns into a rejection that `try`/`catch` handles, with the same `code` as before.
+
+Some points from the Node documentation:
+
+- `promisify` assumes the original function takes a callback as its last argument, in every case. If it is not a function, `promisify` throws.
+- Methods that use `this` may not work as expected. Bind the method, or call the promisified function with `.call(object)`.
+- Calling `promisify` on a function that already returns a promise has been deprecated since Node 20.8.
+- Node has promise versions of many core modules already. For files, `node:fs/promises` is the better choice, as in the [top-level `await` section](../../beginner/json-modules-dynamic-import/) of the beginner lessons. Use `promisify` for your own callback functions and for older libraries.
+
+## Common pitfalls
+
+- **Forgetting `return` after calling the callback with an error.** The function carries on and calls back again.
+- **Throwing inside an asynchronous callback.** The `try`/`catch` around the call that started the work is long gone. Pass the error to the callback instead.
+- **Calling back sometimes now and sometimes later.** Pick one, and make it later.
+- **Not checking `error`.** A result you did not check is `undefined`.
+- **Nesting more than two or three levels.** Name the steps, or move to promises.
+- **Promisifying a method that uses `this` without binding it.**
+
+## Exercises
+
+<Exercise title="Promisify a temperature service">
+
+This function reports the temperature of two known cities and fails for any other:
+
+```javascript
+function getTemperature(city, callback) {
+  setTimeout(() => {
+    const temps = { Oslo: -3, Cairo: 31 };
+    if (!(city in temps)) {
+      return callback(new Error(`unknown city ${city}`));
+    }
+    callback(null, temps[city]);
+  }, 5);
+}
+```
+
+Use `util.promisify` to create `getTemperatureAsync`. With `await`, print the temperatures of Oslo and Cairo, then try `"Mars"` inside `try`/`catch` and print the error message.
+
+Expected output:
+
+```text
+Oslo: -3
+Cairo: 31
+Error: unknown city Mars
+```
+
+<Solution>
+
+`getTemperature` takes its callback last and reports errors first, so `promisify` can wrap it as it is.
+
+```javascript title="cb_ex_temps.mjs"
+import { promisify } from "node:util";
+
+function getTemperature(city, callback) {
+  setTimeout(() => {
+    const temps = { Oslo: -3, Cairo: 31 };
+    if (!(city in temps)) {
+      return callback(new Error(`unknown city ${city}`));
+    }
+    callback(null, temps[city]);
+  }, 5);
+}
+
+const getTemperatureAsync = promisify(getTemperature);
+
+console.log("Oslo:", await getTemperatureAsync("Oslo"));
+console.log("Cairo:", await getTemperatureAsync("Cairo"));
+try {
+  await getTemperatureAsync("Mars");
+} catch (error) {
+  console.log("Error:", error.message);
+}
+```
+
+```text
+Oslo: -3
+Cairo: 31
+Error: unknown city Mars
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Why did the callback run twice?">
+
+`parseJson` is meant to call its callback once. Run this program and explain why the callback runs twice, and why the second call receives an error.
+
+```javascript title="cb_ex_parse_bug.mjs"
+function parseJson(text, callback) {
+  try {
+    callback(null, JSON.parse(text));
+  } catch (error) {
+    callback(error);
+  }
+}
+
+try {
+  parseJson('{"a":1}', (error, data) => {
+    console.log("callback got", error ? error.message : data);
+    throw new Error("handler failed");
+  });
+} catch (error) {
+  console.log("outside:", error.message);
+}
+```
+
+```text
+callback got { a: 1 }
+callback got handler failed
+outside: handler failed
+```
+
+Then rewrite `parseJson` so that the callback runs exactly once, and an exception thrown by the callback reaches the `try`/`catch` outside, without being mistaken for a parse error. Test it with the good input above and with the bad input `"{oops"`.
+
+<Solution>
+
+The call `callback(null, JSON.parse(text))` sits inside the `try` block. When the callback itself throws, the `catch` block of `parseJson` catches that error and calls the callback again, now with the error from the handler. The fix is to keep only the parsing inside `try`, and call the callback afterwards.
+
+```javascript title="cb_ex_parse.mjs"
+function parseJson(text, callback) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (error) {
+    return callback(error);
+  }
+  callback(null, data);
+}
+
+try {
+  parseJson('{"a":1}', (error, data) => {
+    console.log("callback got", error ? error.message : data);
+    throw new Error("handler failed");
+  });
+} catch (error) {
+  console.log("outside:", error.message);
+}
+parseJson("{oops", (error) => console.log("bad json:", error.name));
+```
+
+```text
+callback got { a: 1 }
+outside: handler failed
+bad json: SyntaxError
+```
+
+The handler's exception now travels up to the caller's `try`/`catch`, and the callback runs once for each input.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Run tasks in series">
+
+Write `series(tasks, done)`. Each task is a function that takes an error-first callback. `series` runs the tasks one after another and calls `done(null, results)` with the results in order. If a task reports an error, `series` stops and calls `done(error)`. Test it with tasks built by `wait(ms, value)`, which calls back with `value` after `ms` milliseconds, and once with a task that fails.
+
+Expected output:
+
+```text
+null [ 'a', 'b', 'c' ]
+stop here undefined
+```
+
+<Solution>
+
+The inner function `next(i)` starts task `i`, and its callback starts task `i + 1`. This is recursion through callbacks. The `return` before `done(error)` and before `done(null, results)` keeps each path to a single call.
+
+```javascript title="cb_ex_series.mjs"
+function series(tasks, done) {
+  const results = [];
+  function next(i) {
+    if (i === tasks.length) return done(null, results);
+    tasks[i]((error, value) => {
+      if (error) return done(error);
+      results.push(value);
+      next(i + 1);
+    });
+  }
+  next(0);
+}
+```
+
+```javascript title="cb_ex_series.mjs (continued)"
+const wait = (ms, value) => (cb) => setTimeout(cb, ms, null, value);
+const broken = (cb) => cb(new Error("stop here"));
+
+series([wait(20, "a"), wait(5, "b"), wait(10, "c")], (error, results) => {
+  console.log(error, results);
+  series([wait(5, "x"), broken, wait(5, "never")], (error, results) => {
+    console.log(error.message, results);
+  });
+});
+```
+
+```text
+null [ 'a', 'b', 'c' ]
+stop here undefined
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- An error-first callback is the last argument of a function and receives `(error, value)`. Check `error` first, and `return` after handling it.
+- Nesting callbacks makes a pyramid with repeated error checks. Naming the steps flattens it but scatters the logic.
+- A callback hands control to someone else's code. It can be called twice, never, or sometimes at once. Always call back later, never now.
+- Node's older APIs, such as `fs.readFile`, use callbacks, and `util.promisify` turns them into functions that return promises.
+
+Next: promises, the value that stands for a result that has not arrived yet.

@@ -1,0 +1,425 @@
+---
+language: javascript
+level: intermediate
+module: Asynchronous JavaScript
+order: 14
+title: The event loop
+description: Learn how one thread runs many tasks, the order of synchronous code, microtasks and timers, and how to schedule, cancel and test timers.
+minVersion: "22"
+objectives:
+  - Explain run-to-completion, the call stack and the two kinds of queue
+  - Predict the order of synchronous code, promise callbacks, queueMicrotask and timers
+  - Schedule and cancel work with setTimeout, setInterval and setImmediate
+  - Recognise code that blocks the loop and break it into smaller pieces
+  - Test timer code without waiting, using Node's mock timers
+estimatedMinutes: 50
+fundamentals: []
+---
+
+A JavaScript program runs on one thread, yet it can wait for a file, a network reply and a timer at the same moment. The mechanism that makes this work is the **event loop**. You met its effects in the beginner level: callbacks in [higher-order functions](../../beginner/higher-order-functions/), a timer in `debounce`, and a first `await` in [dynamic import](../../beginner/json-modules-dynamic-import/). This lesson opens the box. Once you can predict the order in which things run, the next seven lessons of this module are far easier to read.
+
+## One thread, run to completion
+
+Your JavaScript runs on a single thread, which can do one thing at a time. The **call stack** records which function is running and where to return to. A function that starts running finishes before any other code runs. The MDN execution model page calls this "run-to-completion": whenever a function runs, it cannot be preempted, and it runs entirely before any other code runs.
+
+That is a pleasant guarantee. Two callbacks that both change a variable cannot interleave in the middle of a statement. It has a price, which this lesson comes back to: while your code runs, nothing else can.
+
+Waiting is not done by your code. When you ask for a timer, or a file, the runtime (here Node.js) does the waiting outside your JavaScript. When the wait is over, it puts a **job** on a queue. The event loop takes jobs from the queues one at a time and runs each to completion on the stack.
+
+There are two kinds of queue that matter for you:
+
+- The **task queues** hold callbacks from timers, I/O and similar sources.
+- The **microtask queue** holds promise callbacks (`then`, `catch`, `finally`, and the code after an `await`) and callbacks passed to `queueMicrotask`.
+
+The rule is this: when the stack is empty, the runtime runs **every** microtask, including any that the microtasks add, and only then takes the next task. MDN states it in the same terms: microtasks have higher priority, and the microtask queue is drained first before the task queue is pulled.
+
+## The order of a simple program
+
+Here is a program that uses all of them. The numbers in the messages are the order in which they print.
+
+```javascript title="el_order.mjs"
+console.log("1 sync start");
+setTimeout(() => console.log("5 timer, 0 ms"), 0);
+Promise.resolve().then(() => console.log("3 promise callback"));
+queueMicrotask(() => console.log("4 microtask"));
+console.log("2 sync end");
+```
+
+```text
+1 sync start
+2 sync end
+3 promise callback
+4 microtask
+5 timer, 0 ms
+```
+
+The two synchronous `console.log` calls run first, because they are part of the job that is already on the stack. The promise callback and the `queueMicrotask` callback are microtasks, so they run as soon as that job ends. The timer is a task. Even with a delay of `0`, it waits for the next turn of the loop, after the microtasks.
+
+`Promise.resolve().then(...)` and `queueMicrotask(...)` put work on the same microtask queue, in the order you call them. `queueMicrotask` is the plain way to say "run this soon, but not right now". A promise is the plain way to say "run this when this value is ready", which the next lessons cover.
+
+## Timers: setTimeout
+
+`setTimeout(callback, delay, ...args)` asks the runtime to call `callback` after at least `delay` milliseconds. Extra arguments are passed to the callback. It returns a `Timeout` object, and `clearTimeout` cancels a timer that has not fired yet.
+
+```javascript title="el_timers.mjs"
+setTimeout(() => console.log("30 ms timer"), 30);
+setTimeout(() => console.log("10 ms timer"), 10);
+setTimeout((a, b) => console.log("20 ms timer", a, b), 20, "x", "y");
+console.log("all three scheduled");
+
+const cancelled = setTimeout(() => console.log("never runs"), 5);
+clearTimeout(cancelled);
+```
+
+```text
+all three scheduled
+10 ms timer
+20 ms timer x y
+30 ms timer
+```
+
+The timers fire in the order of their delays, not the order you wrote them. The cancelled timer never runs. And the main program prints "all three scheduled" before any timer fires, because the whole script is one job.
+
+The delay is a lower bound, not an appointment. The Node.js event loop guide says a timer specifies a threshold after which the callback may be executed, and that the operating system or other callbacks can delay it. Node also treats a delay below 1, or `NaN`, as 1 millisecond. So `setTimeout(fn, 0)` means "as soon as the loop gets to timers", not "now".
+
+<Callout type="note">
+
+Never write a program that works only if two timers with the same delay fire in a given order. Node's documentation makes no promise about the exact timing or ordering of timer callbacks. In the examples of this lesson, timers that must come in a fixed order have clearly different delays.
+
+</Callout>
+
+## Repeating work: setInterval
+
+`setInterval(callback, delay)` calls the callback again and again, every `delay` milliseconds, until you call `clearInterval` with the value it returned. If you forget, a program with an active interval never ends by itself.
+
+```javascript title="el_interval.mjs"
+let ticks = 0;
+const id = setInterval(() => {
+  ticks += 1;
+  console.log("tick", ticks);
+  if (ticks === 3) {
+    clearInterval(id);
+    console.log("stopped");
+  }
+}, 10);
+console.log("interval started");
+```
+
+```text
+interval started
+tick 1
+tick 2
+tick 3
+stopped
+```
+
+The interval callback is a closure over `ticks` and `id`. It stops itself the third time. This is the same shape as the debounce helper in the beginner lessons, which used `clearTimeout` to cancel a pending call.
+
+## Microtasks run until none are left
+
+Microtasks can add more microtasks. The loop does not move on to the next task until the whole microtask queue is empty.
+
+```javascript title="el_chain.mjs"
+setTimeout(() => console.log("timer"), 0);
+
+let n = 0;
+function more() {
+  n += 1;
+  console.log("microtask", n);
+  if (n < 3) queueMicrotask(more);
+}
+queueMicrotask(more);
+console.log("sync done");
+```
+
+```text
+sync done
+microtask 1
+microtask 2
+microtask 3
+timer
+```
+
+The timer was registered first, yet all three microtasks run before it. This is why a promise chain feels instant, and also why a microtask that keeps scheduling itself without end would starve every timer and every I/O callback. The program would never get to the next task.
+
+## process.nextTick
+
+Node has a second, older queue. `process.nextTick(callback)` runs the callback after the current operation and before the event loop continues. The Node documentation marks it **Legacy** (since Node 22.7) and recommends `queueMicrotask` instead. You will see `nextTick` in older code and in Node's own documentation, so you should know what it does.
+
+In a CommonJS file, `nextTick` callbacks run before promise callbacks and `queueMicrotask` callbacks.
+
+```javascript title="el_nexttick_cjs.cjs"
+const { nextTick } = require("node:process");
+
+Promise.resolve().then(() => console.log("promise callback"));
+queueMicrotask(() => console.log("queueMicrotask"));
+nextTick(() => console.log("nextTick"));
+console.log("sync");
+```
+
+```text
+sync
+nextTick
+promise callback
+queueMicrotask
+```
+
+The same program as an ES module prints a different order.
+
+```javascript title="el_nexttick.mjs"
+import { nextTick } from "node:process";
+
+Promise.resolve().then(() => console.log("promise callback"));
+queueMicrotask(() => console.log("queueMicrotask"));
+nextTick(() => console.log("nextTick"));
+console.log("sync");
+```
+
+```text
+sync
+promise callback
+queueMicrotask
+nextTick
+```
+
+In an ES module, `nextTick` comes last. The Node documentation explains why: an ES module is itself processed as part of the microtask queue, so Node is already draining that queue when your code runs, and the microtasks go first. The same four lines give two different orders depending on the kind of file. That is a good reason to leave `nextTick` alone and use `queueMicrotask`, which behaves the same way everywhere.
+
+## setImmediate and the order of phases
+
+`setImmediate(callback)` runs the callback after the I/O callbacks of the current turn of the loop. Callbacks queued with it run in the order you created them. One that is queued from inside another immediate callback waits for the next turn.
+
+How does that compare with `setTimeout(fn, 0)`? From the main module, the Node guide says the order of the two is non-deterministic, because it depends on how fast the process starts. Inside an I/O callback, the immediate always runs first. This example reads its own file and compares the two inside the read callback:
+
+```javascript title="el_immediate.mjs"
+import { readFile } from "node:fs";
+
+readFile(import.meta.filename, () => {
+  setTimeout(() => console.log("timeout"), 0);
+  setImmediate(() => console.log("immediate"));
+  console.log("callback done");
+});
+```
+
+```text
+callback done
+immediate
+timeout
+```
+
+Use `setImmediate` when you want to say "let everything that is waiting run first, then continue".
+
+## Blocking the loop
+
+Because every job runs to completion, a job that takes a long time keeps everything else waiting: timers, I/O, and every other callback. A long loop is the simplest way to see it.
+
+```javascript title="el_blocking.mjs"
+const start = Date.now();
+setTimeout(() => {
+  console.log("timer ran, late:", Date.now() - start >= 50);
+}, 10);
+
+while (Date.now() - start < 50) {
+  // busy: nothing else can run
+}
+console.log("loop finished");
+```
+
+```text
+loop finished
+timer ran, late: true
+```
+
+The timer asked for 10 milliseconds. The busy loop kept the thread for 50, and the timer could only run afterwards. If this were a web server, every request would have waited too.
+
+The fix for long work is to cut it into pieces and give the loop a chance to run other things between them. `setImmediate` is a convenient way to schedule the next piece. In this example another task is already waiting when the work starts:
+
+```javascript title="el_chunks.mjs"
+setImmediate(() => console.log("other task"));
+
+function work(from) {
+  console.log("chunk starting at", from);
+  if (from < 4) {
+    setImmediate(() => work(from + 2));
+  }
+}
+work(0);
+```
+
+```text
+chunk starting at 0
+other task
+chunk starting at 2
+chunk starting at 4
+```
+
+The "other task" ran between the first and the second chunk. For heavy computing, a better answer is a separate thread, which comes later in the course.
+
+## Testing timers without waiting
+
+Waiting a real second in a test is slow and, as you saw, imprecise. Node's built-in test runner can replace the timer functions with a fake clock that you move by hand. `mock.timers.enable({ apis: ["setTimeout"] })` replaces `setTimeout`, `mock.timers.tick(ms)` moves the clock forward and runs the callbacks that become due, and `mock.timers.reset()` restores the real functions.
+
+```javascript title="el_mock.mjs"
+import { mock } from "node:test";
+
+mock.timers.enable({ apis: ["setTimeout"] });
+setTimeout(() => console.log("fired"), 1000);
+
+console.log("before tick");
+mock.timers.tick(999);
+console.log("after 999 ms");
+mock.timers.tick(1);
+console.log("after 1000 ms");
+mock.timers.reset();
+```
+
+```text
+before tick
+after 999 ms
+fired
+after 1000 ms
+```
+
+Nothing waited. The callback ran inside the second `tick`, exactly when the fake clock reached 1000. Mock timers have existed since Node 20.4, and were marked stable in Node 23.1. On Node 22 the code above still runs but prints an experimental warning on stderr.
+
+## Common pitfalls
+
+- **Treating `setTimeout(fn, 0)` as "immediately".** It runs after the current job and after all microtasks.
+- **Expecting a timer to be exact.** The delay is a minimum.
+- **Forgetting `clearInterval`.** The program keeps running for ever.
+- **Relying on the order of two timers with the same delay**, or on `setTimeout(fn, 0)` against `setImmediate` in the main module.
+- **Long synchronous loops.** Nothing else runs while they do.
+- **Endless microtask chains.** A microtask that keeps adding microtasks never lets the loop continue.
+- **Relying on `process.nextTick` ordering.** Prefer `queueMicrotask`.
+
+## Exercises
+
+<Exercise title="Predict the order">
+
+Without running it, write down the order in which this program prints its eight letters. Then run it and compare.
+
+```javascript title="el_predict.mjs"
+console.log("A");
+setTimeout(() => console.log("B"), 0);
+Promise.resolve()
+  .then(() => console.log("C"))
+  .then(() => console.log("D"));
+queueMicrotask(() => console.log("E"));
+(async () => {
+  console.log("F");
+  await null;
+  console.log("G");
+})();
+console.log("H");
+```
+
+<Solution>
+
+Run it to check your list:
+
+
+```text
+A
+F
+H
+C
+E
+G
+D
+B
+```
+
+The synchronous lines print first: `A`, then `F` (an async function runs synchronously up to its first `await`), then `H`. The microtasks follow in the order they were queued: the first promise callback `C`, the `queueMicrotask` callback `E`, and `G`, which is the code after `await null`. `C` returned, which queues `D` at the back of the microtask queue, so `D` comes after `G`. The timer `B` is a task, and tasks wait until the microtask queue is empty.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Reminders you can cancel">
+
+Write a function `later(ms, message)` that prints `message` after `ms` milliseconds and returns a function that cancels the reminder. Schedule reminders "first" at 10 ms, "second" at 20 ms and "third" at 30 ms, and cancel the second one before it fires. Print `scheduled three, cancelled one` right after scheduling.
+
+Expected output:
+
+```text
+scheduled three, cancelled one
+first
+third
+```
+
+<Solution>
+
+`later` returns a small closure that calls `clearTimeout` on the timer it created, so the caller never sees the timer object.
+
+```javascript title="el_reminders.mjs"
+function later(ms, message) {
+  const id = setTimeout(() => console.log(message), ms);
+  return () => clearTimeout(id);
+}
+
+later(10, "first");
+const cancelSecond = later(20, "second");
+later(30, "third");
+cancelSecond();
+console.log("scheduled three, cancelled one");
+```
+
+```text
+scheduled three, cancelled one
+first
+third
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Count interval ticks with a fake clock">
+
+Use mock timers to check how often a 10 ms `setInterval` runs. Enable the mock for `setInterval`, count the calls, tick 35 ms and print the count, then tick 5 ms more and print it again. Clear the interval and reset the mock at the end.
+
+Expected output:
+
+```text
+after 35 ms: 3
+after 40 ms: 4
+```
+
+<Solution>
+
+The interval is due at 10, 20 and 30 ms, so it has run three times after 35 ms. The fourth call is due at 40 ms, which the second `tick` reaches.
+
+```javascript title="el_mock_interval.mjs"
+import { mock } from "node:test";
+
+mock.timers.enable({ apis: ["setInterval"] });
+let count = 0;
+const id = setInterval(() => (count += 1), 10);
+
+mock.timers.tick(35);
+console.log("after 35 ms:", count);
+mock.timers.tick(5);
+console.log("after 40 ms:", count);
+
+clearInterval(id);
+mock.timers.reset();
+```
+
+```text
+after 35 ms: 3
+after 40 ms: 4
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- JavaScript runs one job at a time and each job runs to completion. Waiting is done outside your code, which is handed a job when the wait ends.
+- After the current job, the loop runs all microtasks (promise callbacks, `queueMicrotask`) before the next task (timer or I/O callback).
+- `setTimeout` and `setInterval` take a minimum delay, not an exact one. Cancel them with `clearTimeout` and `clearInterval`.
+- `setImmediate` runs after the I/O callbacks of the current turn. `process.nextTick` is legacy, and its order against promises differs between CommonJS files and ES modules.
+- A long synchronous job blocks everything. Cut the work into pieces.
+- Mock timers let you test timer code without waiting.
+
+Next: callbacks, the first way JavaScript code handled "later", and why people moved on from them.

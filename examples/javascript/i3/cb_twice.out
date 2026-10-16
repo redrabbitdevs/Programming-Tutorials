@@ -1,0 +1,6 @@
+bad:
+error undefined
+ok NaN
+good:
+error undefined
+ok 4

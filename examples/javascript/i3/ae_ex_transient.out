@@ -1,0 +1,4 @@
+transient failure on attempt 1, retrying
+transient failure on attempt 2, retrying
+finally answered
+no retry: bad request

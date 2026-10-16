@@ -1,0 +1,4 @@
+first success: mirror C
+AggregateError true
+All promises were rejected
+[ 'x', 'y' ]

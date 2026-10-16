@@ -1,0 +1,485 @@
+---
+language: javascript
+level: intermediate
+module: Asynchronous JavaScript
+order: 21
+title: Async iteration
+description: Consume values that arrive over time with for await...of, write async generators, read paginated data lazily, and collect results with Array.fromAsync.
+minVersion: "22"
+objectives:
+  - Loop over an async iterable with for await...of
+  - Write an async generator with async function* and yield
+  - Turn a paginated API into a lazy stream of items
+  - Understand what happens to an async generator when a loop stops early
+  - Collect an async iterable into an array with Array.fromAsync
+estimatedMinutes: 50
+fundamentals: []
+---
+
+A promise is one value that arrives later. Many things in a program are a **sequence** of values that arrive later: lines of a file as it is read, pages of search results, ticks of a clock, messages from a server. `for...of` cannot wait between values. **Async iteration** is the version that can.
+
+It builds on three ideas from the previous module: the [iteration protocol](../iteration-protocol/), [generators](../generators/) and, for the special method name, [symbols](../symbols/). If any of them feels unfamiliar, read that lesson first.
+
+## for await...of
+
+An object is **async iterable** if it has a method under the key `Symbol.asyncIterator` that returns an **async iterator**. An async iterator is like a normal iterator, with one difference: its `next()` method returns a **promise** of the usual `{ value, done }` object. `for await...of` calls `next()`, waits for the promise and runs the loop body, then repeats.
+
+You may write `for await` where you may write `await`: inside an `async` function, or at the top level of a module. It also accepts a normal iterable, such as an array, and awaits each item.
+
+```javascript title="ai_forawait.mjs"
+const sleep = (ms, value) =>
+  new Promise((resolve) => setTimeout(resolve, ms, value));
+
+const promises = [sleep(30, "slow"), sleep(10, "fast"), "plain"];
+
+for await (const value of promises) {
+  console.log(value);
+}
+```
+
+```text
+slow
+fast
+plain
+```
+
+The array holds three promises. The loop took the items in array order and waited for each: `slow` came first although `fast` was ready earlier. The plain string passed through. Items are handled one at a time, in order.
+
+## Async generators
+
+Writing the iterator by hand is rarely necessary. An **async generator** is a function declared with `async function*`. Inside it you can use both `await` and `yield`. Calling it returns an async iterator.
+
+```javascript title="ai_generator.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function* countdown(from) {
+  for (let n = from; n > 0; n--) {
+    await sleep(5);
+    yield n;
+  }
+  return "liftoff";
+}
+```
+
+```javascript title="ai_generator.mjs (continued)"
+for await (const n of countdown(3)) {
+  console.log(n);
+}
+console.log("after the loop");
+```
+
+```text
+3
+2
+1
+after the loop
+```
+
+```javascript title="ai_generator.mjs (continued)"
+const manual = countdown(1);
+console.log(await manual.next());
+console.log(await manual.next());
+```
+
+```text
+{ value: 1, done: false }
+{ value: 'liftoff', done: true }
+```
+
+`countdown` waits 5 ms before each value. The loop printed 3, 2, 1 and then the program went on. The last lines call `next()` by hand to show the protocol: each call returns a promise of `{ value, done }`. The `return "liftoff"` value appears on the final result with `done: true`. A `for await` loop never shows it, because the loop stops when `done` is true.
+
+## A paginated API
+
+The most common use is a source that delivers its data in pages. The consumer should not need to know about pages: it wants one item after another. An async generator hides the paging. The mock API below returns three items per page and tells you the number of the next page, or `null` at the end.
+
+```javascript title="ai_pages.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchPage(page) {
+  console.log("  fetching page", page);
+  await sleep(5);
+  const items = [1, 2, 3].map((n) => (page - 1) * 3 + n);
+  return { items, next: page < 3 ? page + 1 : null };
+}
+```
+
+```javascript title="ai_pages.mjs (continued)"
+async function* allItems() {
+  let page = 1;
+  while (page !== null) {
+    const result = await fetchPage(page);
+    yield* result.items;
+    page = result.next;
+  }
+}
+```
+
+`yield*` inside the generator hands out every item of the page in turn. Now the consumer, which stops early:
+
+```javascript title="ai_pages.mjs (continued)"
+for await (const item of allItems()) {
+  console.log("item", item);
+  if (item === 4) break;
+}
+```
+
+```text
+  fetching page 1
+item 1
+item 2
+item 3
+  fetching page 2
+item 4
+```
+
+Look at the log: page 2 was only fetched when the loop asked for item 4, and page 3 was never fetched. The generator is **lazy**. It does the minimum work needed for the values that the consumer actually takes. The same code would work for a real network API, and the consumer would not change.
+
+## Stopping early and cleanup
+
+When a `for await` loop ends early with `break`, `return` or a `throw`, it calls the iterator's `return()` method. For a generator that resumes it at the `yield` as if there were a `return` statement there, so its `finally` blocks run. That is the place to close a file or a connection.
+
+```javascript title="ai_cleanup.mjs"
+async function* lines() {
+  try {
+    yield "a";
+    yield "b";
+    yield "c";
+  } finally {
+    console.log("cleanup: closing the resource");
+  }
+}
+
+for await (const line of lines()) {
+  console.log(line);
+  if (line === "b") break;
+}
+console.log("loop exited");
+```
+
+```text
+a
+b
+cleanup: closing the resource
+loop exited
+```
+
+The cleanup message came before `loop exited`, and the line `"c"` was never produced. Without the `finally`, a generator that holds a resource would hold it for ever when its consumer left early.
+
+## Writing an async iterable by hand
+
+You can also build the protocol yourself, as with sync iterators. The object returned from `[Symbol.asyncIterator]()` needs a `next()` method that returns a promise of `{ value, done }`.
+
+```javascript title="ai_manual.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const ticker = {
+  last: 3,
+  [Symbol.asyncIterator]() {
+    let n = 1;
+    const last = this.last;
+    return {
+      async next() {
+        await sleep(5);
+        if (n > last) return { value: undefined, done: true };
+        return { value: n++, done: false };
+      },
+    };
+  },
+};
+```
+
+```javascript title="ai_manual.mjs (continued)"
+for await (const n of ticker) {
+  console.log("tick", n);
+}
+```
+
+```text
+tick 1
+tick 2
+tick 3
+```
+
+Handwritten iterators are useful when you wrap something that is not a generator, such as a queue of events. For most code, an async generator is shorter and easier to get right.
+
+## Errors
+
+If the source throws or rejects, the error comes out of the `for await` loop, where an ordinary `try` and `catch` can handle it. This is the same rule as for `await`.
+
+```javascript title="ai_errors.mjs"
+async function* flaky() {
+  yield 1;
+  yield 2;
+  throw new Error("source broke");
+}
+
+try {
+  for await (const value of flaky()) {
+    console.log("got", value);
+  }
+} catch (error) {
+  console.log("loop failed:", error.message);
+}
+```
+
+```text
+got 1
+got 2
+loop failed: source broke
+```
+
+Values 1 and 2 arrived before the failure. After an error the iterator is finished.
+
+## Array.fromAsync
+
+`Array.fromAsync(source)` collects an async iterable into an array and returns a promise of it. It also accepts normal iterables, whose items it awaits, and takes an optional mapping function as a second argument. It runs on Node 22 and later, and is part of ES2026.
+
+```javascript title="ai_fromasync.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function* numbers() {
+  for (let i = 1; i <= 3; i++) {
+    await sleep(5);
+    yield i;
+  }
+}
+
+console.log(await Array.fromAsync(numbers()));
+console.log(await Array.fromAsync(numbers(), (n) => n * 10));
+console.log(await Array.fromAsync([Promise.resolve("a"), "b"]));
+```
+
+```text
+[ 1, 2, 3 ]
+[ 10, 20, 30 ]
+[ 'a', 'b' ]
+```
+
+Use it when you really need all the values, in a test or a small batch. For large or endless sources, loop with `for await` instead, and handle each item as it arrives.
+
+## Async iterables in Node
+
+Several parts of Node are async iterable already, so you can use `for await` with them directly.
+
+`setInterval` from `node:timers/promises` gives a clock as an async iterator. It produces its value every `delay` milliseconds, until you `break`:
+
+```javascript title="ai_interval.mjs"
+import { setInterval } from "node:timers/promises";
+
+let count = 0;
+for await (const label of setInterval(10, "tick")) {
+  count++;
+  console.log(label, count);
+  if (count === 3) break;
+}
+console.log("stopped");
+```
+
+```text
+tick 1
+tick 2
+tick 3
+stopped
+```
+
+A `readline` interface is async iterable too, giving one line at a time. The `Readable.from` stream below supplies two chunks that split a line in the middle, and the interface puts the line back together. This is the same mechanism that the beginner lessons used to read typed input:
+
+```javascript title="ai_readline.mjs"
+import { createInterface } from "node:readline";
+import { Readable } from "node:stream";
+
+const input = Readable.from(["one\ntw", "o\nthree\n"]);
+const lines = createInterface({ input });
+
+for await (const line of lines) {
+  console.log("line:", line);
+}
+```
+
+```text
+line: one
+line: two
+line: three
+```
+
+## Common pitfalls
+
+- **Using `for await` where `await` is not allowed.** It needs an `async` function or a module's top level.
+- **Using `for...of` on an async iterable.** It fails, because there is no `Symbol.iterator`. Use `for await`.
+- **Expecting items to be processed in parallel.** The loop takes one item at a time. For parallel work, collect the items first.
+- **Calling `Array.fromAsync` on an endless source.** It never ends and fills memory.
+- **Forgetting cleanup.** Put resource release in a `finally` block inside the generator.
+- **Reading the `return` value of a generator in a loop.** `for await` ignores it.
+
+## Exercises
+
+<Exercise title="Read every page of a cursor API">
+
+A mock API returns data in chunks. The function `fetchChunk(cursor)` returns `{ data, nextCursor }`, and `nextCursor` is `null` after the last chunk. Write an async generator `allData()` that starts at the cursor `"start"` and yields every item of every chunk. Collect everything with `Array.fromAsync` and print the array with its length. The mock data is `start: ["a", "b"]`, `p2: ["c", "d"]` and `p3: ["e"]`.
+
+Expected output:
+
+```text
+[ 'a', 'b', 'c', 'd', 'e' ] total: 5
+```
+
+<Solution>
+
+The generator loops until the cursor is `null`, fetching one chunk at a time and yielding its items with `yield*`.
+
+```javascript title="ai_ex_cursor.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const database = { start: ["a", "b"], p2: ["c", "d"], p3: ["e"] };
+const nextOf = { start: "p2", p2: "p3", p3: null };
+
+async function fetchChunk(cursor) {
+  await sleep(5);
+  return { data: database[cursor], nextCursor: nextOf[cursor] };
+}
+```
+
+```javascript title="ai_ex_cursor.mjs (continued)"
+async function* allData() {
+  let cursor = "start";
+  while (cursor !== null) {
+    const chunk = await fetchChunk(cursor);
+    yield* chunk.data;
+    cursor = chunk.nextCursor;
+  }
+}
+
+const all = await Array.fromAsync(allData());
+console.log(all, "total:", all.length);
+```
+
+```text
+[ 'a', 'b', 'c', 'd', 'e' ] total: 5
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Take the first few">
+
+Write an async generator `take(count, source)` that yields at most `count` values from `source` and then stops. Test it on an endless generator `ids()` that yields 1, 2, 3, ... and prints `source closed` in a `finally` block. Take three ids, print each, and print `done` at the end.
+
+Expected output:
+
+```text
+id 1
+id 2
+id 3
+source closed
+done
+```
+
+<Solution>
+
+When `take` returns after the third value, its `for await` loop exits early, and that calls `return()` on the source. The source's `finally` block runs, which prints `source closed`.
+
+```javascript title="ai_ex_take.mjs"
+async function* ids() {
+  let id = 1;
+  try {
+    while (true) {
+      yield id++;
+    }
+  } finally {
+    console.log("source closed");
+  }
+}
+```
+
+```javascript title="ai_ex_take.mjs (continued)"
+async function* take(count, source) {
+  if (count <= 0) return;
+  let taken = 0;
+  for await (const value of source) {
+    yield value;
+    if (++taken === count) return;
+  }
+}
+```
+
+```javascript title="ai_ex_take.mjs (continued)"
+for await (const id of take(3, ids())) {
+  console.log("id", id);
+}
+console.log("done");
+```
+
+```text
+id 1
+id 2
+id 3
+source closed
+done
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Group a stream into batches">
+
+Write an async generator `batches(source, size)` that collects the values of `source` into arrays of `size` and yields each array. The last array may be shorter. Test it with an async generator of the numbers 1 to 7 and a size of 3.
+
+Expected output:
+
+```text
+[ 1, 2, 3 ]
+[ 4, 5, 6 ]
+[ 7 ]
+```
+
+<Solution>
+
+The generator fills a batch, yields it when it is full and starts a new one. After the loop, a partly filled batch is yielded too.
+
+```javascript title="ai_ex_batches.mjs"
+async function* numbers() {
+  for (let i = 1; i <= 7; i++) yield i;
+}
+```
+
+```javascript title="ai_ex_batches.mjs (continued)"
+async function* batches(source, size) {
+  let batch = [];
+  for await (const value of source) {
+    batch.push(value);
+    if (batch.length === size) {
+      yield batch;
+      batch = [];
+    }
+  }
+  if (batch.length > 0) yield batch;
+}
+```
+
+```javascript title="ai_ex_batches.mjs (continued)"
+for await (const batch of batches(numbers(), 3)) {
+  console.log(batch);
+}
+```
+
+```text
+[ 1, 2, 3 ]
+[ 4, 5, 6 ]
+[ 7 ]
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- An async iterable has a `Symbol.asyncIterator` method. Its iterator's `next()` returns a promise of `{ value, done }`.
+- `for await...of` waits for each value in turn. It works inside `async` functions and at the top level of modules, and also accepts ordinary iterables.
+- `async function*` writes an async iterator with `await` and `yield`. A paginated API becomes a flat, lazy stream.
+- Leaving a loop early runs the generator's `finally` blocks, so clean-up belongs there.
+- `Array.fromAsync` collects an async iterable into an array. Node streams, `readline` and `node:timers/promises` can all be used with `for await`.
+
+That finishes the module on asynchronous JavaScript. You now know how the event loop schedules work, how promises and `async`/`await` express it, and how to combine, fail, cancel and stream it.

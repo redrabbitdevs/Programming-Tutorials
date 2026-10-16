@@ -1,0 +1,5 @@
+before
+inside executor
+after resolve call
+after then call
+then got value

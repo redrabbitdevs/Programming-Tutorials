@@ -1,0 +1,463 @@
+---
+language: javascript
+level: intermediate
+module: Asynchronous JavaScript
+order: 17
+title: async and await
+description: Write asynchronous code that reads top to bottom, handle errors with try and catch, and choose between sequential and parallel awaits.
+minVersion: "22"
+objectives:
+  - Explain that an async function always returns a promise
+  - Use await to wait for a promise and see which code keeps running meanwhile
+  - Handle rejections with try, catch and finally
+  - Start independent work together and await the results afterwards
+  - Avoid await in forEach, and know when return await matters
+estimatedMinutes: 50
+fundamentals: []
+---
+
+Promise chains solve the nesting problem of callbacks, but a long chain still reads differently from the plain code you are used to. `async` and `await` are syntax over promises that let you write the same flow as ordinary statements, one after the other, with `try` and `catch` for errors. Everything you learned in the [promises lesson](../promises/) still applies. A function marked `async` returns a promise, and `await` reads one.
+
+You saw the first forms of this in the [beginner lesson on dynamic import](../../beginner/json-modules-dynamic-import/). Now you will see how it works.
+
+## async functions return promises
+
+Put `async` before a function and it always returns a promise, whatever its body does. A returned value fulfils the promise. A thrown error rejects it.
+
+```javascript title="aa_basics.mjs"
+async function double(n) {
+  return n * 2;
+}
+
+async function fail() {
+  throw new Error("failed inside");
+}
+
+const promise = double(21);
+console.log(promise instanceof Promise);
+console.log(await promise);
+fail().catch((error) => console.log("rejected:", error.message));
+```
+
+```text
+true
+42
+rejected: failed inside
+```
+
+`double(21)` did not return `42`. It returned a promise for it, and `await` took the value out. The `fail` function never threw to its caller; the error came out as a rejection, which `.catch` handled.
+
+## await pauses the function, not the program
+
+`await promise` stops the **current function** until the promise settles, and then gives you its value. If the promise is rejected, `await` throws the reason instead. While the function waits, the rest of the program carries on. That is the part to keep in mind.
+
+```javascript title="aa_order.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function job() {
+  console.log("job: start");
+  await sleep(10);
+  console.log("job: resumed");
+  return "result";
+}
+
+console.log("main: before");
+const promise = job();
+console.log("main: after the call");
+console.log("main: got", await promise);
+```
+
+```text
+main: before
+job: start
+main: after the call
+job: resumed
+main: got result
+```
+
+Follow the order. `job()` ran synchronously up to its `await`, which printed `job: start`. Then control went back to the caller, so `main: after the call` printed while `job` was still asleep. Only after 10 ms did `job: resumed` print. The code after an `await` is a microtask that runs when the promise settles, as the [event loop lesson](../event-loop/) described.
+
+You may use `await` inside an `async` function, and at the top level of an ES module. Anywhere else it is a syntax error. In a module, the top-level `await` pauses the whole module until the promise settles, and modules that import it wait too.
+
+## Errors: try, catch and finally
+
+Because a rejection becomes a throw at the `await`, ordinary `try`, `catch` and `finally` work for asynchronous code.
+
+```javascript title="aa_trycatch.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function load(name) {
+  await sleep(5);
+  if (name === "missing") throw new Error(`no config named ${name}`);
+  return { name, retries: 3 };
+}
+
+for (const name of ["app", "missing"]) {
+  try {
+    const config = await load(name);
+    console.log("loaded", config);
+  } catch (error) {
+    console.log("error:", error.message);
+  } finally {
+    console.log("done with", name);
+  }
+}
+```
+
+```text
+loaded { name: 'app', retries: 3 }
+done with app
+error: no config named missing
+done with missing
+```
+
+The `catch` block caught the rejection from `load("missing")`, and `finally` ran after each attempt, whether it succeeded or not. Compare this to the `.catch` chain in the previous lesson: it is the same control flow, in the form you already know from the [beginner lesson on errors](../../beginner/errors-basics-js/).
+
+## One after the other, or all at once
+
+`await` makes it easy to write code that runs steps in sequence. It also makes it easy to run steps in sequence when they could run together. If two tasks do not depend on each other, start both first and `await` them afterwards. A promise starts working as soon as it is created, not when you `await` it.
+
+```javascript title="aa_seq_parallel.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function task(name, ms) {
+  console.log("start", name);
+  await sleep(ms);
+  console.log("end", name);
+  return name.toUpperCase();
+}
+```
+
+```javascript title="aa_seq_parallel.mjs (continued)"
+console.log("-- one after the other");
+const a1 = await task("a", 30);
+const b1 = await task("b", 10);
+console.log(a1, b1);
+```
+
+```text
+-- one after the other
+start a
+end a
+start b
+end b
+A B
+```
+
+```javascript title="aa_seq_parallel.mjs (continued)"
+console.log("-- both at once");
+const pa = task("a", 30);
+const pb = task("b", 10);
+console.log(await pa, await pb);
+```
+
+```text
+-- both at once
+start a
+start b
+end b
+end a
+A B
+```
+
+In the first half, task `b` did not start until `a` had ended. In the second half, both started at once. Task `b`, the shorter one, ended first. The `await pa` and `await pb` lines then collected the values in the order we asked for them. Total time is the longest task, not the sum.
+
+The next lesson shows `Promise.all`, which is the neat way to wait for many promises at once.
+
+## Loops, and why forEach does not wait
+
+`for...of` with `await` inside runs the iterations one after another, which is what you want when each step depends on the last. `forEach` does not understand promises: it calls your function for each item, ignores what it returns, and moves on.
+
+```javascript title="aa_foreach.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const delays = [30, 20, 10];
+
+delays.forEach(async (ms) => {
+  await sleep(ms);
+  console.log("forEach item done", ms);
+});
+console.log("after forEach");
+```
+
+```text
+after forEach
+forEach item done 10
+forEach item done 20
+forEach item done 30
+```
+
+```javascript title="aa_foreach.mjs (continued)"
+await sleep(50);
+for (const ms of delays) {
+  await sleep(ms);
+  console.log("for-of item done", ms);
+}
+console.log("after for-of");
+```
+
+```text
+for-of item done 30
+for-of item done 20
+for-of item done 10
+after for-of
+```
+
+`after forEach` printed first. The three callbacks all started at once and finished by delay, 10 ms first. The program had no way to wait for them. The `for...of` loop did wait, so the items finished in list order and `after for-of` came last. When you need to wait for every item, use `for...of`, or `Promise.all` with `map`, which the next lesson shows.
+
+## return await
+
+Inside an `async` function, `return promise` and `return await promise` give the same value to the caller, but they differ inside `try`.
+
+```javascript title="aa_return_await.mjs"
+const failLater = async () => {
+  throw new Error("inner failure");
+};
+
+async function withoutAwait() {
+  try {
+    return failLater();
+  } catch {
+    return "caught inside";
+  }
+}
+```
+
+```javascript title="aa_return_await.mjs (continued)"
+async function withAwait() {
+  try {
+    return await failLater();
+  } catch {
+    return "caught inside";
+  }
+}
+
+console.log(await withAwait());
+await withoutAwait().catch((e) => console.log("escaped:", e.message));
+```
+
+```text
+caught inside
+escaped: inner failure
+```
+
+`withoutAwait` returned the rejected promise to its caller before it settled, so the `catch` inside the function never saw it. `withAwait` waited inside the `try`, so its `catch` ran. Use `return await` when you need the `try` block to handle the failure, and the plain `return` otherwise.
+
+## Other forms
+
+`async` works on arrow functions, object methods and class methods. `await` on a value that is not a promise simply gives the value back.
+
+```javascript title="aa_forms.mjs"
+const arrow = async (x) => x + 1;
+
+const tools = {
+  async method() {
+    return "from a method";
+  },
+};
+
+class Greeter {
+  async greet(name) {
+    return `hello ${name}`;
+  }
+}
+
+console.log(await arrow(1));
+console.log(await tools.method());
+console.log(await new Greeter().greet("Ada"));
+console.log(await 5);
+```
+
+```text
+2
+from a method
+hello Ada
+5
+```
+
+## Common pitfalls
+
+- **Forgetting `await`.** You get a promise, not the value. `if (isReady())` on a promise is always true.
+- **Awaiting in sequence by habit.** Independent tasks should start together.
+- **Using `await` inside `forEach` or `map` callbacks and expecting the outer function to wait.** It does not.
+- **Calling an async function without `await` or `.catch`.** Its failure is easy to lose; the lesson on async errors covers this.
+- **`return failing()` inside `try`.** Without `await`, the `catch` does not see the rejection.
+- **Using `await` in a function that is not `async`.** It is a syntax error, outside a module's top level.
+- **Top-level `await` for slow work that nothing needs at start-up.** Every importer waits for it.
+
+## Exercises
+
+<Exercise title="Rewrite a promise chain">
+
+This program loads a user and their orders with a promise chain, and then hits a failure. Rewrite it with `async`, `await` and `try`/`catch`, without any `.then` or `.catch`. The output must stay the same.
+
+```javascript title="aa_ex_chain.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const getUser = (id) => sleep(5).then(() => ({ id, name: "Ada" }));
+const getOrders = () => sleep(5).then(() => [12, 30, 8]);
+const fail = () => sleep(5).then(() => Promise.reject(new Error("db down")));
+
+getUser(1)
+  .then((user) => getOrders(user).then((orders) => ({ user, orders })))
+  .then(({ user, orders }) => console.log(user.name, orders.length, "orders"))
+  .then(fail)
+  .catch((error) => console.log("error:", error.message));
+```
+
+```text
+Ada 3 orders
+error: db down
+```
+
+<Solution>
+
+Each `.then` becomes an `await` on its own line. The values `user` and `orders` stay in scope for the whole `try` block, so the awkward `{ user, orders }` object from the chain is no longer needed. The one `catch` at the end replaces the final `.catch`.
+
+```javascript title="aa_ex_rewrite.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const getUser = (id) => sleep(5).then(() => ({ id, name: "Ada" }));
+const getOrders = () => sleep(5).then(() => [12, 30, 8]);
+const fail = () => sleep(5).then(() => Promise.reject(new Error("db down")));
+
+try {
+  const user = await getUser(1);
+  const orders = await getOrders(user);
+  console.log(user.name, orders.length, "orders");
+  await fail();
+} catch (error) {
+  console.log("error:", error.message);
+}
+```
+
+```text
+Ada 3 orders
+error: db down
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Start the downloads together">
+
+These three independent parts are fetched one after the other. Change the program so that all three start at once, but the final array still lists the parts in the order header, body, footer. What does the log look like afterwards?
+
+```javascript title="aa_ex_slow.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchPart(name, ms) {
+  console.log("start", name);
+  await sleep(ms);
+  console.log("end", name);
+  return name;
+}
+
+const header = await fetchPart("header", 30);
+const body = await fetchPart("body", 10);
+const footer = await fetchPart("footer", 20);
+console.log([header, body, footer]);
+```
+
+```text
+start header
+end header
+start body
+end body
+start footer
+end footer
+[ 'header', 'body', 'footer' ]
+```
+
+<Solution>
+
+Start each call and keep the promise. Then await the promises in the order you want the results. The log now shows all three starts first, and the ends in order of the delays.
+
+```javascript title="aa_ex_parallel.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchPart(name, ms) {
+  console.log("start", name);
+  await sleep(ms);
+  console.log("end", name);
+  return name;
+}
+
+const headerPromise = fetchPart("header", 30);
+const bodyPromise = fetchPart("body", 10);
+const footerPromise = fetchPart("footer", 20);
+
+const header = await headerPromise;
+const body = await bodyPromise;
+const footer = await footerPromise;
+console.log([header, body, footer]);
+```
+
+```text
+start header
+start body
+start footer
+end body
+end footer
+end header
+[ 'header', 'body', 'footer' ]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="The total that stayed zero">
+
+The program below should print `total: 12`, but it prints `0`. Explain why, and fix it.
+
+```javascript title="aa_ex_foreach_bug.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const prices = { apple: 3, pear: 5, plum: 4 };
+let total = 0;
+
+Object.keys(prices).forEach(async (name) => {
+  await sleep(5);
+  total += prices[name];
+});
+
+console.log("total:", total);
+```
+
+```text
+total: 0
+```
+
+<Solution>
+
+`forEach` does not wait for the async callbacks. The `console.log` ran before any callback had reached its `total += ...` line. A `for...of` loop awaits each step, so the sum is complete when the loop ends.
+
+```javascript title="aa_ex_foreach_fixed.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const prices = { apple: 3, pear: 5, plum: 4 };
+let total = 0;
+
+for (const name of Object.keys(prices)) {
+  await sleep(5);
+  total += prices[name];
+}
+
+console.log("total:", total);
+```
+
+```text
+total: 12
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- An `async` function always returns a promise: a returned value fulfils it and a thrown error rejects it.
+- `await` pauses the current function until a promise settles, then gives its value or throws its reason. The rest of the program keeps running.
+- Use `try`, `catch` and `finally` for async errors.
+- Start independent work first and `await` afterwards, so it runs together.
+- `forEach` does not wait for async callbacks; use `for...of`.
+- Use `return await` inside `try` when the `catch` should handle the failure.
+
+Next: combinators that wait for many promises at once.
