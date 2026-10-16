@@ -76,36 +76,9 @@ Work through a few of them:
 - `[] + []` is the empty string, and `[1, 2] + [3]` is `"1,23"`, because each array becomes text first.
 - `"3" > "12"` is `true`, because two strings are compared character by character, like words in a dictionary. `"3" > 12` is `false` because a number on one side makes it a numeric comparison.
 
-## ToPrimitive and your own objects
+## Objects in the middle
 
-An object that appears where a primitive is wanted is asked for one. For `+` and `==`, the engine prefers `valueOf`. For string contexts such as template literals and `String(...)`, it prefers `toString`.
-
-```javascript title="to_primitive.mjs"
-const price = {
-  valueOf() {
-    return 42;
-  },
-  toString() {
-    return "forty-two";
-  },
-};
-
-console.log(price + 1);
-console.log(price * 2);
-console.log(`${price}`);
-console.log(String(price));
-console.log(price + "");
-```
-
-```text
-43
-84
-forty-two
-forty-two
-42
-```
-
-This is why `price + 1` gives `43` but `${price}` gives `forty-two`. You rarely define these methods yourself. It is enough to know that `{} + []` gives `"[object Object]"` because that is the default text of an object.
+An object that appears where a primitive is wanted is asked for one. For `+` and `==` the engine asks for a number-like value first, and for text contexts such as template literals and `String(...)` it asks for text. Plain objects and arrays answer with text: an array gives its items joined by commas, and a plain object gives `"[object Object]"`. That is why `{} + []` printed `[object Object]` above. Objects can define their own answers. The intermediate level covers how.
 
 ## Converting on purpose
 
@@ -145,9 +118,6 @@ console.log(parseInt("42px"), parseInt("px42"), parseInt("3.9"));
 console.log(parseInt("101", 2), parseInt("ff", 16), parseInt("0x1f"));
 console.log(parseInt("08", 10), parseInt("", 10));
 console.log(parseFloat("3.14abc"), Number("3.14abc"));
-console.log(["1", "2", "3"].map(parseInt));
-console.log(["1", "2", "3"].map(Number));
-console.log(["10", "10", "10"].map((s) => parseInt(s, 10)));
 ```
 
 ```text
@@ -155,9 +125,6 @@ console.log(["10", "10", "10"].map((s) => parseInt(s, 10)));
 5 255 31
 8 NaN
 3.14 NaN
-[ 1, NaN, NaN ]
-[ 1, 2, 3 ]
-[ 10, 10, 10 ]
 ```
 
 - `parseInt("42px")` is `42`, but `parseInt("px42")` is `NaN`, since nothing at the start matches.
@@ -165,52 +132,26 @@ console.log(["10", "10", "10"].map((s) => parseInt(s, 10)));
 - Always give a radix (the base) as the second argument: `parseInt("101", 2)` is `5`. Without one, text beginning with `0x` is read as hexadecimal. Writing `parseInt(s, 10)` for ordinary decimals removes any doubt.
 - `parseFloat("3.14abc")` is `3.14`, while `Number("3.14abc")` is `NaN`.
 
-The line with `["1", "2", "3"].map(parseInt)` is a famous trap. `map` passes each item **and its index** to the function, so `parseInt` is called as `parseInt("2", 1)`, and a radix of 1 is invalid, giving `NaN`. Pass `Number`, or wrap the call: `(s) => parseInt(s, 10)`.
+One trap waits for later. If you pass `parseInt` straight to the array method `map`, it receives each item and its index, and the index is taken as the radix, so most results come out as `NaN`. The [array methods lesson](../array-methods/) shows the fix.
 
 ## Truthy and falsy
 
 Conditions such as `if (x)` and operators such as `!` and `&&` convert their operand to a boolean. Exactly eight values are **falsy**: `false`, `0`, `-0`, `0n`, `""`, `null`, `undefined` and `NaN`. Everything else is **truthy**.
 
 ```javascript title="truthiness.mjs"
-function show(label, value) {
-  console.log(`${label.padEnd(12)} ${Boolean(value)}`);
-}
-
-show("false", false);
-show("0", 0);
-show("-0", -0);
-show("0n", 0n);
-show('""', "");
-show("null", null);
-show("undefined", undefined);
-show("NaN", NaN);
+console.log(Boolean(false), Boolean(0), Boolean(-0), Boolean(0n));
+console.log(Boolean(""), Boolean(null), Boolean(undefined), Boolean(NaN));
 console.log("--- truthy ---");
-show('"0"', "0");
-show('"false"', "false");
-show('" "', " ");
-show("[]", []);
-show("{}", {});
-show("-1", -1);
-show("Infinity", Infinity);
+console.log(Boolean("0"), Boolean("false"), Boolean(" "));
+console.log(Boolean([]), Boolean({}), Boolean(-1), Boolean(Infinity));
 ```
 
 ```text
-false        false
-0            false
--0           false
-0n           false
-""           false
-null         false
-undefined    false
-NaN          false
+false false false false
+false false false false
 --- truthy ---
-"0"          true
-"false"      true
-" "          true
-[]           true
-{}           true
--1           true
-Infinity     true
+true true true
+true true true true
 ```
 
 The surprises are on the truthy side: the text `"0"` and `"false"` are true, because any non-empty string is true. An empty array `[]` and an empty object `{}` are true as well, since they are objects. To test whether an array is empty, check `list.length === 0`.
@@ -223,13 +164,13 @@ Because `0` and `""` are falsy, `if (count)` is false when `count` is `0`, which
 
 - **Adding numbers that arrived as text.** Input from `readline`, forms and files is text. `"2" + "2"` is `"22"`. Convert first with `Number(...)`.
 - **`Number("")` is `0`.** An empty answer becomes zero without a complaint. Check for empty text before converting.
-- **`parseInt` without a radix**, and `map(parseInt)`.
+- **`parseInt` without a radix**, and passing `parseInt` straight to `map`.
 - **Truthiness tests for numbers and text.** `if (value)` skips `0` and `""`.
 - **Relying on object-to-string conversion.** `"" + {}` is `"[object Object]"`, which is never what a user should see.
 
 <Exercise title="Coercion quiz">
 
-Predict the output of these twelve lines, then run them.
+Predict the output of these twelve lines, then run them. Expected result: twelve lines, which the solution lists.
 
 ```javascript
 console.log("2" + 2);
@@ -286,21 +227,19 @@ In order: `+` joins because a side is text; `-` converts to numbers; the sum `4`
 
 <Exercise title="Convert user input safely">
 
-The list `["10", "x", "", "7.5"]` holds text typed by a user. For each item print `Number(item)` and `parseInt(item, 10)` on one line. Which conversions would you accept as valid numbers, and why is `""` dangerous?
+The four texts `"10"`, `"x"`, `""` and `"7.5"` stand for things a user might type. For each one, print the text, `Number(text)` and `parseInt(text, 10)` on one line. Which conversions would you accept as valid numbers, and why is `""` dangerous?
+
+Input: none. Expected output: four lines, ending with `7.5 7.5 7`.
 
 <Solution>
 
-A small helper keeps the four calls short. `JSON.stringify` prints the text with its quotes, so the empty string is visible:
+`JSON.stringify` prints the text with its quotes, so the empty string is visible:
 
 ```javascript title="safe_input.mjs"
-function show(item) {
-  console.log(JSON.stringify(item), Number(item), parseInt(item, 10));
-}
-
-show("10");
-show("x");
-show("");
-show("7.5");
+console.log(JSON.stringify("10"), Number("10"), parseInt("10", 10));
+console.log(JSON.stringify("x"), Number("x"), parseInt("x", 10));
+console.log(JSON.stringify(""), Number(""), parseInt("", 10));
+console.log(JSON.stringify("7.5"), Number("7.5"), parseInt("7.5", 10));
 ```
 
 ```text
@@ -311,6 +250,31 @@ show("7.5");
 ```
 
 `Number("")` is `0`, so a blank answer looks like a real zero. `parseInt` gives `NaN` for it, which can be tested, but `parseInt("7.5", 10)` silently drops the `.5`. Check for blank text first, then use `Number` and test the result with `Number.isNaN`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Add numbers that arrived as text">
+
+Declare `const first = "12";` and `const second = "30";`. Print three values on one line: the two texts added with `+` as they are, the sum after converting each with `Number(...)`, and the sum using the unary plus (`+first + +second`).
+
+Input: none. Expected output: `1230 42 42`.
+
+<Solution>
+
+```javascript title="text_sum.mjs"
+const first = "12";
+const second = "30";
+
+console.log(first + second, Number(first) + Number(second), +first + +second);
+```
+
+```text
+1230 42 42
+```
+
+With two strings, `+` joins them: `"1230"`. Converting first makes it a real addition. The unary plus does the same conversion as `Number`, but `Number(...)` is easier to read.
 
 </Solution>
 

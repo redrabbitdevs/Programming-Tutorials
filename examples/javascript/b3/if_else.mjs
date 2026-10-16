@@ -1,22 +1,11 @@
-function describeTemperature(celsius) {
-  if (celsius < 0) {
-    return "freezing";
-  } else if (celsius < 15) {
-    return "cold";
-  } else if (celsius < 25) {
-    return "mild";
-  } else {
-    return "hot";
-  }
-}
+const celsius = 20;
 
-for (const t of [-5, 10, 20, 31]) {
-  console.log(t, describeTemperature(t));
-}
-
-const name = "";
-if (name) {
-  console.log("has a name");
+if (celsius < 0) {
+  console.log("freezing");
+} else if (celsius < 15) {
+  console.log("cold");
+} else if (celsius < 25) {
+  console.log("mild");
 } else {
-  console.log("name is empty");
+  console.log("hot");
 }

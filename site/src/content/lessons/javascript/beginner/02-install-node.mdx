@@ -34,7 +34,7 @@ As of 14 October 2026:
 | 24 "Krypton" | Active LTS, moves to Maintenance on 20 October 2026 | 30 April 2028 |
 | 22 "Jod" | Maintenance LTS | 30 April 2027 |
 
-This course uses **Node.js 26**. Its examples were tested on Node.js 26.11.1, and newer 26.x releases print the same output. Everything in the core path also runs on Node 22 and 24, because the oldest supported line is 22. When a lesson needs 24 or 26, it says so on the page with a marker like <Since v="24" />, so you can tell what will and will not work on your install.
+This course uses **Node.js 26**. The examples were written and run on Node.js 26.11.1, and any 26.x release behaves the same. Everything in the core path also runs on Node 22 and 24, because the oldest supported line is 22. When a lesson needs 24 or 26, it says so on the page with a marker like <Since v="24" />, so you can tell what will and will not work on your install.
 
 If you only need one install, take the LTS release from nodejs.org. If you are reading this after 28 October 2026, that is Node 26. Before then, install 26 if you want to follow along exactly, or 24 if you prefer an LTS line today. Both work for this module.
 
@@ -106,19 +106,19 @@ v26.11.1
 
 The second line is the V8 engine version, which tells you which language features your engine has.
 
-A program can also check the version and act on it. This one reads the major number out of `process.versions.node` and compares it:
+A program can also check the version. This one reads the major number out of `process.versions.node` and compares it with 22:
 
 ```javascript title="node_major.mjs"
 const major = Number(process.versions.node.split(".")[0]);
 
-console.log(`Node major version: ${major >= 22 ? "22 or newer" : "too old for this course"}`);
+console.log("Node 22 or newer:", major >= 22);
 ```
 
 ```text
-Node major version: 22 or newer
+Node 22 or newer: true
 ```
 
-`split(".")` cuts the string `"26.11.1"` at each dot into an array of three pieces, and `[0]` takes the first. `Number(...)` turns that text into a number, so the comparison is between numbers and not between pieces of text. Lessons 7 and 9 cover numbers and conversions in detail.
+`split(".")` cuts the text `"26.11.1"` at each dot into a list of three pieces, and `[0]` takes the first. `Number(...)` turns that text into a number, so the comparison is between numbers. `major >= 22` is `true` or `false`. The [numbers lesson](../numbers-js/) and the [coercion lesson](../coercion/) cover numbers and conversions in detail.
 
 ## Common pitfalls
 
@@ -127,25 +127,23 @@ Node major version: 22 or newer
 - **Running `sudo npm` to get past a permissions error.** Fix the cause instead. A version manager keeps everything in your home folder.
 - **Picking a Current release for production.** Up to Node 26, production applications should use LTS releases.
 
-<Exercise title="Print the version and the V8 version">
+<Exercise title="Print the version without the v">
 
-Install Node.js, then write a program that prints `process.version` on the first line and `process.versions.v8` on the second. Run it from a terminal.
+Install Node.js, then write a program that prints `process.version` without its leading `v`. `slice(1)` returns a piece of a string starting at position 1. Run it from a terminal.
 
-Input: none. Your output depends on your install. On Node.js 26.11.1 it is shown below.
+Input: none. Your output depends on your install. On Node.js 26.11.1 it is `26.11.1`.
 
 <Solution>
 
-```javascript title="versions_print.mjs"
-console.log(process.version);
-console.log(process.versions.v8);
+```javascript title="version_no_v.mjs"
+console.log(process.version.slice(1));
 ```
 
 ```text frame="terminal"
-v26.11.1
-14.6.202.34-node.37
+26.11.1
 ```
 
-`process.version` is a plain property, so no call is needed. It starts with `v`, unlike `process.versions.node`, which does not.
+`process.version` is a plain property, so no call is needed. Position 0 is the `v`, and `slice(1)` starts after it.
 
 </Solution>
 
@@ -153,17 +151,47 @@ v26.11.1
 
 <Exercise title="Compare against a different version">
 
-Change `node_major.mjs` so that it prints `Node 26 or newer` or `older than Node 26`. Input: none. Expected output on Node.js 26.11.1: `Node 26 or newer`.
+Change `node_major.mjs` so that it prints whether the major version is 26 or newer, in the form `Node 26 or newer: true`. Input: none. Expected output on Node.js 26.11.1: `Node 26 or newer: true`. On Node.js 22 or 24 it prints `false`.
 
 <Solution>
 
 ```javascript title="node_26_check.mjs"
 const major = Number(process.versions.node.split(".")[0]);
 
-console.log(major >= 26 ? "Node 26 or newer" : "older than Node 26");
+console.log("Node 26 or newer:", major >= 26);
 ```
 
-On Node.js 22 or 24, the same program prints `older than Node 26`. The conditional operator `? :` is covered in a later lesson. It picks between two values based on a condition.
+```text
+Node 26 or newer: true
+```
+
+Only the number in the comparison changed.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Show the pieces of the version">
+
+Print the three parts of `process.versions.node` on three lines, labelled `major`, `minor` and `patch`. Use `split(".")` and the positions `[0]`, `[1]` and `[2]`. Input: none. Expected output on Node.js 26.11.1: `major: 26`, `minor: 11`, `patch: 1`. Your numbers depend on your install.
+
+<Solution>
+
+```javascript title="version_parts.mjs"
+const parts = process.versions.node.split(".");
+
+console.log("major:", parts[0]);
+console.log("minor:", parts[1]);
+console.log("patch:", parts[2]);
+```
+
+```text
+major: 26
+minor: 11
+patch: 1
+```
+
+The three pieces are still text here. Wrap one in `Number(...)` if you need to do arithmetic with it.
 
 </Solution>
 

@@ -91,7 +91,7 @@ The `.mjs` extension tells Node.js to treat the file as an ES module, the modern
 
 <Exercise title="Spec, engine or runtime?">
 
-Decide for each item whether it belongs to the language specification, to an engine, or to a runtime.
+Decide for each item whether it belongs to the language specification, to an engine, or to a runtime. Expected result: eight answers, three of them "specification", two "engine" and three "runtime".
 
 1. `Array.prototype.map`
 2. V8
@@ -117,21 +117,63 @@ Decide for each item whether it belongs to the language specification, to an eng
 
 </Exercise>
 
-<Exercise title="Which runtime am I in?">
+<Exercise title="Probe five names">
 
-Write a program that prints `browser` if `typeof window` is not `"undefined"`, and `not a browser` otherwise. Run it with Node.js.
+Print `typeof` for each of these names, one per line, in this order: `console`, `Math`, `fetch`, `setTimeout`, `alert`. Then decide which of them belong to the language itself and which come from the runtime.
+
+Input: none. Expected output on Node.js 26: `object`, `object`, `function`, `function`, `undefined`.
 
 <Solution>
 
-```javascript title="which_runtime.mjs"
-console.log(typeof window !== "undefined" ? "browser" : "not a browser");
+```javascript title="probe_names.mjs"
+console.log(typeof console);
+console.log(typeof Math);
+console.log(typeof fetch);
+console.log(typeof setTimeout);
+console.log(typeof alert);
 ```
 
 ```text
-not a browser
+object
+object
+function
+function
+undefined
 ```
 
-The `typeof` test is safe even when the name does not exist. Reading a missing name directly would throw a `ReferenceError`.
+Only `Math` is defined by ECMA-262. `console`, `fetch` and `setTimeout` come from the runtime (Node.js provides all three, and so do browsers). `alert` exists in browsers only, so Node.js answers `"undefined"`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Name the three layers">
+
+Write three `console.log` lines that each name one layer for this sentence: "Chrome runs my page with V8, and the page reads `document.title`." Print `specification: ...`, `engine: ...` and `runtime: ...`, filling in the part of the sentence that belongs to each layer. The specification line uses the language feature `Math.max`.
+
+Expected output:
+
+```text frame="terminal"
+specification: Math.max
+engine: V8
+runtime: document.title
+```
+
+<Solution>
+
+```javascript title="three_layers.mjs"
+console.log("specification: Math.max");
+console.log("engine: V8");
+console.log("runtime: document.title");
+```
+
+```text
+specification: Math.max
+engine: V8
+runtime: document.title
+```
+
+`Math.max` is part of the language, V8 is the engine inside Chrome, and `document` is a browser object.
 
 </Solution>
 

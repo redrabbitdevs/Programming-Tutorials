@@ -1,4 +1,6 @@
-function toNumber(input) {
+const input = "abc";
+
+try {
   if (typeof input !== "string") {
     throw new TypeError(`expected a string, got ${typeof input}`);
   }
@@ -10,19 +12,7 @@ function toNumber(input) {
   if (Number.isNaN(value)) {
     throw new RangeError(`not a number: "${text}"`);
   }
-  return value;
-}
-
-function tryConvert(input) {
-  try {
-    return toNumber(input);
-  } catch (error) {
-    return `${error.name}: ${error.message}`;
-  } finally {
-    // runs for every input, success or failure
-  }
-}
-
-for (const input of ["42", " 3.5 ", "", "abc", 7]) {
-  console.log(tryConvert(input));
+  console.log(value);
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
 }

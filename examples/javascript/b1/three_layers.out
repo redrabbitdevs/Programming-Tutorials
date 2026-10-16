@@ -1,0 +1,3 @@
+specification: Math.max
+engine: V8
+runtime: document.title

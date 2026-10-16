@@ -12,14 +12,14 @@ objectives:
   - Spot the cases where automatic semicolon insertion changes your meaning
   - Explain what strict mode changes and why modules are always strict
 estimatedMinutes: 30
-fundamentals: ["fundamentals/beginner/01-what-is-a-program"]
+fundamentals: ["fundamentals/beginner/01-what-is-a-program", "fundamentals/beginner/05-expressions-and-operators"]
 ---
 
 JavaScript forgives a lot of sloppy formatting, and that is exactly the problem: some forgiven mistakes change what your program does without any error. This lesson sets out the habits that avoid those traps, and then looks at strict mode, which turns several silent mistakes into errors.
 
 ## Statements and expressions
 
-An **expression** is a piece of code that produces a value: `5 + 3`, `"hi".length`, `age >= 18`, a function call. A **statement** is a complete instruction that does something: declaring a variable, an `if`, a loop. A program is a list of statements, and many statements contain expressions.
+An **expression** is a piece of code that produces a value: `5 + 3`, `"hi".length`, `age >= 18`, a call such as `Math.max(1, 2)`. A **statement** is a complete instruction that does something: declaring a variable, an `if`, a loop. A program is a list of statements, and many statements contain expressions.
 
 ```javascript title="expr_stmt.mjs"
 const result = 5 + 3;
@@ -38,7 +38,7 @@ The difference matters because you can put an expression wherever a value is exp
 const label = if (age > 18) { "adult" }; // SyntaxError
 ```
 
-JavaScript has an expression for the same job, the conditional operator, which a later lesson covers.
+JavaScript has an expression for the same job, the conditional operator, which the [conditionals lesson](../conditionals-js/) covers.
 
 ## Semicolons
 
@@ -59,69 +59,40 @@ console.log(total)
 
 This course writes the semicolons, and formatters such as Prettier add them by default. Many teams skip them. Both are legal styles, but whichever you pick, you must know where ASI goes wrong.
 
-### The return trap
-
-`return` followed by a line break gets a semicolon right after it, so the value on the next line is never returned:
-
-```javascript title="asi_return.mjs"
-function broken() {
-  return
-    42;
-}
-
-function fixed() {
-  return 42;
-}
-
-console.log(broken());
-console.log(fixed());
-```
-
-```text
-undefined
-42
-```
-
-`broken` returns `undefined` and the `42` is dead code that nothing complains about. Keep the returned value on the same line as `return`. When you return something long, open the bracket on that line:
-
-```javascript
-return {
-  total: 42,
-};
-```
-
 ### Lines that start with a bracket
 
-A line that begins with `(`, `[` or a backtick continues the line before it, so no semicolon is inserted there. This runs without a semicolon error and does the wrong thing:
+A line that begins with `(`, `[`, a backtick, `+`, `-` or `/` continues the line before it, so no semicolon is inserted there. This runs without a syntax error and fails at run time:
 
 ```javascript
-const letters = ["a", "b"]
-const count = letters.length
-
-[1, 2].forEach((n) => console.log(n + count))
+const price = 20
+const tax = 5
+const total = price + tax
+(price * 2)
 ```
 
-JavaScript reads the last two lines as `letters.length[1, 2].forEach(...)`, which fails at run time:
+JavaScript reads the last two lines as one: `price + tax(price * 2)`. Node stops with this error, because `tax` is the number 5 and cannot be called:
 
 ```text
-TypeError: Cannot read properties of undefined (reading 'forEach')
+TypeError: tax is not a function
 ```
 
-With semicolons, the intent is clear:
+With semicolons, each line stands alone and the intent is clear:
 
 ```javascript title="asi_guarded.mjs"
-const letters = ["a", "b"];
-const count = letters.length;
+const price = 20;
+const tax = 5;
+const total = price + tax;
 
-[1, 2].forEach((n) => console.log(n + count));
+console.log(total);
 ```
 
 ```text
-3
-4
+25
 ```
 
-If you choose to skip semicolons, this is the case where you must put one at the start of such a line. If you write them, you never meet it.
+If you choose to skip semicolons, a line that starts with one of those characters needs a semicolon in front of it. If you write them, you never meet the problem.
+
+A second trap involves `return` followed by a line break: the language inserts a semicolon right after `return`, so the value on the next line is never returned. Keep the returned value on the same line as `return`. Functions and `return` are covered in the [function forms lesson](../function-forms/).
 
 ## Comments
 
@@ -159,131 +130,146 @@ In its original form, JavaScript allowed things that were almost always mistakes
 
 Two cases are important to know:
 
-- **Code in an ES module is always strict.** Every `.mjs` file in this course is strict without you doing anything. So is the body of a class.
-- **Code in other files is sloppy by default.** To opt in, put the directive `"use strict";` as the first statement of the file or of a function.
+- **Code in an ES module is always strict.** Every `.mjs` file in this course is strict without you doing anything.
+- **Code in other files is sloppy by default.** To opt in, put the directive `"use strict";` as the first statement of the file.
 
 What strict mode changes, with examples that run in a module:
 
 - Assigning to a name that was never declared is a `ReferenceError`. Sloppy mode would create a global variable out of a typo.
 
-```javascript title="strict_undeclared.mjs"
-try {
-  total = 10;
-} catch (error) {
-  console.log(`${error.name}: ${error.message}`);
-}
+```javascript
+total = 10;
+console.log("never reached");
 ```
 
 ```text
 ReferenceError: total is not defined
 ```
 
-- Writing to something that cannot be written is a `TypeError`. In sloppy mode, the assignment is ignored without a word. `Object.freeze` makes an object read-only, and it is used here to show the difference.
-
-```javascript title="strict_freeze.mjs"
-const settings = Object.freeze({ theme: "dark" });
-
-try {
-  settings.theme = "light";
-} catch (error) {
-  console.log(`${error.name}: ${error.message}`);
-}
-
-console.log(settings.theme);
-```
-
-```text
-TypeError: Cannot assign to read only property 'theme' of object '#<Object>'
-dark
-```
-
+- Writing to something that cannot be written is a `TypeError`. In sloppy mode, the assignment is ignored without a word. Frozen objects, which you meet in the objects lesson, are an example.
 - The `with` statement, an obsolete feature that made scope hard to reason about, is a `SyntaxError`.
 
 A silent failure is far worse than a loud one, so strict mode is the right place to be. If you ever see an old tutorial that begins every file with `"use strict";`, now you know why, and why you do not need it in modules.
 
 <Callout type="note">
 
-Strict mode and `const` do different jobs. Strict mode is about catching mistakes in how the language is used. `const` is about whether a name can be pointed at something else. The next module on variables explains `const`.
+Strict mode and `const` do different jobs. Strict mode is about catching mistakes in how the language is used. `const` is about whether a name can be pointed at something else. The [lesson on `let` and `const`](../let-const/) explains `const`.
 
 </Callout>
 
 ## Common pitfalls
 
-- **A newline after `return`.** The function returns `undefined`.
 - **A line starting with `(` or `[` after a line without a semicolon.** It is glued to the previous line.
+- **A newline after `return`.** The function returns `undefined`.
 - **Inconsistent naming.** `Price_Tag`, `pricetag` and `priceTag` look like three names. Pick camelCase and stay with it.
 - **Misspelling a variable name in sloppy code.** It silently creates a new global. In a module, you get a `ReferenceError` instead.
 - **Putting `"use strict"` in the middle of a file.** The directive only counts as the first statement.
 
-<Exercise title="Fix the messy file">
+<Exercise title="Tidy a messy file">
 
-This file has five problems: an inconsistent name, missing semicolons, a line that starts with a bracket, a `return` followed by a line break, and no explanation of what it does. Once fixed, the program should print `25`, then `50`, then `Total: 25`. Fix it.
+This file works, but it breaks the course's style: an inconsistent name, no semicolons, and no explanation of what it does. Rewrite it with camelCase names, semicolons and a one-line comment at the top.
 
 ```javascript
-const Price_Tag = 20
-const tax = 5
-const total = Price_Tag + tax
-[1, 2].forEach((n) => console.log(n * total))
-function label() {
-  return
-    "Total: " + total
-}
-console.log(label())
+const Item_Count = 3
+const unitprice = 4
+const total = Item_Count * unitprice
+console.log(`Total: ${total}`)
+console.log(`With 10% off: ${total * 0.9}`)
 ```
 
-Input: none. Run as it is, the file stops with a `TypeError`.
+Input: none. Expected output stays the same: `Total: 12` then `With 10% off: 10.8`.
 
 <Solution>
 
-```javascript title="asi_fixed.mjs"
-// Prints the total price including tax, for two quantities.
-const priceTag = 20;
-const tax = 5;
-const total = priceTag + tax;
+```javascript title="tidy_file.mjs"
+// Prints a total and the total with 10% off.
+const itemCount = 3;
+const unitPrice = 4;
+const total = itemCount * unitPrice;
 
-[1, 2].forEach((n) => console.log(n * total));
-
-function label() {
-  return "Total: " + total;
-}
-
-console.log(label());
+console.log(`Total: ${total}`);
+console.log(`With 10% off: ${total * 0.9}`);
 ```
 
 ```text
-25
-50
-Total: 25
+Total: 12
+With 10% off: 10.8
 ```
 
-The changes are: `priceTag` follows the camelCase convention. Every statement ends with a semicolon, which makes the `[1, 2]` line a separate statement. The returned value now sits on the same line as `return`. A short comment says what the file computes.
+The names follow camelCase, every statement ends with a semicolon, and the comment says what the file computes.
 
 </Solution>
 
 </Exercise>
 
-<Exercise title="Does strict mode apply here?">
+<Exercise title="Why does it crash?">
 
-Which of these are strict mode: a file named `main.mjs`, the body of a class, a function whose first statement is `"use strict";`, and a script file with no directive and no `import` or `export`? Predict, then check the first one by assigning to an undeclared name in a `.mjs` file.
+Save this file and run it. It stops with an error, although every line looks right.
+
+```javascript
+const width = 6
+const height = 7
+const area = width * height
+(width + height) * 2
+```
+
+Find the cause from the error message, then fix the file so that it prints the area, `42`, and then the perimeter, `26`.
+
+Input: none. Expected output after the fix: `42` then `26`.
 
 <Solution>
 
-The first three are strict. The last one is not, because it is neither a module nor opted in. Checking the first:
+The error is `TypeError: height is not a function`. The last line starts with `(`, so the language reads `width * height(width + height) * 2` as one statement and tries to call the number 7. Semicolons stop the lines joining. The last line is also a bare calculation whose result is thrown away, so the fixed program prints both values:
 
-```javascript title="strict_check.mjs"
-try {
-  message = "hello";
-  console.log("sloppy mode");
-} catch (error) {
-  console.log(`strict mode: ${error.name}`);
-}
+```javascript title="bracket_fixed.mjs"
+const width = 6;
+const height = 7;
+const area = width * height;
+
+console.log(area);
+console.log((width + height) * 2);
 ```
 
 ```text
-strict mode: ReferenceError
+42
+26
 ```
 
-The assignment to `message` throws because modules are strict. In sloppy mode it would silently create a global variable.
+Putting `console.log(` in front of the bracket gives the second calculation a statement of its own, which is the better fix for a line that was meant to do something.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Read the comments">
+
+Work out what this program prints before you run it.
+
+```javascript
+const a = 4; // const a = 5;
+/* const b = 2; */ const b = 3;
+// console.log("skipped");
+console.log(a * b);
+/* console.log("also skipped"); */
+```
+
+Input: none. Expected output: `12`.
+
+<Solution>
+
+```javascript title="read_comments.mjs"
+const a = 4; // const a = 5;
+/* const b = 2; */ const b = 3;
+// console.log("skipped");
+console.log(a * b);
+/* console.log("also skipped"); */
+```
+
+```text
+12
+```
+
+The engine ignores everything after `//` on a line and everything between `/*` and `*/`. Only `const a = 4`, `const b = 3` and the one live `console.log` remain, so the result is 4 times 3.
 
 </Solution>
 
@@ -294,6 +280,6 @@ The assignment to `message` throws because modules are strict. In sloppy mode it
 - An expression produces a value, and a statement does something. You can only use an expression where a value is expected.
 - Write semicolons, keep `return` values on the same line, and be wary of lines that start with `(` or `[`.
 - Use camelCase for variables and functions, PascalCase for classes and UPPER_SNAKE_CASE for fixed constants.
-- Modules are always strict, so assigning to an undeclared name or writing to a frozen object throws. Other code can opt in with `"use strict";`.
+- Modules are always strict, so assigning to an undeclared name is an error. Other code can opt in with `"use strict";`.
 
 Next, in the module on values and types: [primitive types and `typeof`](../primitives-and-typeof/).

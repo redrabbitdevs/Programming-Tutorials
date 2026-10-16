@@ -1,9 +1,3 @@
-parsing {"ok": true}
-done with {"ok": true}
-{ ok: true }
-parsing {oops
+parsing
 invalid JSON
-done with {oops
-null
-finally runs before the function returns
-from try
+done

@@ -1,4 +1,5 @@
-const letters = ["a", "b"];
-const count = letters.length;
+const price = 20;
+const tax = 5;
+const total = price + tax;
 
-[1, 2].forEach((n) => console.log(n + count));
+console.log(total);

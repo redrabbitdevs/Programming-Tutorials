@@ -3,5 +3,4 @@ bigint
 2n 1n
 9007199254740993n
 true true false
-TypeError: Cannot mix BigInt and other types, use explicit conversions
 2n 2

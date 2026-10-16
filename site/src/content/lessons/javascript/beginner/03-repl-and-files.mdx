@@ -71,7 +71,7 @@ node area.mjs
 28.27
 ```
 
-`Math.PI` is a constant that the language provides, and `**` raises a number to a power. The first line shows more digits than you want: that is how JavaScript prints a number by default. `area.toFixed(2)` returns the number as text rounded to two decimals. The numbers lesson in the next module explains why the long form looks the way it does.
+`Math.PI` is a constant that the language provides, and `**` raises a number to a power. The first line shows more digits than you want: that is how JavaScript prints a number by default. `area.toFixed(2)` returns the number as text rounded to two decimals. The [numbers lesson](../numbers-js/) explains why the long form looks the way it does.
 
 Unlike the REPL, a script prints only what you tell it to print. Without the `console.log` calls, the program would run and show nothing.
 
@@ -156,18 +156,56 @@ The file needs `console.log` to show the values. The REPL and the console print 
 
 </Exercise>
 
-<Exercise title="See stderr separate from stdout">
+<Exercise title="Fahrenheit to Celsius">
 
-Write a program that prints `ok` with `console.log` and `problem` with `console.error`. Run it twice, once normally and once with `> out.txt` after the command. What do you see on screen the second time, and what is in `out.txt`?
+Write a file that converts 212 degrees Fahrenheit and 50 degrees Fahrenheit to Celsius and prints each result on its own line. The formula is (F - 32) * 5 / 9. Keep each temperature in its own `const`.
+
+Input: none. Expected output: `100` then `10`.
 
 <Solution>
 
-```javascript title="ok_problem.mjs"
-console.log("ok");
-console.error("problem");
+```javascript title="fahrenheit.mjs"
+const boiling = 212;
+const cool = 50;
+
+console.log(((boiling - 32) * 5) / 9);
+console.log(((cool - 32) * 5) / 9);
 ```
 
-Normally both words appear. With `node ok_problem.mjs > out.txt`, the screen shows only `problem`, because `>` redirects stdout and stderr is still attached to the terminal. The file `out.txt` contains `ok`.
+```text
+100
+10
+```
+
+The inner brackets make the subtraction happen before the multiplication, as in the formula.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Seconds in a day">
+
+In the REPL, work out how many seconds a day has, then use `_` to double the answer. Then write the same calculation in a file with `const` names for hours, minutes and seconds, and print it.
+
+Input: none. Expected: `86400` in the REPL, `172800` after `_ * 2`, and `86400` from the file.
+
+<Solution>
+
+In the REPL, type `24 * 60 * 60` and then `_ * 2`. In a file:
+
+```javascript title="seconds_per_day.mjs"
+const hoursPerDay = 24;
+const minutesPerHour = 60;
+const secondsPerMinute = 60;
+
+console.log(hoursPerDay * minutesPerHour * secondsPerMinute);
+```
+
+```text
+86400
+```
+
+Named constants say what each number means. Three lines are longer than `24 * 60 * 60`, and much easier to read a month later.
 
 </Solution>
 

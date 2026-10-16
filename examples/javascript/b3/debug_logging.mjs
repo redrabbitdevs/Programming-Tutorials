@@ -8,6 +8,7 @@ for (const order of orders) {
   console.log("order:", order);
   total += order.qty * order.price;
 }
+
 console.log({ total });
 console.table(orders);
 console.group("details");

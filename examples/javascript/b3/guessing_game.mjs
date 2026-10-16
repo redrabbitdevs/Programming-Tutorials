@@ -8,5 +8,6 @@ for (const guess of guesses) {
     console.log(`Guess ${tries}: ${guess} is right`);
     break;
   }
-  console.log(`Guess ${tries}: ${guess} is too ${guess < secret ? "low" : "high"}`);
+  const hint = guess < secret ? "low" : "high";
+  console.log(`Guess ${tries}: ${guess} is too ${hint}`);
 }
