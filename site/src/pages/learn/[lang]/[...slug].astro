@@ -5,7 +5,7 @@ import Crumbs from '../../../components/Crumbs.astro';
 import LevelBadge from '../../../components/LevelBadge.astro';
 import { mdxComponents } from '../../../components/mdx';
 import { url } from '../../../lib/url';
-import { showVersionBadge } from '../../../lib/versions';
+import { showVersionBadge, versionBadgeText } from '../../../lib/versions';
 import { lessonHref, lessonSlug, sortLessons, groupLessons, resolveFundamentals } from '../../../lib/lessons';
 
 export async function getStaticPaths() {
@@ -73,7 +73,7 @@ const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
           <p class="lesson-meta">
             <LevelBadge level={d.level} compact />
             <span>{d.estimatedMinutes} min</span>
-            {showVersionBadge(d.language, d.minVersion) && <span>{langName} {d.minVersion}+</span>}
+            {showVersionBadge(d.language, d.minVersion) && <span>{versionBadgeText(langName, langs[0]?.data.versionLabel, d.minVersion)}</span>}
           </p>
           <p class="lede">{d.description}</p>
           {builds.length > 0 && (

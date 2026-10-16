@@ -3,7 +3,7 @@ import { getCollection } from 'astro:content';
 import BaseLayout from '../../../layouts/BaseLayout.astro';
 import Crumbs from '../../../components/Crumbs.astro';
 import { url } from '../../../lib/url';
-import { showVersionBadge } from '../../../lib/versions';
+import { showVersionBadge, versionBadgeText } from '../../../lib/versions';
 import { STATUS_LABEL, getLessonsFor, groupLessons, lessonHref, languageHref } from '../../../lib/lessons';
 import { paradigmGroups, groupLabel } from '../../../lib/paradigms';
 
@@ -64,14 +64,15 @@ const wikipedia = (d as { wikipedia?: string }).wikipedia;
       <p class="lede">{d.summary}</p>
       <dl class="meta-row">
         <div><dt>Status</dt><dd><span class="status" data-status={d.status}>{STATUS_LABEL[d.status]}</span></dd></div>
-        <div><dt>Paradigm</dt><dd>{d.paradigm.join(', ')}</dd></div>
+        <div><dt>Paradigm</dt><dd>{shownGroups.join(', ').toLowerCase() || 'other'}</dd></div>
         {d.firstAppeared && <div><dt>First appeared</dt><dd>{d.firstAppeared}</dd></div>}
         {d.latestVersion && (
           <div>
             <dt>Latest version</dt>
-            <dd>{d.latestVersion}{d.latestVersionDate && <span> ({fmtDate(d.latestVersionDate)})</span>}</dd>
+            <dd>{d.versionLabel ? `${d.versionLabel} ` : ''}{d.latestVersion}{d.latestVersionDate && <span> ({fmtDate(d.latestVersionDate)})</span>}</dd>
           </div>
         )}
+        {d.latestEdition && <div><dt>Latest standard</dt><dd>{d.latestEdition}</dd></div>}
         <div><dt>Lessons</dt><dd>{lessons.length}</dd></div>
       </dl>
       {levelLinks.length > 1 && (
@@ -109,7 +110,7 @@ const wikipedia = (d as { wikipedia?: string }).wikipedia;
                   <li>
                     <a href={lessonHref(l)}>
                       <span class="t">{l.data.title}</span>
-                      <span class="m">{l.data.estimatedMinutes} min{showVersionBadge(l.data.language, l.data.minVersion) ? ` · ${d.name} ${l.data.minVersion}+` : ''}</span>
+                      <span class="m">{l.data.estimatedMinutes} min{showVersionBadge(l.data.language, l.data.minVersion) ? ` · ${versionBadgeText(d.name, d.versionLabel, l.data.minVersion)}` : ''}</span>
                       <span class="d">{l.data.description}</span>
                     </a>
                   </li>

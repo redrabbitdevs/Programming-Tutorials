@@ -1,12 +1,24 @@
 ---
-/** Inline marker for version-gated features: <Since v="3.12" /> */
+import { getEntry } from 'astro:content';
+import { sinceText } from '../../lib/versions';
+
+/**
+ * Inline marker for version-gated features: <Since v="3.12" />
+ * Languages whose version numbers count a runtime (JavaScript: Node.js) say so
+ * with `versionLabel` in their language data, and the marker names it.
+ */
 interface Props {
   v: string;
   /** Optional last version, for removed features: <Since v="2.7" until="3.0" /> */
   until?: string;
+  /** Replaces the version, for features gated by something else: <Since v="" label="Baseline 2024" /> */
+  label?: string;
 }
-const { v, until } = Astro.props;
-const label = until ? `Available from version ${v} until ${until}` : `Requires version ${v} or later`;
+const { v, until, label } = Astro.props;
+// Lessons live at /learn/<language>/...; the language data is looked up from the page being rendered.
+const lang = Astro.url.pathname.match(/\/learn\/([^/]+)\//)?.[1];
+const runtime = lang ? (await getEntry('languages', lang))?.data.versionLabel : undefined;
+const { visible, spoken } = sinceText(runtime, v, until, label);
 ---
 
-<span class="since" title={label}><span aria-hidden="true">{until ? `${v}–${until}` : `${v}+`}</span><span class="visually-hidden">{label}</span></span>
+<span class="since" title={spoken}><span aria-hidden="true">{visible}</span><span class="visually-hidden">{spoken}</span></span>

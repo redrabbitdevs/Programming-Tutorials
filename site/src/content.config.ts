@@ -13,6 +13,10 @@ const languages = defineCollection({
     firstAppeared: z.number().int().optional(),
     latestVersion: z.string().optional(),
     latestVersionDate: z.coerce.date().optional(),
+    /** What `latestVersion` and lesson `minVersion` numbers count, when they are not versions of the language itself (JavaScript: "Node.js"). */
+    versionLabel: z.string().optional(),
+    /** Latest edition of the language standard, shown on its own row (JavaScript: "ECMAScript 2026"). */
+    latestEdition: z.string().optional(),
     wikipedia: z.string().nullish(),
     summary: z.string(),
     status: z.enum(['planned', 'in-progress', 'complete']),
