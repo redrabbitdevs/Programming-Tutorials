@@ -1,30 +1,58 @@
-import { createInterface } from "node:readline/promises";
+import { createInterface } from "node:readline";
 import { loadQuestions } from "./load.mjs";
-import { askQuestion } from "./ask.mjs";
-import { isCorrect, summarise } from "./score.mjs";
+import { parseChoice, showPrompt, showQuestion } from "./ask.mjs";
+import { isCorrect, summarise, verdict } from "./score.mjs";
 
-const rl = createInterface({ input: process.stdin });
-const lines = rl[Symbol.asyncIterator]();
+function runQuiz(questions) {
+  const rl = createInterface({ input: process.stdin });
+  const results = [];
+  const missed = [];
 
-const questions = loadQuestions();
-const results = [];
-const missed = [];
+  console.log(`JavaScript quiz: ${questions.length} questions`);
+  showQuestion(questions[0], 1);
 
-for (const [i, question] of questions.entries()) {
-  const picked = await askQuestion(lines, question, i + 1);
-  if (picked === null) break;
-  const right = isCorrect(question, picked);
-  results.push(right);
-  if (!right) missed.push(question);
+  rl.on("line", (text) => {
+    if (results.length === questions.length) return;
+
+    const question = questions[results.length];
+    const picked = parseChoice(text, question.choices.length);
+    if (picked === null) {
+      console.log(`Please type a number from 1 to ${question.choices.length}.`);
+      showPrompt();
+      return;
+    }
+
+    const right = isCorrect(question, picked);
+    const answer = question.choices[question.answer];
+    console.log(right ? "Correct!" : `Not quite. The answer is ${answer}.`);
+    results.push(right);
+    if (!right) missed.push(question);
+
+    if (results.length === questions.length) {
+      rl.close();
+    } else {
+      showQuestion(questions[results.length], results.length + 1);
+    }
+  });
+
+  rl.on("close", () => {
+    if (results.length < questions.length) console.log("\nInput ended early.");
+    const { correct, total, percent } = summarise(results);
+    console.log(`\nScore: ${correct}/${total} (${percent}%)`);
+    console.log(verdict(percent));
+
+    if (missed.length > 0) {
+      console.log("\nReview these:");
+      for (const q of missed) {
+        console.log(`- ${q.prompt} -> ${q.choices[q.answer]}`);
+      }
+    }
+  });
 }
-rl.close();
 
-const { correct, total } = summarise(results);
-console.log(`\nScore: ${correct}/${total}`);
-
-if (missed.length > 0) {
-  console.log("Review these:");
-  for (const q of missed) {
-    console.log(`- ${q.prompt} -> ${q.choices[q.answer]}`);
-  }
+try {
+  runQuiz(loadQuestions());
+} catch (error) {
+  console.error(`Quiz failed: ${error.message}`);
+  process.exitCode = 1;
 }

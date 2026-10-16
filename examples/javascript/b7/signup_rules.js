@@ -1,4 +1,9 @@
-export function validateSignup({ username = "", email = "", password = "", confirm = "" }) {
+export function validateSignup({
+  username = "",
+  email = "",
+  password = "",
+  confirm = "",
+}) {
   const errors = {};
 
   const name = username.trim();

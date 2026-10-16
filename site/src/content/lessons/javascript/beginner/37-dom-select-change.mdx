@@ -15,7 +15,7 @@ estimatedMinutes: 40
 fundamentals: []
 ---
 
-*This lesson belongs to the optional browser module. Serve your folder as in the previous lesson and open each page in a browser.*
+*This lesson belongs to the optional browser module. Serve your folder as in the previous lesson, [JavaScript in a web page](../script-tags-modules/), and open each page in a browser.*
 
 When a browser loads a page, it builds a tree of objects from the HTML. This tree is the **DOM**, the Document Object Model. Every element, such as a heading or a list item, is an object with properties and methods. JavaScript changes the page by changing these objects. The browser redraws what you see.
 
@@ -29,7 +29,7 @@ const count = document.querySelector("#count");      // by id
 const first = document.querySelector("ul li.low");   // by structure and class
 ```
 
-`querySelectorAll(selector)` returns every match. MDN says the result is a **static** `NodeList`: a snapshot, which does not change if the page changes later. A `NodeList` is not an array, but you can loop over it with `for...of`, and it has `length`. Convert it with `Array.from(list)` if you need array methods such as `map`.
+`querySelectorAll(selector)` returns every match. The result is a **static** `NodeList`: a snapshot, which does not change if the page changes later. A `NodeList` is not an array, but you can loop over it with `for...of`, and it has `length`. Convert it with `Array.from(list)` if you need array methods such as `map`.
 
 ```javascript
 for (const item of document.querySelectorAll("li")) {
@@ -41,7 +41,7 @@ Both methods also exist on elements. `list.querySelectorAll("li.low")` searches 
 
 ## Changing text
 
-`textContent` reads or sets the text of an element and everything inside it. MDN warns that setting it removes all the element's children and replaces them with a single text node. The text is inserted as plain text. Characters like `<` are shown as they are and are not read as markup.
+`textContent` reads or sets the text of an element and everything inside it. Setting it removes all the element's children and replaces them with a single text node. The text is inserted as plain text. Characters like `<` are shown as they are and are not read as markup.
 
 ```javascript
 const count = document.querySelector("#count");
@@ -61,7 +61,7 @@ li.setAttribute("title", "Only one left");
 
 ## Creating elements
 
-`document.createElement("li")` makes a new, empty element that is not on the page yet. Fill it in, then add it to an element that is already there. `append` adds children at the end, and it accepts elements and plain strings. `replaceChildren(...nodes)` removes all the current children and adds the new ones in one step. MDN lists `replaceChildren` as Baseline widely available since April 2023.
+`document.createElement("li")` makes a new, empty element that is not on the page yet. Fill it in, then add it to an element that is already there. `append` adds children at the end, and it accepts elements and plain strings. `replaceChildren(...nodes)` removes all the current children and adds the new ones in one step. `replaceChildren` is widely available in current browsers.
 
 ## A shopping list
 
@@ -141,7 +141,11 @@ const items = [
 
 const list = document.querySelector("#shopping");
 const count = document.querySelector("#count");
+```
 
+Then `render` builds the list. It is the only function that touches the list on the page.
+
+```javascript title="shopping.js (continued)"
 function render(items) {
   const rows = sortByName(items).map((item) => {
     const li = document.createElement("li");
@@ -153,7 +157,11 @@ function render(items) {
   list.replaceChildren(...rows);
   count.textContent = `${items.length} items`;
 }
+```
 
+Last, the page calls `render` once. A loop then uses `querySelectorAll` on the list to find the low items and add more text to each.
+
+```javascript title="shopping.js (continued)"
 render(items);
 
 for (const li of list.querySelectorAll("li.low")) {
@@ -198,7 +206,7 @@ document.querySelector("#as-html").innerHTML = input;
 
 Open `text_vs_html.html`. The `textContent` line shows the characters `<b>not bold</b>` as they are. The `innerHTML` line shows the words "not bold" in bold, because the browser built a `<b>` element from the string.
 
-Bold text is harmless, but the same mechanism can run code. MDN's page on `innerHTML` calls it "probably the most common vector for cross-site scripting (XSS) attacks". It notes that `innerHTML` does not run `<script>` elements that you insert, but that other markup still can. Its example is an `<img>` with a broken `src` and an `onerror` attribute, where the code in `onerror` runs. MDN recommends `textContent` when the content should be plain text.
+Bold text is harmless, but the same mechanism can run code. Putting untrusted text through `innerHTML` is one of the most common routes for cross-site scripting (XSS) attacks. `innerHTML` does not run `<script>` elements that you insert, but other markup still can. An `<img>` with a broken `src` and an `onerror` attribute runs the code in `onerror`. When the content should be plain text, use `textContent`.
 
 The rule for you:
 
@@ -286,7 +294,7 @@ The script builds one `<li>` per fruit with `textContent`, then puts them all in
 
 <Exercise title="Make a comment safe">
 
-A page shows comments with this code. A visitor posts `<img src='x' onerror='alert(1)'>`. What goes wrong, and how do you fix `addComment`?
+A page shows comments with this code. A visitor posts `<img src='x' onerror='alert(1)'>`. (Only try a payload like this on a page of your own, running locally.) What goes wrong, and how do you fix `addComment`? Expected result: the fixed page shows the tag as plain characters and no alert appears.
 
 ```javascript
 function addComment(text) {

@@ -14,8 +14,14 @@ const root = process.cwd();
 const port = Number(process.argv[2] ?? 8000);
 
 const server = createServer(async (request, response) => {
-  const url = new URL(request.url, "http://localhost");
-  let path = decodeURIComponent(url.pathname);
+  let path;
+  try {
+    const url = new URL(request.url, "http://localhost");
+    path = decodeURIComponent(url.pathname);
+  } catch {
+    response.writeHead(400).end("Bad request");
+    return;
+  }
   if (path.endsWith("/")) path += "index.html";
 
   const file = normalize(join(root, path));

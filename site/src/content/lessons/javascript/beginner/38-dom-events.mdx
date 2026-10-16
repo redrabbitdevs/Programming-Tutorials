@@ -15,7 +15,7 @@ estimatedMinutes: 40
 fundamentals: []
 ---
 
-*This lesson belongs to the optional browser module. Serve your folder as in lesson 36 and open each page in a browser.*
+*This lesson belongs to the optional browser module. Serve your folder as in [JavaScript in a web page](../script-tags-modules/) and open each page in a browser.*
 
 A page that never reacts is just a document. An **event** is the browser telling your code that something happened: a click, a key press, a form submission, a page finishing loading. You register a function, called a **listener** or handler, and the browser calls it each time the event happens.
 
@@ -31,9 +31,9 @@ button.addEventListener("click", (event) => {
 
 - `event.type` is the name of the event, such as `"click"`.
 - `event.target` is the element where the event started. For a click, it is the innermost element under the pointer.
-- `event.currentTarget` is the element the listener is attached to. MDN notes that it is only available while the handler runs.
+- `event.currentTarget` is the element the listener is attached to. It is only available while the handler runs.
 
-You can add several listeners for the same event on one element. They run in the order you added them. MDN points out that two anonymous functions are never identical, even with the same source code, so adding "the same" arrow function twice adds two listeners.
+You can add several listeners for the same event on one element. They run in the order you added them. Two anonymous functions are never identical, even with the same source code, so adding "the same" arrow function twice adds two listeners.
 
 To remove a listener with `removeEventListener`, you must pass the same function object that you added, so give the function a name if you plan to remove it. The `signal` option below is often easier.
 
@@ -120,7 +120,11 @@ function update(action) {
   count = nextCount(count, action);
   output.textContent = String(count);
 }
+```
 
+Next, every counter button gets a click listener, all sharing one `signal`.
+
+```javascript title="counter.js (continued)"
 for (const button of document.querySelectorAll("button[data-action]")) {
   button.addEventListener(
     "click",
@@ -128,7 +132,11 @@ for (const button of document.querySelectorAll("button[data-action]")) {
     { signal: controller.signal },
   );
 }
+```
 
+Last, the two extra buttons show the `once` and `signal` options.
+
+```javascript title="counter.js (continued)"
 document.querySelector("#hello").addEventListener(
   "click",
   () => {
@@ -156,7 +164,7 @@ The third argument of `addEventListener` can be an object of options. Two of the
 - `{ once: true }` removes the listener automatically after it has run once. The "Say hello" button only works the first time.
 - `{ signal }` takes an `AbortSignal`. When you call `abort()` on its `AbortController`, every listener registered with that signal is removed. One call switches off a whole group. The "Switch the counter off" button does this to the three counter buttons.
 
-MDN also documents `capture` and `passive`. `passive: true` promises that the listener never calls `preventDefault()`. You do not need either option in this module.
+There are also `capture` and `passive` options. `passive: true` promises that the listener never calls `preventDefault()`. You do not need either option in this module.
 
 ## Bubbling and delegation
 
@@ -170,7 +178,9 @@ The logic for the task list is again in a pure function:
 
 ```javascript title="tasks_logic.js"
 export function toggleTask(tasks, id) {
-  return tasks.map((task) => (task.id === id ? { ...task, done: !task.done } : task));
+  return tasks.map((task) =>
+    task.id === id ? { ...task, done: !task.done } : task,
+  );
 }
 
 export function countDone(tasks) {
@@ -241,7 +251,11 @@ let tasks = [
 const list = document.querySelector("#tasks");
 const summary = document.querySelector("#summary");
 const status = document.querySelector("#status");
+```
 
+`render` rebuilds the whole list from `tasks`, with each id stored in `dataset.id`.
+
+```javascript title="delegate.js (continued)"
 function render() {
   const rows = tasks.map((task) => {
     const li = document.createElement("li");
@@ -253,7 +267,11 @@ function render() {
   list.replaceChildren(...rows);
   summary.textContent = `${countDone(tasks)} of ${tasks.length} done.`;
 }
+```
 
+Then the listeners. One delegated listener handles the list, and a separate one cancels the default action of the link.
+
+```javascript title="delegate.js (continued)"
 list.addEventListener("click", (event) => {
   console.log(event.type, event.target.tagName, event.currentTarget.id);
   const li = event.target.closest("li");
@@ -264,7 +282,8 @@ list.addEventListener("click", (event) => {
 
 document.querySelector("#docs").addEventListener("click", (event) => {
   event.preventDefault();
-  status.textContent = "The link click was cancelled. The page stayed where it is.";
+  status.textContent =
+    "The link click was cancelled. The page stayed where it is.";
 });
 
 render();
@@ -300,7 +319,7 @@ Some events have a built-in action: a click on a link goes to its address, and a
 
 <Exercise title="Delete a task">
 
-Write a pure function `removeTask(tasks, id)` that returns a new array without the task with that id, and check it in Node. Then say how you would add a "Delete" button to each item of the delegated task list.
+Write a pure function `removeTask(tasks, id)` that returns a new array without the task with that id, and check it in Node. Expected result: for two tasks with ids 1 and 2, `removeTask(tasks, 1)` keeps only the task with id 2, the original array still has 2 tasks, and `removeTask(tasks, 99)` changes nothing. Then say how you would add a "Delete" button to each item of the delegated task list.
 
 <Solution>
 

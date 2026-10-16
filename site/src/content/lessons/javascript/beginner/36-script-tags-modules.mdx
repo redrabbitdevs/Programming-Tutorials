@@ -26,7 +26,7 @@ A browser example needs two things Node does not: an HTML page and a browser to 
 
 This split is also a good habit in real projects, because the logic is easy to test and the page code stays short. The ideas behind it, such as separating a calculation from its input and output, are in the [fundamentals lesson on functions](../../../fundamentals/beginner/functions/).
 
-The APIs in this module are well established. At the time of writing, MDN labels each one used here as Baseline **widely available**, which means it works in all the current major browsers and has done for a good while. When a lesson uses something newer, it says so.
+The APIs in this module are well established: each one used here is **widely available**, which means it works in all the current major browsers and has done for a good while. When a lesson uses something newer, it says so.
 
 Put all the files of this module in one folder, for example `web`. Every file is shown in full, and each lesson's files work together.
 
@@ -50,9 +50,9 @@ An HTML page loads JavaScript with a `<script>` element. The modern way is `type
 </html>
 ```
 
-The `src` attribute names the file to load. The script is in the `<head>`, yet it can still change the `<h1>` in the body. A module script is **deferred**: the browser downloads it while it reads the page, and runs it only after the whole document has been parsed. MDN states that you do not need `defer` for a module script because "modules are deferred automatically".
+The `src` attribute names the file to load. The script is in the `<head>`, yet it can still change the `<h1>` in the body. A module script is **deferred**: the browser downloads it while it reads the page, and runs it only after the whole document has been parsed. That is why a module script does not need the `defer` attribute that you will meet below.
 
-The script itself is an ordinary ES module, as in lessons 31 to 33. It can `import` from other files.
+The script itself is an ordinary ES module, as in the [ES modules lesson](../es-modules/) and the two after it. It can `import` from other files.
 
 ```javascript title="hello.js"
 import { greeting } from "./greeting.js";
@@ -66,7 +66,7 @@ console.log("hello.js ran after the page was parsed");
 
 - `document` is the object that represents the page. `document.querySelector("#title")` finds the first element that matches a CSS selector. The next lesson covers this properly.
 - `textContent` is the text inside an element. Assigning to it replaces what was there.
-- `new Date().getHours()` gives the hour from 0 to 23 on the visitor's clock.
+- `new Date().getHours()` gives the hour from 0 to 23 on the visitor's clock. `Date` is the built-in type for dates and times. The intermediate level covers it properly, and here you only need `new Date()` for "now".
 
 The greeting comes from a separate module with no page code in it.
 
@@ -101,9 +101,9 @@ The page code is then little more than "find the heading, put the text in it". L
 
 ## Serving the page
 
-You might expect to double-click `hello.html`. For a module script that does not work. MDN's guide to JavaScript modules warns that loading the HTML file from disk (a `file://` address) causes CORS errors because of the security rules for modules, and that you need to test through a server.
+You might expect to double-click `hello.html`. For a module script that does not work. Loading the HTML file from disk (a `file://` address) causes CORS errors because of the browser's security rules for modules, so you have to test through a server.
 
-A web server is just a program that sends files when a browser asks. Node can do that in a few lines. Save this as `serve.mjs` in your `web` folder.
+A web server is just a program that sends files when a browser asks. Node can do that in a few lines. Save the file below as `serve.mjs` in your `web` folder and run it. You do not need to follow every line yet: the server is a tool for this module, and the notes after the code explain the parts that matter. It is shown in four blocks.
 
 ```javascript title="serve.mjs"
 import { createServer } from "node:http";
@@ -120,12 +120,26 @@ const types = {
 
 const root = process.cwd();
 const port = Number(process.argv[2] ?? 8000);
+```
 
+The handler is next. Node calls it once for each request, and it works out which path the browser asked for. The `async` before the arrow function lets the handler use `await`, as in the [lesson on dynamic import](../json-modules-dynamic-import/).
+
+```javascript title="serve.mjs (continued)"
 const server = createServer(async (request, response) => {
-  const url = new URL(request.url, "http://localhost");
-  let path = decodeURIComponent(url.pathname);
+  let path;
+  try {
+    const url = new URL(request.url, "http://localhost");
+    path = decodeURIComponent(url.pathname);
+  } catch {
+    response.writeHead(400).end("Bad request");
+    return;
+  }
   if (path.endsWith("/")) path += "index.html";
+```
 
+Then the handler finds the file, refuses anything outside the folder, and sends the file or an error.
+
+```javascript title="serve.mjs (continued)"
   const file = normalize(join(root, path));
   if (file !== root && !file.startsWith(root + sep)) {
     response.writeHead(403).end("Forbidden");
@@ -140,13 +154,18 @@ const server = createServer(async (request, response) => {
     response.writeHead(404).end("Not found");
   }
 });
+```
 
+Finally the server starts listening.
+
+```javascript title="serve.mjs (continued)"
 server.listen(port, "127.0.0.1", () => {
   console.log(`Serving ${root} at http://localhost:${port}/`);
 });
 ```
 
-- `createServer` calls the function once for each request. `request.url` is the path the browser asked for, such as `/hello.html`.
+- `process.argv[2]` is the first word typed after the file name, as in the package lesson, so `node serve.mjs 9000` uses port 9000. Without it the port is 8000.
+- `createServer` calls the function once for each request. `request.url` is the path the browser asked for, such as `/hello.html`. `new URL(...)` splits it into parts, and `decodeURIComponent` turns codes such as `%20` back into characters. A malformed address, such as `/%`, makes either call throw, so they sit inside a `try` and the server answers `400 Bad request` instead of crashing.
 - `join(root, path)` turns it into a file path inside the folder, and the `startsWith` check refuses any path that would climb out of that folder. A server that skipped this check could be asked for any file on your computer.
 - `readFile` reads the file. The `types` table sets the `Content-Type` header, so the browser knows that `.js` files are JavaScript. Browsers refuse a module script that arrives with the wrong type.
 - The server listens on `127.0.0.1`, so only your own computer can reach it.
@@ -249,7 +268,7 @@ Even `var` stays private to the module, and `this` is `undefined` at its top lev
 
 You will still meet classic scripts in older code and tutorials. A classic script with a `src` runs as soon as the browser reaches it, and the parser waits. If it sits in the `<head>`, the body does not exist yet.
 
-The `defer` attribute fixes that for a classic script. MDN describes it as meant to run the script after the document has been parsed. The page below uses it:
+The `defer` attribute fixes that for a classic script. It makes the browser run the script after the document has been parsed. The page below uses it:
 
 ```html title="defer_demo.html"
 <!doctype html>
@@ -285,7 +304,7 @@ Open `defer_demo.html`. The heading changes to "Changed by a deferred classic sc
 
 <Exercise title="A hello page with a date">
 
-Make a page `today.html` with an `<h1>` and a paragraph with the id `date`. A module script should put "Today is YYYY-MM-DD." in the paragraph. Put the formatting in a pure function `formatDate(date)` in its own module, and check it in Node with a fixed date.
+Make a page `today.html` with an `<h1>` and a paragraph with the id `date`. A module script should put "Today is YYYY-MM-DD." in the paragraph. Put the formatting in a pure function `formatDate(date)` in its own module, and check it in Node with a fixed date. Expected result: `formatDate(new Date(2026, 9, 15))` returns `2026-10-15`, and `formatDate(new Date(2027, 0, 5))` returns `2027-01-05`. (`new Date(year, monthIndex, day)` counts months from 0, so October is 9.)
 
 <Solution>
 

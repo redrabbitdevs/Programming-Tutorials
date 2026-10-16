@@ -1,4 +1,10 @@
-import { addTodo, remaining, removeTodo, toggleTodo, visibleTodos } from "./todo_state.js";
+import {
+  addTodo,
+  remaining,
+  removeTodo,
+  toggleTodo,
+  visibleTodos,
+} from "./todo_state.js";
 
 let todos = [];
 todos = addTodo(todos, "  Buy milk ");

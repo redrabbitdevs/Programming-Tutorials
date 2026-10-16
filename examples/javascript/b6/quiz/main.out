@@ -28,7 +28,7 @@ Question 4: Is 0.1 + 0.2 === 0.3 in JavaScript?
   2) false
 Your answer: Correct!
 
-Question 5: Which file extension always makes Node treat a file as an ES module?
+Question 5: Which extension always makes Node run a file as an ES module?
   1) .mjs
   2) .cjs
   3) .json

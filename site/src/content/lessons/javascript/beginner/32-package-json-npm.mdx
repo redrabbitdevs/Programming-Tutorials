@@ -75,6 +75,8 @@ console.log(`Hello, ${name}!`);
 Hello, world!
 ```
 
+`process.argv` is an array of the words typed on the command line after `node`. Item 0 is the path of Node itself and item 1 is the path of your script, so `process.argv[2]` is the first word you added yourself. When you add none, it is `undefined`, and `??` supplies `"world"`. Run `node hello.mjs Ada` and it prints `Hello, Ada!`.
+
 ## Scripts
 
 The `"scripts"` field gives names to commands. Run one with `npm run NAME`. The name `start` is special, so `npm start` works too.
@@ -197,14 +199,14 @@ To see what is installed, run `npm ls`. To remove a package, run `npm uninstall 
 - **Committing `node_modules`.** It is large and anyone can recreate it from `package.json` and the lock file. Keep it out of version control.
 - **Forgetting the lock file.** Commit `package-lock.json`.
 - **Editing `package.json` by hand and forgetting `npm install`.** The lock file and `node_modules` fall out of date.
-- **Leaving `"type": "commonjs"` and using `import`.** Node reports a syntax problem, or treats the file as CommonJS. Set `"type": "module"`, or use `.mjs`.
+- **Leaving `"type": "commonjs"` and using `import`.** The `"type": "commonjs"` that `npm init -y` writes means exactly that: `import` in a `.js` file is a syntax error. Set `"type": "module"`, or use `.mjs`. (With no `"type"` at all, Node 22.7 and later guesses by syntax detection, as the ES modules lesson explained, but it warns on each run. Set the field.)
 - **Installing a package you do not recognise.** Check its name and its publisher first. Installing runs other people's code on your machine.
 
 ## Exercises
 
 <Exercise title="Create a project with one dependency and one script">
 
-Make a new folder and turn it into an ES-module project. Install `ms`, create `index.js` that prints `ms("1 hour")`, and add a script called `start` that runs it. Run it with both `npm start` and `node --run start`.
+Make a new folder and turn it into an ES-module project. Install `ms`, create `index.js` that prints `ms("1 hour")`, and add a script called `start` that runs it. Run it with both `npm start` and `node --run start`. Expected result: both commands print `3600000`.
 
 <Solution>
 

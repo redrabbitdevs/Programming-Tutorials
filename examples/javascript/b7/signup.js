@@ -29,7 +29,7 @@ form.addEventListener("submit", (event) => {
   if (Object.keys(check()).length > 0) return;
 
   const { username, email } = Object.fromEntries(new FormData(form));
-  result.textContent = `Welcome, ${username}! A confirmation would be sent to ${email}.`;
+  result.textContent = `Welcome, ${username}! We would email ${email}.`;
 
   form.reset();
   touched.clear();
