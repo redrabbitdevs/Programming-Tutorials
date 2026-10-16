@@ -34,3 +34,22 @@ export function showVersionBadge(language: string, minVersion?: string): minVers
   const oldest = OLDEST_SUPPORTED[language];
   return !oldest || cmp(minVersion, oldest) > 0;
 }
+
+/**
+ * Text for a version marker. `runtime` is the language's `versionLabel`
+ * (JavaScript: "Node.js"), set when version numbers count a runtime rather
+ * than the language. Without it the text is exactly what it always was.
+ */
+export function versionBadgeText(langName: string, runtime: string | undefined, v: string): string {
+  return `${runtime ?? langName} ${v}+`;
+}
+
+/** Visible and screen-reader text for <Since>. `label` replaces the version, e.g. "Baseline 2024". */
+export function sinceText(runtime: string | undefined, v: string, until?: string, label?: string) {
+  if (label) return { visible: label, spoken: `Requires ${label}` };
+  const name = runtime ?? 'version';
+  const prefix = runtime ? `${runtime} ` : '';
+  return until
+    ? { visible: `${prefix}${v}\u2013${until}`, spoken: `Available from ${name} ${v} until ${until}` }
+    : { visible: `${prefix}${v}+`, spoken: `Requires ${name} ${v} or later` };
+}
