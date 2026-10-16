@@ -1,20 +1,11 @@
-let total = 0;
-const prices = [5, 10, 15];
+const greeting = "Hi";
 
-for (const price of prices) {
-  total += price;
+{
+  const visitor = "Ada";
+  console.log(visitor);
 }
 
-const callbacks = [];
-for (let n = 1; n <= 3; n++) {
-  callbacks.push(() => `step ${n}`);
-}
+let total = 10;
+total += 5;
 
-if (total > 20) {
-  const message = "big order";
-  console.log(message);
-}
-
-console.log(total, typeof price);
-console.log(callbacks.map((cb) => cb()));
-console.log(typeof message);
+console.log(greeting, total);

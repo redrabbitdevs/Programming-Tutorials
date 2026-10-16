@@ -11,5 +11,3 @@ symbol
 boolean
 string
 number
-function
-object

@@ -24,7 +24,7 @@ A string can be written with double quotes, single quotes or backticks. Single a
 const name = "Ada";
 const items = 3;
 
-console.log(`${name} bought ${items} item${items === 1 ? "" : "s"}.`);
+console.log(`${name} bought ${items} items.`);
 console.log("Tab:\tcolumn");
 console.log("Quote: \"hi\" and 'hi'");
 console.log('Backslash: \\');
@@ -54,23 +54,18 @@ const word = "cat";
 
 console.log(word.length, word[0], word.at(-1));
 
-try {
-  word[0] = "b";
-} catch (error) {
-  console.log(`${error.name}: ${error.message}`);
-}
-
 const loud = word.toUpperCase();
 console.log(word, loud);
 ```
 
 ```text
 3 c t
-TypeError: Cannot assign to read only property '0' of string 'cat'
 cat CAT
 ```
 
-`word[0]` is the first character, since counting starts at zero. `word.at(-1)` counts from the end, so `-1` is the last character. Assigning to `word[0]` throws a `TypeError` in a module, where code is strict. In sloppy code it would be ignored without a word. `toUpperCase()` leaves `word` as it was and gives back a new string.
+`word[0]` is the first character, since counting starts at zero. `word.at(-1)` counts from the end, so `-1` is the last character. `toUpperCase()` leaves `word` as it was and gives back a new string.
+
+Assigning to a position, as in `word[0] = "b"`, does not work. In a module, where code is strict, it stops the program with `TypeError: Cannot assign to read only property '0' of string 'cat'`. In sloppy code it would be ignored without a word.
 
 ## Common methods
 
@@ -81,7 +76,11 @@ const text = "  Learn JavaScript, one step at a time  ";
 const clean = text.trim();
 
 console.log(clean);
-console.log(clean.includes("step"), clean.startsWith("Learn"), clean.endsWith("time"));
+console.log(
+  clean.includes("step"),
+  clean.startsWith("Learn"),
+  clean.endsWith("time"),
+);
 console.log(clean.indexOf("one"), clean.indexOf("two"));
 console.log(clean.slice(0, 5), clean.slice(-4));
 console.log(clean.split(", "));
@@ -123,14 +122,13 @@ hahaha
 `padStart` and `padEnd` line text up in columns. Numbers need to be converted to strings first, because the pad methods belong to strings.
 
 ```javascript title="receipt.mjs"
-function line(name, quantity, price) {
-  const total = (quantity * price).toFixed(2);
-  return `${name.padEnd(8)}${String(quantity).padStart(3)}${total.padStart(8)}`;
-}
+const total1 = (2 * 3.5).toFixed(2);
+const total2 = (1 * 4.25).toFixed(2);
+const total3 = (12 * 0.4).toFixed(2);
 
-console.log(line("Tea", 2, 3.5));
-console.log(line("Cake", 1, 4.25));
-console.log(line("Biscuit", 12, 0.4));
+console.log("Tea".padEnd(8) + "2".padStart(3) + total1.padStart(8));
+console.log("Cake".padEnd(8) + "1".padStart(3) + total2.padStart(8));
+console.log("Biscuit".padEnd(8) + "12".padStart(3) + total3.padStart(8));
 ```
 
 ```text
@@ -145,6 +143,8 @@ Biscuit  12    4.80
 
 Internally, JavaScript stores a string as a sequence of 16-bit **UTF-16 code units**. `length` counts those units, not what a reader sees as characters. Most characters take one unit. Many emoji and rare characters take two, written as a **surrogate pair**.
 
+The expression `[...text]` spreads a string into a list of its **code points**, the numbers that identify each character. Spread syntax has its own lesson, on [destructuring and spread](../destructuring-spread/). Here it is just a way to count characters properly.
+
 ```javascript title="unicode_length.mjs"
 console.log("café".length);
 console.log("😀".length);
@@ -153,13 +153,6 @@ console.log("😀".codePointAt(0));
 
 const family = "👨‍👩‍👧";
 console.log(family.length, [...family].length);
-console.log([...new Intl.Segmenter().segment(family)].length);
-
-const composed = "é";
-const decomposed = "é";
-console.log(composed.length, decomposed.length);
-console.log(composed === decomposed);
-console.log(composed === decomposed.normalize());
 ```
 
 ```text
@@ -168,21 +161,37 @@ console.log(composed === decomposed.normalize());
 1
 128512
 8 5
-1
-1 2
-false
-true
 ```
 
 Read the output line by line:
 
 - `"café".length` is `4`, as expected.
 - `"😀".length` is `2`, because that one emoji is two code units.
-- Spreading the string, `[..."😀"]`, walks it by **code point** instead, so the length is `1`. `codePointAt(0)` gives the code point number, `128512`.
-- The family emoji is several emoji joined by invisible joiner characters. Its `length` is `8` and its code point count is `5`, but a reader sees one symbol. `Intl.Segmenter`, a built-in tool for splitting text the way readers see it, counts `1`.
-- The letter é can be one code point (`é`) or an `e` followed by a combining accent (`é`). They look the same and have lengths 1 and 2, and `===` says they differ. `normalize()` converts both to the same form.
+- Spreading the string walks it by code point, so the length is `1`. `codePointAt(0)` gives the code point number, `128512`.
+- The family emoji is several emoji joined by invisible joiner characters. Its `length` is `8` and its code point count is `5`, but a reader sees one symbol. Counting what readers see needs a tool called `Intl.Segmenter`, which the intermediate level on text introduces.
 
-When you need to count or slice what users see, use code points for most cases and `Intl.Segmenter` for the exact ones. Slicing with `slice` or indexing can cut a surrogate pair in half, leaving a broken character.
+Accents bring a similar problem. The letter é can be one code point or an `e` followed by a combining accent. They look the same, and `===` says they differ.
+
+```javascript title="normalize_demo.mjs"
+const composed = "\u00e9";
+const decomposed = "e\u0301";
+
+console.log(composed, decomposed);
+console.log(composed.length, decomposed.length);
+console.log(composed === decomposed);
+console.log(composed === decomposed.normalize());
+```
+
+```text
+é é
+1 2
+false
+true
+```
+
+The escape `\u00e9` writes a character by its code point number. `normalize()` converts both strings to the same form, so the last comparison is `true`.
+
+When you need to count or slice what users see, use code points for most cases. Slicing with `slice` or indexing can cut a surrogate pair in half, leaving a broken character.
 
 ## Common pitfalls
 
@@ -193,28 +202,36 @@ When you need to count or slice what users see, use code points for most cases a
 - **Using `+` with a number and text.** `"a" + 1 + 2` is `"a12"`. A template literal states the intent.
 - **Comparing accented text without `normalize()`.** Two strings that look identical can differ.
 
-<Exercise title="Format a receipt line">
+<Exercise title="Format a price list">
 
-Write `line(name, quantity, price)` that returns a line with the name left-aligned in 8 characters, the quantity right-aligned in 3 and the total (quantity times price, two decimals) right-aligned in 8. Print three lines for `Tea` (2 at 3.5), `Cake` (1 at 4.25) and `Biscuit` (12 at 0.4).
+Print a header and two rows lined up in columns. The item name is left-aligned in 10 characters, the quantity right-aligned in 5, and the total (quantity times price, two decimals) right-aligned in 8. The rows are `Pen` (3 at 1.2) and `Notebook` (10 at 2.5).
+
+Input: none. Expected output:
+
+```text frame="terminal"
+Item        Qty   Total
+Pen           3    3.60
+Notebook     10   25.00
+```
 
 <Solution>
 
-```javascript title="receipt.mjs"
-function line(name, quantity, price) {
-  const total = (quantity * price).toFixed(2);
-  return `${name.padEnd(8)}${String(quantity).padStart(3)}${total.padStart(8)}`;
-}
+```javascript title="price_list.mjs"
+const penTotal = (3 * 1.2).toFixed(2);
+const bookTotal = (10 * 2.5).toFixed(2);
 
-console.log(line("Tea", 2, 3.5));
-console.log(line("Cake", 1, 4.25));
-console.log(line("Biscuit", 12, 0.4));
+console.log("Item".padEnd(10) + "Qty".padStart(5) + "Total".padStart(8));
+console.log("Pen".padEnd(10) + "3".padStart(5) + penTotal.padStart(8));
+console.log("Notebook".padEnd(10) + "10".padStart(5) + bookTotal.padStart(8));
 ```
 
 ```text
-Tea       2    7.00
-Cake      1    4.25
-Biscuit  12    4.80
+Item        Qty   Total
+Pen           3    3.60
+Notebook     10   25.00
 ```
+
+Each cell is padded to its column width, then the cells are joined with `+`. Quantities are written as text here, because the pad methods only exist on strings.
 
 </Solution>
 
@@ -222,18 +239,17 @@ Biscuit  12    4.80
 
 <Exercise title="Count symbols, not code units">
 
-Write `countCodePoints(text)` and use it on `"Hi 😀😀"`. Print `length` and your count. Input: none. Expected output: `7` and `5`. Before you run it, work out why the first number is larger.
+Declare `const message = "Hi 😀😀";` and print its `length`, then the number of code points using `[...message].length`. Before you run it, work out why the first number is larger.
+
+Input: none. Expected output: `7` and `5`.
 
 <Solution>
 
 ```javascript title="count_symbols.mjs"
-function countCodePoints(text) {
-  return [...text].length;
-}
-
 const message = "Hi 😀😀";
+
 console.log(message.length);
-console.log(countCodePoints(message));
+console.log([...message].length);
 ```
 
 ```text
@@ -242,6 +258,34 @@ console.log(countCodePoints(message));
 ```
 
 Three characters (`H`, `i`, a space) plus two emoji of two code units each make `7` units. Spreading the string walks code points, giving `5`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Clean, shout and measure">
+
+Start from `const raw = "  hello, world  ";`. Remove the surrounding spaces, convert the text to upper case, add an exclamation mark at the end, and print the result and its length.
+
+Input: none. Expected output: `HELLO, WORLD!` then `13`.
+
+<Solution>
+
+```javascript title="clean_shout.mjs"
+const raw = "  hello, world  ";
+const shout = raw.trim().toUpperCase() + "!";
+
+console.log(shout);
+console.log(shout.length);
+```
+
+```text
+HELLO, WORLD!
+13
+```
+
+Each method returns a new string, so the calls chain from left to right: `trim()` first, then `toUpperCase()` on its result. `raw` itself never changes.
+
 </Solution>
 
 </Exercise>
@@ -250,6 +294,6 @@ Three characters (`H`, `i`, a space) plus two emoji of two code units each make 
 
 - Use template literals for text built from parts. Strings are immutable, so methods return new strings.
 - Learn `slice`, `includes`, `split`/`join`, `replaceAll`, `padStart` and `trim`. Avoid `substr`.
-- `length` counts UTF-16 code units. Spread the string to count code points, and use `Intl.Segmenter` for what a reader sees as characters.
+- `length` counts UTF-16 code units. Spread the string to count code points. Use `normalize()` before comparing accented text.
 
 Next: [type coercion](../coercion/).

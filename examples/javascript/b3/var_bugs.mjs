@@ -1,21 +1,11 @@
-var total = 0;
-var prices = [5, 10, 15];
+var greeting = "Hello";
+var greeting = "Hi";
 
-for (var i = 0; i < prices.length; i++) {
-  total += prices[i];
+{
+  var visitor = "Ada";
 }
 
-var callbacks = [];
-for (var n = 1; n <= 3; n++) {
-  callbacks.push(function () {
-    return "step " + n;
-  });
-}
+var total = 10;
+total = total + 5;
 
-if (total > 20) {
-  var message = "big order";
-}
-
-console.log(total, i);
-console.log(callbacks.map(function (cb) { return cb(); }));
-console.log(message);
+console.log(greeting, visitor, total);

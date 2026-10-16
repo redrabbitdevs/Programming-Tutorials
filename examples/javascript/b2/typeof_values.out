@@ -1,12 +1,12 @@
-typeof 42:         number
-typeof 3.14:       number
-typeof "text":     string
-typeof true:       boolean
-typeof undefined:  undefined
-typeof null:       object
-typeof 10n:        bigint
+typeof 42: number
+typeof 3.14: number
+typeof "text": string
+typeof true: boolean
+typeof undefined: undefined
+typeof null: object
+typeof 10n: bigint
 typeof Symbol("id"): symbol
-typeof {}:         object
-typeof []:         object
-typeof (() => 1):  function
-typeof NaN:        number
+typeof {}: object
+typeof []: object
+typeof console.log: function
+typeof NaN: number

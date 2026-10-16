@@ -1,6 +1,2 @@
-function isMissing(value) {
-  return value == null;
-}
-
-console.log(isMissing(null), isMissing(undefined));
-console.log(isMissing(0), isMissing(""), isMissing(false), isMissing(NaN));
+console.log(null == null, undefined == null);
+console.log(0 == null, "" == null, false == null, NaN == null);

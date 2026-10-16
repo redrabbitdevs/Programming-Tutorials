@@ -1,16 +1,17 @@
-function area(shape, size) {
-  switch (shape) {
-    case "square": {
-      const side = size;
-      return side * side;
-    }
-    case "circle": {
-      const radius = size;
-      return Math.round(Math.PI * radius ** 2);
-    }
-    default:
-      throw new Error(`unknown shape: ${shape}`);
-  }
-}
+const shape = "circle";
+const size = 2;
 
-console.log(area("square", 3), area("circle", 2));
+switch (shape) {
+  case "square": {
+    const side = size;
+    console.log(side * side);
+    break;
+  }
+  case "circle": {
+    const radius = size;
+    console.log(Math.round(Math.PI * radius ** 2));
+    break;
+  }
+  default:
+    console.log(`unknown shape: ${shape}`);
+}

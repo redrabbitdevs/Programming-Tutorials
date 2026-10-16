@@ -1,14 +1,16 @@
-function grade(score) {
-  if (typeof score !== "number" || Number.isNaN(score) || score < 0 || score > 100) {
-    return "invalid";
-  }
-  if (score >= 90) return "A";
-  if (score >= 80) return "B";
-  if (score >= 70) return "C";
-  if (score >= 60) return "D";
-  return "F";
-}
+const score = 79.5;
+const notANumber = typeof score !== "number" || Number.isNaN(score);
 
-for (const s of [95, 80, 79.5, 60, 12, 101, "90", NaN]) {
-  console.log(s, grade(s));
+if (notANumber || score < 0 || score > 100) {
+  console.log("invalid");
+} else if (score >= 90) {
+  console.log("A");
+} else if (score >= 80) {
+  console.log("B");
+} else if (score >= 70) {
+  console.log("C");
+} else if (score >= 60) {
+  console.log("D");
+} else {
+  console.log("F");
 }

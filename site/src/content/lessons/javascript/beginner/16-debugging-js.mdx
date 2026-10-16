@@ -19,9 +19,9 @@ A bug is a mismatch between what you expected and what happened. The [fundamenta
 
 ## Read the error first
 
-When a program stops with an uncaught error, Node prints the location, the message and a **stack trace**. A stack trace lists the function calls that were active when the error was created, innermost first.
+When a program stops with an uncaught error, Node prints the location, the message and a **stack trace**. A stack trace lists the calls that were active when the error was created, innermost first.
 
-The block below is what Node 26 prints for a small program in a made-up project folder, `/home/ada/shop/total.mjs`, where `outer` calls `inner` and `inner` throws:
+The block below is what Node 26 prints for a small program in a made-up project folder, `/home/ada/shop/total.mjs`. In it, `outer` and `inner` are functions, which the next module teaches. All you need now is that `outer` called `inner`, and `inner` threw.
 
 ```text
 file:///home/ada/shop/total.mjs:2
@@ -41,33 +41,24 @@ Node.js v26.11.1
 
 Read it from the top. The first lines say what happened and where. The `at` lines then say who called whom. The top `at` line is where the error was raised, the next is the caller, and so on, down to the start of the program. Each ends in `file:line:column`, which most terminals and editors let you click. Start at the top `at` line that is in **your** code. Lines inside `node:` modules are Node's internals.
 
-You can also reach the trace from code. The `stack` property is a string whose first line is `name: message`.
+You can also reach the trace from code. The `stack` property is a string whose first line is `name: message`, followed by the `at` lines.
 
 ```javascript title="stack_first_line.mjs"
-function inner() {
-  throw new Error("something broke");
-}
-function outer() {
-  inner();
-}
-
 try {
-  outer();
+  null.length;
 } catch (error) {
   const lines = error.stack.split("\n");
   console.log(lines[0]);
-  console.log(lines[1].trim().startsWith("at inner"));
-  console.log(lines[2].trim().startsWith("at outer"));
+  console.log(lines[1].trim().startsWith("at "));
 }
 ```
 
 ```text
-Error: something broke
-true
+TypeError: Cannot read properties of null (reading 'length')
 true
 ```
 
-The `stack` text is not standardised in detail and differs between engines, so use it for reading, not for parsing.
+`split("\n")` cuts the text into lines, and `lines[0]` is the first one. The `stack` text is not standardised in detail and differs between engines, so use it for reading, not for parsing.
 
 ## Looking at values with console
 
@@ -84,6 +75,7 @@ for (const order of orders) {
   console.log("order:", order);
   total += order.qty * order.price;
 }
+
 console.log({ total });
 console.table(orders);
 console.group("details");
@@ -124,16 +116,15 @@ Printing shows you values at the points you chose. A **debugger** lets you stop 
 The statement `debugger;` marks a place to pause. It does nothing unless a debugger is attached.
 
 ```javascript title="debugger_stmt.mjs"
-function average(numbers) {
-  let sum = 0;
-  for (const n of numbers) {
-    sum += n;
-  }
-  debugger; // pauses here only when a debugger is attached
-  return sum / numbers.length;
+const numbers = [2, 4, 9];
+let sum = 0;
+
+for (const n of numbers) {
+  sum += n;
 }
 
-console.log(average([2, 4, 9]));
+debugger; // pauses here only when a debugger is attached
+console.log(sum / numbers.length);
 ```
 
 ```text
@@ -142,10 +133,10 @@ console.log(average([2, 4, 9]));
 
 Run normally, the program just prints the average, 5. Run under the inspector, it stops on the `debugger` line. Node offers two ways to start it.
 
-1. `node --inspect-brk average.mjs` starts the program, waits for a debugger client, and pauses on the first line. Open `chrome://inspect` in Chrome (`edge://inspect` in Edge) and click "inspect" under your Node process. (`--inspect` starts the inspector without pausing at the first line, which is what you want for a program that keeps running.)
+1. `node --inspect-brk debugger_stmt.mjs` starts the program, waits for a debugger client, and pauses on the first line. Open `chrome://inspect` in Chrome (`edge://inspect` in Edge) and click "inspect" under your Node process. (`--inspect` starts the inspector without pausing at the first line, which is what you want for a program that keeps running.)
 2. In VS Code, use the Run and Debug panel to start the file under its built-in Node debugger. A click in the margin next to a line number sets a **breakpoint**, which pauses at that line without editing the code. Chrome DevTools offers breakpoints the same way.
 
-There is also a plain command-line debugger: `node inspect average.mjs`.
+There is also a plain command-line debugger: `node inspect debugger_stmt.mjs`.
 
 Once paused you can:
 
@@ -176,101 +167,187 @@ Writing the hypothesis down matters. It stops you changing code at random and gi
 - **Leaving `debugger;` and `console.log` in finished code.** Remove them or use a proper logging tool.
 - **Debugging the wrong file.** Check that the code you edit is the code that runs.
 
-## Exercise
+## Exercises
 
 <Exercise title="Fix four seeded bugs">
 
-This program has four bugs, one in each function. Run it. For each wrong output write down a hypothesis, test it with `console.log` or a breakpoint, and then fix the function. The expected output is `5`, `60`, `false [ 1, 2 ]` and `8`.
+Four small programs follow, each with one bug. Run each one. For each wrong output write down a hypothesis, test it with `console.log` or a breakpoint, and then fix the code.
 
-```javascript title="seeded_bugs.mjs"
-function average(numbers) {
-  let sum = 0;
-  for (let i = 0; i <= numbers.length; i++) {
-    sum += numbers[i];
-  }
-  return sum / numbers.length;
+Bug 1. This should print the average of the numbers.
+
+```javascript
+const numbers = [2, 4, 9];
+let sum = 0;
+for (let i = 0; i <= numbers.length; i++) {
+  sum += numbers[i];
 }
+console.log(sum / numbers.length);
+```
 
-function totalFromForm(fields) {
-  let total = 0;
-  for (const field of fields) {
-    total = total + field;
-  }
-  return total;
+Bug 2. The three form fields are text. This should print their sum.
+
+```javascript
+const fields = ["10", "20", "30"];
+let total = 0;
+for (const field of fields) {
+  total = total + field;
 }
+console.log(total);
+```
 
-function isEmpty(list) {
-  if (list.length = 0) {
-    return true;
-  }
-  return false;
-}
+Bug 3. This should print `empty` only for an empty list. The list holds two items.
 
-function double(n) {
-  n * 2;
-}
-
-console.log(average([2, 4, 9]));
-console.log(totalFromForm(["10", "20", "30"]));
+```javascript
 const list = [1, 2];
-console.log(isEmpty(list), list);
-console.log(double(4));
+if (list.length = 0) {
+  console.log("empty");
+} else {
+  console.log("not empty");
+}
+console.log(list);
 ```
 
-```text
-NaN
-0102030
-false []
-undefined
+Bug 4. This should print the price doubled.
+
+```javascript
+const price = 4;
+price * 2;
+console.log(price);
 ```
+
+Input: none. The buggy programs print `NaN`, then `0102030`, then `not empty` followed by `[]`, then `4`. Expected output after the fixes: `5`, `60`, `not empty` followed by `[ 1, 2 ]`, and `8`.
 
 <Solution>
 
-Hypotheses and fixes, in order:
+1. **The average prints `NaN`.** Hypothesis: the loop reads past the end of the array, because `<=` runs one pass too many and `numbers[3]` is `undefined`. Adding `undefined` to a number gives `NaN`. A `console.log(i, numbers[i])` inside the loop confirms it. Fix: use `<`.
 
-1. **`average` prints `NaN`.** Hypothesis: the loop reads past the end of the array, because `<=` runs one pass too many and `numbers[3]` is `undefined`. Adding `undefined` to a number gives `NaN`. A `console.log(i, numbers[i])` inside the loop confirms it. Fix: use `<`.
-2. **`totalFromForm` prints `0102030`.** Hypothesis: the form fields are strings, so `+` joins text instead of adding. The coercion lesson covers this. Fix: convert with `Number(field)`.
-3. **`isEmpty([1, 2])` prints `false`, but the array is now empty.** Hypothesis: `list.length = 0` assigns instead of comparing, which clears the array and gives a falsy result. The second value printed, `[]`, gives it away. Fix: `list.length === 0`.
-4. **`double(4)` prints `undefined`.** Hypothesis: the function computes `n * 2` and throws the result away, because there is no `return`. Fix: add `return`.
-
-```javascript title="seeded_fixed.mjs"
-function average(numbers) {
-  let sum = 0;
-  for (let i = 0; i < numbers.length; i++) {
-    sum += numbers[i];
-  }
-  return sum / numbers.length;
+```javascript title="seeded_fixed_1.mjs"
+const numbers = [2, 4, 9];
+let sum = 0;
+for (let i = 0; i < numbers.length; i++) {
+  sum += numbers[i];
 }
-
-function totalFromForm(fields) {
-  let total = 0;
-  for (const field of fields) {
-    total = total + Number(field);
-  }
-  return total;
-}
-
-function isEmpty(list) {
-  return list.length === 0;
-}
-
-function double(n) {
-  return n * 2;
-}
-
-console.log(average([2, 4, 9]));
-console.log(totalFromForm(["10", "20", "30"]));
-const list = [1, 2];
-console.log(isEmpty(list), list);
-console.log(double(4));
+console.log(sum / numbers.length);
 ```
 
 ```text
 5
+```
+
+2. **The total prints `0102030`.** Hypothesis: the form fields are strings, so `+` joins text instead of adding. The [coercion lesson](../coercion/) covers this. Fix: convert with `Number(field)`.
+
+```javascript title="seeded_fixed_2.mjs"
+const fields = ["10", "20", "30"];
+let total = 0;
+for (const field of fields) {
+  total = total + Number(field);
+}
+console.log(total);
+```
+
+```text
 60
-false [ 1, 2 ]
+```
+
+3. **The list is reported as not empty, but it is now `[]`.** Hypothesis: `list.length = 0` assigns instead of comparing, which clears the list and gives a falsy result. The second value printed, `[]`, gives it away. Fix: `list.length === 0`.
+
+```javascript title="seeded_fixed_3.mjs"
+const list = [1, 2];
+if (list.length === 0) {
+  console.log("empty");
+} else {
+  console.log("not empty");
+}
+console.log(list);
+```
+
+```text
+not empty
+[ 1, 2 ]
+```
+
+4. **The price prints `4`.** Hypothesis: `price * 2;` computes a value and throws it away, because nothing stores or prints it. Fix: store the result and print that.
+
+```javascript title="seeded_fixed_4.mjs"
+const price = 4;
+const doubled = price * 2;
+console.log(doubled);
+```
+
+```text
 8
 ```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Trace a running total">
+
+Given `const prices = [3, 8, 5];`, use a `for...of` loop and `console.log` to show the running total after each price, in the form `price: 3 total: 3`. After the loop, print the final total with the `{ total }` shortcut.
+
+Input: none. Expected output: `price: 3 total: 3`, `price: 8 total: 11`, `price: 5 total: 16`, `{ total: 16 }`.
+
+<Solution>
+
+```javascript title="trace_total.mjs"
+const prices = [3, 8, 5];
+let total = 0;
+
+for (const price of prices) {
+  total += price;
+  console.log("price:", price, "total:", total);
+}
+
+console.log({ total });
+```
+
+```text
+price: 3 total: 3
+price: 8 total: 11
+price: 5 total: 16
+{ total: 16 }
+```
+
+Printing inside the loop shows every step, so a wrong value would show up at the pass where it first appears. The `{ total }` line labels the final value with its variable name.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Confirm a hypothesis">
+
+This program should print every item, but it skips the first.
+
+```javascript
+const items = ["a", "b", "c"];
+for (let i = 1; i < items.length; i++) {
+  console.log(items[i]);
+}
+```
+
+Write your hypothesis in one sentence. Test it by printing `i` next to each item, then fix the program.
+
+Input: none. The buggy program prints `b` and `c`. Expected output after the fix: `a`, `b`, `c`.
+
+<Solution>
+
+Hypothesis: the counter starts at 1, but the first item sits at position 0. Printing `i` next to each item shows the loop starts at `1`.
+
+```javascript title="skipped_item.mjs"
+const items = ["a", "b", "c"];
+for (let i = 0; i < items.length; i++) {
+  console.log(items[i]);
+}
+```
+
+```text
+a
+b
+c
+```
+
+Counting starts at zero, so the loop must too. Writing the hypothesis first meant one change, not a guess at the loop condition.
 
 </Solution>
 
@@ -283,4 +360,4 @@ false [ 1, 2 ]
 - `debugger;` and breakpoints pause the program. Start Node with `node --inspect-brk file.mjs` and attach Chrome DevTools or VS Code to step through it.
 - Debug with a routine: reproduce, hypothesise, test, fix one thing, check.
 
-Next module: functions.
+Next module: functions, starting with the [function forms lesson](../function-forms/).

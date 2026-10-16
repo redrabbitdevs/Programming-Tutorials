@@ -23,23 +23,30 @@ Choosing what to run next is the core of control flow. The idea is explained in 
 The condition goes in brackets, and the branch is a statement or a block. Always use a block, even for one line, so that adding a second line later does not silently fall outside the `if`.
 
 ```javascript title="if_else.mjs"
-function describeTemperature(celsius) {
-  if (celsius < 0) {
-    return "freezing";
-  } else if (celsius < 15) {
-    return "cold";
-  } else if (celsius < 25) {
-    return "mild";
-  } else {
-    return "hot";
-  }
-}
+const celsius = 20;
 
-for (const t of [-5, 10, 20, 31]) {
-  console.log(t, describeTemperature(t));
+if (celsius < 0) {
+  console.log("freezing");
+} else if (celsius < 15) {
+  console.log("cold");
+} else if (celsius < 25) {
+  console.log("mild");
+} else {
+  console.log("hot");
 }
+```
 
+```text
+mild
+```
+
+The chain is tested from the top, and the first true condition wins. Change `celsius` to `-5`, `10` or `31` and run it again to see the other branches.
+
+A condition does not have to be a boolean. JavaScript converts it using the **truthy and falsy** rules from the [coercion lesson](../coercion/): `false`, `0`, `""`, `null`, `undefined`, `NaN` and `0n` are falsy, and everything else is truthy.
+
+```javascript title="truthy_if.mjs"
 const name = "";
+
 if (name) {
   console.log("has a name");
 } else {
@@ -48,49 +55,33 @@ if (name) {
 ```
 
 ```text
--5 freezing
-10 cold
-20 mild
-31 hot
 name is empty
 ```
 
-The chain is tested from the top, and the first true condition wins. Because each branch returns, the `else` keywords are not strictly needed, but they make the shape clear.
+That is why `if (name)` is false for an empty string. It is also why `if (count)` is false when `count` is `0`, which is a classic bug when `0` is a valid value. Write the comparison you mean: `if (count !== undefined)` or `if (count > 0)`.
 
-A condition does not have to be a boolean. JavaScript converts it using the **truthy and falsy** rules from the [coercion lesson](../coercion/): `false`, `0`, `""`, `null`, `undefined`, `NaN` and `0n` are falsy, and everything else is truthy. That is why `if (name)` is false for an empty string. It is also why `if (count)` is false when `count` is `0`, which is a classic bug when `0` is a valid value. Write the comparison you mean: `if (count !== undefined)` or `if (count > 0)`.
+## Check the special cases first
 
-## Guard clauses
+Deeply nested `if` statements are hard to read. Put the special or bad case first, so each later branch only deals with what is left.
 
-Deeply nested `if` statements are hard to read. A **guard clause** checks for a bad or special case first and returns right away, so the main path stays at the left edge.
+```javascript title="shipping_checks.mjs"
+const itemCount = 2;
+const total = 60;
 
-```javascript title="guard_clauses.mjs"
-function shippingCost(order) {
-  if (order === null || order === undefined) {
-    return 0;
-  }
-  if (order.items.length === 0) {
-    return 0;
-  }
-  if (order.total >= 50) {
-    return 0;
-  }
-  return 4.99;
+if (itemCount === 0) {
+  console.log("nothing to ship");
+} else if (total >= 50) {
+  console.log("free shipping");
+} else {
+  console.log("shipping: 4.99");
 }
-
-console.log(shippingCost(null));
-console.log(shippingCost({ items: [], total: 0 }));
-console.log(shippingCost({ items: ["book"], total: 60 }));
-console.log(shippingCost({ items: ["pen"], total: 3 }));
 ```
 
 ```text
-0
-0
-0
-4.99
+free shipping
 ```
 
-Read top to bottom, each guard removes one case from consideration, and the last line handles what is left. The nested version of the same function would put the `4.99` three levels deep.
+Read top to bottom, each test removes one case from consideration. Inside a function you can leave early with `return` instead of using `else`. That style is called a guard clause, and the [function forms lesson](../function-forms/) comes back to it.
 
 ## The conditional operator
 
@@ -122,25 +113,36 @@ It works well inside template literals, as in the plural example. Chaining it, a
 `switch` compares one value against several `case` labels. It is useful when many branches test the same value for equality.
 
 ```javascript title="switch_basic.mjs"
-function dayType(day) {
-  switch (day) {
-    case "sat":
-    case "sun":
-      return "weekend";
-    case "mon":
-    case "tue":
-    case "wed":
-    case "thu":
-    case "fri":
-      return "weekday";
-    default:
-      return "unknown";
-  }
+const day = "sun";
+
+switch (day) {
+  case "sat":
+  case "sun":
+    console.log("weekend");
+    break;
+  case "mon":
+  case "tue":
+  case "wed":
+  case "thu":
+  case "fri":
+    console.log("weekday");
+    break;
+  default:
+    console.log("unknown");
 }
+```
 
-console.log(dayType("sun"), dayType("wed"), dayType("xyz"));
+```text
+weekend
+```
 
+The `break` ends the `switch` once a case has run. Two labels in a row, such as `"sat"` and `"sun"`, share the code below them. `default` runs when nothing else matches. It may go anywhere, but last is the convention.
+
+Cases **fall through**: execution continues into the next `case` until it meets `break`, `return` or the end of the `switch`.
+
+```javascript title="switch_fallthrough.mjs"
 const level = 2;
+
 switch (level) {
   case 1:
     console.log("one");
@@ -152,7 +154,18 @@ switch (level) {
   case 4:
     console.log("four");
 }
+```
 
+```text
+two
+three
+```
+
+Here `level` is 2, so it prints `two` and also `three`, because case 2 has no `break`. Falling through on purpose is how `"sat"` and `"sun"` share a result. Falling through by accident, from a missing `break`, is a frequent bug.
+
+Matching uses strict equality (`===`), so a string does not match a number:
+
+```javascript title="switch_strict.mjs"
 switch ("5") {
   case 5:
     console.log("matched the number");
@@ -163,46 +176,38 @@ switch ("5") {
 ```
 
 ```text
-weekend weekday unknown
-two
-three
 strict comparison: no match
 ```
-
-Three behaviours to know:
-
-- **Matching uses strict equality (`===`).** The string `"5"` does not match `case 5`, as the last block shows.
-- **Cases fall through.** Execution continues into the next `case` until it meets `break`, `return` or the end of the `switch`. In the second block `level` is 2, so it prints `two` and also `three`. Falling through on purpose is how `"sat"` and `"sun"` share one result in `dayType`. Falling through by accident, from a missing `break`, is a frequent bug.
-- **`default` runs when nothing else matches.** It may go anywhere, but last is the convention.
 
 All the cases share one block scope. If you need a `let` or `const` inside a case, give the case its own braces.
 
 ```javascript title="switch_scope.mjs"
-function area(shape, size) {
-  switch (shape) {
-    case "square": {
-      const side = size;
-      return side * side;
-    }
-    case "circle": {
-      const radius = size;
-      return Math.round(Math.PI * radius ** 2);
-    }
-    default:
-      throw new Error(`unknown shape: ${shape}`);
-  }
-}
+const shape = "circle";
+const size = 2;
 
-console.log(area("square", 3), area("circle", 2));
+switch (shape) {
+  case "square": {
+    const side = size;
+    console.log(side * side);
+    break;
+  }
+  case "circle": {
+    const radius = size;
+    console.log(Math.round(Math.PI * radius ** 2));
+    break;
+  }
+  default:
+    console.log(`unknown shape: ${shape}`);
+}
 ```
 
 ```text
-9 13
+13
 ```
 
 Without the braces, two cases that each declared `const side` would clash in one scope and be a `SyntaxError`.
 
-When the branches test different conditions, or use ranges, an `if` chain is the better fit. Many `switch` statements are better replaced by an object that maps the value to a result, which a later module covers.
+When the branches test different conditions, or use ranges, an `if` chain is the better fit. Many `switch` statements are better replaced by an object that maps the value to a result, which the [objects lesson](../objects-js/) touches on.
 
 ## Short-circuit operators
 
@@ -235,9 +240,54 @@ null
 not an admin
 ```
 
-The first line is the guard idiom: only call `toUpperCase` when `user.name` is there. The second prints an empty line, which is the empty string that `&&` returned. `||` returns the first truthy operand, or the last operand when none is truthy: `0 || "" || null` is `null`.
+`user` is an object, a record with named parts, which the [objects lesson](../objects-js/) covers. The first line is the guard idiom: only call `toUpperCase` when `user.name` is there. The second prints an empty line, which is the empty string that `&&` returned. `||` returns the first truthy operand, or the last operand when none is truthy: `0 || "" || null` is `null`.
 
 The last two lines use short-circuiting as a statement. It works, but an `if` is clearer, and linters often flag it. Use `&&` and `||` for values, and `if` for actions. For defaults, remember from the [lesson on null, undefined and nullish operators](../null-undefined-nullish/) that `??` is usually safer than `||`.
+
+## Operator precedence
+
+When an expression has several operators, **precedence** decides which one is worked out first, and **associativity** decides the order between operators of the same level. This table runs from the operators that bind most tightly to the loosest:
+
+| Level | Operators |
+|---|---|
+| Grouping | `( )` |
+| Member access and calls | `a.b`, `a[0]`, `f()` |
+| Unary | `!`, `-x`, `+x`, `typeof`, `++`, `--` |
+| Power | `**` (works right to left) |
+| Multiply | `*`, `/`, `%` |
+| Add | `+`, `-` |
+| Comparison | `<`, `<=`, `>`, `>=`, `instanceof`, `in` |
+| Equality | `===`, `!==`, `==`, `!=` |
+| And | `&&` |
+| Or, nullish | `\|\|`, `??` |
+| Conditional | `? :` |
+| Assignment | `=`, `+=`, `??=` and the other compound forms |
+
+Five cases cause most of the surprises:
+
+```javascript title="precedence.mjs"
+console.log(2 + 3 * 4, (2 + 3) * 4);
+console.log(true || false && false, (true || false) && false);
+console.log(!true == false, !(true == false));
+console.log(2 ** 3 ** 2, (2 ** 3) ** 2);
+console.log(10 - 4 - 3, 10 - (4 - 3));
+```
+
+```text
+14 20
+true false
+true true
+512 64
+3 9
+```
+
+- `*` before `+`, as in school arithmetic: 14 against 20.
+- `&&` binds tighter than `||`, so `true || false && false` is `true || (false && false)`. Brackets give the other reading.
+- `!` binds tighter than `==`, so `!true == false` is `(!true) == false`, which is `true`. The comparison is not negated.
+- `**` works right to left: `2 ** 3 ** 2` is `2 ** 9`. Subtraction works left to right, so `10 - 4 - 3` is `(10 - 4) - 3`.
+- `??` cannot be mixed with `||` or `&&` without brackets, as the nullish lesson showed. A minus sign in front of a `**` base, as in `-2 ** 2`, is a `SyntaxError`.
+
+When in doubt, add brackets. They cost nothing and tell the reader what you meant. `instanceof` and `in` are comparison operators that test where an object came from and whether it has a property. They come up in later lessons.
 
 ## Common pitfalls
 
@@ -246,35 +296,31 @@ The last two lines use short-circuiting as a statement. It works, but an `if` is
 - **Testing truthiness when `0` or `""` are valid.** Compare explicitly.
 - **Nested `? :` chains that nobody can read.** Switch to `if` or a lookup.
 - **Expecting `switch` to match across types.** It uses `===`, so `"5"` and `5` are different cases.
+- **Relying on precedence you have not checked.** Mixed `&&` and `||` deserve brackets.
 
 ## Exercises
 
 <Exercise title="Leap year checker">
 
-A year is a leap year if it is divisible by 4, except years divisible by 100, unless they are also divisible by 400. Write `isLeapYear(year)` and test it on 1900, 2000, 2023 and 2024.
+A year is a leap year if it is divisible by 4, except years divisible by 100, unless they are also divisible by 400. Declare `const year = 2000;`, work out whether it is a leap year with one boolean expression, and print `2000 is a leap year` or `2000 is not a leap year`. Then try 1900, 2023 and 2024.
+
+Input: none. Expected output for 2000: `2000 is a leap year`. For 1900: `1900 is not a leap year`. For 2023: `2023 is not a leap year`. For 2024: `2024 is a leap year`.
 
 <Solution>
 
 ```javascript title="leap_year.mjs"
-function isLeapYear(year) {
-  if (year % 400 === 0) return true;
-  if (year % 100 === 0) return false;
-  return year % 4 === 0;
-}
+const year = 2000;
 
-for (const year of [1900, 2000, 2023, 2024]) {
-  console.log(year, isLeapYear(year));
-}
+const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+
+console.log(`${year} is ${isLeap ? "a leap year" : "not a leap year"}`);
 ```
 
 ```text
-1900 false
-2000 true
-2023 false
-2024 true
+2000 is a leap year
 ```
 
-The tests run from the most specific rule to the least, with a guard clause per rule. 1900 passes the divisible-by-100 test and returns `false`, 2000 is caught first by the 400 rule, and 2023 and 2024 fall to the final divisible-by-4 test.
+The brackets group "divisible by 4 and not by 100", and `||` adds the exception for 400. Without the brackets the same result would follow from the precedence table, but the brackets say it out loud.
 
 </Solution>
 
@@ -282,39 +328,77 @@ The tests run from the most specific rule to the least, with a guard clause per 
 
 <Exercise title="Grade calculator">
 
-Write `grade(score)` that returns `"A"` for 90 and above, `"B"` for 80, `"C"` for 70, `"D"` for 60 and `"F"` below that. Anything that is not a number from 0 to 100 should give `"invalid"`. Test with `95, 80, 79.5, 60, 12, 101, "90", NaN`.
+Declare `const score = 79.5;`. Print `A` for 90 and above, `B` for 80, `C` for 70, `D` for 60 and `F` below that. Anything that is not a number from 0 to 100 prints `invalid`. Try the scores `95, 80, 60, 12, 101, "90", NaN`.
+
+Input: none. Expected output for 79.5: `C`. For the others: `A`, `B`, `D`, `F`, `invalid`, `invalid`, `invalid`.
 
 <Solution>
 
 ```javascript title="grade.mjs"
-function grade(score) {
-  if (typeof score !== "number" || Number.isNaN(score) || score < 0 || score > 100) {
-    return "invalid";
-  }
-  if (score >= 90) return "A";
-  if (score >= 80) return "B";
-  if (score >= 70) return "C";
-  if (score >= 60) return "D";
-  return "F";
-}
+const score = 79.5;
+const notANumber = typeof score !== "number" || Number.isNaN(score);
 
-for (const s of [95, 80, 79.5, 60, 12, 101, "90", NaN]) {
-  console.log(s, grade(s));
+if (notANumber || score < 0 || score > 100) {
+  console.log("invalid");
+} else if (score >= 90) {
+  console.log("A");
+} else if (score >= 80) {
+  console.log("B");
+} else if (score >= 70) {
+  console.log("C");
+} else if (score >= 60) {
+  console.log("D");
+} else {
+  console.log("F");
 }
 ```
 
 ```text
-95 A
-80 B
-79.5 C
-60 D
-12 F
-101 invalid
-90 invalid
-NaN invalid
+C
 ```
 
-The first guard rejects everything that is not a usable score. `NaN` has the type `"number"`, so it needs its own check. Then each later line only needs a lower bound, because the higher scores have already returned. The string `"90"` is rejected on purpose: converting input to a number is a separate step.
+The first branch rejects everything that is not a usable score. `NaN` has the type `"number"`, so it needs its own check. Then each later branch only needs a lower bound, because higher scores were handled above. The string `"90"` is rejected on purpose: converting input to a number is a separate step.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict the precedence">
+
+Work out the six lines this program prints, then run it.
+
+```javascript
+console.log(2 + 3 * 2 ** 2);
+console.log(10 - 4 - 3);
+console.log(true || false && false);
+console.log(!false == true);
+console.log(1 + 1 === 2 && 3 > 2 || false);
+console.log(2 ** 2 ** 3);
+```
+
+Input: none. Expected output: `14`, `3`, `true`, `true`, `true`, `256`.
+
+<Solution>
+
+```javascript title="predict_precedence.mjs"
+console.log(2 + 3 * 2 ** 2);
+console.log(10 - 4 - 3);
+console.log(true || false && false);
+console.log(!false == true);
+console.log(1 + 1 === 2 && 3 > 2 || false);
+console.log(2 ** 2 ** 3);
+```
+
+```text
+14
+3
+true
+true
+true
+256
+```
+
+First `2 ** 2` is 4, then `3 * 4` is 12, then `2 + 12` is 14. Subtraction goes left to right: `(10 - 4) - 3`. `&&` goes before `||`. `!false` is `true`, and `true == true`. In the fifth line `1 + 1 === 2` and `3 > 2` are both `true`, so `true && true || false` is `true`. The last line is `2 ** (2 ** 3)`, which is `2 ** 8`.
 
 </Solution>
 
@@ -323,9 +407,10 @@ The first guard rejects everything that is not a usable score. `NaN` has the typ
 ## Summary
 
 - Use `if`, `else if` and `else` with blocks. Conditions use truthiness, so compare explicitly when `0` or `""` are valid values.
-- Guard clauses handle the special cases first and keep the main path flat.
+- Put the special cases first and keep each branch short.
 - `condition ? a : b` chooses a value. Keep it short.
 - `switch` uses `===`, falls through until `break` or `return`, and shares one scope between cases.
 - `&&` and `||` return an operand, not a boolean, and stop early.
+- Precedence decides the order of operators. `&&` goes before `||`, `**` goes right to left, and brackets remove all doubt.
 
-Next: repeating work with loops.
+Next: repeating work with loops, in the [loops lesson](../loops-js/).

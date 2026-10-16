@@ -1,13 +1,9 @@
-function loadSettings(text) {
+try {
   try {
-    return JSON.parse(text);
+    JSON.parse("{nope");
   } catch (error) {
     throw new Error("could not load settings", { cause: error });
   }
-}
-
-try {
-  loadSettings("{nope");
 } catch (error) {
   console.log(error.message);
   console.log(error.cause.name);

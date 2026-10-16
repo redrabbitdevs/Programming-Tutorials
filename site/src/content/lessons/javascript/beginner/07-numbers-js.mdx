@@ -176,6 +176,28 @@ Look at these details:
 - Numeric literals can use `0x` for hexadecimal, `0b` for binary and `e` for powers of ten. Underscores in a literal, such as `1_000_000`, are separators that make long numbers readable and do not change the value. They have been in the language since ES2021.
 - `toString(base)` writes a number in another base.
 
+### Unary minus, powers and bitwise operators
+
+A few operator rules surprise people. `**` groups from the right, so `2 ** 3 ** 2` is `2 ** 9`. A minus sign directly in front of a base is a `SyntaxError`: `-2 ** 2` is rejected, because it could mean either `(-2) ** 2` or `-(2 ** 2)`. Write the brackets you mean.
+
+JavaScript also has operators that work on the individual bits of a number: `&` (and), `|` (or), `^` (exclusive or), `~` (not), `<<`, `>>` and `>>>` (shifts). You will rarely need them. They first convert their operands to 32-bit integers, which is why `x | 0` and `~~x` were once used to drop a fraction. Prefer `Math.trunc` for that.
+
+```javascript title="bitwise_note.mjs"
+console.log(5 & 3, 5 | 3, 5 ^ 3);
+console.log(1 << 3, 16 >> 2);
+console.log(7.9 | 0, ~~-7.9, Math.trunc(-7.9));
+console.log(2 ** 3 ** 2, (2 ** 3) ** 2);
+```
+
+```text
+1 7 6
+8 4
+7 -7 -7
+512 64
+```
+
+The first line shows the bits of 5 (`101`) and 3 (`011`) combined three ways. The second shifts bits left and right, which doubles or halves a number for each step. The third shows the truncating tricks agreeing with `Math.trunc`. The last line shows that `**` is right-to-left, so brackets change the answer.
+
 `Math` has many more functions, such as `Math.max`, `Math.min`, `Math.abs`, `Math.sqrt` and `Math.random`. `Math` is not a type but a ready-made object of functions, so you never write `new Math`.
 
 ## BigInt
@@ -189,13 +211,6 @@ console.log(typeof big);
 console.log(5n / 2n, 7n % 3n);
 console.log(BigInt(Number.MAX_SAFE_INTEGER) + 2n);
 console.log(10n > 5, 10n == 10, 10n === 10);
-
-try {
-  console.log(1n + 1);
-} catch (error) {
-  console.log(`${error.name}: ${error.message}`);
-}
-
 console.log(1n + BigInt(1), Number(1n) + 1);
 ```
 
@@ -205,41 +220,44 @@ bigint
 2n 1n
 9007199254740993n
 true true false
-TypeError: Cannot mix BigInt and other types, use explicit conversions
 2n 2
 ```
+
+You cannot mix a BigInt and a number in arithmetic. This line stops the program:
+
+```javascript
+console.log(1n + 1);
+```
+
+```text
+TypeError: Cannot mix BigInt and other types, use explicit conversions
+```
+
+The last line of `bigint_basics.mjs` shows the two fixes: convert the number with `BigInt(1)`, or convert the BigInt with `Number(1n)`.
 
 The rules to remember:
 
 - `typeof` a BigInt is `"bigint"`. It is a separate primitive type.
 - Division truncates: `5n / 2n` is `2n`. There are no fractional BigInts.
-- You cannot mix a BigInt and a number in arithmetic. `1n + 1` throws a `TypeError`, and you must convert one side explicitly: `1n + BigInt(1)` or `Number(1n) + 1`. Converting a huge BigInt to a number loses precision.
+- Mixing a BigInt and a number in arithmetic throws a `TypeError`, so convert one side explicitly. Converting a huge BigInt to a number loses precision.
 - Comparisons work across the two types: `10n > 5` is `true` and `10n == 10` is `true`, but `10n === 10` is `false` because the types differ.
 - `Math` functions do not accept BigInts.
 
-Here is a factorial that would overflow the safe range with ordinary numbers:
+Here is a product that would overflow the safe range with ordinary numbers:
 
-```javascript title="factorial_bigint.mjs"
-function factorial(n) {
-  let result = 1n;
-  for (let i = 2n; i <= n; i++) {
-    result *= i;
-  }
-  return result;
-}
+```javascript title="big_product.mjs"
+const product = 1_000_000_007n * 998_244_353n * 12_345_678_910_111n;
 
-console.log(factorial(5n));
-console.log(factorial(25n));
-console.log(factorial(25n).toString().length);
+console.log(product);
+console.log(product.toString().length);
 ```
 
 ```text
-120n
-15511210043330985984000000n
-26
+12324004342237530144969502472281n
+32
 ```
 
-`2n` starts the loop counter as a BigInt, so every multiplication stays among BigInts. `25!` has 26 digits, far beyond `Number.MAX_SAFE_INTEGER`.
+The result has far more digits than `Number.MAX_SAFE_INTEGER`, and every digit is exact. `toString()` turns the BigInt into digits as text, and `.length` counts them.
 
 ## Common pitfalls
 
@@ -249,64 +267,83 @@ console.log(factorial(25n).toString().length);
 - **Expecting integer division.** `7 / 2` is `3.5`.
 - **Mixing BigInt and number.** It throws. Convert explicitly.
 - **Using `toFixed` and treating the result as a number.** It returns a string.
+- **Writing `-2 ** 2`.** It is a `SyntaxError`. Add brackets.
 
-<Exercise title="Money in cents">
+<Exercise title="Split a bill">
 
-A basket holds 3 items at `19.99` each. Compute the total in cents, without any fractional arithmetic on money, and print it as a string with two decimals. Use `1999` for the price in cents.
+Four friends split a bill of 8750 cents. Using whole-number arithmetic only, print what each pays as a string with two decimals, in the form `Each pays: 21.87`, and the cents left over in the form `Left over: 2 cents`. Each share is rounded down.
 
-Input: none. Expected output: `5997` then `59.97`.
+Input: none. Expected output: `Each pays: 21.87` then `Left over: 2 cents`.
 
 <Solution>
 
-```javascript title="money_total.mjs"
-const priceCents = 1999;
-const quantity = 3;
-const totalCents = priceCents * quantity;
+```javascript title="split_bill.mjs"
+const billCents = 8750;
+const people = 4;
 
-console.log(totalCents);
-console.log((totalCents / 100).toFixed(2));
+const shareCents = Math.floor(billCents / people);
+const leftOver = billCents % people;
+
+console.log(`Each pays: ${(shareCents / 100).toFixed(2)}`);
+console.log(`Left over: ${leftOver} cents`);
 ```
 
 ```text
-5997
-59.97
+Each pays: 21.87
+Left over: 2 cents
 ```
 
-The multiplication stays among whole numbers, so it is exact. The only division happens when the value is displayed.
+`Math.floor` drops the fraction of the division, and `%` gives the remainder. The only division by 100 happens at the end, for display.
 
 </Solution>
 
 </Exercise>
 
-<Exercise title="Factorial with BigInt">
+<Exercise title="Multiply beyond the safe range">
 
-Write `factorial(n)` that takes a BigInt and returns its factorial as a BigInt. Print `factorial(5n)`, `factorial(25n)` and the number of digits in `factorial(25n)`.
+Multiply `99_999_999_999n` by `99_999_999_999n` as BigInts, print the result, and then print the same multiplication done with ordinary numbers. Which of the two is exact?
 
-Input: none. Expected output: `120n`, `15511210043330985984000000n`, `26`.
+Input: none. Expected output: `9999999999800000000001n` and `9.9999999998e+21`.
 
 <Solution>
 
-```javascript title="factorial_bigint.mjs"
-function factorial(n) {
-  let result = 1n;
-  for (let i = 2n; i <= n; i++) {
-    result *= i;
-  }
-  return result;
-}
-
-console.log(factorial(5n));
-console.log(factorial(25n));
-console.log(factorial(25n).toString().length);
+```javascript title="big_square.mjs"
+console.log(99_999_999_999n * 99_999_999_999n);
+console.log(99_999_999_999 * 99_999_999_999);
 ```
 
 ```text
-120n
-15511210043330985984000000n
-26
+9999999999800000000001n
+9.9999999998e+21
 ```
 
-`toString()` turns the BigInt into digits as text, and `.length` counts them.
+The BigInt result is exact. The ordinary number is rounded to about 16 significant digits and printed in exponent form.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Safe or not?">
+
+Print three answers, one per line: whether `2 ** 53` is a safe integer, whether `2 ** 53 - 1` is, and whether `Number.MAX_SAFE_INTEGER + 2` equals `Number.MAX_SAFE_INTEGER + 1`.
+
+Input: none. Expected output: `false`, `true`, `true`.
+
+<Solution>
+
+```javascript title="safe_check.mjs"
+console.log(Number.isSafeInteger(2 ** 53));
+console.log(Number.isSafeInteger(2 ** 53 - 1));
+console.log(Number.MAX_SAFE_INTEGER + 2 === Number.MAX_SAFE_INTEGER + 1);
+```
+
+```text
+false
+true
+true
+```
+
+The limit is `2 ** 53 - 1`. One step above it, two neighbouring integers collapse into the same double, so the last comparison is `true`.
 
 </Solution>
 

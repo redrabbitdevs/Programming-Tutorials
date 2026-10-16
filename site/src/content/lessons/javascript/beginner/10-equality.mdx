@@ -58,6 +58,7 @@ NaN == NaN  false
 ```
 
 The results break the rule that equality is transitive: `0 == ""` and `0 == "0"` are both true, yet `"" == "0"` is false. `[] == false` is true, because both sides turn into `0`.
+
 The rules are easy to describe but not worth memorising:
 
 - If the types match, `==` behaves like `===`.
@@ -68,12 +69,8 @@ The rules are easy to describe but not worth memorising:
 One use of `==` is accepted widely, and it is the check against `null`: `value == null` is true for exactly `null` and `undefined`, and nothing else.
 
 ```javascript title="null_check_idiom.mjs"
-function isMissing(value) {
-  return value == null;
-}
-
-console.log(isMissing(null), isMissing(undefined));
-console.log(isMissing(0), isMissing(""), isMissing(false), isMissing(NaN));
+console.log(null == null, undefined == null);
+console.log(0 == null, "" == null, false == null, NaN == null);
 ```
 
 ```text
@@ -123,24 +120,33 @@ console.log({} === {});
 
 c.push(3);
 console.log(a);
-
-function sameItems(x, y) {
-  return x.length === y.length && x.every((item, i) => item === y[i]);
-}
-
-console.log(sameItems([1, 2], [1, 2]), sameItems([1, 2], [2, 1]));
 ```
 
 ```text
 false true
 false
 [ 1, 2, 3 ]
-true false
 ```
 
 `c = a` copies the **reference**, so `a` and `c` are one array under two names, and `c.push(3)` shows up through `a`. Two literals `{}` and `{}` are two objects.
 
-To compare contents, you must write the comparison, as `sameItems` does: same length and each pair of items equal. For nested data you need to compare recursively. Comparing with `JSON.stringify(a) === JSON.stringify(b)` is a shortcut that works for plain data only. It depends on key order and breaks on `undefined`, `NaN`, and values JSON cannot hold.
+To compare contents, you must write the comparison yourself, such as checking each position:
+
+```javascript title="same_contents.mjs"
+const x = [1, 2];
+const y = [1, 2];
+const z = [2, 1];
+
+console.log(x[0] === y[0] && x[1] === y[1]);
+console.log(x[0] === z[0] && x[1] === z[1]);
+```
+
+```text
+true
+false
+```
+
+This only works for two-item lists. Once you know loops and array methods, you can write a comparison that works for any length. For nested data you need to compare recursively. Comparing with `JSON.stringify(a) === JSON.stringify(b)` is a shortcut that works for plain data only. It depends on key order and breaks on `undefined`, `NaN`, and values JSON cannot hold.
 
 ## Common pitfalls
 
@@ -161,6 +167,8 @@ Rewrite each condition so that it does not use `==`, and so that it keeps the me
 6. `list == false` (meaning: the list is empty)
 7. `Number("abc") == NaN` (meaning: the conversion failed)
 8. `name == 0` (meaning: the name is blank, treated as zero)
+
+Input: none. Expected output: eight lines, all `true`, when the solution's variables are used.
 
 <Solution>
 
@@ -200,13 +208,63 @@ In order: convert the input with `Number` and compare strictly; convert the numb
 
 <Exercise title="Predict, then run">
 
-Say what each prints: `[] === []`, `[NaN].includes(NaN)`, `Object.is(0, -0)`, `null == 0`, `null >= 0`.
+Say what each of these five expressions prints, then run them: `[] === []`, `[NaN].includes(NaN)`, `Object.is(0, -0)`, `null == 0`, `null >= 0`.
+
+Input: none. Expected output: `false`, `true`, `false`, `false`, `true`.
 
 <Solution>
+
+```javascript title="predict_equality.mjs"
+console.log([] === []);
+console.log([NaN].includes(NaN));
+console.log(Object.is(0, -0));
+console.log(null == 0);
+console.log(null >= 0);
+```
+
+```text
+false
+true
+false
+false
+true
+```
 
 `[] === []` is `false` (two different arrays), `[NaN].includes(NaN)` is `true`, `Object.is(0, -0)` is `false`, and `null == 0` is `false`.
 
 The last one, `null >= 0`, is `true`. The relational operators `<`, `>`, `<=` and `>=` convert `null` to `0`, while `==` has a special rule that `null` equals only `undefined`. That is why `null == 0` is false and `null >= 0` is true. It is a good reason to treat `null` explicitly.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Strict or loose?">
+
+Print the result of each comparison on its own line: `"" === 0`, `"1" == 1`, `undefined == null`, `undefined === null`, `"a" < "b"`, `"B" < "a"`.
+
+Input: none. Expected output: `false`, `true`, `true`, `false`, `true`, `true`.
+
+<Solution>
+
+```javascript title="strict_or_loose.mjs"
+console.log("" === 0);
+console.log("1" == 1);
+console.log(undefined == null);
+console.log(undefined === null);
+console.log("a" < "b");
+console.log("B" < "a");
+```
+
+```text
+false
+true
+true
+false
+true
+true
+```
+
+Strict equality never converts, so the empty string and `0` differ. Loose equality converts `"1"` to a number. `undefined` and `null` are loosely equal but not strictly equal. Strings compare by character code, and capital letters come before lower-case ones, so `"B" < "a"` is `true`.
 
 </Solution>
 

@@ -28,14 +28,6 @@ console.log(declared);
 const user = { name: "Ada" };
 console.log(user.age);
 
-function echo(value) {
-  return value;
-}
-console.log(echo());
-
-function noReturn() {}
-console.log(noReturn());
-
 console.log([10, 20][5]);
 
 const empty = null;
@@ -47,13 +39,13 @@ console.log(null == undefined, null === undefined);
 undefined
 undefined
 undefined
-undefined
-undefined
 null object undefined
 true false
 ```
 
-In order: a variable declared without a value, a property that does not exist, a function parameter that was not passed, a function that returns nothing, and a position beyond the end of an array. All give `undefined`.
+Two things need a word of explanation. `let declared;` declares a variable without giving it a value, and the [lesson on `let` and `const`](../let-const/) covers `let`. `{ name: "Ada" }` is an object, a record with named parts, and `[10, 20]` is an array, a list; the [objects](../objects-js/) and [arrays](../arrays-js/) lessons come later.
+
+In order: a variable declared without a value, a property that does not exist, and a position beyond the end of an array. All give `undefined`. Two more sources appear once you write functions: a parameter that was not passed, and a function that returns nothing.
 
 **`null`** is a value you write yourself, to say "there is deliberately nothing here". The language almost never produces `null` on its own. As the last lines show, `typeof null` is `"object"` (the old mistake from the first lesson of this module), `null == undefined` is true, and `null === undefined` is false.
 
@@ -111,13 +103,6 @@ console.log(user.profile.address?.city);
 console.log(user.settings?.theme);
 console.log(user.tags?.[0], user.nothing?.[0]);
 console.log(user.greet?.());
-
-try {
-  console.log(user.settings.theme);
-} catch (error) {
-  console.log(`${error.name}: ${error.message}`);
-}
-
 console.log(user?.profile?.address?.city.toUpperCase().length);
 ```
 
@@ -126,13 +111,18 @@ undefined
 undefined
 math undefined
 undefined
-TypeError: Cannot read properties of undefined (reading 'theme')
 undefined
 ```
 
-Three forms exist: `a?.b` for a property, `a?.[0]` for an index or computed key, and `a?.()` to call a function only if it exists. In the example, `user.profile.address?.city` is `undefined` because `address` is `null`. Without the `?.` on `user.settings.theme`, the access throws, and the message names the property that was read from `undefined`.
+Without the `?.`, the same read stops the program. `console.log(user.settings.theme)` fails with:
 
-The last line shows **short-circuiting**: when `address` is missing, the whole rest of the chain, including `.toUpperCase()` and `.length`, is skipped and the answer is `undefined`. You do not need a `?.` after every dot.
+```text
+TypeError: Cannot read properties of undefined (reading 'theme')
+```
+
+Three forms exist: `a?.b` for a property, `a?.[0]` for an index or computed key, and `a?.()` to call a function only if it exists. In the example, `user.profile.address?.city` is `undefined` because `address` is `null`. The error above names the property that was read from `undefined`, which is the first thing to look at when you see it.
+
+The last line of the program shows **short-circuiting**: when `address` is missing, the whole rest of the chain, including `.toUpperCase()` and `.length`, is skipped and the answer is `undefined`. You do not need a `?.` after every dot.
 
 Use `?.` where data may be absent, not everywhere. If a value must be there, a `TypeError` that points to the problem is better than an `undefined` that hides it.
 
@@ -175,33 +165,31 @@ console.log(options);
 
 <Exercise title="Read nested config with defaults">
 
-Write `readConfig(config)` that returns an object with `host` (default `"localhost"`), `port` (default `8080`) and `debug` (default `false`). The host and port live at `config.server`, and the `server` object may be missing. A port of `0` and `debug: false` are valid and must be kept.
+A settings object `config` has an optional `server` object with `host` and `port`, and an optional `debug` flag. Build a new object `settings` with `host` (default `"localhost"`), `port` (default `8080`) and `debug` (default `false`). A port of `0` and `debug: false` are valid and must be kept.
 
-Test it with `{}`, with `{ server: { port: 0 }, debug: false }` and with `{ server: { host: "example.test" }, debug: true }`.
+Start with `const config = { server: { port: 0 }, debug: false };`, then try `{}` and `{ server: { host: "example.test" }, debug: true }` too.
+
+Input: none. Expected output for the first config: `{ host: 'localhost', port: 0, debug: false }`. For `{}`: `{ host: 'localhost', port: 8080, debug: false }`. For the third: `{ host: 'example.test', port: 8080, debug: true }`.
 
 <Solution>
 
 ```javascript title="config_defaults.mjs"
-function readConfig(config) {
-  return {
-    host: config.server?.host ?? "localhost",
-    port: config.server?.port ?? 8080,
-    debug: config.debug ?? false,
-  };
-}
+const config = { server: { port: 0 }, debug: false };
 
-console.log(readConfig({}));
-console.log(readConfig({ server: { port: 0 }, debug: false }));
-console.log(readConfig({ server: { host: "example.test" }, debug: true }));
+const settings = {
+  host: config.server?.host ?? "localhost",
+  port: config.server?.port ?? 8080,
+  debug: config.debug ?? false,
+};
+
+console.log(settings);
 ```
 
 ```text
-{ host: 'localhost', port: 8080, debug: false }
 { host: 'localhost', port: 0, debug: false }
-{ host: 'example.test', port: 8080, debug: true }
 ```
 
-`config.server?.host` is `undefined` when `server` is missing, and `??` then supplies the default. Because `??` ignores `0` and `false`, the second test keeps `port: 0`. Using `||` would have turned that port into `8080`.
+`config.server?.host` is `undefined` when `server` or `host` is missing, and `??` then supplies the default. Because `??` ignores `0` and `false`, the `port: 0` is kept. Using `||` would have turned that port into `8080`.
 
 </Solution>
 
@@ -209,11 +197,57 @@ console.log(readConfig({ server: { host: "example.test" }, debug: true }));
 
 <Exercise title="Which operator?">
 
-For each case choose `||` or `??`: (a) a page size where `0` means "show nothing"; (b) a display name where the empty string should become `"Guest"`; (c) a volume setting where `0` means muted.
+For each case choose `||` or `??`, then write the line and print its result: (a) a page size of `0`, where `0` means "show nothing", with the fallback `10`; (b) a display name of `""`, which should become `"Guest"`; (c) a volume of `0`, where `0` means muted, with the fallback `50`.
+
+Input: none. Expected output: `0`, `Guest`, `0`.
 
 <Solution>
 
+```javascript title="which_operator.mjs"
+const pageSize = 0;
+const displayName = "";
+const volume = 0;
+
+console.log(pageSize ?? 10);
+console.log(displayName || "Guest");
+console.log(volume ?? 50);
+```
+
+```text
+0
+Guest
+0
+```
+
 (a) `??`, since `0` is a real choice. (b) `||`, since the empty string should be replaced, and `??` would keep it. (c) `??`, since a muted volume must stay `0`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fill in missing settings">
+
+Start with `const prefs = { theme: "", fontSize: 0, language: undefined };`. Use `||=` for `theme` (an empty theme should become `"light"`) and `??=` for `fontSize` (default `16`) and `language` (default `"en"`). Print `prefs`.
+
+Input: none. Expected output: `{ theme: 'light', fontSize: 0, language: 'en' }`.
+
+<Solution>
+
+```javascript title="fill_prefs.mjs"
+const prefs = { theme: "", fontSize: 0, language: undefined };
+
+prefs.theme ||= "light";
+prefs.fontSize ??= 16;
+prefs.language ??= "en";
+
+console.log(prefs);
+```
+
+```text
+{ theme: 'light', fontSize: 0, language: 'en' }
+```
+
+`||=` replaces the empty text. `??=` leaves the `0` alone, because `0` is not `null` or `undefined`, and fills in the missing language.
 
 </Solution>
 

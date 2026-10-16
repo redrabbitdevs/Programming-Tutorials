@@ -1,0 +1,5 @@
+start
+in try
+in catch: boom
+in finally
+end
