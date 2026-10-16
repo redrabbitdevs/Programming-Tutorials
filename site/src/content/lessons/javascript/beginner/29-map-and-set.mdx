@@ -30,7 +30,21 @@ const stock = new Map([
 stock.set("plum", 12);
 stock.set("apple", 7);
 console.log(stock);
-console.log(stock.get("apple"), stock.get("kiwi"), stock.has("pear"), stock.size);
+```
+
+```text
+Map(3) { 'apple' => 7, 'pear' => 0, 'plum' => 12 }
+```
+
+Reading, deleting and looping:
+
+```javascript title="map_basics.mjs (continued)"
+console.log(
+  stock.get("apple"),
+  stock.get("kiwi"),
+  stock.has("pear"),
+  stock.size,
+);
 
 stock.delete("pear");
 console.log([...stock.keys()], [...stock.values()]);
@@ -38,7 +52,18 @@ console.log([...stock.keys()], [...stock.values()]);
 for (const [fruit, count] of stock) {
   console.log(fruit, count);
 }
+```
 
+```text
+7 undefined true 3
+[ 'apple', 'plum' ] [ 7, 12 ]
+apple 7
+plum 12
+```
+
+Keys can be any value, and objects convert to and from maps:
+
+```javascript title="map_basics.mjs (continued)"
 const byObject = new Map();
 const keyA = { id: 1 };
 byObject.set(keyA, "first");
@@ -51,11 +76,6 @@ console.log(Object.fromEntries(new Map([["b", 2]])));
 ```
 
 ```text
-Map(3) { 'apple' => 7, 'pear' => 0, 'plum' => 12 }
-7 undefined true 3
-[ 'apple', 'plum' ] [ 7, 12 ]
-apple 7
-plum 12
 first undefined
 number string
 Map(1) { 'a' => 1 }
@@ -267,7 +287,7 @@ K
 
 <Exercise title="Word frequency counter">
 
-Count how often each word appears in `"the cat and the hat and the bat"` using a `Map`. Print the words from most to least frequent, with ties in alphabetical order.
+Count how often each word appears in `"the cat and the hat and the bat"` using a `Map`. Print the words from most to least frequent, with ties in alphabetical order. The output should be `the: 3`, `and: 2`, then `bat: 1`, `cat: 1` and `hat: 1`, one per line.
 
 <Solution>
 
@@ -305,7 +325,15 @@ The loop reads the current count with `get`, uses `?? 0` for a word not seen yet
 
 <Exercise title="Common friends">
 
-Given each person's friends as an array, find the friends all three people share and the set of everyone mentioned.
+Given this record of each person's friends, find the friends all three people share and the set of everyone mentioned. Print each as a sorted array. The output should be `[ 'alan', 'grace' ]` and then `[ 'alan', 'dennis', 'grace', 'ken', 'linus' ]`.
+
+```javascript
+const friends = {
+  ada: ["grace", "linus", "alan"],
+  bob: ["alan", "dennis", "grace"],
+  cy: ["grace", "alan", "ken"],
+};
+```
 
 <Solution>
 

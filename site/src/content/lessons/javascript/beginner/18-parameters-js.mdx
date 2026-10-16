@@ -18,6 +18,12 @@ fundamentals: ["fundamentals/beginner/09-functions"]
 
 How much a function can adapt to its caller depends on its parameters. JavaScript is relaxed about them, and modern syntax adds several features that replace older patterns. The [fundamentals lesson on functions](../../../fundamentals/beginner/functions/) explains parameters and arguments in general. Here is how JavaScript handles them.
 
+<Callout type="note">
+
+This lesson uses lists such as `[72, 91, 85]` and records such as `{ theme: "light" }` before they have their own lessons. Arrays are taught in [lesson 23](../arrays-js/), objects in [lesson 26](../objects-js/) and taking them apart in [lesson 27](../destructuring-spread/). Read them as "several values in order" and "values with names" for now.
+
+</Callout>
+
 ## Missing and extra arguments
 
 JavaScript does not check how many arguments you pass. Missing parameters are `undefined`. Extra arguments are ignored.
@@ -102,25 +108,39 @@ function log(level, ...messages) {
   console.log(`[${level}]`, messages.join(" "));
 }
 log("info", "server", "started", "on", 8080);
+```
 
+```text
+0 1 6
+[info] server started on 8080
+```
+
+The same three dots also work in a call and in a list literal, where they are called spread:
+
+```javascript title="rest_spread.mjs (continued)"
 const scores = [72, 91, 85];
 console.log(Math.max(...scores), Math.min(...scores));
 console.log(sum(...scores, 10));
 
 const copy = [...scores, 100];
 console.log(copy, scores);
+```
 
+```text
+91 72
+258
+[ 72, 91, 85, 100 ] [ 72, 91, 85 ]
+```
+
+And in a record literal:
+
+```javascript title="rest_spread.mjs (continued)"
 const defaults = { theme: "light", size: 12 };
 const settings = { ...defaults, size: 16 };
 console.log(settings, defaults);
 ```
 
 ```text
-0 1 6
-[info] server started on 8080
-91 72
-258
-[ 72, 91, 85, 100 ] [ 72, 91, 85 ]
 { theme: 'light', size: 16 } { theme: 'light', size: 12 }
 ```
 
@@ -170,7 +190,7 @@ Linus
 5
 ```
 
-The braces in `{ first, last, upper = false }` pick named properties out of the argument, and each can have its own default. The `= {}` at the end is a default for the whole argument, so `formatName()` with nothing passed does not fail by trying to destructure `undefined`. Arrays can be taken apart too, as `distance` does with `[x1, y1]`.
+The braces in `{ first, last, upper = false }` pick named properties out of the argument, and each can have its own default. The `= {}` at the end is a default for the whole argument, so `formatName()` with nothing passed does not fail by trying to destructure `undefined`. Arrays can be taken apart too, as `distance` does with `[x1, y1]`. That is the same destructuring idea, and [lesson 27](../destructuring-spread/) teaches it in full.
 
 A common shape is one or two required positional parameters followed by an options object:
 
@@ -240,17 +260,17 @@ Functions that change their arguments surprise callers. When you can, return a n
 - **Assuming spread copies deeply.** It copies one level.
 - **Using `arguments`.** Prefer rest parameters.
 
-## Exercise
+## Exercises
 
 <Exercise title="A flexible formatName">
 
-Write `formatName({ first, last, upper })` that returns the first and last name joined by a space. Either name may be missing, and `upper: true` makes the result upper case. With no argument at all, it should return an empty string. Test with `{ first: "Ada", last: "Lovelace" }`, `{ first: "Grace", last: "Hopper", upper: true }`, `{ last: "Turing" }` and no argument.
+Write `formatName({ first, last, upper })` that returns the first and last name joined by a space. Either name may be missing, and `upper: true` makes the result upper case. With no argument at all, it should return an empty string. Test with `{ first: "Ada", last: "Lovelace" }`, `{ first: "Grace", last: "Hopper", upper: true }`, `{ last: "Turing" }` and no argument. Print the last result with `JSON.stringify`. You should see `Ada Lovelace`, `GRACE HOPPER`, `Turing` and `""`.
 
 <Solution>
 
 ```javascript title="format_name_solution.mjs"
 function formatName({ first = "", last = "", upper = false } = {}) {
-  const full = [first, last].filter(Boolean).join(" ");
+  const full = `${first} ${last}`.trim();
   return upper ? full.toUpperCase() : full;
 }
 
@@ -267,7 +287,53 @@ Turing
 ""
 ```
 
-The defaults for `first` and `last` are empty strings, so a missing name does not print `undefined`. `[first, last].filter(Boolean).join(" ")` drops empty names before joining, so there is no stray space when one is missing. The `= {}` makes the no-argument call work, and `JSON.stringify` prints `""` so you can see that the result is an empty string.
+The defaults for `first` and `last` are empty strings, so a missing name does not print `undefined`. Joining the two names with a space and calling `trim()` removes the stray space when one of them is missing. The `= {}` makes the no-argument call work, and `JSON.stringify` prints `""` so you can see that the result is an empty string.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="average and clamp">
+
+Write `average(...numbers)`, which returns the mean of any number of arguments, or `0` when there are none. Then write `clamp(value, { min, max })`, which limits `value` to the range from `min` to `max`, with defaults of `0` and `100` and a default for the whole options object. Check these calls:
+
+- `average()`, `average(4)` and `average(2, 4, 9)` should give `0`, `4` and `5`.
+- `average(...[10, 20, 30, 40])` should give `25`. The brackets here are a list of four numbers, and the dots spread them into four arguments.
+- `clamp(150)`, `clamp(-5)` and `clamp(42)` should give `100`, `0` and `42`.
+- `clamp(7, { min: 10 })` and `clamp(7, { max: 5 })` should give `10` and `5`.
+
+<Solution>
+
+```javascript title="average_clamp.mjs"
+function average(...numbers) {
+  if (numbers.length === 0) {
+    return 0;
+  }
+  let total = 0;
+  for (const n of numbers) {
+    total += n;
+  }
+  return total / numbers.length;
+}
+
+function clamp(value, { min = 0, max = 100 } = {}) {
+  return Math.min(Math.max(value, min), max);
+}
+
+console.log(average(), average(4), average(2, 4, 9));
+console.log(average(...[10, 20, 30, 40]));
+console.log(clamp(150), clamp(-5), clamp(42));
+console.log(clamp(7, { min: 10 }), clamp(7, { max: 5 }));
+```
+
+```text
+0 4 5
+25
+100 0 42
+10 5
+```
+
+The rest parameter makes `numbers` a real array, so `numbers.length` tells you how many arguments came in, and the empty case is handled before dividing by zero. In `clamp`, `Math.max(value, min)` lifts a value that is too low, and `Math.min(..., max)` pulls down one that is too high. Each option has its own default, and the `= {}` lets you call `clamp(150)` with no options at all.
 
 </Solution>
 

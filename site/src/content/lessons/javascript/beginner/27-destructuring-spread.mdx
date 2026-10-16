@@ -34,7 +34,18 @@ console.log(head, tail);
 
 const [x = 10, y = 20] = [1];
 console.log(x, y);
+```
 
+```text
+255 128 0
+a c
+1 [ 2, 3, 4 ]
+1 20
+```
+
+Destructuring also swaps two variables, and it works on any iterable and on function results:
+
+```javascript title="destructure_arrays.mjs (continued)"
 let a = 1;
 let b = 2;
 [a, b] = [b, a];
@@ -50,10 +61,6 @@ console.log(Object.entries({ k: 1 }).map(([key, value]) => key + value));
 ```
 
 ```text
-255 128 0
-a c
-1 [ 2, 3, 4 ]
-1 20
 2 1
 h i
 q
@@ -83,14 +90,39 @@ console.log(name, age);
 
 const { name: userName, role = "guest" } = user;
 console.log(userName, role);
+```
 
+```text
+Ada 36
+Ada guest
+```
+
+Patterns nest, and `...rest` collects the other properties:
+
+```javascript title="destructure_objects.mjs (continued)"
 const { address: { city }, tags: [firstTag] } = user;
 console.log(city, firstTag);
 
 const { age: _age, ...rest } = user;
 console.log(rest);
+```
 
-const { nickname = "none", missing = 5, nothing = 7 } = { nickname: undefined, nothing: null };
+```text
+London admin
+{
+  name: 'Ada',
+  address: { city: 'London', zip: 'N1' },
+  tags: [ 'admin', 'dev' ]
+}
+```
+
+Defaults, parameters and assigning to existing variables:
+
+```javascript title="destructure_objects.mjs (continued)"
+const { nickname = "none", missing = 5, nothing = 7 } = {
+  nickname: undefined,
+  nothing: null,
+};
 console.log(nickname, missing, nothing);
 
 function describe({ name, age = 0 }) {
@@ -104,14 +136,6 @@ console.log(title);
 ```
 
 ```text
-Ada 36
-Ada guest
-London admin
-{
-  name: 'Ada',
-  address: { city: 'London', zip: 'N1' },
-  tags: [ 'admin', 'dev' ]
-}
 none 5 null
 Ada (36) Linus (0)
 Dr
@@ -193,7 +217,15 @@ const saved = {
 
 const shallow = { ...defaults, ...saved };
 console.log(shallow);
+```
 
+```text
+{ theme: 'light', fontSize: 16, editor: { wrap: true } }
+```
+
+To merge the nested `editor` object as well, spread it inside the result:
+
+```javascript title="merge_settings.mjs (continued)"
 const merged = {
   ...defaults,
   ...saved,
@@ -205,7 +237,6 @@ console.log(defaults.editor);
 ```
 
 ```text
-{ theme: 'light', fontSize: 16, editor: { wrap: true } }
 { theme: 'light', fontSize: 16, editor: { tabWidth: 4, wrap: true } }
 { tabWidth: 4, wrap: false }
 ```
@@ -225,45 +256,109 @@ Spread copies **one level**. Nested objects and arrays are shared between the or
 
 ## Exercises
 
-<Exercise title="Merge user settings over defaults">
+<Exercise title="Layer three sets of options">
 
-Write the merged settings from this lesson as one expression, so that nested `editor` options from the user override only the options they set and everything else comes from the defaults. Check that the defaults object is not changed.
+A programme has `defaults`, a `theme` and the `user` options:
+
+```javascript
+const defaults = { color: "red", size: { width: 1, height: 1 } };
+const theme = { size: { width: 5 } };
+const user = { color: "blue" };
+```
+
+Build one `merged` object in which later layers win, and `size` is merged key by key instead of being replaced. Print `merged`, then `defaults`, to show that the defaults did not change. The output should be `{ color: 'blue', size: { width: 5, height: 1 } }` and then `{ color: 'red', size: { width: 1, height: 1 } }`.
 
 <Solution>
 
-The solution is the `merged` object in `merge_settings.mjs` above:
+```javascript title="merge_layers.mjs"
+const defaults = { color: "red", size: { width: 1, height: 1 } };
+const theme = { size: { width: 5 } };
+const user = { color: "blue" };
 
-```javascript
 const merged = {
   ...defaults,
-  ...saved,
-  editor: { ...defaults.editor, ...saved.editor },
+  ...theme,
+  ...user,
+  size: { ...defaults.size, ...theme.size, ...user.size },
 };
+
+console.log(merged);
+console.log(defaults);
 ```
 
-`...defaults` and `...saved` handle the top level, with `saved` winning. The `editor` line then replaces the shallow result with a merge of the two nested objects. The output shows `{ tabWidth: 4, wrap: true }` for the merged `editor`, and `{ tabWidth: 4, wrap: false }` for the untouched defaults.
+```text
+{ color: 'blue', size: { width: 5, height: 1 } }
+{ color: 'red', size: { width: 1, height: 1 } }
+```
+
+The three top-level spreads make `color` blue, because `user` comes last. They would also make `size` equal to the theme's `{ width: 5 }`, so the last line of the literal replaces `size` with a merge of the three nested objects. Spreading `user.size`, which is `undefined`, adds nothing and is not an error. Every spread builds a new object, so `defaults` is untouched.
 
 </Solution>
 
 </Exercise>
 
-<Exercise title="Swap and unpack">
+<Exercise title="Remove a field with rest">
 
-Without a temporary variable, swap `x` and `y` with destructuring. Then write a function `range([low, high])` that takes a two-item array and returns `high - low`.
+Write `withoutPassword(account)` that returns a copy of a record without its `password`, using a rest pattern in the parameter. Try it on `{ name: "Ada", email: "ada@example.com", password: "secret" }`, then print the original too. The output should be `{ name: 'Ada', email: 'ada@example.com' }` and then the full original record.
 
 <Solution>
 
-```javascript
-let x = "left";
-let y = "right";
-[x, y] = [y, x];
-console.log(x, y);
+```javascript title="strip_password.mjs"
+function withoutPassword({ password, ...safe }) {
+  return safe;
+}
 
-const range = ([low, high]) => high - low;
-console.log(range([3, 10]));
+const account = { name: "Ada", email: "ada@example.com", password: "secret" };
+console.log(withoutPassword(account));
+console.log(account);
 ```
 
-It prints `right left` and then `7`. The right side `[y, x]` is built first, and then its items are assigned to `x` and `y`. The parameter `[low, high]` is an array pattern, so the function unpacks its argument.
+```text
+{ name: 'Ada', email: 'ada@example.com' }
+{ name: 'Ada', email: 'ada@example.com', password: 'secret' }
+```
+
+The pattern `{ password, ...safe }` takes `password` out as a variable and collects all other properties into a new object called `safe`. The function returns `safe` and ignores `password`. The original record is not changed, because destructuring only reads from it.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Unpack a response in one statement">
+
+Given the record below, use one destructuring `const` statement to create `status`, `first` (the first item), `others` (the remaining items) and `total`. Print them on one line. The output should be `200 a 3 [ 'b', 'c' ]`.
+
+```javascript
+const response = {
+  status: 200,
+  data: { items: ["a", "b", "c"], total: 3 },
+};
+```
+
+<Solution>
+
+```javascript title="unpack_response.mjs"
+const response = {
+  status: 200,
+  data: { items: ["a", "b", "c"], total: 3 },
+};
+
+const {
+  status,
+  data: {
+    items: [first, ...others],
+    total,
+  },
+} = response;
+
+console.log(status, first, total, others);
+```
+
+```text
+200 a 3 [ 'b', 'c' ]
+```
+
+The pattern follows the shape of the data. `data: { ... }` reaches into the nested record, `items: [first, ...others]` splits the array into its first item and the rest, and `total` is read from the same nested record. The names `data` and `items` are not created as variables.
 
 </Solution>
 

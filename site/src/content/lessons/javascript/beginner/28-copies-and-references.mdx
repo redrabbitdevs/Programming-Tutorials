@@ -15,7 +15,7 @@ estimatedMinutes: 40
 fundamentals: ["fundamentals/beginner/18-memory-and-references"]
 ---
 
-The [fundamentals lesson on memory and references](../../../fundamentals/beginner/memory-and-references/) explains the difference between a value and a reference to a value. JavaScript has exactly this split. **Primitives** (numbers, strings, booleans, `null`, `undefined`, symbols and BigInts) are copied when you assign them. **Objects**, which include arrays, functions, `Map`, `Set` and `Date`, are handled through references: assigning one gives the new name the same object.
+The [fundamentals lesson on memory and references](../../../fundamentals/beginner/memory-and-references/) explains the difference between a value and a reference to a value. JavaScript has exactly this split. **Primitives** (numbers, strings, booleans, `null`, `undefined`, symbols and BigInts) are copied when you assign them. **Objects**, which include arrays, functions, `Map` ([lesson 29](../map-and-set/)), `Set` and `Date`, are handled through references: assigning one gives the new name the same object.
 
 ## Aliasing
 
@@ -32,7 +32,17 @@ console.log(list1, list1 === list2);
 
 const other = [1, 2, 3, 4];
 console.log(list1 === other);
+```
 
+```text
+5 6
+[ 1, 2, 3, 4 ] true
+false
+```
+
+Function arguments follow the same rule:
+
+```javascript title="references_alias.mjs (continued)"
 function addItem(list, item) {
   list.push(item);
 }
@@ -48,9 +58,6 @@ console.log(reassign(cart), cart);
 ```
 
 ```text
-5 6
-[ 1, 2, 3, 4 ] true
-false
 [ 'pen', 'ink' ]
 [ 'new' ] [ 'pen', 'ink' ]
 ```
@@ -81,11 +88,6 @@ console.log(original.scores);
 console.log(original.address.city);
 
 console.log(copy.scores === original.scores);
-
-const arr = [[1], [2]];
-const arrCopy = arr.slice();
-arrCopy[0].push("x");
-console.log(arr);
 ```
 
 ```text
@@ -93,6 +95,18 @@ Ada
 [ 90, 80, 70 ]
 Paris
 true
+```
+
+Nested arrays behave the same way:
+
+```javascript title="copy_shallow.mjs (continued)"
+const arr = [[1], [2]];
+const arrCopy = arr.slice();
+arrCopy[0].push("x");
+console.log(arr);
+```
+
+```text
 [ [ 1, 'x' ], [ 2 ] ]
 ```
 
@@ -102,7 +116,7 @@ A shallow copy is right when the data has only primitives, or when you are about
 
 ## Deep copies with structuredClone
 
-`structuredClone(value)` makes a **deep copy**: new objects all the way down. It is a global function, available in Node and in browsers.
+`structuredClone(value)` makes a **deep copy**: new objects all the way down. It is a global function, available in Node and in browsers. The example below uses `Date` (a date and time value, taught in the intermediate level) and `Set` ([lesson 29](../map-and-set/)) only as examples of values that a deep copy has to understand.
 
 ```javascript title="structured_clone.mjs"
 const original = {
@@ -121,7 +135,18 @@ console.log(original.scores, original.address.city);
 console.log(deep.scores, deep.address.city);
 console.log(deep.born instanceof Date, deep.tags);
 console.log(deep.born === original.born);
+```
 
+```text
+[ 90, 80 ] London
+[ 90, 80, 70 ] Paris
+true Set(1) { 'maths' }
+false
+```
+
+It copes with circular references and refuses to copy functions:
+
+```javascript title="structured_clone.mjs (continued)"
 const loop = { name: "loop" };
 loop.self = loop;
 const loopCopy = structuredClone(loop);
@@ -132,7 +157,16 @@ try {
 } catch (error) {
   console.log(error.name);
 }
+```
 
+```text
+true
+DataCloneError
+```
+
+A class instance comes back as a plain object. (Classes are taught in the intermediate level. Here `Point` is just an object with a method.)
+
+```javascript title="structured_clone.mjs (continued)"
 class Point {
   constructor(x) {
     this.x = x;
@@ -146,12 +180,6 @@ console.log(clone instanceof Point, clone);
 ```
 
 ```text
-[ 90, 80 ] London
-[ 90, 80, 70 ] Paris
-true Set(1) { 'maths' }
-false
-true
-DataCloneError
 false { x: 1 }
 ```
 
@@ -179,7 +207,16 @@ try {
   console.log(error.name);
 }
 console.log(settings.theme);
+```
 
+```text
+TypeError
+dark
+```
+
+Nested objects stay writable, and a frozen array rejects `push`:
+
+```javascript title="freeze_shallow.mjs (continued)"
 settings.window.width = 1024;
 console.log(settings.window.width);
 console.log(Object.isFrozen(settings), Object.isFrozen(settings.window));
@@ -193,8 +230,6 @@ try {
 ```
 
 ```text
-TypeError
-dark
 1024
 true false
 TypeError
@@ -232,7 +267,11 @@ const post1 = { ...defaults };
 const post2 = { ...defaults };
 post1.tags.push("news");
 console.log(post2.tags);
+```
 
+Bugs 3 and 4:
+
+```javascript title="aliasing_bugs.mjs (continued)"
 // Bug 3: fill with one object
 const grid = new Array(2).fill([]);
 grid[0].push("x");
@@ -246,8 +285,12 @@ function addTax(order) {
 const order = { total: 100 };
 addTax(order);
 console.log(order.total);
+```
 
-// Bug 5: sort on a copy that is only one level deep
+Bug 5:
+
+```javascript title="aliasing_bugs.mjs (continued)"
+// Bug 5: a copy that is only one level deep
 const rows = [{ n: 2 }, { n: 1 }];
 const rowsCopy = [...rows];
 rowsCopy[0].n = 99;
@@ -282,7 +325,16 @@ const post1 = makePost();
 const post2 = makePost();
 post1.tags.push("news");
 console.log(post2.tags);
+```
 
+```text
+[ 3, 1, 2 ] [ 1, 2, 3 ]
+[]
+```
+
+Fixes 3 and 4:
+
+```javascript title="aliasing_fixed.mjs (continued)"
 // Fix 3: make a separate array for every row
 const grid = Array.from({ length: 2 }, () => []);
 grid[0].push("x");
@@ -295,7 +347,16 @@ function addTax(order) {
 const order = { total: 100 };
 const taxed = addTax(order);
 console.log(order.total, taxed.total);
+```
 
+```text
+[ [ 'x' ], [] ]
+100 120
+```
+
+Fix 5:
+
+```javascript title="aliasing_fixed.mjs (continued)"
 // Fix 5: copy each row too
 const rows = [{ n: 2 }, { n: 1 }];
 const rowsCopy = rows.map((row) => ({ ...row }));
@@ -304,10 +365,6 @@ console.log(rows);
 ```
 
 ```text
-[ 3, 1, 2 ] [ 1, 2, 3 ]
-[]
-[ [ 'x' ], [] ]
-100 120
 [ { n: 2 }, { n: 1 } ]
 ```
 
@@ -323,7 +380,7 @@ console.log(rows);
 
 <Exercise title="Predict a freeze">
 
-What does this print?
+Predict what this prints before you run it. It prints two values on one line: a number, then a boolean.
 
 ```javascript
 const team = Object.freeze({ name: "core", members: ["Ada"] });
@@ -333,7 +390,45 @@ console.log(team.members.length, Object.isFrozen(team));
 
 <Solution>
 
+```javascript title="freeze_predict.mjs"
+const team = Object.freeze({ name: "core", members: ["Ada"] });
+team.members.push("Grace");
+console.log(team.members.length, Object.isFrozen(team));
+```
+
+```text
+2 true
+```
+
 It prints `2 true`. `team` is frozen, so you cannot add or reassign its properties. The `members` array is a separate object that was not frozen, so `push` works.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Update without changing the original">
+
+Write `addScore(student, score)` that returns a new student record with the score added to the end of `scores`, without changing the original or its array. Try it on `{ name: "Ada", scores: [90] }` with the score `75`, then print the original and the new record. The output should be `{ name: 'Ada', scores: [ 90 ] }` and then `{ name: 'Ada', scores: [ 90, 75 ] }`.
+
+<Solution>
+
+```javascript title="add_score.mjs"
+function addScore(student, score) {
+  return { ...student, scores: [...student.scores, score] };
+}
+
+const ada = { name: "Ada", scores: [90] };
+const updated = addScore(ada, 75);
+console.log(ada);
+console.log(updated);
+```
+
+```text
+{ name: 'Ada', scores: [ 90 ] }
+{ name: 'Ada', scores: [ 90, 75 ] }
+```
+
+Spreading `student` copies `name` and the reference to `scores` into a new record. The `scores` key written after it then replaces that shared reference with a new array built from the old items plus the new score. Both levels are new, so the original stays as it was.
 
 </Solution>
 

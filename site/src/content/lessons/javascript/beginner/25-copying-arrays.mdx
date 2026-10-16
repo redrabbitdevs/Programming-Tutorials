@@ -192,13 +192,65 @@ console.log(books[1].year);
 
 ## Exercises
 
-<Exercise title="Sort records by several keys">
+<Exercise title="Rank a leaderboard">
 
-Given the `staff` array of `{ name, dept, age }` objects in the example, print them sorted by department (A to Z), then age (oldest first), then name (A to Z). The original array must not change.
+Here are five players:
+
+```javascript
+const players = [
+  { name: "Ada", score: 90, seconds: 50 },
+  { name: "Grace", score: 95, seconds: 70 },
+  { name: "Linus", score: 90, seconds: 45 },
+  { name: "Alan", score: 95, seconds: 70 },
+  { name: "Barbara", score: 80, seconds: 30 },
+];
+```
+
+Print them ranked by score (highest first), then by time (fewest seconds first), then by name (A to Z), one line per player as name, score and seconds. Then print the name of `players[0]` to show that the original did not change. The output should be:
+
+```text
+Alan 95 70
+Grace 95 70
+Linus 90 45
+Ada 90 50
+Barbara 80 30
+Ada
+```
 
 <Solution>
 
-The solution is `sort_multi_key.mjs` above. `toSorted` returns a new array. The comparator joins three comparisons with `||`. The final line prints `staff[0].name`, which is still `Grace`, the first person in the original order, so the original did not change.
+```javascript title="leaderboard.mjs"
+const players = [
+  { name: "Ada", score: 90, seconds: 50 },
+  { name: "Grace", score: 95, seconds: 70 },
+  { name: "Linus", score: 90, seconds: 45 },
+  { name: "Alan", score: 95, seconds: 70 },
+  { name: "Barbara", score: 80, seconds: 30 },
+];
+
+const ranked = players.toSorted(
+  (a, b) =>
+    b.score - a.score ||
+    a.seconds - b.seconds ||
+    a.name.localeCompare(b.name, "en"),
+);
+
+for (const p of ranked) {
+  console.log(p.name, p.score, p.seconds);
+}
+console.log(players[0].name);
+```
+
+```text
+Alan 95 70
+Grace 95 70
+Linus 90 45
+Ada 90 50
+Barbara 80 30
+Ada
+```
+
+`toSorted` returns a new array, so `players` is untouched. The comparator chains three comparisons with `||`. `b.score - a.score` puts the higher score first, `a.seconds - b.seconds` puts the faster time first, and `localeCompare` breaks the last tie by name. Alan and Grace tie on everything but the name.
 
 </Solution>
 
@@ -206,7 +258,7 @@ The solution is `sort_multi_key.mjs` above. `toSorted` returns a new array. The 
 
 <Exercise title="Rewrite with a copy">
 
-This code changes `scores` by accident. Rewrite it so that `scores` stays as it is and `top` holds the three highest scores, highest first.
+This code changes `scores` by accident. Rewrite it so that `scores` stays as it is and `top` holds the three highest scores, highest first. Print `top` and `scores`. They should read `[ 100, 88, 75 ]` and `[ 40, 100, 75, 9, 88 ]`.
 
 ```javascript
 const scores = [40, 100, 75, 9, 88];
@@ -215,13 +267,17 @@ const top = scores.sort().reverse().slice(0, 3);
 
 <Solution>
 
-```javascript
+```javascript title="top_scores.mjs"
 const scores = [40, 100, 75, 9, 88];
 const top = scores.toSorted((a, b) => b - a).slice(0, 3);
 console.log(top, scores);
 ```
 
-It prints `[ 100, 88, 75 ] [ 40, 100, 75, 9, 88 ]`. The original code had two bugs. `sort()` without a comparator sorts as text, so `100` would not end up first the way you expect, and `sort` and `reverse` both change `scores`. `toSorted` with `b - a` sorts numbers from high to low in a new array.
+```text
+[ 100, 88, 75 ] [ 40, 100, 75, 9, 88 ]
+```
+
+The original code had two bugs. `sort()` without a comparator sorts as text, so `100` is not guaranteed to land where you expect, and `sort` and `reverse` both change `scores`. `toSorted` with `b - a` sorts numbers from high to low in a new array, and `slice(0, 3)` takes the first three.
 
 </Solution>
 

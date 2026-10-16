@@ -17,6 +17,12 @@ fundamentals: ["fundamentals/beginner/09-functions"]
 
 A function packages code so that you can run it by name, give it inputs and get a result back. The [fundamentals lesson on functions](../../../fundamentals/beginner/functions/) covers why and how to design them. JavaScript gives you three syntaxes for writing one, and the differences matter.
 
+<Callout type="note">
+
+A few examples in this module use a list such as `[shout, other]` or a record such as `{ x: 1, y: 2 }`. Arrays are taught in [lesson 23](../arrays-js/) and objects in [lesson 26](../objects-js/). Until then, read a list as "several values in order" and a record as "values with names".
+
+</Callout>
+
 ## Function declarations
 
 A **declaration** starts with the keyword `function`, followed by the name, the parameters in brackets and the body in braces. `return` sends a value back.
@@ -94,7 +100,15 @@ const toFahrenheit2 = function (celsius) {
 const toFahrenheit3 = (celsius) => celsius * 9 / 5 + 32;
 
 console.log(toFahrenheit(100), toFahrenheit2(0), toFahrenheit3(37));
+```
 
+```text
+212 32 98.6
+```
+
+The same job is written three ways above. Now the arrow variations: a one-parameter arrow, a block body, an object result and no parameters:
+
+```javascript title="function_forms.mjs (continued)"
 const square = (n) => n * n;
 const greet = (name, punctuation) => {
   const text = `Hello, ${name}${punctuation}`;
@@ -107,11 +121,10 @@ console.log(square(7), greet("Ada", "!"), makePoint(1, 2), noArgs());
 ```
 
 ```text
-212 32 98.6
 49 Hello, Ada! { x: 1, y: 2 } no parameters
 ```
 
-The same job is written three ways at the top. Then the arrow syntax in its variations:
+The rules these examples show:
 
 - One parameter can drop its brackets, but many style guides keep them. Zero or several parameters always need them.
 - If the body is a single **expression**, you can leave out the braces and `return`. The value of the expression is returned. This is the **implicit return**.
@@ -204,7 +217,17 @@ const actions = {
   negate: (n) => -n,
 };
 console.log(actions.double(21), actions["negate"](5));
+```
 
+```text
+HEY!
+READY! quiet
+42 -5
+```
+
+A function can also be passed as an argument, and it carries a few properties of its own:
+
+```javascript title="functions_as_values.mjs (continued)"
 function apply(fn, value) {
   return fn(value);
 }
@@ -216,9 +239,6 @@ console.log(alias === shout);
 ```
 
 ```text
-HEY!
-READY! quiet
-42 -5
 PASS ME!
 42
 function shout 1
@@ -238,11 +258,11 @@ true
 - **Using an arrow function as a constructor.** `new` throws a `TypeError`.
 - **Calling without brackets.** `shout` is the function. `shout("hi")` runs it.
 
-## Exercise
+## Exercises
 
 <Exercise title="Temperature converters in three styles">
 
-Write `celsiusToFahrenheit` as a declaration, `fahrenheitToCelsius` as a function expression and `celsiusToKelvin` as an arrow function. Print the Fahrenheit value of 100 °C, the Celsius value of 212 °F, the Kelvin value of 0 °C, and the round trip from 37 °C to Fahrenheit and back.
+Write `celsiusToFahrenheit` as a declaration, `fahrenheitToCelsius` as a function expression and `celsiusToKelvin` as an arrow function. Print the Fahrenheit value of 100 °C, the Celsius value of 212 °F, the Kelvin value of 0 °C, and the round trip from 37 °C to Fahrenheit and back. The four lines should read `212`, `100`, `273.15` and `37`.
 
 <Solution>
 
@@ -274,6 +294,53 @@ console.log(fahrenheitToCelsius(celsiusToFahrenheit(37)));
 ```
 
 Each function does one conversion. The round trip feeds the output of the first back into the second and returns `37`. This works out exactly for these numbers, but temperature maths uses floating-point, so compare results with a tolerance, as the numbers lesson explained, rather than with `===`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fix three broken functions">
+
+This program has three bugs, one for each trap in this lesson. Fix it without changing the three function names, so that it prints `120`, then `5`, then `{ x: 3, y: 4 }`. As written it stops with a `ReferenceError` on the first line.
+
+```javascript
+const total = addTax(100);
+
+const addTax = (price) => price * 1.2;
+
+const half = (n) => {
+  n / 2;
+};
+
+const makePoint = (x, y) => { x, y };
+
+console.log(total);
+console.log(half(10));
+console.log(makePoint(3, 4));
+```
+
+<Solution>
+
+```javascript title="fixed_functions.mjs"
+const addTax = (price) => price * 1.2;
+const total = addTax(100);
+
+const half = (n) => n / 2;
+
+const makePoint = (x, y) => ({ x, y });
+
+console.log(total);
+console.log(half(10));
+console.log(makePoint(3, 4));
+```
+
+```text
+120
+5
+{ x: 3, y: 4 }
+```
+
+Three fixes. `addTax` is a `const`, so the call has to come after its line. `half` had braces but no `return`, so it gave back `undefined`: drop the braces for an implicit return, or write `return n / 2`. `makePoint` needs brackets around the object, because without them the braces are a function body.
 
 </Solution>
 

@@ -213,7 +213,7 @@ A gap is called a **hole**. The index is not there at all, which is why `3 in it
 
 <Exercise title="Todo list manager">
 
-Write three functions that work on an array of `{ text, done }` objects: `addTodo(text)` adds an item that is not done, `complete(text)` marks the item with that text as done, and `removeDone()` removes every finished item. Add three items, complete two, remove the done ones, and print what is left.
+Write three functions that work on an array of `{ text, done }` objects: `addTodo(text)` adds an item that is not done, `complete(text)` marks the item with that text as done, and `removeDone()` removes every finished item. Add `"buy milk"`, `"write lesson"` and `"call Ada"`, complete the first and the last, remove the done ones, and print what is left. The output should be `[ { text: 'write lesson', done: false } ]`.
 
 <Solution>
 
@@ -234,7 +234,11 @@ function removeDone() {
     if (todos[i].done) todos.splice(i, 1);
   }
 }
+```
 
+Then use them:
+
+```javascript title="todo_list.mjs (continued)"
 addTodo("buy milk");
 addTodo("write lesson");
 addTodo("call Ada");
@@ -277,7 +281,7 @@ It prints `4 true -1`. Setting `length` to 1 leaves `[1]`. Assigning to index 3 
 
 - Arrays are ordered, zero-indexed and can hold any mix of values. `Array.isArray` identifies them.
 - `at(-1)` reads from the end. `push`, `pop`, `shift`, `unshift` and `splice` change the array. `slice` copies.
-- `includes` and `indexOf` compare with strict-equality rules, so objects match only by identity.
+- `indexOf` uses `===`. `includes` uses the same-value-zero rule, which also finds `NaN`. Both match objects only by identity.
 - `length` can be set, and skipped indexes leave holes. Avoid holes by building arrays with `Array.from` or `fill`.
 
 Next: transforming arrays with `map`, `filter` and `reduce`.

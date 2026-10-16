@@ -26,5 +26,6 @@ try {
   console.log(error.name);
 }
 
-const back = JSON.parse(JSON.stringify({ when: new Date(Date.UTC(2024, 0, 15)) }));
+const stored = JSON.stringify({ when: new Date(Date.UTC(2024, 0, 15)) });
+const back = JSON.parse(stored);
 console.log(typeof back.when, back.when);

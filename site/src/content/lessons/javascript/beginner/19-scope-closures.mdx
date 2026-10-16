@@ -18,6 +18,12 @@ fundamentals: ["fundamentals/beginner/10-scope-and-lifetime"]
 
 Where a variable can be used is decided by where it is written. The [fundamentals lesson on scope and lifetime](../../../fundamentals/beginner/scope-and-lifetime/) introduces this. JavaScript adds a feature that builds on it, the closure, which is one of the language's most useful ideas and the cause of many bugs.
 
+<Callout type="note">
+
+Some examples here return lists and records, such as `[...history]` or `{ deposit, withdraw }`, and call `.map` on a list. Those are taught in [lesson 23](../arrays-js/), [lesson 26](../objects-js/) and [lesson 20](../higher-order-functions/). Read a list as "values in order" and a record as "values with names".
+
+</Callout>
+
 ## Lexical scope
 
 JavaScript uses **lexical scope**: a function can use the variables of the code around it, as written in the source. When the engine meets a name, it looks in the current scope, then in the scope that encloses it, and so on outwards. This chain ends at the module's top level.
@@ -42,7 +48,18 @@ function outer() {
 }
 
 outer();
+```
 
+```text
+demo outer function inner function
+ReferenceError: innerValue is not defined
+```
+
+`inner` sees its own variable, the variable of `outer`, and the module-level `appName`. The reverse does not work: `outer` cannot see `innerValue`, because it belongs to the inner function, so the lookup fails with a `ReferenceError`.
+
+Shadowing is the same idea with a repeated name. Each inner `x` hides the outer one:
+
+```javascript title="scope_levels.mjs (continued)"
 const x = "module";
 function shadow() {
   const x = "function";
@@ -57,14 +74,12 @@ console.log(x);
 ```
 
 ```text
-demo outer function inner function
-ReferenceError: innerValue is not defined
 block
 function
 module
 ```
 
-`inner` sees its own variable, the variable of `outer`, and the module-level `appName`. The reverse does not work: `outer` cannot see `innerValue`, because it belongs to the inner function, so the lookup fails with a `ReferenceError`.
+The innermost `x` wins within its own scope, and each outer `x` is back as soon as the inner scope ends.
 
 The second half shows shadowing again. The innermost `x` wins within its own scope, and each outer `x` is back as soon as the inner scope ends.
 
@@ -144,6 +159,11 @@ function createAccount(opening) {
       balance -= amount;
       history.push(`-${amount}`);
     },
+```
+
+The two read-only methods come next. `getHistory` returns a copy of the list:
+
+```javascript title="private_state.mjs (continued)"
     getBalance() {
       return balance;
     },
@@ -152,7 +172,11 @@ function createAccount(opening) {
     },
   };
 }
+```
 
+Now use the account from outside:
+
+```javascript title="private_state.mjs (continued)"
 const account = createAccount(100);
 account.deposit(50);
 account.withdraw(30);
@@ -185,14 +209,30 @@ for (var i = 0; i < 3; i++) {
   buggy.push(() => `handler ${i}`);
 }
 console.log(buggy.map((h) => h()));
+```
 
+```text
+[ 'handler 3', 'handler 3', 'handler 3' ]
+```
+
+The first fix is to declare the loop variable with `let`:
+
+```javascript title="closure_loop_fix.mjs (continued)"
 // Fix 1: let gives each pass its own variable.
 const fixed1 = [];
 for (let i = 0; i < 3; i++) {
   fixed1.push(() => `handler ${i}`);
 }
 console.log(fixed1.map((h) => h()));
+```
 
+```text
+[ 'handler 0', 'handler 1', 'handler 2' ]
+```
+
+The second fix is a factory function that takes the value as a parameter:
+
+```javascript title="closure_loop_fix.mjs (continued)"
 // Fix 2: a factory function captures the value as a parameter.
 function makeHandler(index) {
   return () => `handler ${index}`;
@@ -205,8 +245,6 @@ console.log(fixed2.map((h) => h()));
 ```
 
 ```text
-[ 'handler 3', 'handler 3', 'handler 3' ]
-[ 'handler 0', 'handler 1', 'handler 2' ]
 [ 'handler 0', 'handler 1', 'handler 2' ]
 ```
 
@@ -247,7 +285,7 @@ undefined
 
 <Exercise title="Counter factory">
 
-Write `makeCounter({ start, step })` that returns an object with `next()` and `reset()`. `next` adds `step` to the counter and returns it. `reset` goes back to `start`. The defaults are 0 and 1. Create a counter that steps by 2, and another that starts at 10, and check that they do not interfere.
+Write `makeCounter({ start, step })` that returns an object with `next()` and `reset()`. `next` adds `step` to the counter and returns it. `reset` goes back to `start`. The defaults are 0 and 1. Create a counter `evens` that steps by 2, and another, `fromTen`, that starts at 10, and check that they do not interfere. The output should be `2 4 6`, then `2` after a reset, then `11 4` for `fromTen.next()` and `evens.next()`.
 
 <Solution>
 
@@ -286,21 +324,93 @@ Each call to `makeCounter` creates its own `value`, which both methods close ove
 
 </Exercise>
 
-<Exercise title="Fix the closure in the loop">
+<Exercise title="A limited function">
 
-Run this program and explain why every handler reports the same number. Then fix it two ways.
+Write `makeLimiter(max, action)`. It returns a function that calls `action` with the same arguments for the first `max` calls, and returns the string `"limit reached"` for every call after that. Each limiter counts on its own. Check it like this:
+
+- A limiter with `max` 2 around an action that returns the text `hello` and the name, called with `"Ada"`, `"Grace"` and `"Linus"`, prints `hello Ada`, `hello Grace` and `limit reached`.
+- A second limiter with `max` 1 around an action that doubles a number, called as `double(21)` and `double(5)`, together with one more call to the first limiter, prints `42 limit reached limit reached` on one line.
+
+<Solution>
+
+```javascript title="limiter.mjs"
+function makeLimiter(max, action) {
+  let used = 0;
+  return (...args) => {
+    if (used >= max) {
+      return "limit reached";
+    }
+    used += 1;
+    return action(...args);
+  };
+}
+
+const greet = makeLimiter(2, (name) => `hello ${name}`);
+console.log(greet("Ada"));
+console.log(greet("Grace"));
+console.log(greet("Linus"));
+
+const double = makeLimiter(1, (n) => n * 2);
+console.log(double(21), double(5), greet("again"));
+```
+
+```text
+hello Ada
+hello Grace
+limit reached
+42 limit reached limit reached
+```
+
+`used` lives in the closure, so each call to `makeLimiter` has its own count. The returned function checks the count first, and only then runs `action`, passing along whatever arguments it received.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict the closures">
+
+Read this program and write down what you expect it to print before you run it. Two functions both read a variable called `x`, but they read different ones. The expected output is `2 10` and then `3 10`.
 
 ```javascript
-const handlers = [];
-for (var i = 0; i < 3; i++) {
-  handlers.push(() => `handler ${i}`);
+let x = 1;
+const getOuter = () => x;
+
+function make() {
+  let x = 10;
+  return () => x;
 }
-console.log(handlers.map((h) => h()));
+const getInner = make();
+
+x = 2;
+console.log(getOuter(), getInner());
+x = 3;
+console.log(getOuter(), getInner());
 ```
 
 <Solution>
 
-All three arrow functions close over the same variable `i`. By the time they run, the loop has finished and `i` is `3`. The two fixes are in the `closure_loop_fix.mjs` example earlier in this lesson: declare the loop variable with `let`, or build each handler in a function that receives the value as a parameter.
+```javascript title="closure_predict.mjs"
+let x = 1;
+const getOuter = () => x;
+
+function make() {
+  let x = 10;
+  return () => x;
+}
+const getInner = make();
+
+x = 2;
+console.log(getOuter(), getInner());
+x = 3;
+console.log(getOuter(), getInner());
+```
+
+```text
+2 10
+3 10
+```
+
+`getOuter` closes over the module-level `x`, so it sees each later assignment. `getInner` closes over the `x` inside `make`, which is a different variable that nothing changes, so it always gives `10`. A closure sees the variable in the scope where the function was written, not any variable with the same name.
 
 </Solution>
 

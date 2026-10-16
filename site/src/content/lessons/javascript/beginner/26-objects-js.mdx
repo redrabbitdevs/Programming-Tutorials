@@ -15,7 +15,7 @@ estimatedMinutes: 40
 fundamentals: ["fundamentals/beginner/15-records-and-objects"]
 ---
 
-A record groups named fields into one value. The idea is described in the [fundamentals lesson on records and objects](../../../fundamentals/beginner/records-and-objects/). In JavaScript the tool is the **object**: a collection of properties, each a key and a value. This lesson covers the syntax and the built-in functions for inspecting objects. Classes, which build objects from a template, come later.
+A record groups named fields into one value. The idea is described in the [fundamentals lesson on records and objects](../../../fundamentals/beginner/records-and-objects/). In JavaScript the tool is the **object**: a collection of properties, each a key and a value. This lesson covers the syntax and the built-in functions for inspecting objects. Classes, which build objects from a template, come later. The [`this` lesson](../this-basics/) came first and used object literals in passing. Here is the full picture.
 
 ## Object literals
 
@@ -35,14 +35,40 @@ console.log(user.email);
 
 const field = "name";
 console.log(user[field]);
+```
 
+```text
+Ada 36
+green
+undefined
+Ada
+```
+
+Assigning to a key adds or replaces a property, and `delete` removes one:
+
+```javascript title="objects_basic.mjs (continued)"
 user.email = "ada@example.com";
 user.age = 37;
 console.log(user);
 
 delete user.email;
 console.log(user.email, "email" in user);
+```
 
+```text
+{
+  name: 'Ada',
+  age: 37,
+  'favourite colour': 'green',
+  skills: [ 'maths', 'code' ],
+  email: 'ada@example.com'
+}
+undefined false
+```
+
+Shorthand and computed keys shorten a literal:
+
+```javascript title="objects_basic.mjs (continued)"
 const name = "Grace";
 const age = 85;
 const shorthand = { name, age };
@@ -54,18 +80,6 @@ console.log(dynamic);
 ```
 
 ```text
-Ada 36
-green
-undefined
-Ada
-{
-  name: 'Ada',
-  age: 37,
-  'favourite colour': 'green',
-  skills: [ 'maths', 'code' ],
-  email: 'ada@example.com'
-}
-undefined false
 { name: 'Grace', age: 85 }
 { level: 3, levelMax: 10 }
 ```
@@ -88,7 +102,18 @@ console.log("x" in point, "z" in point);
 console.log("label" in point, point.label !== undefined);
 console.log(Object.hasOwn(point, "x"), Object.hasOwn(point, "toString"));
 console.log("toString" in point);
+```
 
+```text
+true false
+true false
+true false
+true
+```
+
+The listing functions, a loop over the entries, and `fromEntries` to build an object back:
+
+```javascript title="objects_inspect.mjs (continued)"
 console.log(Object.keys(point));
 console.log(Object.values(point));
 console.log(Object.entries(point));
@@ -102,22 +127,25 @@ const doubled = Object.fromEntries(
   Object.entries(prices).map(([name, price]) => [name, price * 2]),
 );
 console.log(doubled);
-
-const messy = { b: 1, 2: "two", a: 2, 1: "one" };
-console.log(Object.keys(messy));
 ```
 
 ```text
-true false
-true false
-true false
-true
 [ 'x', 'y', 'label' ]
 [ 1, 2, undefined ]
 [ [ 'x', 1 ], [ 'y', 2 ], [ 'label', undefined ] ]
 a = 1
 b = 2
 { apple: 2, pear: 4 }
+```
+
+Whole-number keys are listed first:
+
+```javascript title="objects_inspect.mjs (continued)"
+const messy = { b: 1, 2: "two", a: 2, 1: "one" };
+console.log(Object.keys(messy));
+```
+
+```text
 [ '1', '2', 'b', 'a' ]
 ```
 
@@ -153,12 +181,30 @@ const counter = {
 
 counter.increment().increment();
 console.log(counter.describe());
+```
 
+```text
+count is 2
+```
+
+Objects nest, and `?.` copes with a missing level:
+
+```javascript title="objects_methods.mjs (continued)"
 const config = { server: { port: 8080 } };
 console.log(config.server.port);
 console.log(config.database?.host);
 console.log(config.database?.host ?? "localhost");
+```
 
+```text
+8080
+undefined
+localhost
+```
+
+And assigning an object copies the reference, not the object:
+
+```javascript title="objects_methods.mjs (continued)"
 const original = { a: 1 };
 const alias = original;
 alias.a = 2;
@@ -166,14 +212,69 @@ console.log(original.a, original === alias, { a: 2 } === { a: 2 });
 ```
 
 ```text
-count is 2
-8080
-undefined
-localhost
 2 true false
 ```
 
 The last line is the most important thing to remember about objects. `alias` and `original` are two names for **one** object, so changing one changes the other. Two separate literals that look alike are two objects, and `===` compares identity, so `{ a: 2 } === { a: 2 }` is `false`. The references lesson in this module takes this further.
+
+## Getters, setters and merging
+
+A property can be computed when you read it. Put `get` before a method in the literal and it becomes an **accessor property**: you read it like a plain property, with no brackets after it. Put `set` before a method and assigning to the name runs it.
+
+```javascript title="accessors.mjs"
+const rectangle = {
+  width: 4,
+  height: 3,
+  get area() {
+    return this.width * this.height;
+  },
+  set size(value) {
+    this.width = value;
+    this.height = value;
+  },
+};
+```
+
+Reading and assigning:
+
+```javascript title="accessors.mjs (continued)"
+console.log(rectangle.area);
+rectangle.size = 5;
+console.log(rectangle.width, rectangle.height, rectangle.area);
+
+try {
+  rectangle.area = 99;
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+12
+5 5 25
+TypeError
+```
+
+`rectangle.area` looks like a stored value but is calculated each time from `width` and `height`, so it is never out of date. Assigning to `size` runs the setter, which changes both sides. A property with only a getter cannot be assigned to, and in a module that assignment throws a `TypeError`. Accessors keep the object's data consistent without asking callers to call methods.
+
+`Object.assign(target, ...sources)` copies the own properties of each source onto `target`, left to right, and returns `target`. Give it an empty object first to get a fresh copy:
+
+```javascript title="object_assign.mjs"
+const defaults = { theme: "light", size: 12 };
+const settings = Object.assign({}, defaults, { size: 16 });
+console.log(settings, defaults);
+
+const target = { a: 1 };
+const result = Object.assign(target, { b: 2 });
+console.log(result === target, target);
+```
+
+```text
+{ theme: 'light', size: 16 } { theme: 'light', size: 12 }
+true { a: 1, b: 2 }
+```
+
+The first call leaves `defaults` alone because the target is the new `{}`. The second changes `target` itself and returns that same object. Later sources win over earlier ones when keys clash. [Lesson 27](../destructuring-spread/) shows the spread syntax `{ ...defaults }`, which does the same job more concisely. Both make shallow copies.
 
 ## Common pitfalls
 
@@ -183,12 +284,13 @@ The last line is the most important thing to remember about objects. `alias` and
 - **Using an object as a dictionary with untrusted keys.** Inherited names like `toString` appear to exist. A `Map` avoids this.
 - **Assuming `const` freezes an object.** It only fixes the variable.
 - **Reading through a missing level.** Use `?.` where a level might be absent.
+- **Assigning to a getter-only property.** In a module it throws a `TypeError`. Add a setter, or do not assign.
 
 ## Exercises
 
 <Exercise title="Model a library book and member">
 
-Create a `book` object with `isbn`, `title`, `authors` (an array) and `available`, and a `member` with a `name` and a `borrowed` array. Write `lend(book, member)` that does nothing and returns `false` if the book is not available, and otherwise marks it unavailable, adds its ISBN to the member's list and returns `true`. Lend the same book twice and print the member and how many properties the book has.
+Create a `book` object with `isbn`, `title`, `authors` (an array) and `available`, and a `member` with a `name` and a `borrowed` array. Write `lend(book, member)` that does nothing and returns `false` if the book is not available, and otherwise marks it unavailable, adds its ISBN to the member's list and returns `true`. Lend the same book twice and print the member and how many properties the book has. The output should be `true`, `false`, then the member with one ISBN in `borrowed`, then `4`.
 
 <Solution>
 
@@ -204,7 +306,11 @@ const member = {
   name: "Ada",
   borrowed: [],
 };
+```
 
+Then the function, and a program that uses it:
+
+```javascript title="library_model.mjs (continued)"
 function lend(book, member) {
   if (!book.available) return false;
   book.available = false;
@@ -231,21 +337,59 @@ The second `lend` returns `false` because the first one set `available` to `fals
 
 </Exercise>
 
-<Exercise title="Count with entries">
+<Exercise title="List the fruit in stock">
 
-Given `const stock = { apple: 3, pear: 0, plum: 5 }`, print only the names of fruits that are in stock (count above zero), as an array.
+Given `const stock = { apple: 3, pear: 0, plum: 5 }`, print only the names of fruits that are in stock (count above zero), as an array. The output should be `[ 'apple', 'plum' ]`. `Object.keys(stock)` gives the names, and `stock[name]` gives the count for a name.
 
 <Solution>
 
-```javascript
+```javascript title="stock_filter.mjs"
 const stock = { apple: 3, pear: 0, plum: 5 };
-const inStock = Object.entries(stock)
-  .filter(([, count]) => count > 0)
-  .map(([name]) => name);
+const inStock = Object.keys(stock).filter((name) => stock[name] > 0);
 console.log(inStock);
 ```
 
-It prints `[ 'apple', 'plum' ]`. `Object.entries` gives `[name, count]` pairs. The parameter `[, count]` skips the name by leaving a gap in the destructuring pattern. After `filter`, `map` keeps just the name.
+```text
+[ 'apple', 'plum' ]
+```
+
+`Object.keys` returns the list of names. `filter` keeps a name when `stock[name]` is above zero, using bracket notation because the name is in a variable. `pear` has a count of 0, so it is dropped.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A temperature with two views">
+
+Write an object `temperature` with a `celsius` property and a `fahrenheit` accessor. Reading `fahrenheit` converts from `celsius`, and assigning to `fahrenheit` updates `celsius`. Start at `celsius: 100`, then print `temperature.fahrenheit`, assign `32` to `fahrenheit` and print `celsius`, then assign `37` to `celsius` and print `fahrenheit`. The output should be `212`, `0` and `98.6`.
+
+<Solution>
+
+```javascript title="temperature_accessor.mjs"
+const temperature = {
+  celsius: 100,
+  get fahrenheit() {
+    return (this.celsius * 9) / 5 + 32;
+  },
+  set fahrenheit(value) {
+    this.celsius = ((value - 32) * 5) / 9;
+  },
+};
+
+console.log(temperature.fahrenheit);
+temperature.fahrenheit = 32;
+console.log(temperature.celsius);
+temperature.celsius = 37;
+console.log(temperature.fahrenheit);
+```
+
+```text
+212
+0
+98.6
+```
+
+Only `celsius` is stored. The getter calculates Fahrenheit from it on every read, and the setter converts back, so the two views cannot disagree. Inside both functions `this` is `temperature`, because they are called through it.
 
 </Solution>
 
@@ -257,6 +401,7 @@ It prints `[ 'apple', 'plum' ]`. `Object.entries` gives `[name, count]` pairs. T
 - Shorthand properties, computed keys and method shorthand shorten literals.
 - `in` includes inherited properties. `Object.hasOwn` checks only the object's own.
 - `Object.keys`, `values` and `entries` turn an object into arrays, and `fromEntries` turns pairs back into an object.
+- `get` and `set` in a literal make accessor properties that are computed on read and write. `Object.assign` copies properties onto a target.
 - Objects are shared, not copied, when you assign them or pass them to functions.
 
 Next: unpacking objects and arrays with destructuring and spread.

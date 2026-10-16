@@ -1,5 +1,5 @@
 function formatName({ first = "", last = "", upper = false } = {}) {
-  const full = [first, last].filter(Boolean).join(" ");
+  const full = `${first} ${last}`.trim();
   return upper ? full.toUpperCase() : full;
 }
 
