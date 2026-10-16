@@ -22,33 +22,30 @@ JavaScript has a global `JSON` object with two functions that matter: `JSON.pars
 ## Parse and stringify
 
 ```javascript title="json_basics.mjs"
-const text = '{"name":"Ada","age":36,"tags":["maths","code"],"address":null,"active":true}';
+const text =
+  '{"name":"Ada","age":36,"tags":["maths","code"],' +
+  '"address":null,"active":true}';
 
 const data = JSON.parse(text);
 console.log(data.name, data.tags[1], data.address, typeof data.age);
+```
 
+```text
+Ada code null number
+```
+
+`stringify` goes the other way. Its third argument sets the indent:
+
+```javascript title="json_basics.mjs (continued)"
 const user = { name: "Ada", tags: ["maths", "code"], active: true };
 console.log(JSON.stringify(user));
 console.log(JSON.stringify(user, null, 2));
 console.log(JSON.stringify(user, null, "--"));
 
 console.log(JSON.stringify("hi"), JSON.stringify(42), JSON.stringify(null));
-
-try {
-  JSON.parse("{'name': 'Ada'}");
-} catch (error) {
-  console.log(error.name);
-}
-
-try {
-  JSON.parse("");
-} catch (error) {
-  console.log(error instanceof SyntaxError);
-}
 ```
 
 ```text
-Ada code null number
 {"name":"Ada","tags":["maths","code"],"active":true}
 {
   "name": "Ada",
@@ -67,6 +64,25 @@ Ada code null number
 --"active": true
 }
 "hi" 42 null
+```
+
+Bad text makes `parse` throw:
+
+```javascript title="json_basics.mjs (continued)"
+try {
+  JSON.parse("{'name': 'Ada'}");
+} catch (error) {
+  console.log(error.name);
+}
+
+try {
+  JSON.parse("");
+} catch (error) {
+  console.log(error instanceof SyntaxError);
+}
+```
+
+```text
 SyntaxError
 true
 ```
@@ -80,7 +96,7 @@ Always wrap `JSON.parse` of outside data in `try` and `catch`, as the [error han
 
 ## What JSON cannot represent
 
-`stringify` quietly changes values that JSON has no form for.
+`stringify` quietly changes values that JSON has no form for. The example uses `Date`, which is taught in the intermediate level. All you need here is that `new Date(Date.UTC(2024, 0, 15))` makes one fixed moment in time. Months count from 0, so `0` is January.
 
 ```javascript title="json_lossy.mjs"
 const value = {
@@ -96,7 +112,15 @@ const value = {
   j: -0,
 };
 console.log(JSON.stringify(value));
+```
 
+```text
+{"d":null,"e":null,"f":"2024-01-15T10:30:00.000Z","g":{},"h":{},"i":[null,null],"j":0}
+```
+
+`BigInt` values and circular references make `stringify` throw:
+
+```javascript title="json_lossy.mjs (continued)"
 try {
   JSON.stringify({ big: 10n });
 } catch (error) {
@@ -110,15 +134,22 @@ try {
 } catch (error) {
   console.log(error.name);
 }
+```
 
-const back = JSON.parse(JSON.stringify({ when: new Date(Date.UTC(2024, 0, 15)) }));
+```text
+TypeError
+TypeError
+```
+
+And a date does not survive a round trip:
+
+```javascript title="json_lossy.mjs (continued)"
+const stored = JSON.stringify({ when: new Date(Date.UTC(2024, 0, 15)) });
+const back = JSON.parse(stored);
 console.log(typeof back.when, back.when);
 ```
 
 ```text
-{"d":null,"e":null,"f":"2024-01-15T10:30:00.000Z","g":{},"h":{},"i":[null,null],"j":0}
-TypeError
-TypeError
 string 2024-01-15T00:00:00.000Z
 ```
 
@@ -151,13 +182,25 @@ const user = { name: "Ada", password: "secret", age: 36, role: "admin" };
 console.log(JSON.stringify(user, ["name", "role"]));
 
 console.log(
-  JSON.stringify(user, (key, value) => (key === "password" ? undefined : value)),
+  JSON.stringify(user, (key, value) =>
+    key === "password" ? undefined : value,
+  ),
 );
 
 const event = { title: "Launch", when: new Date(Date.UTC(2024, 5, 1, 9, 0)) };
 const text = JSON.stringify(event);
 console.log(text);
+```
 
+```text
+{"name":"Ada","role":"admin"}
+{"name":"Ada","age":36,"role":"admin"}
+{"title":"Launch","when":"2024-06-01T09:00:00.000Z"}
+```
+
+A reviver turns the text back into a `Date`, and `toJSON` lets an object choose its own text. The `class` here is only a way to build objects with a method. Classes are taught in the intermediate level:
+
+```javascript title="json_replacer_reviver.mjs (continued)"
 const revived = JSON.parse(text, (key, value) =>
   key === "when" ? new Date(value) : value,
 );
@@ -175,9 +218,6 @@ console.log(JSON.stringify({ price: new Money(1999) }));
 ```
 
 ```text
-{"name":"Ada","role":"admin"}
-{"name":"Ada","age":36,"role":"admin"}
-{"title":"Launch","when":"2024-06-01T09:00:00.000Z"}
 true 2024
 {"price":"19.99 EUR"}
 ```
@@ -238,7 +278,11 @@ function loadSettings(file, defaults) {
 
 const dir = mkdtempSync(join(tmpdir(), "load-"));
 const defaults = { theme: "light", fontSize: 14 };
+```
 
+Try it with a missing file, a damaged file and a good file:
+
+```javascript title="json_safe_load.mjs (continued)"
 console.log(loadSettings(join(dir, "missing.json"), defaults));
 
 writeFileSync(join(dir, "broken.json"), "{ theme: dark");
@@ -267,13 +311,52 @@ Only `SyntaxError` is caught, because a damaged file is expected. Any other erro
 
 ## Exercises
 
-<Exercise title="Load, edit and save">
+<Exercise title="Read JSON or fall back">
 
-Write a program that creates a settings file with `theme`, `fontSize` and an empty `recent` list, loads it, changes the theme to `"dark"`, adds `"notes.txt"` to `recent`, saves it and prints the file text.
+Write `readJsonOr(file, fallback)` that reads a file and parses it as JSON. If the file does not exist, or its text is not valid JSON, it returns `fallback`. Any other error should still be thrown. When a file is missing, Node throws an error whose `code` property is `"ENOENT"`. Test it in a temporary folder with a missing file, a file that contains `[1, 2`, and a file that contains `[10, 20]`, using `[]` as the fallback. The output should be `[]`, `[]` and `[ 10, 20 ]`.
 
 <Solution>
 
-The solution is `json_settings.mjs` above. It writes the defaults with `JSON.stringify(defaults, null, 2)`, reads and parses them, edits the parsed object and writes it again. The printed text shows `"theme": "dark"` and `"recent"` holding one item.
+```javascript title="read_json_or.mjs"
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+function readJsonOr(file, fallback) {
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    if (error instanceof SyntaxError || error.code === "ENOENT") {
+      return fallback;
+    }
+    throw error;
+  }
+}
+
+const dir = mkdtempSync(join(tmpdir(), "scores-"));
+```
+
+Try it on a missing file, a broken file and a good file:
+
+```javascript title="read_json_or.mjs (continued)"
+const file = join(dir, "scores.json");
+
+console.log(readJsonOr(file, []));
+
+writeFileSync(file, "[1, 2");
+console.log(readJsonOr(file, []));
+
+writeFileSync(file, JSON.stringify([10, 20]));
+console.log(readJsonOr(file, []));
+```
+
+```text
+[]
+[]
+[ 10, 20 ]
+```
+
+The `try` covers both reading and parsing. A missing file gives an error with `code` `"ENOENT"`, and broken text gives a `SyntaxError`, and both mean "use the fallback". Anything else, such as a permission error, is re-thrown so it is not hidden. The temporary folder keeps the example from touching your own files.
 
 </Solution>
 
@@ -281,7 +364,7 @@ The solution is `json_settings.mjs` above. It writes the defaults with `JSON.str
 
 <Exercise title="Predict the text">
 
-What does this print?
+Predict what this prints before you run it. The output is one line of JSON. Two things change compared with the input: one item in the array, and one of the properties.
 
 ```javascript
 console.log(JSON.stringify({ a: [1, undefined, 3], b: undefined, c: "x" }));
@@ -289,7 +372,47 @@ console.log(JSON.stringify({ a: [1, undefined, 3], b: undefined, c: "x" }));
 
 <Solution>
 
-It prints `{"a":[1,null,3],"c":"x"}`. The `undefined` inside the array became `null`, which keeps the array's length. The property `b` with value `undefined` was left out altogether.
+```javascript title="json_predict.mjs"
+console.log(JSON.stringify({ a: [1, undefined, 3], b: undefined, c: "x" }));
+```
+
+```text
+{"a":[1,null,3],"c":"x"}
+```
+
+The `undefined` inside the array became `null`, which keeps the array's length. The property `b` with value `undefined` was left out altogether.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Store a Map as JSON">
+
+A `Map` becomes `{}` in `JSON.stringify`. Build a map with the entries `a` to `1` and `b` to `2`. Turn it into JSON text by spreading it into an array first, print the text, then parse the text and rebuild a `Map` from the result. Print the new map and the value stored under `"b"`. The output should be `[["a",1],["b",2]]`, then `Map(2) { 'a' => 1, 'b' => 2 }`, then `2`.
+
+<Solution>
+
+```javascript title="map_json.mjs"
+const stock = new Map([
+  ["a", 1],
+  ["b", 2],
+]);
+
+const text = JSON.stringify([...stock]);
+console.log(text);
+
+const back = new Map(JSON.parse(text));
+console.log(back);
+console.log(back.get("b"));
+```
+
+```text
+[["a",1],["b",2]]
+Map(2) { 'a' => 1, 'b' => 2 }
+2
+```
+
+`[...stock]` is an array of `[key, value]` pairs, and JSON can store that. `new Map(pairs)` accepts such an array, so the parsed text turns straight back into a map. Keys that are not strings or numbers, such as objects, would not survive the text form.
 
 </Solution>
 

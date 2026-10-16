@@ -17,6 +17,12 @@ fundamentals: ["fundamentals/beginner/23-paradigms"]
 
 A **higher-order function** is a function that takes a function as an argument, returns a function, or both. Because JavaScript functions are ordinary values, this is everyday code. The idea belongs to the functional style described in the [fundamentals lesson on programming paradigms](../../../fundamentals/beginner/paradigms/). This lesson shows how it looks in JavaScript.
 
+<Callout type="note">
+
+This lesson works on lists such as `[10, 9, 1]` and records such as `{ name: "Ada" }` before they have their own lessons. Lists are taught in [lesson 23](../arrays-js/), their methods in [lesson 24](../array-methods/) and records in [lesson 26](../objects-js/). Read them as "values in order" and "values with names" for now.
+
+</Callout>
+
 ## Callbacks
 
 A **callback** is a function you give to another function to call at the right moment. The caller decides what to do. The function that receives it decides when.
@@ -28,7 +34,17 @@ function repeat(times, action) {
   }
 }
 repeat(3, (i) => console.log("run", i));
+```
 
+```text
+run 0
+run 1
+run 2
+```
+
+A function can take more than one callback, here one for each item and one for the end:
+
+```javascript title="callbacks.mjs (continued)"
 function processAll(items, onItem, onDone) {
   for (const item of items) {
     onItem(item);
@@ -40,18 +56,22 @@ processAll(
   (item) => console.log("item", item),
   (count) => console.log("done,", count, "items"),
 );
+```
 
+```text
+item a
+item b
+done, 2 items
+```
+
+Lists take callbacks everywhere. `forEach` is one:
+
+```javascript title="callbacks.mjs (continued)"
 const words = ["pear", "fig", "banana"];
 words.forEach((word, index) => console.log(index, word));
 ```
 
 ```text
-run 0
-run 1
-run 2
-item a
-item b
-done, 2 items
 0 pear
 1 fig
 2 banana
@@ -150,14 +170,30 @@ function multiplier(factor) {
 const double = multiplier(2);
 const triple = multiplier(3);
 console.log(double(5), triple(5), multiplier(10)(4));
+```
 
+```text
+10 15 40
+```
+
+`compose` joins two functions into one:
+
+```javascript title="returning_functions.mjs (continued)"
 function compose(f, g) {
   return (x) => f(g(x));
 }
 const addOne = (n) => n + 1;
 const doubleThenAddOne = compose(addOne, double);
 console.log(doubleThenAddOne(5));
+```
 
+```text
+11
+```
+
+`partial` fixes some arguments in advance, and the built-in `bind` does the same:
+
+```javascript title="returning_functions.mjs (continued)"
 function partial(fn, ...preset) {
   return (...rest) => fn(...preset, ...rest);
 }
@@ -170,8 +206,6 @@ console.log(bound(5));
 ```
 
 ```text
-10 15 40
-11
 24
 30
 ```
@@ -283,13 +317,40 @@ hello!
 
 ## Exercises
 
-<Exercise title="Build once">
+<Exercise title="Remember results with memoize">
 
-Write `once(fn)` as described above, and test it with a function that prints a message and returns a value. Call the wrapped function three times with different arguments. Which call's arguments are used?
+Write `memoize(fn)` for functions that take one argument. The function it returns calls `fn` only the first time it sees an argument, and remembers the answer for later calls with the same argument. Test it with a `slowSquare` that adds one to a `calls` counter each time it really runs. Calling the memoized version with `9`, `9` and `4` should print `81 81 16`, and `calls` should then be `2`.
 
 <Solution>
 
-The code is the `once.mjs` example shown earlier in this lesson. Only the first call's arguments are used: the first call prints `initialising db` and returns `"DB"`, and the other two calls return the stored `"DB"` without running the original function.
+```javascript title="memoize.mjs"
+function memoize(fn) {
+  const cache = {};
+  return (arg) => {
+    if (!(arg in cache)) {
+      cache[arg] = fn(arg);
+    }
+    return cache[arg];
+  };
+}
+
+let calls = 0;
+const slowSquare = (n) => {
+  calls += 1;
+  return n * n;
+};
+const fastSquare = memoize(slowSquare);
+
+console.log(fastSquare(9), fastSquare(9), fastSquare(4));
+console.log("calls:", calls);
+```
+
+```text
+81 81 16
+calls: 2
+```
+
+`cache` lives in the closure, like `called` and `result` in `once`. The word `in` asks whether the record already has an entry for this argument. The second call with `9` finds one and skips `slowSquare`, which is why `calls` ends at 2 and not 3.
 
 </Solution>
 
@@ -297,16 +358,20 @@ The code is the `once.mjs` example shown earlier in this lesson. Only the first 
 
 <Exercise title="Write a pipeline">
 
-Using `filter`, `map` and `reduce`, compute the total of the squares of the even numbers in `[1, 2, 3, 4, 5, 6]`. The answer is 56.
+Using `filter`, `map` and `reduce`, compute the total of the squares of the even numbers in `[1, 2, 3, 4, 5, 6]`. Print the total. The answer is `56`.
 
 <Solution>
 
-```javascript
+```javascript title="even_squares.mjs"
 const total = [1, 2, 3, 4, 5, 6]
   .filter((n) => n % 2 === 0)
   .map((n) => n * n)
   .reduce((sum, n) => sum + n, 0);
 console.log(total);
+```
+
+```text
+56
 ```
 
 `filter` keeps 2, 4 and 6. `map` squares them to 4, 16 and 36. `reduce` adds them from a starting value of 0 to get 56.

@@ -17,7 +17,10 @@ console.log(city, firstTag);
 const { age: _age, ...rest } = user;
 console.log(rest);
 
-const { nickname = "none", missing = 5, nothing = 7 } = { nickname: undefined, nothing: null };
+const { nickname = "none", missing = 5, nothing = 7 } = {
+  nickname: undefined,
+  nothing: null,
+};
 console.log(nickname, missing, nothing);
 
 function describe({ name, age = 0 }) {

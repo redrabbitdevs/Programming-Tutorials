@@ -15,7 +15,7 @@ estimatedMinutes: 35
 fundamentals: ["fundamentals/beginner/15-records-and-objects"]
 ---
 
-Inside a function, the keyword `this` refers to some object, and which one depends on **how the function is called**, not where it is written. That is the opposite of how variables work, and it is the source of a well-known class of bugs. This lesson covers the four cases you will meet in everyday code. Objects themselves are introduced in the [fundamentals lesson on records and objects](../../../fundamentals/beginner/records-and-objects/), and classes, which use `this` a lot, come in a later module.
+Inside a function, the keyword `this` refers to some object, and which one depends on **how the function is called**, not where it is written. That is the opposite of how variables work, and it is the source of a well-known class of bugs. This lesson covers the four cases you will meet in everyday code. Methods live on objects, so here is the one idea about objects you need: an **object literal** such as `{ name: "Ada", greet() { ... } }` is a bundle of named values in braces, and a function stored in one is called a **method**. A list in square brackets, such as `[1, 2, 3]`, is an array. [Lesson 26](../objects-js/) teaches objects properly, and [lesson 23](../arrays-js/) teaches arrays. The [fundamentals lesson on records and objects](../../../fundamentals/beginner/records-and-objects/) gives the general idea, and classes, which use `this` a lot, come in a later module.
 
 All code in this course runs as ES modules, which are always in strict mode. The rules below are the strict-mode rules.
 
@@ -74,7 +74,15 @@ try {
 } catch (error) {
   console.log(`${error.name}: ${error.message}`);
 }
+```
 
+```text
+TypeError: Cannot read properties of undefined (reading 'name')
+```
+
+A method handed to another function as a callback loses `this` in the same way:
+
+```javascript title="this_lost.mjs (continued)"
 function runLater(callback) {
   return callback();
 }
@@ -86,7 +94,6 @@ try {
 ```
 
 ```text
-TypeError: Cannot read properties of undefined (reading 'name')
 TypeError: Cannot read properties of undefined (reading 'name')
 ```
 
@@ -202,11 +209,11 @@ You can ignore `this` in functions that never use it. Most of the functions you 
 - **Forgetting that `this` depends on the call.** Read how the function is called, not where it is defined.
 - **Re-binding a bound function.** The first `bind` wins.
 
-## Exercise
+## Exercises
 
 <Exercise title="Fix five lost-this bugs">
 
-This program has five problems with `this`. Run it, then fix each one without changing the shape of the data. Bug 5 does not throw, but the answer is still wrong.
+This program has five problems with `this`. Run it, then fix each one without changing the shape of the data. Bug 5 does not throw, but the answer is still wrong. After your fixes the output should read `bug 1: 2`, `bug 2: [ 4, 6 ]`, `bug 3: [ 'item a', 'item b' ]`, `bug 4: I am logger` and `bug 5: 8`.
 
 ```javascript title="lost_this_bugs.mjs"
 const counter = {
@@ -225,7 +232,11 @@ function attempt(label, fn) {
     console.log(label, `${error.name}`);
   }
 }
+```
 
+Bugs 1 to 3:
+
+```javascript title="lost_this_bugs.mjs (continued)"
 // Bug 1: method copied into a variable.
 const inc = counter.increment;
 attempt("bug 1:", () => inc());
@@ -246,7 +257,17 @@ const report = {
   },
 };
 attempt("bug 3:", () => report.list(["a", "b"]));
+```
 
+```text
+bug 1: TypeError
+bug 2: TypeError
+bug 3: TypeError
+```
+
+Bugs 4 and 5:
+
+```javascript title="lost_this_bugs.mjs (continued)"
 // Bug 4: arrow function as a method.
 const logger = {
   name: "logger",
@@ -260,9 +281,6 @@ attempt("bug 5:", () => wrapper.run());
 ```
 
 ```text
-bug 1: TypeError
-bug 2: TypeError
-bug 3: TypeError
 bug 4: TypeError
 bug 5: NaN
 ```
@@ -292,7 +310,11 @@ function attempt(label, fn) {
     console.log(label, `${error.name}`);
   }
 }
+```
 
+Fixes 1 to 3:
+
+```javascript title="lost_this_fixed.mjs (continued)"
 // Fix 1: call it on the object.
 attempt("bug 1:", () => counter.increment());
 
@@ -310,7 +332,17 @@ const report = {
   },
 };
 attempt("bug 3:", () => report.list(["a", "b"]));
+```
 
+```text
+bug 1: 2
+bug 2: [ 4, 6 ]
+bug 3: [ 'item a', 'item b' ]
+```
+
+Fixes 4 and 5:
+
+```javascript title="lost_this_fixed.mjs (continued)"
 // Fix 4: use method syntax.
 const logger = {
   name: "logger",
@@ -326,14 +358,99 @@ attempt("bug 5:", () => wrapper.run());
 ```
 
 ```text
-bug 1: 2
-bug 2: [ 4, 6 ]
-bug 3: [ 'item a', 'item b' ]
 bug 4: I am logger
 bug 5: 8
 ```
 
 The counter state carries on between the steps, which is why `bug 2` gives `[ 4, 6 ]`: the first fix already added 2.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict six calls">
+
+Here is a program that makes six calls to the same `hello` method in different ways. Before you run it, write down what each line will print. Run it to check yourself. Five lines print a name, and one prints an error name instead.
+
+```javascript
+const robot = {
+  name: "Robo",
+  hello() {
+    return this.name;
+  },
+};
+const copy = { name: "Copy", hello: robot.hello };
+const loose = robot.hello;
+const bound = robot.hello.bind({ name: "Bound" });
+
+function attempt(label, fn) {
+  try {
+    console.log(label, fn());
+  } catch (error) {
+    console.log(label, error.name);
+  }
+}
+```
+
+And the six calls:
+
+```javascript
+attempt("1:", () => robot.hello());
+attempt("2:", () => copy.hello());
+attempt("3:", () => loose());
+attempt("4:", () => bound());
+attempt("5:", () => bound.call({ name: "Other" }));
+attempt("6:", () => robot.hello.call({ name: "Call" }));
+```
+
+<Solution>
+
+```javascript title="predict_this.mjs"
+const robot = {
+  name: "Robo",
+  hello() {
+    return this.name;
+  },
+};
+const copy = { name: "Copy", hello: robot.hello };
+const loose = robot.hello;
+const bound = robot.hello.bind({ name: "Bound" });
+
+function attempt(label, fn) {
+  try {
+    console.log(label, fn());
+  } catch (error) {
+    console.log(label, error.name);
+  }
+}
+```
+
+The six calls:
+
+```javascript title="predict_this.mjs (continued)"
+attempt("1:", () => robot.hello());
+attempt("2:", () => copy.hello());
+attempt("3:", () => loose());
+attempt("4:", () => bound());
+attempt("5:", () => bound.call({ name: "Other" }));
+attempt("6:", () => robot.hello.call({ name: "Call" }));
+```
+
+```text
+1: Robo
+2: Copy
+3: TypeError
+4: Bound
+5: Bound
+6: Call
+```
+
+1. `robot.hello()`: the object before the dot is `robot`.
+2. `copy.hello()`: the same function, but the object before the dot is `copy`.
+3. `loose()`: nothing before the dot, so `this` is `undefined` and `this.name` throws a `TypeError`.
+4. `bound()`: `bind` fixed `this` to the `{ name: "Bound" }` object.
+5. `bound.call(...)`: a bound function ignores a new `this`, so it is still `Bound`.
+6. `robot.hello.call(...)`: `call` sets `this` for this one call, so the result is `Call`.
 
 </Solution>
 

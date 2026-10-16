@@ -25,7 +25,7 @@ const order = { total: 100 };
 addTax(order);
 console.log(order.total);
 
-// Bug 5: sort on a copy that is only one level deep
+// Bug 5: a copy that is only one level deep
 const rows = [{ n: 2 }, { n: 1 }];
 const rowsCopy = [...rows];
 rowsCopy[0].n = 99;

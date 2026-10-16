@@ -3,7 +3,9 @@ const user = { name: "Ada", password: "secret", age: 36, role: "admin" };
 console.log(JSON.stringify(user, ["name", "role"]));
 
 console.log(
-  JSON.stringify(user, (key, value) => (key === "password" ? undefined : value)),
+  JSON.stringify(user, (key, value) =>
+    key === "password" ? undefined : value,
+  ),
 );
 
 const event = { title: "Launch", when: new Date(Date.UTC(2024, 5, 1, 9, 0)) };

@@ -6,7 +6,12 @@ const stock = new Map([
 stock.set("plum", 12);
 stock.set("apple", 7);
 console.log(stock);
-console.log(stock.get("apple"), stock.get("kiwi"), stock.has("pear"), stock.size);
+console.log(
+  stock.get("apple"),
+  stock.get("kiwi"),
+  stock.has("pear"),
+  stock.size,
+);
 
 stock.delete("pear");
 console.log([...stock.keys()], [...stock.values()]);

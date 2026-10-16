@@ -1,4 +1,6 @@
-const text = '{"name":"Ada","age":36,"tags":["maths","code"],"address":null,"active":true}';
+const text =
+  '{"name":"Ada","age":36,"tags":["maths","code"],' +
+  '"address":null,"active":true}';
 
 const data = JSON.parse(text);
 console.log(data.name, data.tags[1], data.address, typeof data.age);

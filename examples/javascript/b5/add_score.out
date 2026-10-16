@@ -1,0 +1,2 @@
+{ name: 'Ada', scores: [ 90 ] }
+{ name: 'Ada', scores: [ 90, 75 ] }
