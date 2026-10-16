@@ -294,6 +294,11 @@ printf '%s\n' "$VER_OUT"
 if [ $VER_CODE -eq 0 ]; then pass "$(printf '%s\n' "$VER_OUT" | tail -1)"; else fail "version claims (minVersion / <Since>)"; fi
 
 # 6. Headings ----------------------------------------------------------------
+step "fundamentals: every lesson's fundamentals ids exist"
+FD_OUT="$(python3 "$ROOT/scripts/check_fundamentals.py" 2>&1)"; FD_CODE=$?
+printf '%s\n' "$FD_OUT"
+if [ $FD_CODE -eq 0 ]; then pass "$(printf '%s\n' "$FD_OUT" | tail -1)"; else fail "fundamentals ids (unknown lesson id)"; fi
+
 step "headings: no bare __dunder__ in lesson headings"
 HD_OUT="$(python3 "$ROOT/scripts/check_headings.py" 2>&1)"; HD_CODE=$?
 printf '%s\n' "$HD_OUT"

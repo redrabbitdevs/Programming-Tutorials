@@ -20,7 +20,7 @@ developer.mozilla.org were reachable directly.
 | Latest ECMAScript edition | **ECMAScript 2026, the 17th edition** of ECMA-262 | `es2026/spec.html` in tc39/ecma262: "It is the seventeenth edition" (`sources/ecma262-es2026-edition.md`) |
 | ES2026 approval date | Not verified (ecma-international.org blocked). Editions are normally approved at the June Ecma GA. | - |
 | Next edition | ES2027 (18th edition) is the living draft at https://tc39.es/ecma262/ | `main/spec.html` title |
-| Node.js Current | **v26.11.1**, 2026-10-07 (v26.0.0 on 2026-05-05; V8 14.6) | [previous releases](https://nodejs.org/en/about/previous-releases), [dist index](https://nodejs.org/dist/index.json) (`sources/node-releases.md`) |
+| Node.js Current | **v26.12.0**, 2026-10-14 (V8 14.6, npm 11.20.0); v26.11.1 2026-10-07 is the version the examples are tested on; v26.0.0 on 2026-05-05 | [previous releases](https://nodejs.org/en/about/previous-releases), [dist index](https://nodejs.org/dist/index.json) (`sources/node-releases.md`) |
 | Node.js Active LTS | **v24 "Krypton"**, latest v24.21.0 (2026-09-07); moves to Maintenance 2026-10-20; EOL 2028-04-30 | [schedule.json](https://github.com/nodejs/Release/blob/main/schedule.json) |
 | Node.js Maintenance LTS | **v22 "Jod"**, latest v22.23.3 (2026-09-23); EOL 2027-04-30 | schedule.json |
 | Next LTS | **v26 becomes LTS on 2026-10-28** (two weeks after this sheet); EOL 2029-04-30 | schedule.json, [v26.0.0 post](https://nodejs.org/en/blog/release/v26.0.0) |
