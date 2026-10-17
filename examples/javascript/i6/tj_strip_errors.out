@@ -1,3 +1,0 @@
-tj_enum.ts: exit 1 SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript enum is not supported in strip-only mode
-tj_badimport.ts: exit 1 SyntaxError: The requested module './tj_types.ts' does not provide an export named 'User'
-tj_wrongtype.ts: exit 0 42 string

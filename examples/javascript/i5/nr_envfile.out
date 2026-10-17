@@ -1,2 +1,13 @@
+$ node --env-file=.env nr_dotenv.mjs
 hello Ada L 8080
+$ APP_PORT=9000 node --env-file=.env nr_dotenv.mjs
 hello Ada L 9000
+$ node nr_dotenv.mjs
+undefined undefined undefined
+$ node --env-file=missing.env nr_dotenv.mjs
+node: missing.env: not found
+$ echo $?
+9
+$ node --env-file-if-exists=missing.env nr_dotenv.mjs
+missing.env not found. Continuing without it.
+undefined undefined undefined

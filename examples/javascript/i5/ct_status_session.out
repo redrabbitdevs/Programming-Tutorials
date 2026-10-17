@@ -1,0 +1,13 @@
+$ node ct_status.mjs; echo $?
+reached the end
+0
+$ node ct_status.mjs code; echo $?
+reached the end
+5
+$ node ct_status.mjs exit; echo $?
+4
+$ node ct_status.mjs throw 2>/dev/null; echo $?
+1
+$ node ct_status.mjs reject 2>/dev/null; echo $?
+reached the end
+1

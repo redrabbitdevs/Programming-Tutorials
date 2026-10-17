@@ -16,19 +16,19 @@ estimatedMinutes: 60
 fundamentals: ["fundamentals/beginner/25-testing-mindset"]
 ---
 
-The tests of the previous lesson called pure functions: the same input always gave the same output. Real code is less polite. It reads the clock, rolls dice, calls a server, waits two seconds before retrying. A test that depends on those things is **slow** (it really waits), **flaky** (it passes today and fails tomorrow) or **impossible** (it needs the internet). The remedy is to replace the awkward part with a controlled stand-in, called a **test double**:
+The tests of the previous lesson called pure functions. Real code reads the clock, rolls dice, calls a server, waits two seconds before retrying. A test that depends on those is **slow** (it really waits), **flaky** (it passes today and fails tomorrow) or **impossible** (it needs the internet). The remedy is a controlled stand-in, a **test double**:
 
-- a **spy** is a function that does what it is told but also records how it was called;
-- a **stub** is a function that returns a fixed answer;
+- a **spy** does its job but records how it was called;
+- a **stub** returns a fixed answer;
 - a **fake** is a simplified working replacement, such as a clock you control.
 
-`node:test` has all three built in, in the object `mock`. Every example here is a test file, so you run it with `node --test` as in [the previous lesson](../node-test/).
+`node:test` has all three in the object `mock`. Every example is a test file, run with `node --test` as in [the previous lesson](../node-test/); a piped run on Node 22 prints TAP unless you add `--test-reporter=spec`.
 
 ## Spies with mock.fn
 
-`mock.fn(implementation)` returns a function that calls the implementation and keeps a record on its `.mock` property. `callCount()` says how often it was called, and `calls` is a list with one entry per call: the `arguments`, the `result` or the `error`, and the `this` value. `mockImplementationOnce(fn, onCall)` changes what one particular call does, counted from 0.
+`mock.fn(implementation)` returns a function that calls the implementation and records calls on its `.mock` property: `callCount()`, and `calls` with the `arguments`, `result` or `error`, and `this` of each call. `mockImplementationOnce(fn, onCall)` changes what one call does, counted from 0.
 
-The function under test retries a task until it succeeds, up to some number of attempts, and throws the last error if all of them fail.
+This function retries a task up to some number of attempts, and throws the last error if all fail.
 
 ```javascript title="mt_retry.mjs"
 export async function retry(task, attempts) {
@@ -44,7 +44,7 @@ export async function retry(task, attempts) {
 }
 ```
 
-To test it we need a task that fails twice and then works, and a way to see how often it was called. A spy with scripted behaviour does both.
+We need a task that fails twice and then works, and a way to count calls. A scripted spy does both: it returns `"ok"` by default, and calls 0 and 1 are scripted to throw.
 
 ```javascript title="mt_retry.test.mjs"
 import { describe, it, mock } from "node:test";
@@ -60,6 +60,11 @@ describe("retry", () => {
     assert.equal(await retry(task, 5), "ok");
     assert.equal(task.mock.callCount(), 3);
   });
+```
+
+The second test makes every attempt fail and looks at the last recorded call.
+
+```javascript title="mt_retry.test.mjs (continued)"
 
   it("throws the last error when every attempt fails", async () => {
     const task = mock.fn(() => { throw new Error("always"); });
@@ -84,13 +89,11 @@ describe("retry", () => {
 ℹ todo 0
 ```
 
-The default behaviour of the spy returns `"ok"`; calls 0 and 1 were scripted to throw. Counting the calls checks something that the return value alone cannot show: that the function stopped trying after the first success, and that it did not try more than the allowed number of times.
+Counting calls checks what the return value cannot show: that the function stopped after the first success and never exceeded the allowed attempts.
 
 ## Replacing a method or a global
 
-`mock.method(object, "name", implementation)` swaps a method of an existing object for a spy and puts the original back when you restore it. It also works on globals, because they are properties of `globalThis`.
-
-If you use `t.mock` (the mock tracker of the test context `t`) instead of the imported `mock`, everything is restored automatically **when that test ends**. Prefer it; with the global `mock` you must call `mock.restoreAll()` yourself, for example in `afterEach`, or one test's mock leaks into the next.
+`mock.method(object, "name", implementation)` swaps a method for a spy and restores the original later. It works on globals too, because they are properties of `globalThis`. With `t.mock` (the tracker of the test context `t`) everything is restored automatically **when that test ends**. Prefer it; with the imported `mock` you must call `mock.restoreAll()` yourself, for example in `afterEach`, or one test's mock leaks into the next.
 
 First, randomness. This function picks a random item:
 
@@ -100,7 +103,7 @@ export function pickRandom(items) {
 }
 ```
 
-`Math.random()` returns a number from 0 up to but not including 1. If the test decides which number comes back, the "random" result is known in advance.
+`Math.random()` returns a number from 0 up to but not including 1, so `Math.floor(Math.random() * n)` is a whole number from 0 to `n - 1`. If the test decides which number comes back, the result is known in advance.
 
 ```javascript title="mt_pick.test.mjs"
 import { it } from "node:test";
@@ -137,7 +140,25 @@ it("has the real Math.random back afterwards", () => {
 ℹ todo 0
 ```
 
-The third test shows the automatic restore: a mocked function carries a `.mock` property with its record, and the real `Math.random` has none, so the mocks of the first two tests are gone. (A real suite would not test the tracker itself; this is only a demonstration.)
+The third test shows the automatic restore: the real `Math.random` has no `.mock` property, so the earlier mocks are gone.
+
+`Math.random` suits dice and shuffling, never secrets: use `crypto.randomUUID()` or `crypto.getRandomValues()` for ids and tokens. Better still, take the random source as a parameter with the real one as default, and the test passes `() => 0.5` without a mock.
+
+```javascript title="mt_random.mjs"
+const pick = (items, random = Math.random) =>
+  items[Math.floor(random() * items.length)];
+
+console.log(pick(["a", "b", "c"], () => 0));
+console.log(pick(["a", "b", "c"], () => 0.99));
+const bytes = crypto.getRandomValues(new Uint8Array(4));
+console.log(crypto.randomUUID().length, bytes.length);
+```
+
+```text
+a
+c
+36 4
+```
 
 The same tools replace the network. This function loads a user from a web API with `fetch`:
 
@@ -149,7 +170,7 @@ export async function getUser(id) {
 }
 ```
 
-The test replaces the global `fetch` with a stub that returns a ready-made `Response`, and then checks both the result and the address that was requested. Nothing leaves the machine.
+The test replaces the global `fetch` with a stub that returns a ready-made `Response`, then checks the result and the address requested. Nothing leaves the machine.
 
 ```javascript title="mt_api.test.mjs"
 import { describe, it } from "node:test";
@@ -166,6 +187,11 @@ describe("getUser", () => {
     const [address] = fetchMock.mock.calls[0].arguments;
     assert.equal(address, "https://api.example.test/users/7");
   });
+```
+
+The second test asks for something a real server makes hard: a 404 on demand.
+
+```javascript title="mt_api.test.mjs (continued)"
 
   it("throws on an HTTP error", async (t) => {
     const notFound = async () => new Response("", { status: 404 });
@@ -189,15 +215,13 @@ describe("getUser", () => {
 ℹ todo 0
 ```
 
-The second test checks something that is hard to produce with a real server: a 404 on demand. Mocking makes rare situations (errors, timeouts, odd data) as easy to test as the normal one.
-
-A word of caution, though. A test full of mocks proves only that your code calls the mocks the way you expected. If you mock too much, you test your assumptions and not the program. Replace the **edges** of your code (the clock, the network, the disk), and keep the logic in the middle real.
+Mocking makes rare situations (errors, timeouts, odd data) easy to test. But a test full of mocks proves only that your code calls the mocks as expected: replace the **edges** (clock, network, disk) and keep the logic real.
 
 ## Fake timers
 
-Code that waits is the hardest to test. A debounce with a delay of 100 ms would make the test wait 100 ms, which is tolerable, but a retry with a back-off of 30 seconds would not be. **Mock timers** replace `setTimeout`, `setInterval` and `Date` with versions that only move when you say so: `tick(ms)` moves the clock forward by that many milliseconds and runs everything that falls due.
+Code that waits is the hardest to test: a retry with a 30-second back-off would make a test take 30 seconds. (Timer behaviour is in [the event loop lesson](../event-loop/).) **Mock timers** replace `setTimeout`, `setInterval` and `Date` with versions that move only when you say so: `tick(ms)` advances the clock and runs everything that falls due.
 
-You switch them on per test with `t.mock.timers.enable({ apis: [...] })`, naming what to replace: `"setTimeout"`, `"setInterval"`, `"setImmediate"` and `"Date"`. Mock timers have been stable since Node 23.1. In Node 22 they work the same way but print an experimental warning.
+Switch them on per test with `t.mock.timers.enable({ apis: [...] })`, naming `"setTimeout"`, `"setInterval"`, `"setImmediate"` and/or `"Date"`. They are stable from Node 23.1; Node 22 runs them the same way but prints an experimental warning.
 
 The `debounce` function from the [higher-order functions lesson](../../beginner/higher-order-functions/) waits until calls stop for a given time:
 
@@ -211,7 +235,7 @@ export function debounce(fn, delay) {
 }
 ```
 
-Testing it without fake timers would mean real waiting. With them, the test takes microseconds and can check the exact moment at which things happen: 99 ms is too early, 100 ms is just right.
+With fake timers the test takes microseconds and can check the exact moment: 99 ms is too early, 100 ms is just right.
 
 ```javascript title="mt_debounce.test.mjs"
 import { describe, it } from "node:test";
@@ -229,6 +253,11 @@ describe("debounce", () => {
     save("b");
     t.mock.timers.tick(99);
     assert.equal(spy.mock.callCount(), 0);
+```
+
+One more millisecond completes the quiet period.
+
+```javascript title="mt_debounce.test.mjs (continued)"
 
     t.mock.timers.tick(1);
     assert.equal(spy.mock.callCount(), 1);
@@ -250,9 +279,9 @@ describe("debounce", () => {
 ℹ todo 0
 ```
 
-`"a"` was cancelled by the second call, which restarted the 100 ms countdown. 50 + 99 = 149 ms have passed since the first call but only 99 since the second, so nothing has fired. One more millisecond completes the quiet period.
+`"a"` was cancelled by the second call, which restarted the countdown: 149 ms have passed since the first call but only 99 since the second.
 
-`Date` can be controlled in the same way, and `now` sets where the clock starts. A cache that forgets entries after a time-to-live depends on the current time:
+`Date` is controlled the same way, and `now` sets where the clock starts. A cache that forgets entries after a time-to-live depends on the current time:
 
 ```javascript title="mt_cache.mjs"
 export class TtlCache {
@@ -265,6 +294,11 @@ export class TtlCache {
   set(key, value) {
     this.#store.set(key, { value, expires: Date.now() + this.ttlMs });
   }
+```
+
+The `get` method deletes an expired entry and reports it as missing.
+
+```javascript title="mt_cache.mjs (continued)"
 
   get(key) {
     const entry = this.#store.get(key);
@@ -277,6 +311,8 @@ export class TtlCache {
   }
 }
 ```
+
+The test sets the clock to 0, stores a value, and moves time forward in two steps.
 
 ```javascript title="mt_cache.test.mjs"
 import { it } from "node:test";
@@ -307,11 +343,9 @@ it("forgets an entry when its time-to-live has passed", (t) => {
 ℹ todo 0
 ```
 
-A test of an hour-long expiry now takes no time at all.
-
 ### Promises and fake timers
 
-Timers and promises meet in `async` code, and that needs one more step. When a timer fires and resolves a promise, the code after the `await` runs in a **microtask**, which does not happen until your test function gives up control. If you `tick` and immediately assert, the awaiting code has not run yet. The fix is to let the microtasks run before you check, by awaiting something. `setImmediate`, which we do not mock here, is a convenient place to wait for.
+When a timer fires and resolves a promise, the code after the `await` runs in a **microtask**, which waits until your test function gives up control. If you `tick` and assert at once, that code has not run. Let the microtasks run first by awaiting something; `setImmediate`, which is not mocked here, is a convenient place to wait.
 
 ```javascript title="mt_poll.mjs"
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -324,6 +358,8 @@ export async function waitFor(check, interval, tries) {
   throw new Error("gave up");
 }
 ```
+
+The test ticks the fake clock and flushes microtasks between steps.
 
 ```javascript title="mt_poll.test.mjs"
 import { it } from "node:test";
@@ -358,21 +394,21 @@ it("polls on a timer until the check passes", async (t) => {
 ℹ todo 0
 ```
 
-The first check happens at once, the second after one fake second, and the third after two; at that point `ready` is true and `waitFor` returns the attempt number, `2`. No real second passed.
+The first check happens at once, the second after one fake second, the third after two; then `ready` is true and `waitFor` returns `2`. No real second passed.
 
-Two limits of the mock are worth knowing, and both come from how the replacement is done. The mock swaps the functions that live on the global object and on the module objects. A function that was **imported by name** earlier still points to the original. So `import { setTimeout } from "node:timers"` in the code under test is not mocked, and the same is true for `import { setTimeout as sleep } from "node:timers/promises"`. Node's documentation lists the first case; the second behaves the same way in our tests: the sleep takes its real time. Use the global `setTimeout` or the default import of the module (`import timers from "node:timers/promises"`), then both are mocked. Also, `tick` runs all the callbacks that fall due, and while it does, `Date.now()` already shows the time at the end of the tick (observed on Node 22, 24 and 26). If a callback must see the exact moment, tick in smaller steps.
+Two limits. A function **imported by name** still points to the original, so `import { setTimeout as sleep } from "node:timers/promises"` in the code under test takes real time; use the global `setTimeout` or a default import. And while `tick` runs due callbacks, `Date.now()` already shows the end of the tick (observed on Node 22, 24 and 26), so tick in smaller steps if a callback must see the exact moment.
 
 ## Snapshot tests
 
-Some results are too big to write by hand: a rendered report, a generated page, a long object. A **snapshot test** records the result once, stores it in a file next to the test, and on later runs fails if the result is different. You review the recorded text once, and from then on any change shows up as a visible difference.
+Some results are too big to write by hand. A **snapshot test** records the result once in a file next to the test, and later fails if it differs.
 
-`t.assert.snapshot(value)` compares a value with its stored snapshot. The first time (or whenever you want to accept new output), you run the tests with `--test-update-snapshots` to write the file:
+`t.assert.snapshot(value)` compares a value with its stored snapshot. The first time, or whenever you accept new output, run the tests with `--test-update-snapshots` to write the file:
 
-```bash
+```bash frame="terminal"
 node --test --test-update-snapshots mt_report.test.mjs
 ```
 
-The snapshot goes into `mt_report.test.mjs.snapshot`, a file named after the test file, which you commit with the code. Snapshot testing has been stable since Node 23.4 and 22.13. The function to test turns orders into a small text report:
+The snapshot goes into `mt_report.test.mjs.snapshot`, which you commit with the code. Snapshot testing needs Node 22.3 or later and is stable from 22.13 and 23.4. The function to test turns orders into a small text report:
 
 ```javascript title="mt_report.mjs"
 export function renderReport(orders) {
@@ -382,6 +418,8 @@ export function renderReport(orders) {
   return ["ID    TOTAL", ...lines, `SUM ${String(sum).padStart(7)}`].join("\n");
 }
 ```
+
+The test takes a snapshot of the report for two lists of orders.
 
 ```javascript title="mt_report.test.mjs"
 import { it } from "node:test";
@@ -413,7 +451,7 @@ it("renders an empty report", (t) => {
 ℹ todo 0
 ```
 
-After the first run with the flag, the snapshot file contains one entry for each assertion, named after the test and a counter. These are the real contents of the file for the test above:
+After the first run with the flag, the snapshot file holds one entry per assertion, named after the test and a counter. These are its real contents:
 
 ```text
 exports[`renders an empty report 1`] = `
@@ -425,22 +463,18 @@ exports[`renders the report 1`] = `
 `;
 ```
 
-A string is stored as one line, with the line breaks written as `\\n`, and the entries are sorted by name. Objects and arrays are stored as indented JSON, which reads better.
+A string is stored as one line with line breaks written as `\\n`; objects and arrays are stored as indented JSON, which reads better.
 
-Now suppose you change the format of the report. The test fails and shows the difference between the stored text and the new text. If the change is wanted, run with `--test-update-snapshots` again and look at the diff of the `.snapshot` file in version control before you commit it. If it is not wanted, you have found a bug.
-
-Snapshots are a good fit for large, structured, stable output. They are a poor fit for anything that changes on its own, such as timestamps, random ids or file paths, and they invite laziness: a 200-line snapshot that nobody reads tests nothing. For a small result, write the expected value out with `assert.equal`, because then the test documents what the right answer is.
+If the report format changes, the test fails and shows the difference. If the change is wanted, run with `--test-update-snapshots` again and read the diff of the `.snapshot` file before committing; if not, you found a bug. Snapshots suit large, stable output, not timestamps, random ids or paths, and a 200-line snapshot nobody reads tests nothing. For a small result, write the expected value with `assert.equal`.
 
 ## Common pitfalls
 
-- **Forgetting to restore a mock** made with the global `mock`. Use `t.mock`, or call `mock.restoreAll()` in `afterEach`.
+- **Forgetting to restore a mock** made with the imported `mock`. Use `t.mock`, or `mock.restoreAll()` in `afterEach`.
 - **Mocking too much.** A test where everything is replaced checks nothing about how the parts work together.
 - **Asserting right after `tick`** in async code. Let the microtasks run first.
-- **Expecting imported-by-name timers to be mocked.** Use the global functions, or call them through the module object.
-- **Not enabling a timer you use.** If the code calls `setInterval` and you enabled only `"setTimeout"`, the test waits for real.
-- **Snapshots of unstable values** such as dates and random ids.
-- **Accepting a new snapshot without reading it.** `--test-update-snapshots` makes failures disappear, and that includes real ones.
-- **Mocks that drift from the real thing.** If the real API changes its answer, the mock still says the old one. Keep a few tests against the real service.
+- **Expecting timers imported by name to be mocked, or enabling too few.** If the code calls `setInterval` and you enabled only `"setTimeout"`, the test waits for real.
+- **Snapshots of unstable values** such as dates and random ids, or accepting a new snapshot without reading it.
+- **Mocks that drift from the real thing.** Keep a few tests against the real service.
 
 ## Exercises
 
@@ -468,7 +502,7 @@ Test it with mock timers and spies in one test called `counts down once a second
 
 Run it with this command, and compare with the expected report.
 
-```bash
+```bash frame="terminal"
 node --test mt_ex_countdown.test.mjs
 ```
 
@@ -541,7 +575,7 @@ Write a test called `combines the clock and a random number` that mocks both: th
 
 Run it with this command, and compare with the expected report.
 
-```bash
+```bash frame="terminal"
 node --test mt_ex_id.test.mjs
 ```
 
@@ -607,7 +641,7 @@ Write a test called `quotes cells that need it` that takes a snapshot of `toCsv(
 
 Run it twice, as the two commands show.
 
-```bash
+```bash frame="terminal"
 node --test --test-update-snapshots mt_ex_csv.test.mjs
 node --test mt_ex_csv.test.mjs
 ```
@@ -660,11 +694,10 @@ it("quotes cells that need it", (t) => {
 
 ## Summary
 
-- A test double replaces something awkward (time, randomness, the network) with something controlled. `mock.fn` makes a spy with `callCount()`, `calls` and scripted behaviour; `mock.method` replaces a method or global such as `Math.random` and `fetch`.
-- Use `t.mock` so that the mocks are undone when the test ends; the global `mock` needs `restoreAll()`.
-- `t.mock.timers.enable({ apis })` and `tick(ms)` control `setTimeout`, `setInterval`, `setImmediate` and `Date` without waiting. They are stable since Node 23.1; on Node 22 they print a warning.
-- In async code, let the microtasks run (for example with a `setImmediate` promise) after each `tick`. Timer functions imported by name are not mocked.
-- `t.assert.snapshot` stores output in `<test file>.snapshot` (stable since Node 23.4 and 22.13). Create or accept new snapshots with `--test-update-snapshots`, and read the diff.
-- Mock the edges, not the logic, and never snapshot values that change on their own.
+- A test double replaces something awkward (time, randomness, the network). `mock.fn` makes a spy; `mock.method` replaces a method or a global such as `Math.random` or `fetch`. Use `t.mock` so mocks are undone when the test ends.
+- Take random sources as parameters; use `crypto` for secrets.
+- `t.mock.timers.enable({ apis })` and `tick(ms)` control timers and `Date` without waiting (stable from Node 23.1; a warning on 22). In async code, let microtasks run after each `tick`.
+- `t.assert.snapshot` stores output in `<test file>.snapshot` (Node 22.3 and later, stable from 22.13). Update with `--test-update-snapshots`, and read the diff.
+- Mock the edges, not the logic.
 
-Next: automatic style checks, linters and formatters.
+Next: [automatic style checks](../lint-format/), linters and formatters.

@@ -1,5 +1,0 @@
-0  falls off the end
-5  sets exitCode
-4  calls process.exit
-1  throws
-1  rejects

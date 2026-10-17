@@ -1,0 +1,10 @@
+$ node --check good.mjs; echo $?
+0
+$ node --check bad.mjs 2>&1 | head -5
+bad.mjs:1
+const total = (1 + ;
+                   ^
+
+SyntaxError: Unexpected token ';'
+$ node --check bad.mjs 2>/dev/null; echo $?
+1

@@ -4,25 +4,25 @@ level: intermediate
 module: Testing and tooling
 order: 34
 title: Testing with node:test
-description: Write and run unit tests with Node's built-in test runner, using describe and it, node:assert/strict, hooks, async tests, skipping, filtering and watch mode.
+description: Write and run unit tests with Node's built-in test runner, using describe and it, node:assert/strict, hooks, async tests, skipping, filtering, watch mode and coverage reports.
 minVersion: "22"
 objectives:
   - Write a test file with test, describe and it, and run it with node --test
   - Choose the right assertion from node:assert/strict and read a failure report
   - Use beforeEach to give every test a fresh starting state
   - Test asynchronous code and errors with async tests, assert.rejects and assert.throws
-  - Skip, filter and re-run tests, and know how the runner finds test files
-estimatedMinutes: 55
+  - Skip, filter and re-run tests, and read a coverage report to find untested code
+estimatedMinutes: 60
 fundamentals: ["fundamentals/beginner/25-testing-mindset"]
 ---
 
-A **test** is a small program that calls your code and checks that the answer is the one you expected. You could do that by hand, by running the program and looking at what it prints, but you would do it a few times and then stop. A test does it every time, in a second, and shouts when something that used to work does not work any more. That is the whole value: it lets you change code without fear. The reasoning behind it, including what is worth testing and what is not, is in the [testing mindset](../../../fundamentals/beginner/testing-mindset/) lesson. This lesson is about the JavaScript tool.
+A **test** is a small program that calls your code and checks the answer. You could do that by hand, but you would stop after a few times. A test does it every time, in a second, and shouts when something that used to work does not, so you can change code without fear. What is worth testing is in the [testing mindset](../../../fundamentals/beginner/testing-mindset/) lesson; this one is about the JavaScript tool.
 
-Node comes with its own test runner, the module `node:test`. It has been stable since Node 20, needs no installation, and covers most of what small and medium projects need. Other runners, such as Vitest and Jest, are common and look similar; once you know this one, they will feel familiar.
+Node's own test runner, the module `node:test`, has been stable since Node 20 and needs no installation. Vitest and Jest look similar, so they will feel familiar afterwards.
 
 ## Your first test
 
-Start with the code to be tested. It is an ordinary module that exports a function.
+Start with the code to be tested, an ordinary module that exports a function.
 
 ```javascript title="nt_slug.mjs"
 export function slugify(text) {
@@ -34,7 +34,9 @@ export function slugify(text) {
 }
 ```
 
-A test file imports the code and the runner. `test(name, fn)` registers a test. Inside it, **assertions** check values: an assertion does nothing when it holds and throws an error when it does not. A test passes if its function finishes without throwing and fails if it throws. The assertions come from `node:assert/strict`.
+A test file imports the code and the runner. `test(name, fn)` registers a test. Inside it, **assertions** check values: an assertion does nothing when it holds and throws when it does not. A test passes if its function finishes without throwing. The assertions come from `node:assert/strict`.
+
+Save this as `nt_slug.test.mjs` and run it with `node --test nt_slug.test.mjs`. The runner starts the file, collects the results and prints this report:
 
 ```javascript title="nt_slug.test.mjs"
 import { test } from "node:test";
@@ -54,34 +56,37 @@ test("an empty string stays empty", () => {
 });
 ```
 
-Run it with the `--test` flag. The runner starts the file, collects the results, and prints a report:
-
-```bash
-node --test nt_slug.test.mjs
-```
-
 ```text
-@@
+✔ lowercases and joins words with hyphens
+✔ drops punctuation and trims
+✔ an empty string stays empty
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
 ```
 
-Each line is a test. The check mark means it passed. The summary at the bottom counts the tests and the outcomes. The real report also prints how long each test took, in milliseconds; this lesson leaves those numbers out so that the listings are stable. If any test fails, the runner ends with a non-zero exit code, which is how CI systems know that something is wrong.
+Each line is a test, and the check mark means it passed. The real report also shows durations; the listings leave them out so that they are stable. If any test fails, the runner exits with a non-zero code, which is how CI systems know.
 
-Since Node 23, the default report is the `spec` format shown here whether or not the output goes to a terminal; before that, a pipe got a different format called TAP. You can choose another with `--test-reporter`, for instance `dot` for a compact line of dots.
+**The report format depends on your Node.** Listings here use the `spec` reporter. From Node 23, `node --test` prints spec whether or not the output goes to a terminal. On Node 22 a terminal gets spec, but a pipe (`| tee`, CI logs) gets TAP, a different plain-text format, so add `--test-reporter=spec` to compare. `--test-reporter=dot` prints a compact line of dots.
 
 ## Assertions
 
-`node:assert/strict` is the module to import. Its name is the point: it is the **strict mode** of the older `node:assert`, in which every comparison is strict. The loose `assert.equal(1, "1")` of the old module passes, because it uses `==`; the strict module makes `equal` mean `===`.
+`node:assert/strict` is the module to import: the **strict mode** of the older `node:assert`, where every comparison is strict. The loose `assert.equal(1, "1")` passes, because it uses `==`; the strict module makes `equal` mean `===`.
 
 | Assertion | Passes when |
 |---|---|
-| `assert.equal(a, b)` | `Object.is(a, b)`: like `===`, except that `NaN` equals `NaN` |
+| `assert.equal(a, b)` | `Object.is(a, b)`: like `===`, except `NaN` equals `NaN` |
 | `assert.notEqual(a, b)` | the values differ |
 | `assert.deepEqual(a, b)` | objects and arrays have the same contents, compared strictly |
 | `assert.ok(value, message)` | the value is truthy |
 | `assert.throws(fn, expected)` | calling `fn` throws an error that matches `expected` |
 | `assert.rejects(promise, expected)` | the promise rejects with a matching error |
 
-When an assertion fails, it throws an `AssertionError` whose message says what was expected and what was received. The next program shows the first line of those messages, and the difference between the strict and the loose module.
+A failed assertion throws an `AssertionError` that says what was expected and what was received. This program prints the first line of three messages, and shows the two modules disagreeing.
 
 ```javascript title="nt_assert.mjs"
 import assert from "node:assert/strict";
@@ -113,15 +118,13 @@ the loose module accepts '1' == 1
 the strict module does not
 ```
 
-The last two lines show why you import the strict version: a test that quietly accepts a string where a number was expected is a test that cannot catch that bug.
-
-For errors, `assert.throws` takes the function, not its result, because the call must happen inside the assertion. The second argument can be an error class, a regular expression for the message, or an object whose properties must match, as in `{ name: "RangeError", message: "..." }`.
+`assert.throws` takes the function, not its result, because the call must happen inside the assertion. Its second argument can be an error class, a regular expression for the message, or an object whose properties must match.
 
 ## Grouping tests with describe and it
 
-`describe(name, fn)` groups tests, and `it(name, fn)` is another name for `test` that reads like a sentence: *"describe a Cart; it starts empty"*. Groups can be nested. A good test name states the behaviour, not the function: "rejects negative prices" says more than "test add 3".
+`describe(name, fn)` groups tests, and `it(name, fn)` is another name for `test` that reads like a sentence: *"describe a Cart; it starts empty"*. Groups nest. A good name states the behaviour: "rejects negative prices" says more than "test add 3".
 
-Tests must not depend on each other, so each one should start from a known state. The hooks `beforeEach`, `afterEach`, `before` and `after` run set-up and clean-up code around the tests of a group. Here is the class under test:
+Tests must not depend on each other, so each starts from a known state. The hooks `beforeEach`, `afterEach`, `before` and `after` run set-up and clean-up code around a group. The class under test:
 
 ```javascript title="nt_cart.mjs"
 export class Cart {
@@ -143,7 +146,7 @@ export class Cart {
 }
 ```
 
-And its tests. `beforeEach` runs before every test of the group and creates a new cart, so a cart filled by one test never leaks into the next.
+`beforeEach` creates a new cart before every test, so a cart filled by one test never leaks into the next.
 
 ```javascript title="nt_cart.test.mjs"
 import { describe, it, beforeEach } from "node:test";
@@ -205,13 +208,11 @@ The tests of `add` form a group of their own, nested in the first.
 ℹ todo 0
 ```
 
-The report mirrors the structure: groups open with `▶` and close with a check mark of their own once all their tests passed.
-
-Floating-point numbers deserve a warning. `0.1 + 0.2` is not exactly `0.3` in any language that uses the standard binary floating-point format, so `assert.equal(cart.total(), 0.3)` would fail for prices of 10 and 20 cents. Test money in whole cents, or compare with a tolerance.
+The report mirrors the structure. Beware floating point: `0.1 + 0.2` is not exactly `0.3`, so test money in whole cents or compare with a tolerance.
 
 ## Async tests
 
-A test function may be `async`, or return a promise; the runner waits for it. The test fails if the promise rejects. For code that is supposed to reject, use `assert.rejects` and `await` it.
+A test function may be `async`, or return a promise; the runner waits for it, and the test fails if the promise rejects. For code that should reject, use `assert.rejects` and `await` it.
 
 ```javascript title="nt_lookup.mjs"
 const users = new Map([[1, "Ada"], [2, "Alan"]]);
@@ -222,6 +223,8 @@ export async function findUser(id) {
   return { id, name: users.get(id) };
 }
 ```
+
+The tests check both outcomes.
 
 ```javascript title="nt_lookup.test.mjs"
 import { describe, it } from "node:test";
@@ -253,11 +256,11 @@ describe("findUser", () => {
 ℹ todo 0
 ```
 
-**Do not forget the `await`.** If the test function is `async` but does not wait for `assert.rejects(...)`, the test finishes before the check does. A rejected check then becomes an unhandled rejection, which may not be tied to the right test, or the check may never run at all. An `async` test with an assertion that is never awaited is the classic way to write a test that always passes.
+**Do not forget the `await`.** If an `async` test does not wait for `assert.rejects(...)`, the test finishes before the check does. An un-awaited assertion is the classic way to write a test that always passes.
 
 ## What a failure looks like
 
-A test that fails shows you why. The file below tests `slugify` again, with two expectations that are wrong on purpose.
+The file below tests `slugify` again, with two expectations that are wrong on purpose.
 
 ```javascript title="nt_fail.test.mjs"
 import { test } from "node:test";
@@ -290,7 +293,7 @@ test("keeps digits", () => {
 ℹ todo 0
 ```
 
-Two tests fail (`✖`) and the third passes. Below the summary, the real runner prints a section called `failing tests` with the details of each failure. It is cut from the listings in this module because it contains file paths and stack traces that depend on your machine. With the stack traces, the paths and the trailing list of error properties removed, it looks like this:
+Below the summary, the real runner prints a `failing tests` section with the details. It is cut from the listings because it holds paths and stack traces that depend on your machine. Without those, it looks like this:
 
 ```text
 ✖ failing tests:
@@ -313,14 +316,11 @@ test at nt_fail.test.mjs:9:1
     ]
 ```
 
-The message shows the actual value on the left of `!==` and the expected one on the right, and for objects and arrays a diff with `+` for what was received and `-` for what was expected. Read the first failure first; the others are often consequences of it.
+The actual value is left of `!==` and the expected one right. For objects and arrays, a diff shows `+` for what was received and `-` for what was expected. Read the first failure first.
 
 ## Skipping, planning and filtering
 
-Sometimes a test is known to be broken, or not written yet. Marking it is better than deleting or commenting it out, because the report keeps reminding you:
-
-- `it.skip(name, fn)`, or the option `{ skip: true }` (or a string with the reason), does not run the test.
-- `it.todo(name)` records a planned test.
+A broken or unwritten test is better marked than deleted, because the report keeps reminding you. `it.skip(name, fn)`, or the option `{ skip: true }` (or a string giving the reason), does not run it. `it.todo(name)` records a planned test.
 
 ```javascript title="nt_skip.test.mjs"
 import { describe, it } from "node:test";
@@ -359,84 +359,79 @@ describe("flags", () => {
 ℹ todo 1
 ```
 
-The summary has separate counts for skipped and todo tests. To run only some tests while you work, there are command-line filters:
+To run only some tests while you work, use the filters:
 
-```bash
+```bash frame="terminal"
 node --test --test-name-pattern="Cart"   # only names matching this regex
 node --test --test-skip-pattern="slow"   # everything except matching names
 node --test --test-only                  # only { only: true } / it.only tests
 node --test --watch                      # re-run when files change
 ```
 
-`--watch` keeps the runner alive and runs the affected tests again each time you save a file, which makes a fine feedback loop while you write code. Remember to remove `only` markers before you commit.
+`--watch` re-runs the affected tests on every save. Remove `only` markers before you commit.
 
-## How the runner finds test files
+`node --test` with no file names searches the current directory (not `node_modules`) for files named `*.test.js`, `*.test.mjs` or `*.test.cjs` (also `-test` and `_test` endings) or `test-*`, a file called `test.js`, and any script inside a folder called `test`. `slug.spec.mjs` is **not** found. Each test file runs in its own process.
 
-`node --test` with no file names searches the current directory, ignoring `node_modules`, and runs every file that matches one of these patterns:
+<Since v="26" /> Node 26.2 added test **tags** (a `tags` option and `--experimental-test-tag-filter`). They are in early development (stability 1), so prefer names and `--test-name-pattern` for anything that must work on every Node version.
 
-- a name ending in `.test.js`, `.test.mjs` or `.test.cjs`, or in `-test` or `_test` with those extensions;
-- a name beginning with `test-`, or a file called `test.js`, `test.mjs` or `test.cjs`;
-- any `.js`, `.mjs` or `.cjs` file inside a folder called `test`.
+## How much did the tests cover?
 
-A file such as `slug.spec.mjs` is **not** found by this rule. Each test file runs in its own process, so a global changed in one file cannot disturb another.
+A **coverage** report says which lines and branches ran while the tests ran. Switch it on with `--experimental-test-coverage`. The flag name still says *experimental*, and the options that narrow the report, `--test-coverage-include` and `--test-coverage-exclude`, need Node 22.5. This function has three outcomes, and its test covers two.
 
-## Tags
-
-<Since v="26" /> Node 26.2 added **tags**: labels that you attach to tests with the `tags` option, so that you can run a subset by name, for example the fast ones. The feature is early: Node's documentation marks it as stability 1.0, "early development", and prints an experimental warning. The flag that filters by tag is `--experimental-test-tag-filter`, and it takes a boolean expression with `and`, `or`, `not` and parentheses. Tags given to a `describe` are inherited by the tests inside it.
-
-On Node 24 and older, the `tags` option is ignored and the filter flag is unknown, so every test runs. The program below needs Node 26.2 or newer. It writes a test file with tags into a temporary directory (using `withTempDir` from [the files lesson](../files-and-paths/)) and runs it twice through the filter, printing the names of the tests that ran.
-
-```javascript title="nt_tags_run.mjs"
-import { spawnSync } from "node:child_process";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { withTempDir } from "./fp_helper.mjs";
-
-const source = `
-import { describe, it, test } from "node:test";
-test("parses numbers", { tags: ["fast", "unit"] }, () => {});
-test("talks to the network", { tags: ["slow"] }, () => {});
-test("has no tags", () => {});
-describe("suite", { tags: ["unit"] }, () => {
-  it("inherits unit", () => {});
-  it("is also slow", { tags: ["slow"] }, () => {});
-});
-`;
-```
-
-```javascript title="nt_tags_run.mjs (continued)"
-function ranTests(dir, filter) {
-  const flag = "--experimental-test-tag-filter=" + filter;
-  const args = ["--test", flag, "tags.test.mjs"];
-  const run = spawnSync(process.execPath, args, { cwd: dir, encoding: "utf8" });
-  return run.stdout
-    .split("\n")
-    .filter((line) => /^\s*✔/.test(line) && !/suite/.test(line))
-    .map((line) => line.trim().replace(/ \([\d.]+ms\)$/, ""));
+```javascript title="nt_grade.mjs"
+export function grade(score) {
+  if (score < 0 || score > 100) {
+    throw new RangeError("score out of range");
+  }
+  if (score >= 50) return "pass";
+  return "fail";
 }
+```
 
-await withTempDir(async (dir) => {
-  await writeFile(join(dir, "tags.test.mjs"), source);
-  console.log("not slow:", ranTests(dir, "not slow"));
-  console.log("unit and not slow:", ranTests(dir, "unit and not slow"));
+The test checks the two ordinary results.
+
+```javascript title="nt_grade.test.mjs"
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { grade } from "./nt_grade.mjs";
+
+test("passes at 50 and fails below", () => {
+  assert.equal(grade(50), "pass");
+  assert.equal(grade(49), "fail");
 });
 ```
 
-```text
-not slow: [ '✔ parses numbers', '✔ has no tags', '✔ inherits unit' ]
-unit and not slow: [ '✔ parses numbers', '✔ inherits unit' ]
+The test results print first; this is the coverage table that follows them.
+
+```text frame="terminal"
+$ node --test --experimental-test-coverage nt_grade.test.mjs
+ℹ start of coverage report
+ℹ -------------------------------------------------------------
+ℹ file         | line % | branch % | funcs % | uncovered lines
+ℹ -------------------------------------------------------------
+ℹ nt_grade.mjs |  71.43 |    75.00 |  100.00 | 3-4
+ℹ -------------------------------------------------------------
+ℹ all files    |  71.43 |    75.00 |  100.00 |
+ℹ -------------------------------------------------------------
+ℹ end of coverage report
 ```
 
-Untagged tests count as "not slow", and the suite's `unit` tag reached its tests. Until the feature leaves early development, prefer naming conventions and `--test-name-pattern` for anything that must work on every Node version.
+The columns give the percentage of **lines**, **branches** (the two sides of an `if`, `?:` or `??`) and **functions** that ran, then the lines that never ran: 3 and 4, the `throw`, because no test sent a bad score. Node 22 also lists the test file as a row.
+
+Treat the report with care:
+
+- It shows what was **not** tested, never that the tested parts are right. A test with no assertions gives 100 per cent.
+- A target such as "90 per cent" breeds tests written to please the number. Use the report to find forgotten cases.
+- `/* node:coverage ignore next */` skips a line, and `/* node:coverage disable */` and `/* node:coverage enable */` fence a region.
 
 ## Common pitfalls
 
 - **Tests that depend on each other or on order.** Give every test its own state with `beforeEach`.
 - **A missing `await`** in an async test, so that the check runs after the test has ended.
 - **Importing `node:assert` instead of `node:assert/strict`**, which silently allows `1 == "1"`.
-- **Passing the result to `assert.throws`.** Pass a function: `assert.throws(() => f(x))`, not `assert.throws(f(x))`.
-- **Testing the implementation.** Check behaviour that callers can see. A test that breaks every time you refactor protects nothing.
-- **Real clocks, networks and random numbers in tests.** They make results vary. The next lesson shows how to replace them.
+- **Passing the result to `assert.throws`.** Pass a function: `assert.throws(() => f(x))`.
+- **Testing the implementation.** Check behaviour that callers can see; a test that breaks on every refactor protects nothing.
+- **Real clocks, networks and random numbers in tests.** The next lesson replaces them.
 - **Leaving `only` in the code.** The rest of the suite then does not run.
 - **Comparing floating-point results with `equal`.**
 
@@ -458,7 +453,7 @@ Write a test file with exactly these five tests, in this order, in a `describe("
 
 Run it with this command, and compare with the expected report.
 
-```bash
+```bash frame="terminal"
 node --test nt_ex_median.test.mjs
 ```
 
@@ -552,7 +547,7 @@ Write a `describe("doubleLater", ...)` with two tests: `doubles a number` (the r
 
 Run it with this command, and compare with the expected report.
 
-```bash
+```bash frame="terminal"
 node --test nt_ex_double.test.mjs
 ```
 
@@ -630,7 +625,7 @@ Create one subtest per case in `[[1, "1"], [3, "Fizz"], [5, "Buzz"], [15, "FizzB
 
 Run it with this command, and compare with the expected report.
 
-```bash
+```bash frame="terminal"
 node --test nt_ex_fizz.test.mjs
 ```
 
@@ -698,6 +693,6 @@ test("fizzbuzz", async (t) => {
 - `describe` and `it` group and name tests, and `beforeEach` gives every test fresh state.
 - Async tests can `await`; always await `assert.rejects`.
 - `skip`, `todo`, `--test-name-pattern`, `--test-only` and `--watch` control what runs. The runner finds `*.test.*`, `test-*`, `*-test`, `*_test` files and files in `test` folders.
-- <Since v="26" /> Tags and `--experimental-test-tag-filter` select tests by label; they are in early development.
+- `--experimental-test-coverage` prints which lines and branches ran; read it for forgotten cases, not as a score. <Since v="26" /> Tags select tests by label, in early development.
 
-Next: replacing clocks, random numbers and network calls with controlled stand-ins, and snapshot tests.
+Next: [replacing clocks, random numbers and network calls](../mocks-and-fake-timers/) with controlled stand-ins, and snapshot tests.

@@ -15,6 +15,7 @@ await withTempDir(async (dir) => {
     createGzip(),
     createWriteStream(packed),
   );
+
   await pipeline(
     createReadStream(packed),
     createGunzip(),

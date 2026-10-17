@@ -1,0 +1,4 @@
+$ node --run hello
+hello from a script
+$ node --run show -- one two
+one two

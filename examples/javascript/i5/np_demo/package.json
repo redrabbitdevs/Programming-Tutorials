@@ -1,0 +1,11 @@
+{
+  "name": "np-demo",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/main.js",
+    "./extra": "./src/extra.js",
+    "./dual": { "import": "./src/dual.mjs", "require": "./src/dual.cjs" }
+  },
+  "imports": { "#lib/*": "./lib/*.js" }
+}

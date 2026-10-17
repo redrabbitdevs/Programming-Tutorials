@@ -1,0 +1,23 @@
+$ node ct_grep.mjs apple fruit.txt
+apple
+apple pie
+$ node ct_grep.mjs -in BANANA fruit.txt
+2:Banana
+$ node ct_grep.mjs '^a' fruit.txt more.txt
+fruit.txt:apple
+fruit.txt:apple pie
+$ node ct_grep.mjs 'e$' fruit.txt more.txt
+fruit.txt:apple
+fruit.txt:apple pie
+more.txt:pineapple
+$ node ct_grep.mjs zzz fruit.txt; echo $?
+1
+$ node ct_grep.mjs apple missing.txt; echo $?
+grep: missing.txt: ENOENT
+2
+$ node ct_grep.mjs '(' fruit.txt; echo $?
+grep: Invalid regular expression: /(/: Unterminated group
+2
+$ node ct_grep.mjs apple; echo $?
+usage: ct_grep [-i] [-n] pattern file...
+2

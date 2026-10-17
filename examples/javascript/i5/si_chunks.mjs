@@ -1,4 +1,5 @@
 import { createWriteStream, createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
 import { once } from "node:events";
 import { join } from "node:path";
 import { withTempDir } from "./fp_helper.mjs";
@@ -6,8 +7,8 @@ import { withTempDir } from "./fp_helper.mjs";
 await withTempDir(async (dir) => {
   const file = join(dir, "big.txt");
   const out = createWriteStream(file);
-  for (let i = 0; i < 100000; i++) {
-    if (!out.write("some text line\n")) await once(out, "drain");
+  for (let i = 1; i <= 100000; i++) {
+    if (!out.write(`line number ${i}\n`)) await once(out, "drain");
   }
   out.end();
   await once(out, "finish");
@@ -23,4 +24,14 @@ await withTempDir(async (dir) => {
   }
   console.log(`${chunks} chunks, largest ${largest} bytes`);
   console.log(`${newlines} newlines`);
+
+  let count = 0;
+  let longest = "";
+  const input = createReadStream(file);
+  const lines = createInterface({ input, crlfDelay: Infinity });
+  for await (const line of lines) {
+    count++;
+    if (line.length > longest.length) longest = line;
+  }
+  console.log(count, longest);
 });

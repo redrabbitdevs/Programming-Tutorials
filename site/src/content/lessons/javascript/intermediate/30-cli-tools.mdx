@@ -4,30 +4,30 @@ level: intermediate
 module: Node.js essentials
 order: 30
 title: Writing command-line tools
-description: Build a real command-line tool with util.parseArgs, stdin, stdout and stderr, exit codes and a shebang line, and run other programs from JavaScript with node:child_process.
+description: Build a real command-line tool with util.parseArgs, stdin, stdout and stderr, exit codes and a shebang line, and run another program from JavaScript with node:child_process.
 minVersion: "22"
 objectives:
   - Parse flags, options and positional arguments with util.parseArgs
   - Send data to stdout and messages to stderr, and report success or failure with exit codes
   - Read lines from stdin
-  - Run other programs with spawnSync, execFile and spawn, and read their output and exit status
-  - Make a script directly executable with a shebang line and a bin entry
-estimatedMinutes: 60
+  - Build a small grep that uses a regular expression and follows the exit-code conventions
+  - Run another program with spawnSync, and make a script directly executable with a shebang line
+estimatedMinutes: 55
 fundamentals: ["fundamentals/beginner/02-tools-of-the-trade"]
 ---
 
-Much of the software you use every day is a command-line tool: `git`, `npm`, `node` itself. They share a small set of conventions that make them work together in pipelines and scripts, and a JavaScript program can follow the same conventions. A well-behaved tool does four things:
+Much of the software you use every day is a command-line tool: `git`, `npm`, `node` itself. They share conventions that make them work together in pipelines and scripts, and a JavaScript program can follow them. A well-behaved tool does four things:
 
 - it takes **arguments**: flags such as `-i`, options such as `--max=5`, and plain values such as file names;
 - it writes its **results** to *standard output* (stdout) and its **complaints** to *standard error* (stderr), so the two can be separated;
 - it may read *standard input* (stdin), so that other programs can feed it;
-- it ends with an **exit code**: `0` for success, anything else for failure. The shell, `make`, CI systems and other programs depend on it. The [tools of the trade](../../../fundamentals/beginner/tools-of-the-trade/) lesson introduced the terminal side of this.
+- it ends with an **exit code**: `0` for success, anything else for failure. The shell, CI systems and other programs depend on it.
 
-You already know the raw material from [the runtime lesson](../node-runtime/): `process.argv`, `process.exitCode` and the `exit` event. This lesson adds the helpers that make tools pleasant to write.
+[The runtime lesson](../node-runtime/) introduced `process.argv` and `process.exitCode`; this one adds the helpers that make tools pleasant to write. Terminal listings below are real runs on Node 26; `$` marks what you type.
 
 ## Arguments with util.parseArgs
 
-`process.argv.slice(2)` is a list of strings, and parsing it by hand quickly turns into a pile of `if` statements. `util.parseArgs` does it from a description of the options you accept. By default it reads `process.argv`; the examples here pass an `args` array so that the result is the same every time.
+Parsing `process.argv.slice(2)` by hand turns into a pile of `if` statements. `util.parseArgs` does it from a description of the options you accept. It reads `process.argv` by default; these examples pass an `args` array so that the result is the same every time.
 
 ```javascript title="ct_parseargs.mjs"
 import { parseArgs } from "node:util";
@@ -53,13 +53,12 @@ true 5 [ 'a', 'b' ]
 [ 'build', 'src' ]
 ```
 
-- Every option has a `type`, either `"boolean"` (a switch) or `"string"` (takes a value). `short` adds a one-letter alias, so `-v` means `--verbose`. A string option accepts both `--max=5` and `--max 5`.
-- `default` supplies a value when the option is absent. Defaults are strings for string options, and `parseArgs` never converts: `values.max` is `"5"`, and turning it into a number is your job.
+- Every option has a `type`: `"boolean"` (a switch) or `"string"` (takes a value, as `--max=5` or `--max 5`). `short` adds a one-letter alias, so `-v` means `--verbose`.
+- `default` supplies a value when the option is absent. `parseArgs` never converts: `values.max` is `"5"`, and turning it into a number is your job.
 - `multiple: true` collects every occurrence into an array.
-- Anything that is not an option is a **positional** argument. They are accepted only when you pass `allowPositionals: true`.
-- A lone `--` ends the options, so that `-- -v` is treated as the positional text `-v`.
+- Anything that is not an option is a **positional** argument, accepted only with `allowPositionals: true`. A lone `--` ends the options.
 
-By default parsing is **strict**: unknown options, a missing value, or an unexpected positional all throw. The error has a `code` and a readable message, which is what you want to show the user instead of a stack trace.
+Parsing is **strict**: unknown options, a missing value or an unexpected positional all throw an error with a `code` and a readable message, which is what you show the user instead of a stack trace.
 
 ```javascript title="ct_parseargs.mjs (continued)"
 for (const args of [["--nope"], ["--max"], ["extra"]]) {
@@ -77,13 +76,82 @@ ERR_PARSE_ARGS_INVALID_OPTION_VALUE | Option '-m, --max <value>' argument missin
 ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL | Unexpected argument 'extra'. This command does not take positional arguments
 ```
 
-One detail is easy to trip over: the `values` object has no prototype (`Object.getPrototypeOf(values)` is `null`). Reading properties works as usual, but it has no `hasOwnProperty` or `toString`, and `console.log(values)` prints a `[Object: null prototype]` label. Read the properties you need.
+The `values` object has no prototype, so `console.log(values)` prints a `[Object: null prototype]` label. Read the properties you need.
 
-## Running other programs
+## Exit codes
 
-A tool often needs to run another program: a formatter, `git`, or another Node script. The `node:child_process` module starts **child processes**. The three functions below cover almost everything, and each one takes the program and an **array of arguments**, so nothing is passed through a shell.
+A program's exit code is how the world learns whether it worked. This script ends in a different way depending on its first argument.
 
-`spawnSync` runs the program, waits for it to end and returns everything at once. It blocks your program while it waits, which is fine in a short script and wrong in a server. The program to run here is `process.execPath`, the path of the very `node` that is running us, so the example does not depend on any other program being installed.
+```javascript title="ct_status.mjs"
+const how = process.argv[2];
+
+if (how === "code") process.exitCode = 5;
+if (how === "exit") process.exit(4);
+if (how === "throw") throw new Error("boom");
+if (how === "reject") Promise.reject(new Error("late"));
+console.log("reached the end");
+```
+
+In a terminal, `$?` holds the exit code of the last command, and `2>/dev/null` throws away standard error, where the message of a crash goes.
+
+```text frame="terminal"
+$ node ct_status.mjs; echo $?
+reached the end
+0
+$ node ct_status.mjs code; echo $?
+reached the end
+5
+$ node ct_status.mjs exit; echo $?
+4
+$ node ct_status.mjs throw 2>/dev/null; echo $?
+1
+$ node ct_status.mjs reject 2>/dev/null; echo $?
+reached the end
+1
+```
+
+- Reaching the end means `0`.
+- `process.exitCode = n` records the code and lets the program finish its work, so nothing is lost. This is the right way to report failure.
+- `process.exit(n)` ends the program on the spot. Output still being written may be lost.
+- An uncaught exception and an unhandled promise rejection both end the program with `1`. The last run still printed its line, because the rejection is noticed only after the synchronous code is done ([the async errors lesson](../async-errors/)).
+
+By convention `0` is success, `1` a general failure, and many tools use `2` for "you used me wrongly". `grep` uses `0` for "found something", `1` for "found nothing" and `2` for an error, and the tool below follows that.
+
+## Reading standard input
+
+In a pipeline such as `cat notes.txt | node shout.mjs`, the input arrives on `process.stdin`. The `readline` module turns that stream into lines that `for await` can read. The loop ends when the input ends.
+
+```javascript title="ct_stdin.mjs"
+import { createInterface } from "node:readline/promises";
+
+const lines = createInterface({ input: process.stdin });
+let count = 0;
+for await (const line of lines) {
+  count++;
+  console.log(`${count}: ${line.toUpperCase()}`);
+}
+console.error(`${count} lines read`);
+```
+
+`printf` writes two lines and the pipe `|` feeds them to the program. In the second run the output is redirected into a file with `>`, and only stdout goes there: the summary on stderr still reaches the screen.
+
+```text frame="terminal"
+$ printf 'hello\nnode world\n' | node ct_stdin.mjs
+1: HELLO
+2: NODE WORLD
+2 lines read
+$ printf 'hello\nnode world\n' | node ct_stdin.mjs > upper.txt
+2 lines read
+$ cat upper.txt
+1: HELLO
+2: NODE WORLD
+```
+
+The rule of thumb: **data goes to stdout; progress, warnings and errors go to stderr.** `console.log` writes to stdout and `console.error` to stderr. With no pipe, the program waits for you to type; end the input with `Ctrl+D`.
+
+## Running another program
+
+A tool sometimes runs another program. `spawnSync` from `node:child_process` runs it, waits, and returns the exit `status` and the captured output. It takes the program and an **array of arguments**, so no shell reinterprets them. Here the program is `process.execPath`, the very `node` that is running us, and `-e` runs the text after it as a script.
 
 ```javascript title="ct_child.mjs"
 import { spawnSync } from "node:child_process";
@@ -101,131 +169,11 @@ console.log(JSON.stringify(result.stdout), JSON.stringify(result.stderr));
 "out\n" "err\n"
 ```
 
-`-e` tells Node to run the text that follows as a program. The result has the exit `status` (here `2`), the `signal` that killed it if any (here `null`), and the captured `stdout` and `stderr`. Without `encoding: "utf8"` you would get `Buffer` objects.
+`spawnSync` blocks, which suits a short script and not a server. `execFile` (with `util.promisify` it gives a promise that rejects on a non-zero status) and `spawn` (a child whose `stdout` is a stream, and which is an [event emitter](../node-runtime/#events-and-eventemitter)) do not block. Avoid `exec` with user input: it hands a whole string to a shell, where a file name such as `a; rm -rf ~` becomes two commands.
 
-In a program that must stay responsive, use `execFile`, which takes a callback. As [the callbacks lesson](../callbacks/) showed, `util.promisify` turns that into a function that returns a promise. It resolves with `{ stdout, stderr }` when the exit code is `0`, and **rejects** otherwise.
+## Putting it together: a tiny grep
 
-```javascript title="ct_execfile.mjs"
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const run = promisify(execFile);
-
-const ok = await run(process.execPath, ["-p", "6 * 7"]);
-console.log(ok.stdout.trim(), JSON.stringify(ok.stderr));
-
-try {
-  const script = "console.log('partial'); process.exit(3)";
-  await run(process.execPath, ["-e", script]);
-} catch (error) {
-  console.log(error.code, error.stdout.trim());
-}
-try {
-  await run("no-such-program-xyz", []);
-} catch (error) {
-  console.log(error.code);
-}
-```
-
-```text
-42 ""
-3 partial
-ENOENT
-```
-
-For a failure, `error.code` is the exit status as a number (`3`), and the output that the child produced before it stopped is still on the error. If the program cannot even be started, the code is the text `"ENOENT"`, just like a missing file. Keep these two cases apart in your error handling.
-
-`execFile` collects all the output in memory and gives it to you at the end. For long-running programs, or for feeding data in while they run, use `spawn`. It returns at once with a `child` object whose `stdin`, `stdout` and `stderr` are **streams**, and a stream can be read with `for await`, as in [the async iteration lesson](../async-iteration/). The next lesson is all about streams.
-
-```javascript title="ct_spawn.mjs"
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-
-const script = "process.stdin.pipe(process.stdout)";
-const child = spawn(process.execPath, ["-e", script]);
-const closed = once(child, "close");
-
-child.stdin.end("piped in\n");
-child.stdout.setEncoding("utf8");
-let text = "";
-for await (const chunk of child.stdout) text += chunk;
-
-const [code, signal] = await closed;
-console.log(JSON.stringify(text), code, signal);
-```
-
-```text
-"piped in\n" 0 null
-```
-
-The child copies its input to its output. We write one line to its `stdin` and close it with `end`, then collect the `stdout` chunks as they arrive. The `close` event fires after the process has ended and its streams are done, and `once` turns an event into a promise whose value is the list of the event's arguments. We create that promise **before** we start reading, so the event cannot be missed.
-
-One warning applies to everything in this section. Do not build a command line by joining text, and do not use `exec` (which hands a whole string to a shell) with input that came from a user. A file name such as `a; rm -rf ~` would be run as two commands. With `execFile` and `spawn`, each argument is passed as it is, and no shell interprets it.
-
-## Exit codes
-
-A program's exit code is how the world learns whether it worked. There are five usual ways for a program to end, and the example below runs one child process for each to show the status the parent sees.
-
-```javascript title="ct_exit.mjs"
-import { spawnSync } from "node:child_process";
-
-const programs = {
-  "falls off the end": "console.log('done')",
-  "sets exitCode": "process.exitCode = 5",
-  "calls process.exit": "process.exit(4); console.log('never')",
-  "throws": "throw new Error('boom')",
-  "rejects": "Promise.reject(new Error('late'))",
-};
-for (const [name, code] of Object.entries(programs)) {
-  const args = ["-e", code];
-  const { status } = spawnSync(process.execPath, args, { encoding: "utf8" });
-  console.log(`${status}  ${name}`);
-}
-```
-
-```text
-0  falls off the end
-5  sets exitCode
-4  calls process.exit
-1  throws
-1  rejects
-```
-
-- Reaching the end of the script means `0`.
-- `process.exitCode = n` records the code and lets the program finish its work, so pending output is not lost. This is the right way to report failure.
-- `process.exit(n)` ends the program on the spot. Output that is still being written may be lost, so use it only for a quick exit.
-- An uncaught exception and an unhandled promise rejection both end the program with `1`, as [the async errors lesson](../async-errors/) explained.
-
-Conventions: `0` is success, `1` is a general failure. Many tools use `2` for "you used me wrongly". `grep` uses `0` for "found something", `1` for "found nothing" and `2` for an error, and the tool below follows that.
-
-## Reading standard input
-
-When a tool is used in a pipeline, as in `cat notes.txt | node shout.mjs`, its input arrives on `process.stdin`. The `readline` module turns that stream into lines, and the interface can be read with `for await`. The loop ends when the input ends.
-
-```javascript title="ct_stdin.mjs"
-import { createInterface } from "node:readline/promises";
-
-const lines = createInterface({ input: process.stdin });
-let count = 0;
-for await (const line of lines) {
-  count++;
-  console.log(`${count}: ${line.toUpperCase()}`);
-}
-console.error(`${count} lines read`);
-```
-
-```text
-1: HELLO
-2: NODE WORLD
-```
-
-For this listing the input was the two lines `hello` and `node world`. The summary goes to `console.error`, which writes to stderr, so it did not appear in the output above and would not pollute a pipeline such as `... | node ct_stdin.mjs > out.txt`; in your terminal you would still see it. If you run the program with no pipe at all, it waits for you to type, and you end the input with `Ctrl+D`.
-
-The rule of thumb: **data goes to stdout; progress, warnings and errors go to stderr.** `console.log` writes to stdout and `console.error` to stderr.
-
-## Project: a tiny grep
-
-Here is a complete tool that prints the lines of files that contain some text. It supports `-i` (ignore case) and `-n` (show line numbers), and exits with `0`, `1` or `2` as `grep` does. The tool is in a file called `ct_grep.mjs`. Its first line is a **shebang**, which we come back to at the end. The code is organised as a `main` function that returns the exit code, and the last line of the file turns it into the process exit code.
+`grep` prints the lines of files that match a pattern. This version takes a **regular expression** ([regex basics](../regex-basics/)), supports `-i` (ignore case) and `-n` (line numbers), and exits with `0`, `1` or `2` as `grep` does. The file starts with a **shebang** line, which comes back at the end. First, the arguments: `parse` turns a bad command line into a clean message and `null`.
 
 ```javascript title="ct_grep.mjs"
 #!/usr/bin/env node
@@ -239,7 +187,22 @@ const options = {
 
 function parse(argv) {
   try {
-    return parseArgs({ args: argv, options, allowPositionals: true });
+    const parsed = parseArgs({ args: argv, options, allowPositionals: true });
+    if (parsed.positionals.length >= 2) return parsed;
+    console.error("usage: ct_grep [-i] [-n] pattern file...");
+  } catch (error) {
+    console.error(`grep: ${error.message}`);
+  }
+  return null;
+}
+```
+
+A pattern can be invalid, so building the regular expression is guarded too.
+
+```javascript title="ct_grep.mjs (continued)"
+function compile(pattern, ignoreCase) {
+  try {
+    return new RegExp(pattern, ignoreCase ? "i" : "");
   } catch (error) {
     console.error(`grep: ${error.message}`);
     return null;
@@ -247,114 +210,113 @@ function parse(argv) {
 }
 ```
 
-The `parse` function turns a bad command line into a clean message and `null`. The main part reads the files and prints the matching lines.
+The search of one file splits it into lines, tests each one and prints the matches. It reports whether anything matched.
+
+```javascript title="ct_grep.mjs (continued)"
+async function grepFile(file, regex, flags) {
+  const lines = (await readFile(file, "utf8")).split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  let found = false;
+  lines.forEach((line, index) => {
+    if (!regex.test(line)) return;
+    found = true;
+    const where = flags.prefix ? `${file}:` : "";
+    const number = flags.numbers ? `${index + 1}:` : "";
+    console.log(`${where}${number}${line}`);
+  });
+  return found;
+}
+```
+
+`grepAll` runs it over every file and chooses the exit code: `2` as soon as a file cannot be read, otherwise `0` if something matched and `1` if not.
+
+```javascript title="ct_grep.mjs (continued)"
+async function grepAll(files, regex, flags) {
+  let found = false;
+  for (const file of files) {
+    try {
+      found = (await grepFile(file, regex, flags)) || found;
+    } catch (error) {
+      console.error(`grep: ${file}: ${error.code}`);
+      return 2;
+    }
+  }
+  return found ? 0 : 1;
+}
+```
+
+The last part ties it together. `main` returns the exit code, and the final line hands it to `process.exitCode`.
 
 ```javascript title="ct_grep.mjs (continued)"
 async function main(argv) {
   const parsed = parse(argv);
   if (parsed === null) return 2;
   const [pattern, ...files] = parsed.positionals;
-  if (pattern === undefined || files.length === 0) {
-    console.error("usage: ct_grep [-i] [-n] pattern file...");
-    return 2;
-  }
-  const ignoreCase = parsed.values["ignore-case"];
-  const needle = ignoreCase ? pattern.toLowerCase() : pattern;
-  let found = false;
-  for (const file of files) {
-    let text;
-    try {
-      text = await readFile(file, "utf8");
-    } catch (error) {
-      console.error(`grep: ${file}: ${error.code}`);
-      return 2;
-    }
-```
-
-Reading can fail, so the error is turned into a message with the error code. Now the matching and the printing.
-
-```javascript title="ct_grep.mjs (continued)"
-    text.split("\n").forEach((line, index) => {
-      const hay = ignoreCase ? line.toLowerCase() : line;
-      if (!hay.includes(needle)) return;
-      found = true;
-      const where = files.length > 1 ? `${file}:` : "";
-      const number = parsed.values["line-numbers"] ? `${index + 1}:` : "";
-      console.log(`${where}${number}${line}`);
-    });
-  }
-  return found ? 0 : 1;
+  const regex = compile(pattern, parsed.values["ignore-case"]);
+  if (regex === null) return 2;
+  const numbers = parsed.values["line-numbers"];
+  return grepAll(files, regex, { prefix: files.length > 1, numbers });
 }
 
 process.exitCode = await main(process.argv.slice(2));
 ```
 
-The best way to test a command-line tool is to run it the way a user would, as a child process, and look at its output and exit status. The next program does that. It creates two small files in a temporary directory, runs the tool in that directory so that the file names are short, and prints what came back. (It uses the helper `withTempDir` from [the files lesson](../files-and-paths/), saved as `fp_helper.mjs`.)
+Two small files to search:
 
-```javascript title="ct_run.mjs"
-import { spawnSync } from "node:child_process";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { withTempDir } from "./fp_helper.mjs";
-
-const tool = join(import.meta.dirname, "ct_grep.mjs");
-
-await withTempDir(async (dir) => {
-  await writeFile(join(dir, "fruit.txt"), "apple\nBanana\ncherry\napple pie\n");
-  await writeFile(join(dir, "more.txt"), "pineapple\nplum\n");
-
+```text title="fruit.txt"
+apple
+Banana
+cherry
+apple pie
 ```
 
-The function `grep` runs the tool with some arguments and prints the exit status, then what the tool wrote to stdout and to stderr.
-
-```javascript title="ct_run.mjs (continued)"
-  function grep(...args) {
-    const options = { cwd: dir, encoding: "utf8" };
-    const run = spawnSync(process.execPath, [tool, ...args], options);
-    console.log(`$ grep ${args.join(" ")}  -> exit ${run.status}`);
-    const lines = (text) => text.split("\n").filter(Boolean);
-    for (const line of lines(run.stdout)) console.log(line);
-    for (const line of lines(run.stderr)) console.log("stderr:", line);
-  }
-
-  grep("apple", "fruit.txt");
-  grep("-in", "BANANA", "fruit.txt");
-  grep("apple", "fruit.txt", "more.txt");
-  grep("zzz", "fruit.txt");
-  grep("apple", "missing.txt");
-  grep("apple");
-});
+```text title="more.txt"
+pineapple
+plum
 ```
 
-```text
-$ grep apple fruit.txt  -> exit 0
+Now use it as a user would. Each case shows one behaviour: bare lines for one file; `-i` and `-n`; regular expressions (`^a` anchors to the start of a line, `e$` to the end); a `file:` prefix for several files; exit `1` for no match; exit `2` and a message on stderr for a missing file, an invalid pattern and missing arguments.
+
+```text frame="terminal"
+$ node ct_grep.mjs apple fruit.txt
 apple
 apple pie
-$ grep -in BANANA fruit.txt  -> exit 0
+$ node ct_grep.mjs -in BANANA fruit.txt
 2:Banana
-$ grep apple fruit.txt more.txt  -> exit 0
+$ node ct_grep.mjs '^a' fruit.txt more.txt
+fruit.txt:apple
+fruit.txt:apple pie
+$ node ct_grep.mjs 'e$' fruit.txt more.txt
 fruit.txt:apple
 fruit.txt:apple pie
 more.txt:pineapple
-$ grep zzz fruit.txt  -> exit 1
-$ grep apple missing.txt  -> exit 2
-stderr: grep: missing.txt: ENOENT
-$ grep apple  -> exit 2
-stderr: usage: ct_grep [-i] [-n] pattern file...
+$ node ct_grep.mjs zzz fruit.txt; echo $?
+1
+$ node ct_grep.mjs apple missing.txt; echo $?
+grep: missing.txt: ENOENT
+2
+$ node ct_grep.mjs '(' fruit.txt; echo $?
+grep: Invalid regular expression: /(/: Unterminated group
+2
+$ node ct_grep.mjs apple; echo $?
+usage: ct_grep [-i] [-n] pattern file...
+2
 ```
 
-Each case shows one behaviour. A single file prints bare lines. Several files get a `file:` prefix. No match gives exit `1` and no output. The missing file and the missing arguments give exit `2` with a message on stderr. An unknown option would too, through the `parse` function. This is also how you would test a tool automatically, as the testing lessons later in this module do.
+Because the pattern is a regular expression, `a.b` and `(` are special. To search for literal text, escape it first with `RegExp.escape` (Node 24 and later, see [advanced regular expressions](../regex-advanced/)); on Node 22 you escape the characters yourself.
 
 ## Making it executable
 
-The first line of `ct_grep.mjs`, `#!/usr/bin/env node`, is a **hashbang** (or shebang) line. On Linux and macOS, if the file is marked executable, the system reads that line to find out which program should run it, so you can type `./ct_grep.mjs -i apple fruit.txt` without writing `node`. JavaScript itself accepts the line as a comment at the very start of a file; that has been part of the language since ES2023.
+The first line of `ct_grep.mjs`, `#!/usr/bin/env node`, is a **shebang** line. On Linux and macOS, when the file is marked executable, the system reads that line to find out which program should run it, so you can leave out `node`. JavaScript accepts the line as a comment at the very start of a file (part of the language since ES2023).
 
-```bash
-chmod +x ct_grep.mjs
-./ct_grep.mjs -n apple fruit.txt
+```text frame="terminal"
+$ chmod +x ct_grep.mjs
+$ ./ct_grep.mjs -n apple fruit.txt
+1:apple
+4:apple pie
 ```
 
-To install a tool under a command name, a package lists it in the `"bin"` field of its `package.json`. When someone installs the package, npm links that name onto their command path (on Windows it creates a small wrapper, since there is no shebang support).
+To install a tool under a command name, a package lists it in the `"bin"` field of its `package.json`. When someone installs the package, npm links that name onto their command path (on Windows it creates a small wrapper, since there is no shebang support). During development, `npm link` in the package folder does the same on your machine. The [npm lesson](../npm-in-depth/) covers `package.json` further.
 
 ```json
 {
@@ -365,8 +327,6 @@ To install a tool under a command name, a package lists it in the `"bin"` field 
 }
 ```
 
-During development, `npm link` in the package folder makes the `ct-grep` command available on your machine. The [npm lesson](../npm-in-depth/) covers `package.json` further.
-
 ## Common pitfalls
 
 - **Printing errors with `console.log`.** They end up in the output of a pipeline. Use `console.error`.
@@ -374,7 +334,6 @@ During development, `npm link` in the package folder makes the `ct-grep` command
 - **Calling `process.exit()` right after printing a lot.** Set `process.exitCode` and return.
 - **Forgetting that option values are strings.** `--max=5` gives `"5"`.
 - **Passing user input to `exec`.** Use `execFile` or `spawn` with an argument array.
-- **Using `spawnSync` or `execFileSync` in a server.** They block the event loop.
 - **Showing a stack trace to the user** for a mistake in the command line. Catch the error and print one clear line.
 
 ## Exercises
@@ -468,50 +427,47 @@ invalid port: abc
 
 </Exercise>
 
-<Exercise title="Three programs in parallel">
+<Exercise title="Help and a polite failure">
 
-Using `execFile` with `util.promisify`, run these three programs at the same time: `node -p "1 + 1"`, a program that exits with status `3`, and a program called `no-such-program-xyz`. Wait for all of them with `Promise.allSettled`, and print one line each: `ok: <output>` when it succeeded, `failed (exit N)` when it exited with a status, and `failed (ENOENT)` when it could not start.
+Write `ct_ex_help.mjs`, a program that reads its own command line with `parseArgs`. `--name NAME` (default `world`) prints `hello, NAME`. `--help` or `-h` prints `usage: node ct_ex_help.mjs [--name NAME]` instead. Any other option must print the error message from `parseArgs` on **stderr** and end with exit code `2`, with no stack trace. Run it the four ways below.
 
-Expected output:
+Expected terminal session:
 
-```text
-ok: 2
-failed (exit 3)
-failed (ENOENT)
+```text frame="terminal"
+$ node ct_ex_help.mjs
+hello, world
+$ node ct_ex_help.mjs --name Ada
+hello, Ada
+$ node ct_ex_help.mjs -h
+usage: node ct_ex_help.mjs [--name NAME]
+$ node ct_ex_help.mjs --colour; echo $?
+Unknown option '--colour'
+2
 ```
 
 <Solution>
 
-For a rejection, the `reason` is the error. A numeric `code` is an exit status, and a text code names a start-up failure.
+`parseArgs` reads `process.argv` when no `args` are given. The `try` catches its error for an unknown option, and `process.exitCode` records the failure without cutting the program short.
 
-```javascript title="ct_ex_parallel.mjs"
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+```javascript title="ct_ex_help.mjs"
+import { parseArgs } from "node:util";
 
-const run = promisify(execFile);
-const node = process.execPath;
+const options = {
+  help: { type: "boolean", short: "h" },
+  name: { type: "string", default: "world" },
+};
 
-const results = await Promise.allSettled([
-  run(node, ["-p", "1 + 1"]),
-  run(node, ["-e", "process.exit(3)"]),
-  run("no-such-program-xyz", []),
-]);
-
-for (const result of results) {
-  if (result.status === "fulfilled") {
-    console.log("ok:", result.value.stdout.trim());
+try {
+  const { values } = parseArgs({ options });
+  if (values.help) {
+    console.log("usage: node ct_ex_help.mjs [--name NAME]");
   } else {
-    const code = result.reason.code;
-    const text = typeof code === "number" ? `exit ${code}` : code;
-    console.log(`failed (${text})`);
+    console.log(`hello, ${values.name}`);
   }
+} catch (error) {
+  console.error(error.message);
+  process.exitCode = 2;
 }
-```
-
-```text
-ok: 2
-failed (exit 3)
-failed (ENOENT)
 ```
 
 </Solution>
@@ -522,9 +478,9 @@ failed (ENOENT)
 
 - A command-line tool takes arguments, reads stdin, writes results to stdout and problems to stderr, and ends with an exit code.
 - `util.parseArgs` parses flags, options and positionals from a description. Values stay strings, and strict mode throws on bad input.
-- Report failure with `process.exitCode`. By convention `0` is success, `1` failure and `2` misuse. Exceptions and unhandled rejections give `1`.
+- Report failure with `process.exitCode`: `0` success, `1` failure, `2` misuse. Exceptions and unhandled rejections give `1`. In a terminal, `echo $?` shows the code.
 - `readline` over `process.stdin` reads input line by line with `for await`.
-- `node:child_process` runs other programs: `spawnSync` (blocking), `execFile` (promise via `promisify`, rejects on non-zero exit) and `spawn` (streams). Pass arguments as an array and avoid `exec` with user input.
+- `spawnSync` runs another program with an argument array and returns its status and output. Avoid `exec` with user input.
 - A `#!/usr/bin/env node` line and a `"bin"` entry turn a script into an installable command.
 
-Next: streams, the tool for data that is too big to hold in memory at once.
+Next: [streams](../streams-intro/), the tool for data that is too big to hold in memory at once.

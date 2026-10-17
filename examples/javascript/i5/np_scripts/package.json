@@ -1,0 +1,8 @@
+{
+  "name": "np-scripts",
+  "version": "1.0.0",
+  "scripts": {
+    "hello": "node -p \"'hello from a script'\"",
+    "show": "node -p \"process.argv.slice(1).join(' ')\""
+  }
+}
