@@ -1,0 +1,8 @@
+https: example.com 8080
+/a/b.html #top
+js https://example.com:8080
+https://example.com:8080/a/b.html?q=js&page=3&tag=x+y#top
+https://example.com/a/c
+false
+true
+TypeError ERR_INVALID_URL

@@ -1,0 +1,2 @@
+not slow: [ '✔ parses numbers', '✔ has no tags', '✔ inherits unit' ]
+unit and not slow: [ '✔ parses numbers', '✔ inherits unit' ]

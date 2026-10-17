@@ -1,0 +1,4 @@
+retry in 5 ms: HTTP 503
+[ { id: 1, name: 'Ada' }, { id: 2, name: 'Alan' } ]
+{ id: 3, name: 'Grace' }
+true 404 { error: 'not found' }

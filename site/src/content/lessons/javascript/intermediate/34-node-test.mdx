@@ -1,0 +1,703 @@
+---
+language: javascript
+level: intermediate
+module: Testing and tooling
+order: 34
+title: Testing with node:test
+description: Write and run unit tests with Node's built-in test runner, using describe and it, node:assert/strict, hooks, async tests, skipping, filtering and watch mode.
+minVersion: "22"
+objectives:
+  - Write a test file with test, describe and it, and run it with node --test
+  - Choose the right assertion from node:assert/strict and read a failure report
+  - Use beforeEach to give every test a fresh starting state
+  - Test asynchronous code and errors with async tests, assert.rejects and assert.throws
+  - Skip, filter and re-run tests, and know how the runner finds test files
+estimatedMinutes: 55
+fundamentals: ["fundamentals/beginner/25-testing-mindset"]
+---
+
+A **test** is a small program that calls your code and checks that the answer is the one you expected. You could do that by hand, by running the program and looking at what it prints, but you would do it a few times and then stop. A test does it every time, in a second, and shouts when something that used to work does not work any more. That is the whole value: it lets you change code without fear. The reasoning behind it, including what is worth testing and what is not, is in the [testing mindset](../../../fundamentals/beginner/testing-mindset/) lesson. This lesson is about the JavaScript tool.
+
+Node comes with its own test runner, the module `node:test`. It has been stable since Node 20, needs no installation, and covers most of what small and medium projects need. Other runners, such as Vitest and Jest, are common and look similar; once you know this one, they will feel familiar.
+
+## Your first test
+
+Start with the code to be tested. It is an ordinary module that exports a function.
+
+```javascript title="nt_slug.mjs"
+export function slugify(text) {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+```
+
+A test file imports the code and the runner. `test(name, fn)` registers a test. Inside it, **assertions** check values: an assertion does nothing when it holds and throws an error when it does not. A test passes if its function finishes without throwing and fails if it throws. The assertions come from `node:assert/strict`.
+
+```javascript title="nt_slug.test.mjs"
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { slugify } from "./nt_slug.mjs";
+
+test("lowercases and joins words with hyphens", () => {
+  assert.equal(slugify("Hello World"), "hello-world");
+});
+
+test("drops punctuation and trims", () => {
+  assert.equal(slugify("  Node.js: a tour!  "), "node-js-a-tour");
+});
+
+test("an empty string stays empty", () => {
+  assert.equal(slugify(""), "");
+});
+```
+
+Run it with the `--test` flag. The runner starts the file, collects the results, and prints a report:
+
+```bash
+node --test nt_slug.test.mjs
+```
+
+```text
+@@
+```
+
+Each line is a test. The check mark means it passed. The summary at the bottom counts the tests and the outcomes. The real report also prints how long each test took, in milliseconds; this lesson leaves those numbers out so that the listings are stable. If any test fails, the runner ends with a non-zero exit code, which is how CI systems know that something is wrong.
+
+Since Node 23, the default report is the `spec` format shown here whether or not the output goes to a terminal; before that, a pipe got a different format called TAP. You can choose another with `--test-reporter`, for instance `dot` for a compact line of dots.
+
+## Assertions
+
+`node:assert/strict` is the module to import. Its name is the point: it is the **strict mode** of the older `node:assert`, in which every comparison is strict. The loose `assert.equal(1, "1")` of the old module passes, because it uses `==`; the strict module makes `equal` mean `===`.
+
+| Assertion | Passes when |
+|---|---|
+| `assert.equal(a, b)` | `Object.is(a, b)`: like `===`, except that `NaN` equals `NaN` |
+| `assert.notEqual(a, b)` | the values differ |
+| `assert.deepEqual(a, b)` | objects and arrays have the same contents, compared strictly |
+| `assert.ok(value, message)` | the value is truthy |
+| `assert.throws(fn, expected)` | calling `fn` throws an error that matches `expected` |
+| `assert.rejects(promise, expected)` | the promise rejects with a matching error |
+
+When an assertion fails, it throws an `AssertionError` whose message says what was expected and what was received. The next program shows the first line of those messages, and the difference between the strict and the loose module.
+
+```javascript title="nt_assert.mjs"
+import assert from "node:assert/strict";
+import loose from "node:assert";
+
+function firstLine(fn) {
+  try {
+    fn();
+  } catch (error) {
+    return error.message.split("\n")[0];
+  }
+}
+
+console.log(firstLine(() => assert.equal(1 + 1, 3)));
+console.log(firstLine(() => assert.deepEqual({ a: 1 }, { a: "1" })));
+console.log(firstLine(() => assert.ok(0, "zero is falsy")));
+
+loose.equal("1", 1);
+console.log("the loose module accepts '1' == 1");
+assert.throws(() => assert.equal("1", 1), { code: "ERR_ASSERTION" });
+console.log("the strict module does not");
+```
+
+```text
+Expected values to be strictly equal:
+Expected values to be strictly deep-equal:
+zero is falsy
+the loose module accepts '1' == 1
+the strict module does not
+```
+
+The last two lines show why you import the strict version: a test that quietly accepts a string where a number was expected is a test that cannot catch that bug.
+
+For errors, `assert.throws` takes the function, not its result, because the call must happen inside the assertion. The second argument can be an error class, a regular expression for the message, or an object whose properties must match, as in `{ name: "RangeError", message: "..." }`.
+
+## Grouping tests with describe and it
+
+`describe(name, fn)` groups tests, and `it(name, fn)` is another name for `test` that reads like a sentence: *"describe a Cart; it starts empty"*. Groups can be nested. A good test name states the behaviour, not the function: "rejects negative prices" says more than "test add 3".
+
+Tests must not depend on each other, so each one should start from a known state. The hooks `beforeEach`, `afterEach`, `before` and `after` run set-up and clean-up code around the tests of a group. Here is the class under test:
+
+```javascript title="nt_cart.mjs"
+export class Cart {
+  #items = [];
+
+  add(name, price, quantity = 1) {
+    if (price < 0) throw new RangeError("price must not be negative");
+    this.#items.push({ name, price, quantity });
+    return this;
+  }
+
+  get count() {
+    return this.#items.reduce((sum, item) => sum + item.quantity, 0);
+  }
+
+  total() {
+    return this.#items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  }
+}
+```
+
+And its tests. `beforeEach` runs before every test of the group and creates a new cart, so a cart filled by one test never leaks into the next.
+
+```javascript title="nt_cart.test.mjs"
+import { describe, it, beforeEach } from "node:test";
+import assert from "node:assert/strict";
+import { Cart } from "./nt_cart.mjs";
+
+describe("Cart", () => {
+  let cart;
+  beforeEach(() => {
+    cart = new Cart();
+  });
+
+  it("starts empty", () => {
+    assert.equal(cart.count, 0);
+    assert.equal(cart.total(), 0);
+  });
+
+```
+
+The tests of `add` form a group of their own, nested in the first.
+
+```javascript title="nt_cart.test.mjs (continued)"
+  describe("add", () => {
+    it("counts quantities", () => {
+      cart.add("pen", 2, 3).add("ink", 5);
+      assert.equal(cart.count, 4);
+    });
+
+    it("sums price times quantity", () => {
+      cart.add("pen", 2, 3).add("ink", 5);
+      assert.equal(cart.total(), 11);
+    });
+
+    it("rejects negative prices", () => {
+      assert.throws(() => cart.add("pen", -1), {
+        name: "RangeError",
+        message: "price must not be negative",
+      });
+    });
+  });
+});
+```
+
+```text
+▶ Cart
+  ✔ starts empty
+  ▶ add
+    ✔ counts quantities
+    ✔ sums price times quantity
+    ✔ rejects negative prices
+  ✔ add
+✔ Cart
+ℹ tests 4
+ℹ suites 2
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+The report mirrors the structure: groups open with `▶` and close with a check mark of their own once all their tests passed.
+
+Floating-point numbers deserve a warning. `0.1 + 0.2` is not exactly `0.3` in any language that uses the standard binary floating-point format, so `assert.equal(cart.total(), 0.3)` would fail for prices of 10 and 20 cents. Test money in whole cents, or compare with a tolerance.
+
+## Async tests
+
+A test function may be `async`, or return a promise; the runner waits for it. The test fails if the promise rejects. For code that is supposed to reject, use `assert.rejects` and `await` it.
+
+```javascript title="nt_lookup.mjs"
+const users = new Map([[1, "Ada"], [2, "Alan"]]);
+
+export async function findUser(id) {
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  if (!users.has(id)) throw new Error(`no user ${id}`);
+  return { id, name: users.get(id) };
+}
+```
+
+```javascript title="nt_lookup.test.mjs"
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { findUser } from "./nt_lookup.mjs";
+
+describe("findUser", () => {
+  it("resolves with the user", async () => {
+    assert.deepEqual(await findUser(1), { id: 1, name: "Ada" });
+  });
+
+  it("rejects for an unknown id", async () => {
+    await assert.rejects(findUser(9), { message: "no user 9" });
+  });
+});
+```
+
+```text
+▶ findUser
+  ✔ resolves with the user
+  ✔ rejects for an unknown id
+✔ findUser
+ℹ tests 2
+ℹ suites 1
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+**Do not forget the `await`.** If the test function is `async` but does not wait for `assert.rejects(...)`, the test finishes before the check does. A rejected check then becomes an unhandled rejection, which may not be tied to the right test, or the check may never run at all. An `async` test with an assertion that is never awaited is the classic way to write a test that always passes.
+
+## What a failure looks like
+
+A test that fails shows you why. The file below tests `slugify` again, with two expectations that are wrong on purpose.
+
+```javascript title="nt_fail.test.mjs"
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { slugify } from "./nt_slug.mjs";
+
+test("collapses repeated separators", () => {
+  assert.equal(slugify("a -- b"), "a--b");
+});
+
+test("splits into words", () => {
+  assert.deepEqual(slugify("v2 beta").split("-"), ["v2", "bata"]);
+});
+
+test("keeps digits", () => {
+  assert.equal(slugify("Route 66"), "route-66");
+});
+```
+
+```text
+✖ collapses repeated separators
+✖ splits into words
+✔ keeps digits
+ℹ tests 3
+ℹ suites 0
+ℹ pass 1
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+Two tests fail (`✖`) and the third passes. Below the summary, the real runner prints a section called `failing tests` with the details of each failure. It is cut from the listings in this module because it contains file paths and stack traces that depend on your machine. With the stack traces, the paths and the trailing list of error properties removed, it looks like this:
+
+```text
+✖ failing tests:
+
+test at nt_fail.test.mjs:5:1
+✖ collapses repeated separators
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  'a-b' !== 'a--b'
+
+test at nt_fail.test.mjs:9:1
+✖ splits into words
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    [
+      'v2',
+  +   'beta'
+  -   'bata'
+    ]
+```
+
+The message shows the actual value on the left of `!==` and the expected one on the right, and for objects and arrays a diff with `+` for what was received and `-` for what was expected. Read the first failure first; the others are often consequences of it.
+
+## Skipping, planning and filtering
+
+Sometimes a test is known to be broken, or not written yet. Marking it is better than deleting or commenting it out, because the report keeps reminding you:
+
+- `it.skip(name, fn)`, or the option `{ skip: true }` (or a string with the reason), does not run the test.
+- `it.todo(name)` records a planned test.
+
+```javascript title="nt_skip.test.mjs"
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+
+describe("flags", () => {
+  it("runs normally", () => {
+    assert.ok(true);
+  });
+
+  it.skip("is skipped", () => {
+    assert.fail("never runs");
+  });
+
+  it("is skipped with a reason", { skip: "needs a database" }, () => {
+    assert.fail("never runs");
+  });
+
+  it.todo("is planned");
+});
+```
+
+```text
+▶ flags
+  ✔ runs normally
+  ﹣ is skipped # SKIP
+  ﹣ is skipped with a reason # needs a database
+  ✔ is planned # TODO
+✔ flags
+ℹ tests 4
+ℹ suites 1
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 2
+ℹ todo 1
+```
+
+The summary has separate counts for skipped and todo tests. To run only some tests while you work, there are command-line filters:
+
+```bash
+node --test --test-name-pattern="Cart"   # only names matching this regex
+node --test --test-skip-pattern="slow"   # everything except matching names
+node --test --test-only                  # only { only: true } / it.only tests
+node --test --watch                      # re-run when files change
+```
+
+`--watch` keeps the runner alive and runs the affected tests again each time you save a file, which makes a fine feedback loop while you write code. Remember to remove `only` markers before you commit.
+
+## How the runner finds test files
+
+`node --test` with no file names searches the current directory, ignoring `node_modules`, and runs every file that matches one of these patterns:
+
+- a name ending in `.test.js`, `.test.mjs` or `.test.cjs`, or in `-test` or `_test` with those extensions;
+- a name beginning with `test-`, or a file called `test.js`, `test.mjs` or `test.cjs`;
+- any `.js`, `.mjs` or `.cjs` file inside a folder called `test`.
+
+A file such as `slug.spec.mjs` is **not** found by this rule. Each test file runs in its own process, so a global changed in one file cannot disturb another.
+
+## Tags
+
+<Since v="26" /> Node 26.2 added **tags**: labels that you attach to tests with the `tags` option, so that you can run a subset by name, for example the fast ones. The feature is early: Node's documentation marks it as stability 1.0, "early development", and prints an experimental warning. The flag that filters by tag is `--experimental-test-tag-filter`, and it takes a boolean expression with `and`, `or`, `not` and parentheses. Tags given to a `describe` are inherited by the tests inside it.
+
+On Node 24 and older, the `tags` option is ignored and the filter flag is unknown, so every test runs. The program below needs Node 26.2 or newer. It writes a test file with tags into a temporary directory (using `withTempDir` from [the files lesson](../files-and-paths/)) and runs it twice through the filter, printing the names of the tests that ran.
+
+```javascript title="nt_tags_run.mjs"
+import { spawnSync } from "node:child_process";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { withTempDir } from "./fp_helper.mjs";
+
+const source = `
+import { describe, it, test } from "node:test";
+test("parses numbers", { tags: ["fast", "unit"] }, () => {});
+test("talks to the network", { tags: ["slow"] }, () => {});
+test("has no tags", () => {});
+describe("suite", { tags: ["unit"] }, () => {
+  it("inherits unit", () => {});
+  it("is also slow", { tags: ["slow"] }, () => {});
+});
+`;
+```
+
+```javascript title="nt_tags_run.mjs (continued)"
+function ranTests(dir, filter) {
+  const flag = "--experimental-test-tag-filter=" + filter;
+  const args = ["--test", flag, "tags.test.mjs"];
+  const run = spawnSync(process.execPath, args, { cwd: dir, encoding: "utf8" });
+  return run.stdout
+    .split("\n")
+    .filter((line) => /^\s*✔/.test(line) && !/suite/.test(line))
+    .map((line) => line.trim().replace(/ \([\d.]+ms\)$/, ""));
+}
+
+await withTempDir(async (dir) => {
+  await writeFile(join(dir, "tags.test.mjs"), source);
+  console.log("not slow:", ranTests(dir, "not slow"));
+  console.log("unit and not slow:", ranTests(dir, "unit and not slow"));
+});
+```
+
+```text
+not slow: [ '✔ parses numbers', '✔ has no tags', '✔ inherits unit' ]
+unit and not slow: [ '✔ parses numbers', '✔ inherits unit' ]
+```
+
+Untagged tests count as "not slow", and the suite's `unit` tag reached its tests. Until the feature leaves early development, prefer naming conventions and `--test-name-pattern` for anything that must work on every Node version.
+
+## Common pitfalls
+
+- **Tests that depend on each other or on order.** Give every test its own state with `beforeEach`.
+- **A missing `await`** in an async test, so that the check runs after the test has ended.
+- **Importing `node:assert` instead of `node:assert/strict`**, which silently allows `1 == "1"`.
+- **Passing the result to `assert.throws`.** Pass a function: `assert.throws(() => f(x))`, not `assert.throws(f(x))`.
+- **Testing the implementation.** Check behaviour that callers can see. A test that breaks every time you refactor protects nothing.
+- **Real clocks, networks and random numbers in tests.** They make results vary. The next lesson shows how to replace them.
+- **Leaving `only` in the code.** The rest of the suite then does not run.
+- **Comparing floating-point results with `equal`.**
+
+## Exercises
+
+<Exercise title="Catch every bug">
+
+This function is supposed to return the median of an array of numbers: the middle value when the numbers are sorted, or the mean of the two middle values when there is an even number of them. It has several bugs. Save it as `nt_ex_median.mjs`.
+
+```javascript title="nt_ex_median.mjs"
+export function median(numbers) {
+  const sorted = numbers.sort();
+  const middle = Math.floor(sorted.length / 2);
+  return sorted[middle];
+}
+```
+
+Write a test file with exactly these five tests, in this order, in a `describe("median", ...)` group: `middle of an odd count`, `mean of the middle two for an even count`, `sorts numbers, not text`, `does not change its input`, and `throws for an empty array` (it should throw a `RangeError`). Run it against the function above. Every test that checks a bug must fail, and only the first one passes.
+
+Run it with this command, and compare with the expected report.
+
+```bash
+node --test nt_ex_median.test.mjs
+```
+
+Expected output:
+
+```text
+▶ median
+  ✔ middle of an odd count
+  ✖ mean of the middle two for an even count
+  ✖ sorts numbers, not text
+  ✖ does not change its input
+  ✖ throws for an empty array
+✖ median
+ℹ tests 5
+ℹ suites 1
+ℹ pass 1
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+<Solution>
+
+The default `sort()` compares as text and sorts in place, and the function ignores even lengths and empty arrays. Each test targets one of these. `[10, 9, 2]` sorts to `[10, 2, 9]` as text, so the middle value would be `2` instead of `9`.
+
+```javascript title="nt_ex_median.test.mjs"
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { median } from "./nt_ex_median.mjs";
+
+describe("median", () => {
+  it("middle of an odd count", () => {
+    assert.equal(median([3, 1, 2]), 2);
+  });
+
+  it("mean of the middle two for an even count", () => {
+    assert.equal(median([1, 2, 3, 4]), 2.5);
+  });
+
+  it("sorts numbers, not text", () => {
+    assert.equal(median([10, 9, 2]), 9);
+  });
+
+  it("does not change its input", () => {
+    const input = [3, 1, 2];
+    median(input);
+    assert.deepEqual(input, [3, 1, 2]);
+  });
+
+  it("throws for an empty array", () => {
+    assert.throws(() => median([]), RangeError);
+  });
+});
+```
+
+```text
+▶ median
+  ✔ middle of an odd count
+  ✖ mean of the middle two for an even count
+  ✖ sorts numbers, not text
+  ✖ does not change its input
+  ✖ throws for an empty array
+✖ median
+ℹ tests 5
+ℹ suites 1
+ℹ pass 1
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Test an async function">
+
+Here is an async function that doubles a number after a short wait and rejects with a `TypeError` for anything that is not a number.
+
+```javascript title="nt_ex_double.mjs"
+export async function doubleLater(value) {
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  if (typeof value !== "number") throw new TypeError("number expected");
+  return value * 2;
+}
+```
+
+Write a `describe("doubleLater", ...)` with two tests: `doubles a number` (the result for `21` is `42`) and `rejects other types` (the promise rejects with a `TypeError` whose message is `number expected`, for the input `"21"`). Both must pass.
+
+Run it with this command, and compare with the expected report.
+
+```bash
+node --test nt_ex_double.test.mjs
+```
+
+Expected output:
+
+```text
+▶ doubleLater
+  ✔ doubles a number
+  ✔ rejects other types
+✔ doubleLater
+ℹ tests 2
+ℹ suites 1
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+<Solution>
+
+Both tests are `async`, and the second one awaits `assert.rejects`. Remove the `await` and the test would still pass, whatever the function did.
+
+```javascript title="nt_ex_double.test.mjs"
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { doubleLater } from "./nt_ex_double.mjs";
+
+describe("doubleLater", () => {
+  it("doubles a number", async () => {
+    assert.equal(await doubleLater(21), 42);
+  });
+
+  it("rejects other types", async () => {
+    await assert.rejects(doubleLater("21"), {
+      name: "TypeError",
+      message: "number expected",
+    });
+  });
+});
+```
+
+```text
+▶ doubleLater
+  ✔ doubles a number
+  ✔ rejects other types
+✔ doubleLater
+ℹ tests 2
+ℹ suites 1
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A table of cases">
+
+When the same check applies to many inputs, write the cases as data and make one test for each. Subtests are created with `t.test` inside a test, where `t` is the test context that the runner passes as the argument. Test this function, which turns a number into the words `Fizz`, `Buzz`, `FizzBuzz` or the number as text:
+
+```javascript title="nt_ex_fizz.mjs"
+export function fizzbuzz(n) {
+  if (n % 15 === 0) return "FizzBuzz";
+  if (n % 3 === 0) return "Fizz";
+  if (n % 5 === 0) return "Buzz";
+  return String(n);
+}
+```
+
+Create one subtest per case in `[[1, "1"], [3, "Fizz"], [5, "Buzz"], [15, "FizzBuzz"]]`, named `fizzbuzz(1)` and so on, inside a test called `fizzbuzz`.
+
+Run it with this command, and compare with the expected report.
+
+```bash
+node --test nt_ex_fizz.test.mjs
+```
+
+Expected output:
+
+```text
+▶ fizzbuzz
+  ✔ fizzbuzz(1)
+  ✔ fizzbuzz(3)
+  ✔ fizzbuzz(5)
+  ✔ fizzbuzz(15)
+✔ fizzbuzz
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+<Solution>
+
+The loop awaits each subtest, so the subtests run one after another. The parent test counts as one test, and each subtest as another, which is why the total is 5.
+
+```javascript title="nt_ex_fizz.test.mjs"
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { fizzbuzz } from "./nt_ex_fizz.mjs";
+
+test("fizzbuzz", async (t) => {
+  const cases = [[1, "1"], [3, "Fizz"], [5, "Buzz"], [15, "FizzBuzz"]];
+  for (const [input, expected] of cases) {
+    await t.test(`fizzbuzz(${input})`, () => {
+      assert.equal(fizzbuzz(input), expected);
+    });
+  }
+});
+```
+
+```text
+▶ fizzbuzz
+  ✔ fizzbuzz(1)
+  ✔ fizzbuzz(3)
+  ✔ fizzbuzz(5)
+  ✔ fizzbuzz(15)
+✔ fizzbuzz
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `node:test` is Node's built-in runner, stable since Node 20. A test is a function that passes if it does not throw. Run files with `node --test`.
+- Import assertions from `node:assert/strict`. Use `equal`, `deepEqual`, `ok`, `throws` and `rejects`; read the diff in a failure message.
+- `describe` and `it` group and name tests, and `beforeEach` gives every test fresh state.
+- Async tests can `await`; always await `assert.rejects`.
+- `skip`, `todo`, `--test-name-pattern`, `--test-only` and `--watch` control what runs. The runner finds `*.test.*`, `test-*`, `*-test`, `*_test` files and files in `test` folders.
+- <Since v="26" /> Tags and `--experimental-test-tag-filter` select tests by label; they are in early development.
+
+Next: replacing clocks, random numbers and network calls with controlled stand-ins, and snapshot tests.

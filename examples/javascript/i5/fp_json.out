@@ -1,0 +1,2 @@
+{ theme: 'dark', fontSize: 14, tags: [ 'a', 'b' ] }
+true

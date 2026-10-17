@@ -1,0 +1,12 @@
+logs/app.log
+/srv/app/logs
+app.2026.log .log /srv/app/logs
+app.2026
+{
+  root: '/',
+  dir: '/srv/app/logs',
+  base: 'app.2026.log',
+  ext: '.log',
+  name: 'app.2026'
+}
+logs/app.2026.log

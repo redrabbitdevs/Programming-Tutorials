@@ -8,7 +8,8 @@
 #        PYTHON=/path/to/python3.15 scripts/validate.sh   interpreter for examples
 # An example may have a sibling .in file, which is fed to it as stdin.
 #        NODE=/path/to/node scripts/validate.sh   Node for JavaScript examples (*.mjs,
-#        same .in/.out rules; *.test.mjs run with node --test, pass/fail counts only).
+#        same .in/.out rules; *.test.mjs run with node --test, pass/fail counts only,
+#        unless the .out holds the full spec report: see the comment in step 2b).
 #        In a folder with a .modules marker file, and for *.cjs files, only files
 #        that have a sibling .out run (the others are imported by those entry points).
 #        In a folder with a .browser marker file (browser lessons; it holds a package.json
@@ -153,6 +154,14 @@ if [ -d "$ROOT/examples" ]; then
         raw="$(cd "$dir" && timeout 60 "${NODE:-node}" --test --test-reporter=spec "$base" 2>"$JS_ERR" <"$stdin_file"; echo "@@exit=$?")"
         code="${raw##*@@exit=}"
         actual="$(printf '%s' "${raw%@@exit=*}" | sed -nE 's/^ℹ (tests|pass|fail) ([0-9]+)$/\1 \2/p')"
+        # A .out that holds the report itself (it has an "ℹ tests N" line) is
+        # compared in full, so a lesson can show what the runner prints. Only
+        # what varies between runs is removed: the " (1.23ms)" after each name,
+        # the "ℹ duration_ms" line, and the "failing tests:" section (stack
+        # traces with absolute paths and Node-internal frames) at the end.
+        if [ -f "$expected" ] && grep -q '^ℹ tests ' "$expected"; then
+          actual="$(printf '%s' "${raw%@@exit=*}" | sed -E -e '/^✖ failing tests:$/,$d' -e 's/ \([0-9.]+ms\)//' -e '/^ℹ duration_ms /d')"
+        fi
         [ -f "$expected" ] && code=0
         if [ -z "$actual" ] && [ $code -eq 0 ]; then code=1; echo "no test summary in output" >"$JS_ERR"; fi
         ;;

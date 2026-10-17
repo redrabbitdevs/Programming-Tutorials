@@ -1,0 +1,5 @@
+true 5 [ 'a', 'b' ]
+[ 'build', 'src' ]
+ERR_PARSE_ARGS_UNKNOWN_OPTION | Unknown option '--nope'
+ERR_PARSE_ARGS_INVALID_OPTION_VALUE | Option '-m, --max <value>' argument missing
+ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL | Unexpected argument 'extra'. This command does not take positional arguments

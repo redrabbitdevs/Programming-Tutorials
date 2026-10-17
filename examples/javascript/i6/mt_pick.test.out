@@ -1,0 +1,10 @@
+✔ picks the first item for a random value near 0
+✔ picks the last item for a random value near 1
+✔ has the real Math.random back afterwards
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0

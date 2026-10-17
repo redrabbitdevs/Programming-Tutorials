@@ -1,0 +1,2 @@
+pipeline failed: negative number: -3
+sink saw [ 2, 4 ] and destroyed: true

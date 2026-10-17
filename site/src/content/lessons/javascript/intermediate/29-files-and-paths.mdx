@@ -1,0 +1,500 @@
+---
+language: javascript
+level: intermediate
+module: Node.js essentials
+order: 29
+title: Files and paths
+description: Read, write and list files with node:fs/promises, build file names safely with node:path, and work with URLs and file URLs, using a temporary directory that cleans up after itself.
+minVersion: "22"
+objectives:
+  - Read and write text and JSON files with node:fs/promises
+  - Catch file errors by their code, such as ENOENT and EEXIST
+  - Create, list and remove directories, and inspect files with stat
+  - Build and take apart file names with node:path, and locate files with import.meta.dirname
+  - Parse and build URLs with the URL class and convert between file URLs and paths
+estimatedMinutes: 55
+fundamentals: []
+---
+
+Programs that matter keep data somewhere: settings, logs, user documents. In Node the main tool for that is the `node:fs` module (**f**ile **s**ystem). It comes in three flavours: callbacks, synchronous functions (names ending in `Sync`) and promises. You already know why the first is awkward from [the callbacks lesson](../callbacks/), so this lesson uses the promise flavour, `node:fs/promises`, together with `async` and `await`. Alongside it we need `node:path` for building file names and the `URL` class for addresses.
+
+## A safe place to experiment
+
+Examples that write files should not litter your project, and they must not leave anything behind. Operating systems have a temporary folder for this, and `os.tmpdir()` gives its location. `fs.mkdtemp(prefix)` creates a **new, empty directory** there with a random name and returns its path. The helper below wraps the whole pattern: create the directory, run your function with it, and remove the directory afterwards, even if the function throws.
+
+```javascript title="fp_helper.mjs"
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+export async function withTempDir(work) {
+  const dir = await mkdtemp(join(tmpdir(), "lesson-"));
+  try {
+    return await work(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+```
+
+`rm` with `recursive: true` deletes a directory and everything inside it, and `force: true` stops it complaining when the path does not exist. The `finally` block runs whatever happens, which is exactly what you want from clean-up code. Save this file as `fp_helper.mjs`; the examples in this lesson (and in the next lessons of the module) import it. The random directory name is never printed, so the output of every example below is the same on every machine.
+
+## Reading and writing text
+
+`writeFile(path, data)` creates the file or **replaces** it. `appendFile` adds to the end. `readFile(path, "utf8")` returns the content as a string. Without the encoding argument you get a `Buffer`, a typed array of raw bytes, and not text.
+
+```javascript title="fp_readwrite.mjs"
+import { writeFile, appendFile, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { withTempDir } from "./fp_helper.mjs";
+
+await withTempDir(async (dir) => {
+  const file = join(dir, "notes.txt");
+  await writeFile(file, "first line\n");
+  await appendFile(file, "second line\n");
+
+  const text = await readFile(file, "utf8");
+  console.log(JSON.stringify(text));
+
+  const bytes = await readFile(file);
+  console.log(bytes.length, bytes instanceof Uint8Array);
+});
+```
+
+```text
+"first line\nsecond line\n"
+23 true
+```
+
+`JSON.stringify` on the string makes the `\n` characters visible. The file holds 23 bytes: the characters of both lines and two newlines. A `Buffer` is a `Uint8Array`, which is why the `instanceof` check is `true`; the advanced module on binary data takes that further.
+
+The same two functions are how you store data. A JavaScript object becomes a file with `JSON.stringify` and comes back with `JSON.parse`, as in [the JSON lesson](../../beginner/json-js/).
+
+```javascript title="fp_json.mjs"
+import { writeFile, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { withTempDir } from "./fp_helper.mjs";
+
+await withTempDir(async (dir) => {
+  const file = join(dir, "settings.json");
+  const settings = { theme: "dark", fontSize: 14, tags: ["a", "b"] };
+  await writeFile(file, JSON.stringify(settings, null, 2));
+
+  const loaded = JSON.parse(await readFile(file, "utf8"));
+  console.log(loaded);
+  console.log(loaded.tags !== settings.tags);
+});
+```
+
+```text
+{ theme: 'dark', fontSize: 14, tags: [ 'a', 'b' ] }
+true
+```
+
+The object came back equal but not identical: `loaded.tags` is a new array. Whatever is not valid JSON, such as functions or `Date` objects, would not survive the trip.
+
+## When things go wrong
+
+File operations fail often and for ordinary reasons: the file is not there, it already exists, you may not touch it. The promise rejects with an `Error` that has a `code` property. Test the **code**, never the message text.
+
+```javascript title="fp_errors.mjs"
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { withTempDir } from "./fp_helper.mjs";
+
+await withTempDir(async (dir) => {
+  const missing = join(dir, "missing.txt");
+  try {
+    await readFile(missing, "utf8");
+  } catch (error) {
+    console.log(error.code, error.syscall);
+    console.log(error.message.replace(dir, "<dir>"));
+  }
+
+  const file = join(dir, "once.txt");
+  await writeFile(file, "x", { flag: "wx" });
+  await writeFile(file, "y", { flag: "wx" }).catch((e) => console.log(e.code));
+});
+```
+
+```text
+ENOENT open
+ENOENT: no such file or directory, open '<dir>/missing.txt'
+EEXIST
+```
+
+- `ENOENT` means "no such file or directory". The `syscall` says which operating system call failed, and the message includes the full path, which is why the example replaces the random directory name.
+- The `flag` option controls how a file is opened. `"wx"` means "write, but fail if the file exists", so the second call is refused with `EEXIST`. It is the safe way to say "create, never overwrite".
+- Other codes you will meet: `EACCES` (permission denied), `EISDIR` (it is a directory), `ENOTEMPTY` (the directory has contents).
+
+A habit worth building: do not check first and then act. `access()` followed by `readFile()` has a gap in which another program can change the file, and the Node documentation advises against it. Just try the operation and handle the error.
+
+## Directories and file information
+
+`mkdir` creates a directory, and with `{ recursive: true }` it creates the missing parents too and does not complain when the directory exists. `readdir` lists the names in a directory, and `stat` describes one entry.
+
+```javascript title="fp_dirs.mjs"
+import { mkdir, writeFile, readdir, stat } from "node:fs/promises";
+import { join } from "node:path";
+import { withTempDir } from "./fp_helper.mjs";
+
+await withTempDir(async (dir) => {
+  await mkdir(join(dir, "docs", "old"), { recursive: true });
+  await writeFile(join(dir, "docs", "a.txt"), "hello");
+  await writeFile(join(dir, "docs", "old", "b.txt"), "hi");
+
+  console.log((await readdir(join(dir, "docs"))).sort());
+  console.log((await readdir(dir, { recursive: true })).sort());
+
+  const info = await stat(join(dir, "docs", "a.txt"));
+  console.log(info.size, info.isFile(), info.isDirectory());
+});
+```
+
+```text
+[ 'a.txt', 'old' ]
+[ 'docs', 'docs/a.txt', 'docs/old', 'docs/old/b.txt' ]
+5 true false
+```
+
+The list of names is sorted here because the operating system decides the order that `readdir` returns, and it may differ between machines. With `recursive: true` the names come back as paths relative to the directory you asked about. `stat` gives the size in bytes, the modification time and methods such as `isFile()` and `isDirectory()`.
+
+To tell files from folders while listing, ask for `withFileTypes: true`. You then get objects with a `name` and the same `isFile()` and `isDirectory()` methods, so no extra `stat` call is needed.
+
+```javascript title="fp_entries.mjs"
+import { mkdir, writeFile, readdir, rename } from "node:fs/promises";
+import { join } from "node:path";
+import { withTempDir } from "./fp_helper.mjs";
+
+await withTempDir(async (dir) => {
+  await mkdir(join(dir, "pics"));
+  await writeFile(join(dir, "todo.txt"), "buy milk");
+  await rename(join(dir, "todo.txt"), join(dir, "done.txt"));
+
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    console.log(entry.name, entry.isDirectory() ? "folder" : "file");
+  }
+});
+```
+
+```text
+done.txt file
+pics folder
+```
+
+`rename` moves or renames. Two more tools you will want: `cp(from, to, { recursive: true })` copies a whole tree, and `glob(pattern)` lists files matching a pattern such as `**/*.txt` as an async iterable (stable since Node 22.17 and 24.0).
+
+## Building file names with node:path
+
+Never build a path by gluing strings with `"/"`: Windows uses a backslash, and doubled or missing separators cause quiet bugs. `node:path` does it correctly for the system the program runs on. The listings below show the Linux and macOS results.
+
+```javascript title="fp_path.mjs"
+import path from "node:path";
+
+console.log(path.join("data", "..", "logs", "app.log"));
+console.log(path.resolve("/srv/app", "data", "../logs"));
+
+const file = "/srv/app/logs/app.2026.log";
+console.log(path.basename(file), path.extname(file), path.dirname(file));
+console.log(path.basename(file, ".log"));
+console.log(path.parse(file));
+console.log(path.relative("/srv/app", file));
+```
+
+```text
+logs/app.log
+/srv/app/logs
+app.2026.log .log /srv/app/logs
+app.2026
+{
+  root: '/',
+  dir: '/srv/app/logs',
+  base: 'app.2026.log',
+  ext: '.log',
+  name: 'app.2026'
+}
+logs/app.2026.log
+```
+
+- `join` glues the pieces with the right separator and tidies `..` and `.`. The result can be relative.
+- `resolve` works from right to left until it has an **absolute** path. If the pieces are not enough it starts from the current working directory, so a relative `resolve` result depends on where the program was started.
+- `basename`, `extname` and `dirname` take a path apart. `extname` includes the dot and looks only at the last one, so `app.2026.log` has the extension `.log`.
+- `parse` returns all the parts as one object, and `relative(from, to)` is the route from one path to another.
+
+### Where is my script?
+
+A relative path such as `"data/users.json"` is relative to the **current working directory**, the folder where you typed `node`, and not to the script's folder. The same program then works from one folder and fails from another. In an ES module, `import.meta.dirname` is the folder of the current file and `import.meta.filename` is its full path. Both were added in Node 20.11 and 21.2 and are stable on every Node 22.16 and later. Build paths from them with `join`.
+
+```javascript title="fp_meta.mjs"
+import path from "node:path";
+
+console.log(path.basename(import.meta.filename));
+console.log(import.meta.dirname === path.dirname(import.meta.filename));
+console.log(import.meta.url.startsWith("file:///"));
+const dataFile = path.join(import.meta.dirname, "data", "users.json");
+console.log(path.basename(dataFile), path.basename(path.dirname(dataFile)));
+```
+
+```text
+fp_meta.mjs
+true
+true
+users.json data
+```
+
+## URLs
+
+A URL is an address with parts: protocol, host, path, query and fragment. The `URL` class is a web standard and works the same in browsers and Node. It does the parsing, the escaping and the resolving of relative links, which hand-written string code gets wrong.
+
+```javascript title="fp_url.mjs"
+const url = new URL("https://example.com:8080/a/b.html?q=js&page=2#top");
+console.log(url.protocol, url.hostname, url.port);
+console.log(url.pathname, url.hash);
+console.log(url.searchParams.get("q"), url.origin);
+
+url.searchParams.set("page", "3");
+url.searchParams.append("tag", "x y");
+console.log(url.href);
+```
+
+```text
+https: example.com 8080
+/a/b.html #top
+js https://example.com:8080
+https://example.com:8080/a/b.html?q=js&page=3&tag=x+y#top
+```
+
+`searchParams` is a live `URLSearchParams` object. Changing it changes `href`, and it escapes values for you: the space in `x y` became `+`. A URL can also be built from a relative reference and a base, and `URL.canParse` asks whether a string is acceptable without throwing.
+
+```javascript title="fp_url.mjs (continued)"
+console.log(new URL("../c", "https://example.com/a/b/").href);
+console.log(URL.canParse("not a url"));
+console.log(URL.canParse("/a", "http://x.test"));
+
+try {
+  new URL("not a url");
+} catch (error) {
+  console.log(error.name, error.code);
+}
+```
+
+```text
+https://example.com/a/c
+false
+true
+TypeError ERR_INVALID_URL
+```
+
+Constructing a `URL` from a bad string throws a `TypeError` with the code `ERR_INVALID_URL`. Use `canParse` or a `try` when the text comes from a user. The old `url.parse()` function of Node is deprecated and not safe; use `new URL()`.
+
+### File URLs
+
+A file can be written as a URL that starts with `file://`, and that is how `import.meta.url` describes the current module. Some Node functions accept such URLs, and `node:url` converts both ways. The conversion also handles characters that need escaping.
+
+```javascript title="fp_fileurl.mjs"
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const url = pathToFileURL("/tmp/my notes/a.txt");
+console.log(url.href);
+console.log(fileURLToPath(url));
+console.log(fileURLToPath("file:///tmp/x%23y.txt"));
+```
+
+```text
+file:///tmp/my%20notes/a.txt
+/tmp/my notes/a.txt
+/tmp/x#y.txt
+```
+
+## Putting it together: word count for a folder
+
+The program below creates three small text files, lists the folder, reads all the files at once with `Promise.all` and prints the number of words in each. It combines `mkdir`, `writeFile`, `readdir`, `readFile` and `path`.
+
+```javascript title="fp_wordcount.mjs"
+import { writeFile, readdir, readFile } from "node:fs/promises";
+import { join, extname } from "node:path";
+import { withTempDir } from "./fp_helper.mjs";
+
+const countWords = (text) => text.split(/\s+/).filter(Boolean).length;
+
+await withTempDir(async (dir) => {
+  await writeFile(join(dir, "a.txt"), "one two three\n");
+  await writeFile(join(dir, "b.txt"), "four\nfive six\n\nseven\n");
+  await writeFile(join(dir, "skip.md"), "ignored text");
+
+  const names = (await readdir(dir)).filter((n) => extname(n) === ".txt");
+  const counts = await Promise.all(
+    names.sort().map(async (name) => {
+      const text = await readFile(join(dir, name), "utf8");
+      return `${name}: ${countWords(text)}`;
+    }),
+  );
+  console.log(counts.join("\n"));
+});
+```
+
+```text
+a.txt: 3
+b.txt: 4
+```
+
+`Promise.all` starts all the reads together and keeps the results in the order of the input. For a folder with thousands of files you would limit the concurrency, as in [the combinators lesson](../promise-combinators/). For a single huge file you would not read it at all in one piece. That is the subject of the [streams lesson](../streams-intro/).
+
+## Common pitfalls
+
+- **Relative paths.** `readFile("data.json")` looks in the working directory. Use `join(import.meta.dirname, ...)` for files that ship with your program.
+- **Building paths with `+ "/" +`.** Use `join` or `resolve`.
+- **Forgetting `await`.** `writeFile(...)` without `await` returns a promise; the file may not be written when the next line reads it, and an error becomes an unhandled rejection.
+- **`writeFile` replaces silently.** Use the `"wx"` flag or `appendFile` when overwriting would be a bug.
+- **Checking before acting** with `access`. Handle the error instead.
+- **Matching the error message.** Compare `error.code`.
+- **Trusting user-supplied path parts.** A part such as `../../etc/passwd` escapes your folder. See the second exercise.
+- **Reading a big file into memory** with `readFile`.
+
+## Exercises
+
+<Exercise title="Count files by extension">
+
+In a temporary directory create `a.txt`, `b.md`, `c.txt` and `d.js` (empty content is fine). Read the directory and count the files for each extension. Print one line per extension in alphabetical order, as `extension: count`.
+
+Expected output:
+
+```text
+.js: 1
+.md: 1
+.txt: 2
+```
+
+<Solution>
+
+A `Map` collects the counts, and sorting the keys makes the output independent of the order that `readdir` returns.
+
+```javascript title="fp_ex_ext.mjs"
+import { writeFile, readdir } from "node:fs/promises";
+import { join, extname } from "node:path";
+import { withTempDir } from "./fp_helper.mjs";
+
+await withTempDir(async (dir) => {
+  for (const name of ["a.txt", "b.md", "c.txt", "d.js"]) {
+    await writeFile(join(dir, name), "");
+  }
+  const counts = new Map();
+  for (const name of await readdir(dir)) {
+    const ext = extname(name);
+    counts.set(ext, (counts.get(ext) ?? 0) + 1);
+  }
+  for (const ext of [...counts.keys()].sort()) {
+    console.log(`${ext}: ${counts.get(ext)}`);
+  }
+});
+```
+
+```text
+.js: 1
+.md: 1
+.txt: 2
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Stay inside the folder">
+
+A web server serves files from a folder `/srv/public`. Write `safeJoin(root, userPath)` that returns the resolved absolute path, but throws an `Error` with the message `outside root` when the result is not inside `root`. Test it with `docs/a.txt`, `./b.txt` and `../secret.txt`, and print either the resolved path or the error message.
+
+Expected output:
+
+```text
+/srv/public/docs/a.txt
+/srv/public/b.txt
+outside root
+```
+
+<Solution>
+
+`resolve` removes the `..` parts. Then `relative(root, target)` tells whether the target is inside: if the route starts with `..` (or is absolute), the target is outside.
+
+```javascript title="fp_ex_safe.mjs"
+import { resolve, relative, isAbsolute } from "node:path";
+
+function safeJoin(root, userPath) {
+  const target = resolve(root, userPath);
+  const route = relative(root, target);
+  if (route.startsWith("..") || isAbsolute(route)) {
+    throw new Error("outside root");
+  }
+  return target;
+}
+
+for (const input of ["docs/a.txt", "./b.txt", "../secret.txt"]) {
+  try {
+    console.log(safeJoin("/srv/public", input));
+  } catch (error) {
+    console.log(error.message);
+  }
+}
+```
+
+```text
+/srv/public/docs/a.txt
+/srv/public/b.txt
+outside root
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Build a search URL">
+
+Write `searchUrl(base, params)` that returns the full address of a search page. It takes a base such as `https://shop.test/search` and an object of parameters. Skip parameters whose value is `undefined`. Print the result for `{ q: "red shoes", size: 42, color: undefined }` and then the result of reading `q` back from the finished URL.
+
+Expected output:
+
+```text
+https://shop.test/search?q=red+shoes&size=42
+red shoes
+```
+
+<Solution>
+
+`searchParams.set` turns every value into a string and escapes it, so numbers need no conversion. Reading `q` back decodes the `+` into a space.
+
+```javascript title="fp_ex_search.mjs"
+function searchUrl(base, params) {
+  const url = new URL(base);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) url.searchParams.set(key, value);
+  }
+  return url;
+}
+
+const url = searchUrl("https://shop.test/search", {
+  q: "red shoes",
+  size: 42,
+  color: undefined,
+});
+console.log(url.href);
+console.log(url.searchParams.get("q"));
+```
+
+```text
+https://shop.test/search?q=red+shoes&size=42
+red shoes
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `node:fs/promises` gives promise versions of the file functions: `readFile`, `writeFile`, `appendFile`, `mkdir`, `readdir`, `stat`, `rename`, `rm`. Pass `"utf8"` to read text.
+- Errors carry a `code` such as `ENOENT` or `EEXIST`. Test the code, and try the operation instead of checking first.
+- Do experiments in a directory from `mkdtemp`, and remove it in a `finally` block.
+- `node:path` builds and parses file names portably: `join`, `resolve`, `basename`, `extname`, `dirname`, `parse`, `relative`. Anchor program files to `import.meta.dirname`.
+- `URL` parses, builds and escapes web addresses. `pathToFileURL` and `fileURLToPath` convert between paths and `file:` URLs.
+
+Next: turning a script into a real command-line tool that takes arguments and reports success or failure to the shell.

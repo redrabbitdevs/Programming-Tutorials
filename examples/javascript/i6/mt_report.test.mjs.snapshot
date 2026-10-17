@@ -1,0 +1,7 @@
+exports[`renders an empty report 1`] = `
+"ID    TOTAL\\nSUM       0"
+`;
+
+exports[`renders the report 1`] = `
+"ID    TOTAL\\na1      120\\nb22       5\\nSUM     125"
+`;

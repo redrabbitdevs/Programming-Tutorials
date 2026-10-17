@@ -1,0 +1,567 @@
+---
+language: javascript
+level: intermediate
+module: Testing and tooling
+order: 38
+title: "Project: a tested API client"
+description: Build a small REST client with fetch, JSON handling, retries with backoff, timeouts and cancellation, and test it with node:test against a local mock server.
+minVersion: "22"
+objectives:
+  - Design a small client library around fetch with clear error types
+  - Retry only the failures that are worth retrying, with exponential backoff
+  - Combine a per-attempt timeout with a caller's cancellation signal
+  - Test a client against a local mock server and make waiting fast and visible in the tests
+  - Extend the finished client with pagination built on an async generator
+estimatedMinutes: 75
+fundamentals: []
+---
+
+This project joins the three halves of this course so far: asynchronous code ([promises](../promises/), [cancellation](../cancellation/)), Node ([fetch and a server](../http-and-fetch/), [modules and files](../files-and-paths/)) and testing ([the test runner](../node-test/) and [mocks](../mocks-and-fake-timers/)). You will build the kind of small library that sits between a program and a web API, and test it properly.
+
+The client is a function, `createClient`, that returns an object with `get` and `post` methods. What makes it worth having, instead of calling `fetch` directly everywhere, is that it handles the same chores in one place:
+
+- it joins the base address and the path, sends and reads JSON;
+- it turns a bad HTTP status into an **error** (`fetch` itself does not);
+- it **retries** failures that may be temporary, waiting longer each time (exponential backoff), and never retries mistakes that repeating cannot fix;
+- it gives every request a **timeout**, and lets the caller **cancel**.
+
+## Design decisions first
+
+Before writing code, decide the rules. Writing them down makes the tests obvious.
+
+| Situation | What the client does |
+|---|---|
+| `2xx` response | returns the parsed JSON (or `undefined` for an empty body) |
+| `4xx` response | throws `HttpError`; **no retry**, because repeating a wrong request is wrong again |
+| `5xx` response | throws `HttpError` after the retries are used up |
+| network failure (`fetch failed`) | retried like a `5xx` |
+| attempt takes longer than `timeoutMs` | `TimeoutError`; retried |
+| caller aborts the signal | `AbortError`; **never retried**, and also stops a backoff wait |
+| `POST` | **never retried**, because repeating it may create two records. Only `GET`, `HEAD`, `PUT` and `DELETE` are safe to repeat |
+| wait between retries | `baseDelayMs`, doubled each time: 100, 200, 400 ... |
+
+The last rule is also a testing decision. If the real waiting were hard-wired inside the client, every retry test would take real time. So the waiting function is a **parameter** (`wait`) with the real timer as the default. Tests can pass a stand-in. This is the same idea as in the mocks lesson: make the awkward part replaceable.
+
+## The error type and the request
+
+The first piece is an error class that carries the status and the parsed body of the failed response, so that callers can react to them.
+
+```javascript title="pr_client.mjs"
+import { setTimeout as sleep } from "node:timers/promises";
+
+export class HttpError extends Error {
+  constructor(status, body) {
+    super(`HTTP ${status}`);
+    this.name = "HttpError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
+const SAFE_TO_REPEAT = new Set(["GET", "HEAD", "PUT", "DELETE"]);
+
+function isRetryable(error) {
+  if (error instanceof HttpError) return error.status >= 500;
+  return error.name === "TimeoutError" || error.message === "fetch failed";
+}
+```
+
+`isRetryable` encodes the table. A `TypeError` with the message `fetch failed` is what `fetch` throws when no response arrived (see [the HTTP lesson](../http-and-fetch/)). A cancellation by the caller is an `AbortError`, which matches nothing here, so it is never retried.
+
+Next, the function that makes **one attempt**. It builds the signal for the attempt: a timeout, combined with the caller's signal if there is one, using `AbortSignal.any`. It reads the body once, and turns a bad status into an `HttpError`.
+
+```javascript title="pr_client.mjs (continued)"
+export function createClient({
+  baseUrl,
+  retries = 2,
+  timeoutMs = 5000,
+  baseDelayMs = 100,
+  wait = sleep,
+  onRetry = () => {},
+}) {
+  async function send(url, options, signal) {
+    const signals = [AbortSignal.timeout(timeoutMs)];
+    if (signal) signals.push(signal);
+    const combined = AbortSignal.any(signals);
+    const response = await fetch(url, { ...options, signal: combined });
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : undefined;
+    if (!response.ok) throw new HttpError(response.status, data);
+    return data;
+  }
+```
+
+Then the loop that decides about retrying. It makes an attempt; if it fails with something retryable and attempts remain, it computes the delay (`baseDelayMs * 2 ** (attempt - 1)`), reports it to `onRetry`, waits and tries again. The wait receives the caller's signal too, so a cancel during the pause ends the whole call at once.
+
+```javascript title="pr_client.mjs (continued)"
+  async function request(method, path, { body, signal } = {}) {
+    const url = new URL(path, baseUrl);
+    const options = { method, headers: {} };
+    if (body !== undefined) {
+      options.headers["content-type"] = "application/json";
+      options.body = JSON.stringify(body);
+    }
+    const maxAttempts = SAFE_TO_REPEAT.has(method) ? retries + 1 : 1;
+
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await send(url, options, signal);
+      } catch (error) {
+        if (attempt >= maxAttempts || !isRetryable(error)) throw error;
+        const delay = baseDelayMs * 2 ** (attempt - 1);
+        onRetry({ attempt, delay, error });
+        await wait(delay, undefined, { signal });
+      }
+    }
+  }
+
+  return {
+    get: (path, options) => request("GET", path, options),
+    post: (path, body, options) => request("POST", path, { ...options, body }),
+  };
+}
+```
+
+The `for (;;)` loop has no condition: it ends by `return` on success or by `throw` when the error is final. `await wait(delay, undefined, { signal })` matches the signature of the promise version of `setTimeout` from `node:timers/promises`: the delay, a value to resolve with, and options.
+
+## A mock server
+
+To test a client you need a server that you control: one that can answer normally, fail on demand, or answer slowly. The module below is a small in-memory REST API for a `users` resource. It uses the `startServer` helper from [the HTTP lesson](../http-and-fetch/) (saved as `hf_helper.mjs`). Two plain objects, `stats` and `behavior`, are the controls: the tests read how many requests arrived and tell the server to fail the next few or to answer slowly.
+
+```javascript title="pr_server.mjs"
+import { setTimeout as sleep } from "node:timers/promises";
+import { startServer } from "./hf_helper.mjs";
+
+async function readJson(req) {
+  req.setEncoding("utf8");
+  let text = "";
+  for await (const chunk of req) text += chunk;
+  return JSON.parse(text);
+}
+
+export async function startApi() {
+  const users = [{ id: 1, name: "Ada" }, { id: 2, name: "Alan" }];
+  const stats = { requests: 0 };
+  const behavior = { failures: 0, delayMs: 0 };
+```
+
+The request handler first applies the controls, and then routes.
+
+```javascript title="pr_server.mjs (continued)"
+  const { url, stop } = await startServer(async (req, res) => {
+    stats.requests++;
+    const send = (status, data) => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(data));
+    };
+    if (behavior.delayMs > 0) await sleep(behavior.delayMs);
+    if (behavior.failures > 0) {
+      behavior.failures--;
+      return send(503, { error: "busy" });
+    }
+
+```
+
+After the controls come the routes: the list, one user by number, and the creation of a user. Anything else gets a 404.
+
+```javascript title="pr_server.mjs (continued)"
+    const { pathname } = new URL(req.url, "http://localhost");
+    const one = pathname.match(/^\/users\/(\d+)$/);
+    if (req.method === "GET" && pathname === "/users") return send(200, users);
+    if (req.method === "GET" && one) {
+      const user = users.find((u) => u.id === Number(one[1]));
+      return user ? send(200, user) : send(404, { error: "not found" });
+    }
+    if (req.method === "POST" && pathname === "/users") {
+      const user = { id: users.length + 1, ...(await readJson(req)) };
+      users.push(user);
+      return send(201, user);
+    }
+    send(404, { error: "not found" });
+  });
+  return { url, stop, stats, behavior };
+}
+```
+
+## Try it
+
+Before writing tests, use the client once, to see it work. The demo makes the server fail the first request, so that you can see a retry through the `onRetry` hook. The delays are short so that the demo is quick.
+
+```javascript title="pr_demo.mjs"
+import { createClient, HttpError } from "./pr_client.mjs";
+import { startApi } from "./pr_server.mjs";
+
+const api = await startApi();
+const client = createClient({
+  baseUrl: api.url,
+  baseDelayMs: 5,
+  onRetry: ({ delay, error }) =>
+    console.log(`retry in ${delay} ms: ${error.message}`),
+});
+
+api.behavior.failures = 1;
+console.log(await client.get("/users"));
+console.log(await client.post("/users", { name: "Grace" }));
+
+try {
+  await client.get("/users/99");
+} catch (error) {
+  console.log(error instanceof HttpError, error.status, error.body);
+}
+await api.stop();
+```
+
+```text
+retry in 5 ms: HTTP 503
+[ { id: 1, name: 'Ada' }, { id: 2, name: 'Alan' } ]
+{ id: 3, name: 'Grace' }
+true 404 { error: 'not found' }
+```
+
+The first `GET` got a `503`, waited 5 ms and then succeeded. The `POST` created user 3. The unknown user raised an `HttpError` with the status and the body that the server sent, without any retry (the log shows only one retry in total).
+
+## The tests
+
+Now the safety net. The structure follows the table of decisions: one test for each row. The server is started once for the whole group in `before`, stopped in `after`, and the controls are reset before every test with `beforeEach`, so that tests cannot disturb one another. The little function `client` builds a client for the test server with a tiny default delay.
+
+```javascript title="pr_client.test.mjs"
+import { describe, it, before, after, beforeEach, mock } from "node:test";
+import assert from "node:assert/strict";
+import { createClient, HttpError } from "./pr_client.mjs";
+import { startApi } from "./pr_server.mjs";
+
+describe("api client", () => {
+  let api;
+  before(async () => {
+    api = await startApi();
+  });
+  after(() => api.stop());
+  beforeEach(() => {
+    api.stats.requests = 0;
+    api.behavior.failures = 0;
+    api.behavior.delayMs = 0;
+  });
+
+  const client = (options) => createClient({ baseUrl: api.url, ...options });
+```
+
+The first tests cover the straightforward answers: a good response is parsed, and a `404` becomes an `HttpError` that is not retried. The request counter proves the second part: after the failure the server saw exactly one request.
+
+```javascript title="pr_client.test.mjs (continued)"
+  it("returns the parsed JSON of a successful GET", async () => {
+    assert.deepEqual(await client().get("/users/1"), { id: 1, name: "Ada" });
+  });
+
+  it("throws an HttpError for a 404, without retrying", async () => {
+    const error = await client().get("/users/99").catch((e) => e);
+    assert.ok(error instanceof HttpError);
+    assert.equal(error.status, 404);
+    assert.deepEqual(error.body, { error: "not found" });
+    assert.equal(api.stats.requests, 1);
+  });
+```
+
+Now the retries. The `wait` function is a spy that returns immediately. The test checks the delays that were requested, which are the backoff schedule, and nothing really waits. The server is told to fail twice, so the third attempt succeeds.
+
+```javascript title="pr_client.test.mjs (continued)"
+  it("retries a 503 with doubling delays", async () => {
+    api.behavior.failures = 2;
+    const wait = mock.fn(async () => {});
+    const result = await client({ wait }).get("/users/2");
+
+    assert.deepEqual(result, { id: 2, name: "Alan" });
+    assert.equal(api.stats.requests, 3);
+    const delays = wait.mock.calls.map((call) => call.arguments[0]);
+    assert.deepEqual(delays, [100, 200]);
+  });
+
+  it("gives up after the allowed retries", async () => {
+    api.behavior.failures = 10;
+    const wait = async () => {};
+    const failing = client({ wait, retries: 2 });
+    const error = await failing.get("/users").catch((e) => e);
+
+    assert.equal(error.status, 503);
+    assert.equal(api.stats.requests, 3);
+  });
+```
+
+Three requests for `retries: 2`: the first attempt plus two retries. Then the cases that need a body and a clock:
+
+```javascript title="pr_client.test.mjs (continued)"
+  it("sends a POST body as JSON", async () => {
+    const created = await client().post("/users", { name: "Grace" });
+    assert.deepEqual(created, { id: 3, name: "Grace" });
+  });
+
+  it("times out a slow answer", async () => {
+    api.behavior.delayMs = 200;
+    const slow = client({ timeoutMs: 20, retries: 0 });
+    const error = await slow.get("/users").catch((e) => e);
+    assert.equal(error.name, "TimeoutError");
+  });
+});
+```
+
+```text
+▶ api client
+  ✔ returns the parsed JSON of a successful GET
+  ✔ throws an HttpError for a 404, without retrying
+  ✔ retries a 503 with doubling delays
+  ✔ gives up after the allowed retries
+  ✔ sends a POST body as JSON
+  ✔ times out a slow answer
+✔ api client
+ℹ tests 6
+ℹ suites 1
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+Six tests, all green, in well under a second. Read them as a specification of the client: most rows of the design table have a test (the exercises add the cancellation and the `POST` rows), and the two that matter most for correctness, "do not retry a 404" and "back off exponentially", also check the number of requests the server saw. A test that only looked at the result could not tell a client that retried once from one that retried ten times.
+
+The `after` hook is important too. If the tests left the server running, the test process would not finish. Closing the server and its connections is part of the test, not an afterthought.
+
+## How much did the tests cover?
+
+A **coverage** report says which parts of your code ran while the tests ran. Node's runner can produce one, with a flag whose name still carries the word *experimental*: the feature is documented as experimental (stability 1), so its options and its output format may change between releases. Treat it as a helpful but unfinished tool.
+
+```bash
+node --test --experimental-test-coverage pr_client.test.mjs
+```
+
+```text
+ℹ start of coverage report
+ℹ --------------------------------------------------------------
+ℹ file          | line % | branch % | funcs % | uncovered lines
+ℹ --------------------------------------------------------------
+ℹ hf_helper.mjs | 100.00 |   100.00 |  100.00 | 
+ℹ pr_client.mjs | 100.00 |    83.33 |  100.00 | 
+ℹ pr_server.mjs |  97.67 |    94.44 |  100.00 | 40
+ℹ --------------------------------------------------------------
+ℹ all files     |  99.16 |    89.36 |  100.00 | 
+ℹ --------------------------------------------------------------
+ℹ end of coverage report
+```
+
+This is the report printed by Node 24 and 26, after the usual list of tests. Node 22 also lists the test file itself as a row. The columns are the percentage of **lines** that ran, of **branches** (the two sides of an `if`, of `?:`, of `??` and so on) and of **functions**, and the numbers of the lines that never ran.
+
+Read the figures like this. Every line of `pr_client.mjs` ran, but only 83.33 per cent of its branches did: some `if` or `?:` has a side that no test took. To see which, the `lcov` reporter (`--test-reporter=lcov`) lists every branch with the number of times it ran. Three of the untaken branches are meaningful here: `isRetryable` never saw an error that is not an `HttpError` (the only other failure in the tests is a timeout, and that test uses `retries: 0`, so no retry decision is made); no test passes a `signal` to `get`; and no test receives an empty body. These are exactly the sort of gap that a plain line count hides, and the first exercise closes one of them. In `pr_server.mjs`, line 40 never ran: it is the final fallback `404`, which no test requested.
+
+Some words of caution about coverage:
+
+- It tells you what was **not** tested, never that the tested parts are right. A test with no assertions gives 100 per cent coverage.
+- A target such as "90 per cent" turns into tests written to please the number. Use the report to find forgotten cases, and decide for yourself whether they matter.
+- You can limit the report to some files with the flags `--test-coverage-include` and `--test-coverage-exclude`, and exclude code on purpose with a comment: `/* node:coverage ignore next */` skips the next line, and `/* node:coverage disable */` and `/* node:coverage enable */` fence a region.
+
+
+## Improving it
+
+A few ideas for going on, none of which changes the structure:
+
+- Honour a `Retry-After` header on a `503` answer, using the server's number instead of the computed delay.
+- Add a random amount of **jitter** to the delay, so that many clients that failed together do not all retry at the same instant. This makes the delay non-deterministic, so the tests would then inject the randomness as they injected the waiting.
+- Add `put` and `delete` methods (they are already safe to repeat).
+- Count the elapsed time of the whole call, with an overall deadline in addition to the per-attempt one.
+
+## Common pitfalls
+
+- **Retrying everything.** Repeating a `4xx` only repeats the mistake. Repeating a `POST` can duplicate data.
+- **Retrying at once, in a tight loop.** A failing server then gets more load. Back off, and add jitter in production.
+- **Forgetting that `AbortError` is not a failure.** The caller asked for it. Do not retry it, and do not log it as an error.
+- **Tests that wait in real time.** Inject the waiting, and test the schedule instead of sitting through it.
+- **Tests that only check the result.** Check the number of requests as well.
+- **Hard-coded ports or shared state between tests.** Use port `0` and reset the state in `beforeEach`.
+- **Leaving the server running** at the end of the tests.
+- **No timeout on `fetch`.** Without one, a stalled server stalls your program.
+
+## Exercises
+
+<Exercise title="Cancel a request in flight">
+
+Write a test file for the client with its own mock server. The test makes the server answer after 200 ms, starts `client.get("/users", { signal })` with an `AbortController`'s signal, aborts after 20 ms, and checks that the call rejects with an error named `AbortError` and that the server saw exactly one request (the client must not retry a cancelled call). Call the test `does not retry a cancelled request`.
+
+Expected output:
+
+```text
+✔ does not retry a cancelled request
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+<Solution>
+
+The server and the client are created inside the test and cleaned up in a `finally` block, which is also the pattern for a test that needs a custom setup. With `retries` at its default of 2, a client that wrongly retried an abort would send more requests, and the counter would show it.
+
+```javascript title="pr_ex_cancel.test.mjs"
+import { it } from "node:test";
+import assert from "node:assert/strict";
+import { createClient } from "./pr_client.mjs";
+import { startApi } from "./pr_server.mjs";
+
+it("does not retry a cancelled request", async () => {
+  const api = await startApi();
+  try {
+    api.behavior.delayMs = 200;
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 20);
+
+    const client = createClient({ baseUrl: api.url, baseDelayMs: 1 });
+    const { signal } = controller;
+    const error = await client.get("/users", { signal }).catch((e) => e);
+
+    assert.equal(error.name, "AbortError");
+    assert.equal(api.stats.requests, 1);
+  } finally {
+    await api.stop();
+  }
+});
+```
+
+```text
+✔ does not retry a cancelled request
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A POST is not repeated">
+
+Write a test called `does not repeat a POST after a 503`. The server is told to fail once. The client posts `{ name: "Edsger" }`. Check that the call rejects with an `HttpError` whose status is 503, and that the server received exactly one request. Then check that the same failure on a `GET` is repeated: a second call, with the server told to fail once again, succeeds after two requests in total.
+
+Expected output:
+
+```text
+✔ does not repeat a POST after a 503
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+<Solution>
+
+The injected `wait` that returns at once keeps the test fast. The counter is reset between the two halves of the test.
+
+```javascript title="pr_ex_post.test.mjs"
+import { it } from "node:test";
+import assert from "node:assert/strict";
+import { createClient, HttpError } from "./pr_client.mjs";
+import { startApi } from "./pr_server.mjs";
+
+it("does not repeat a POST after a 503", async () => {
+  const api = await startApi();
+  try {
+    const client = createClient({ baseUrl: api.url, wait: async () => {} });
+
+    api.behavior.failures = 1;
+    const posting = client.post("/users", { name: "Edsger" });
+    const error = await posting.catch((e) => e);
+    assert.ok(error instanceof HttpError);
+    assert.equal(error.status, 503);
+    assert.equal(api.stats.requests, 1);
+
+    api.stats.requests = 0;
+    api.behavior.failures = 1;
+    await client.get("/users");
+    assert.equal(api.stats.requests, 2);
+  } finally {
+    await api.stop();
+  }
+});
+```
+
+```text
+✔ does not repeat a POST after a 503
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Pagination with an async generator">
+
+Many APIs return a long list in pages. Write a mock server whose `GET /items?page=N` returns `{ "items": [...], "next": N+1 }` for pages 1 and 2, and `{ "items": [...], "next": null }` for page 3: the items are the letters `a` and `b` on page 1, `c` and `d` on page 2 and `e` on page 3. Write an async generator `paginate(client, path)` that yields each item and follows `next` until it is `null`. Use a client that talks to this server (you can create the client with `createClient` and the server with `startServer` from `hf_helper.mjs`). Collect everything with `Array.fromAsync` and print the list.
+
+Expected output:
+
+```text
+[ 'a', 'b', 'c', 'd', 'e' ]
+```
+
+<Solution>
+
+The generator asks for one page at a time and yields its items before it asks for the next, so a consumer that stops early never downloads the remaining pages. `Array.fromAsync`, from [the async iteration lesson](../async-iteration/), runs it to the end.
+
+```javascript title="pr_ex_pages.mjs"
+import { createClient } from "./pr_client.mjs";
+import { startServer } from "./hf_helper.mjs";
+
+const pages = { 1: ["a", "b"], 2: ["c", "d"], 3: ["e"] };
+
+const { url, stop } = await startServer((req, res) => {
+  const { searchParams } = new URL(req.url, "http://localhost");
+  const page = Number(searchParams.get("page"));
+  const next = pages[page + 1] ? page + 1 : null;
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(JSON.stringify({ items: pages[page], next }));
+});
+
+async function* paginate(client, path) {
+  let page = 1;
+  while (page !== null) {
+    const result = await client.get(`${path}?page=${page}`);
+    yield* result.items;
+    page = result.next;
+  }
+}
+
+const client = createClient({ baseUrl: url });
+console.log(await Array.fromAsync(paginate(client, "/items")));
+await stop();
+```
+
+```text
+[ 'a', 'b', 'c', 'd', 'e' ]
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A client library centralises the chores around `fetch`: URL building, JSON, status checks as errors, retries, timeouts and cancellation.
+- Decide the rules first and write them down. Retry only what may be temporary (`5xx`, network failures, timeouts), never a `4xx`, never a cancellation, and never a non-repeatable request such as `POST`.
+- Combine signals with `AbortSignal.any`: a timeout for each attempt plus the caller's signal. Pass the caller's signal to the backoff wait as well.
+- Make the awkward part replaceable (here `wait`), so that tests check the backoff schedule without sitting through it.
+- Test against a local mock server that you can tell to fail or to slow down, count the requests it saw, and always stop it in an `after` hook.
+- A test per row of the design table is a specification of the client.
+
+That ends the Testing and tooling module, and the intermediate Node material. The advanced level builds on all of it, starting with metaprogramming and functional patterns.

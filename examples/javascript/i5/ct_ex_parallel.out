@@ -1,0 +1,3 @@
+ok: 2
+failed (exit 3)
+failed (ENOENT)
