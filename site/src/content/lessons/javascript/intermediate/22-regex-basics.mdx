@@ -1,0 +1,422 @@
+---
+language: javascript
+level: intermediate
+module: Text, patterns, dates and numbers
+order: 22
+title: Regular expressions
+description: Match, extract and rewrite text with regular expressions, using flags, test, match, matchAll, replace with functions and split.
+minVersion: "22"
+objectives:
+  - Write regular expressions as literals and with the RegExp constructor
+  - Choose the right flag from g, i, m, s and u
+  - Search with test, exec, match and matchAll, and know when each fits
+  - Rewrite text with replace and replaceAll, including replacer functions
+  - Avoid the lastIndex trap of global patterns
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/06-text-and-strings"]
+---
+
+[Strings](../../beginner/strings-js/) gave you `includes`, `indexOf`, `slice` and `split`, which find exact text. A **regular expression** (regex) describes a *shape* of text instead: "four digits, a dash, two digits". The general idea of searching and transforming text is in the fundamentals lesson on [text and strings](../../../fundamentals/beginner/text-and-strings/). This lesson teaches how JavaScript writes patterns and which methods use them.
+
+## Creating a pattern
+
+A pattern can be written as a **literal** between slashes, or built from a string with the `RegExp` constructor. The literal is checked when the script is parsed and is the normal choice. The constructor is for patterns assembled at run time, and because the pattern is then a string, each backslash must be doubled.
+
+```javascript title="regex_create.mjs"
+const literal = /colou?r/;
+const built = new RegExp("colou?r");
+console.log(literal.test("my color"), built.test("my colour"));
+console.log(literal.source, literal.flags === "");
+```
+
+```text
+true true
+colou?r true
+```
+
+```javascript title="regex_create.mjs (continued)"
+const word = "cat";
+const dynamic = new RegExp(`\\b${word}s?\\b`, "i");
+console.log(dynamic.test("Two CATS sat"));
+console.log(String(dynamic));
+```
+
+```text
+true
+/\bcats?\b/i
+```
+
+- `colou?r` means "colo", an optional "u", then "r". It matches both spellings.
+- `source` is the pattern text and `flags` the letters after the closing slash. Converting a regex with `String` gives back the literal form.
+- In a template literal, `\\b` becomes the two characters `\b`, a **word boundary**. `\b` sits between a word character and a non-word character, so `cats?` does not match inside `concatenate`.
+
+If the text comes from a user, do not paste it into a pattern as it is. Characters like `.` and `(` have special meaning. The [next lesson](../regex-advanced/) shows how to escape them safely.
+
+## Flags
+
+Flags change how the whole pattern works. They are letters after the final slash, and they can be combined.
+
+```javascript title="regex_flags.mjs"
+const text = "a1b22c333";
+const first = text.match(/\d+/);
+console.log(first[0], first.index);
+console.log(text.match(/\d+/g));
+console.log(/hello/i.test("HELLO"));
+```
+
+```text
+1 1
+[ '1', '22', '333' ]
+true
+```
+
+```javascript title="regex_flags.mjs (continued)"
+const lines = "one\ntwo\nthree";
+console.log(lines.match(/^\w+$/gm));
+```
+
+```text
+[ 'one', 'two', 'three' ]
+```
+
+```javascript title="regex_flags.mjs (continued)"
+console.log(/a.c/.test("a\nc"), /a.c/s.test("a\nc"));
+console.log("😀".match(/./g).length, "😀".match(/./gu).length);
+```
+
+```text
+false true
+2 1
+```
+
+- Without `g`, `match` returns the **first** match as an array, with `index` telling where it was found. With `g` it returns every match as plain strings.
+- `i` ignores case.
+- `m` (multiline) makes `^` and `$` match at every line, not only at the start and end of the whole string.
+- `s` (dotAll) lets `.` match a newline too. Without it `.` stops at line ends.
+- `u` (unicode) makes the pattern work on code points instead of UTF-16 units. The emoji is two units, so `.` without `u` counts two, and with `u` counts one. [Unicode](../unicode-js/) explains why.
+
+Use `u` by default for any pattern that may meet non-ASCII text. The `v` flag in the next lesson is its stricter successor.
+
+## The building blocks
+
+Most patterns are made of a few parts.
+
+```javascript title="regex_syntax.mjs"
+console.log("a-b_c d".match(/[a-c]/g));
+console.log("x1 y22 z".match(/[a-z]\d+/g));
+```
+
+```text
+[ 'a', 'b', 'c' ]
+[ 'x1', 'y22' ]
+```
+
+```javascript title="regex_syntax.mjs (continued)"
+const phone = /^\d{3}-\d{4}$/;
+console.log(phone.test("555-1234"), phone.test("555-12345"));
+console.log(/\d+/.test("abc123"), /^\d+$/.test("abc123"));
+```
+
+```text
+true false
+true false
+```
+
+```javascript title="regex_syntax.mjs (continued)"
+const html = "<b>bold</b><i>it</i>";
+console.log(html.match(/<.+>/)[0]);
+console.log(html.match(/<.+?>/)[0]);
+```
+
+```text
+<b>bold</b><i>it</i>
+<b>
+```
+
+```javascript title="regex_syntax.mjs (continued)"
+console.log("cat dog bird".match(/cat|bird/g));
+console.log("ha haha hahaha".match(/(?:ha){2,}/g));
+```
+
+```text
+[ 'cat', 'bird' ]
+[ 'haha', 'hahaha' ]
+```
+
+- **Classes**: `[a-c]` is any one of those characters. `\d` is a digit, `\w` a letter, digit or underscore, `\s` whitespace. The capital forms `\D`, `\W`, `\S` mean the opposite.
+- **Quantifiers**: `?` is zero or one, `*` zero or more, `+` one or more, `{3}` exactly three, `{2,}` two or more.
+- **Anchors**: `^` is the start and `$` the end. Without them a pattern matches *anywhere*, so `/\d+/` accepts `abc123`. For validation, anchor both ends.
+- **Greedy and lazy**: quantifiers take as much as they can. `<.+>` swallowed both tags, because it ran to the last `>`. Adding `?` after the quantifier makes it lazy, and it stops at the first `>`.
+- **Alternation**: `cat|bird` matches either word.
+- **Groups**: `(...)` groups parts so a quantifier can apply to all of them, and remembers the matched text. `(?:...)` groups without remembering, which is what you want when you only need the grouping.
+
+## Searching: test, exec, match and matchAll
+
+The four search methods answer different questions.
+
+- `regex.test(text)` answers "does it match?" with `true` or `false`.
+- `regex.exec(text)` returns one match with its groups, or `null`.
+- `text.match(regex)` returns the same as `exec` without `g`, and all the matched strings with `g`.
+- `text.matchAll(regex)` returns an iterator of full match objects, one per match, and requires `g`.
+
+```javascript title="regex_search.mjs"
+const found = /(\d+)-(\d+)/.exec("call 555-1234 now");
+console.log(found[0], found[1], found[2], found.index);
+console.log(/(\d+)-(\d+)/.exec("no number"));
+```
+
+```text
+555-1234 555 1234 5
+null
+```
+
+The result is an array: index 0 is the whole match, then one entry per group, and the `index` property says where it started. When nothing matches you get `null`, so check before reading from it.
+
+### The lastIndex trap
+
+A regex with `g` (or `y`) is **stateful**. It remembers where the last match ended in its `lastIndex` property, and the next call continues from there.
+
+```javascript title="regex_search.mjs (continued)"
+const re = /o/g;
+console.log(re.test("foo"), re.lastIndex);
+console.log(re.test("foo"), re.lastIndex);
+console.log(re.test("foo"), re.lastIndex);
+```
+
+```text
+true 2
+true 3
+false 0
+```
+
+The third call starts after the last `o`, finds nothing and resets `lastIndex` to 0. Calling `test` on a global regex that you keep in a variable gives answers that depend on earlier calls. Drop the `g` when you only need `test`, or create the regex fresh each time.
+
+### Looping over all matches
+
+`matchAll` is the clean way to get every match with its groups. It returns an iterator, so `for...of` works directly, and each match object has `index`.
+
+```javascript title="regex_search.mjs (continued)"
+const text = "2026-03-14 and 2027-01-02";
+for (const m of text.matchAll(/(\d{4})-(\d{2})-(\d{2})/g)) {
+  console.log(m[0], "year", m[1], "at", m.index);
+}
+```
+
+```text
+2026-03-14 year 2026 at 0
+2027-01-02 year 2027 at 15
+```
+
+```javascript title="regex_search.mjs (continued)"
+try {
+  text.matchAll(/\d+/);
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+TypeError
+```
+
+`matchAll` insists on `g`. Without it, there would be only one match and the call would be a mistake, so it throws a `TypeError` instead of guessing.
+
+## Rewriting with replace
+
+`replace` takes a pattern and a replacement. Without `g` only the first match changes. In a replacement string, `$1`, `$2` and so on insert the groups, and `$&` inserts the whole match.
+
+```javascript title="regex_replace.mjs"
+const date = "2026-03-14";
+console.log(date.replace(/(\d+)-(\d+)-(\d+)/, "$3/$2/$1"));
+```
+
+```text
+14/03/2026
+```
+
+A string pattern is matched literally and only once, so `"a.b.c".replace(".", "-")` changes just the first dot. `replaceAll` replaces every match, and with a string pattern it is the simplest choice:
+
+```javascript title="regex_replace.mjs (continued)"
+console.log("a.b.c".replace(".", "-"), "a.b.c".replace(/\./g, "-"));
+console.log("a.b.c".replaceAll(".", "-"));
+```
+
+```text
+a-b.c a-b-c
+a-b-c
+```
+
+When the new text must be computed, pass a **function**. It receives the whole match, then each group, then the match's position.
+
+```javascript title="regex_replace.mjs (continued)"
+const prices = "apple 3, pear 12";
+console.log(prices.replace(/\d+/g, (n) => String(Number(n) * 2)));
+```
+
+```text
+apple 6, pear 24
+```
+
+```javascript title="regex_replace.mjs (continued)"
+const name = "Ada Lovelace";
+const swap = (all, first, last) => `${last}, ${first}`;
+console.log(name.replace(/(\w+) (\w+)/, swap));
+```
+
+```text
+Lovelace, Ada
+```
+
+The function's return value is converted to a string and inserted. Because the function can use any JavaScript, this is the tool for formatting, lookups and arithmetic during a replace.
+
+`split` accepts a pattern too, which handles uneven separators.
+
+```javascript title="regex_replace.mjs (continued)"
+console.log("a1b22c".split(/\d+/));
+console.log("one, two;three  four".split(/[,; ]+/));
+```
+
+```text
+[ 'a', 'b', 'c' ]
+[ 'one', 'two', 'three', 'four' ]
+```
+
+## Common pitfalls
+
+- **Forgetting the anchors.** `/\d+/.test("abc123")` is `true`. Use `^` and `$` to check a whole value.
+- **Reusing a global regex with `test` or `exec`.** `lastIndex` carries over between calls. Create the regex where you use it, or leave out `g`.
+- **Using a regex when a string method is enough.** `includes` and `replaceAll("a", "b")` are clearer when the text is fixed.
+- **Reading `match[1]` without checking for `null`.** No match gives `null`, and reading it throws. Test the result first, or use `?.`.
+- **Greedy quantifiers.** `.+` runs as far as it can. Use `.+?` or a narrower class like `[^>]+`.
+- **Forgetting that `.` is special.** To match a real dot, write `\.`.
+- **Parsing nested or recursive formats with a regex.** HTML, JSON and programming languages need a parser.
+- **Building patterns from user text.** Special characters change the meaning. Escape the text first (next lesson).
+
+## Exercises
+
+<Exercise title="Extract emails and dates">
+
+This text has two emails and two dates written as `YYYY-MM-DD`:
+
+```javascript
+const text = `Mail ada@example.com or bob.smith@mail.example.org
+before 2026-03-14. The reunion is on 2026-12-01; ignore this: not-an-email@.`;
+```
+
+Use `match` with a global pattern to print the array of emails, then the array of dates. Allow letters, digits, `_`, `.`, `+` and `-` before the `@`, and one or more dot-separated parts after it. The expected output is `[ 'ada@example.com', 'bob.smith@mail.example.org' ]` and then `[ '2026-03-14', '2026-12-01' ]`.
+
+<Solution>
+
+The email pattern uses a class with the allowed characters, `@`, a domain label, then a non-capturing group repeated for each further dot. The date pattern uses `\b` so that digits glued to other digits do not match.
+
+```javascript title="ex_extract.mjs"
+const text = `Mail ada@example.com or bob.smith@mail.example.org
+before 2026-03-14. The reunion is on 2026-12-01; ignore this: not-an-email@.`;
+
+const emails = text.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g);
+const dates = text.match(/\b\d{4}-\d{2}-\d{2}\b/g);
+console.log(emails);
+console.log(dates);
+```
+
+```text
+[ 'ada@example.com', 'bob.smith@mail.example.org' ]
+[ '2026-03-14', '2026-12-01' ]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Normalise phone numbers">
+
+Rewrite every phone number in `Call (555) 123-4567 or 555.987.6543, not 12-34.` to the form `555-123-4567`. A number is three digits (optionally in brackets), a space, dot or dash, three digits, a dot or dash, and four digits. Use `replace` with groups. The expected output is `Call 555-123-4567 or 555-987-6543, not 12-34.`
+
+<Solution>
+
+Each group captures only digits, so the brackets and separators are dropped. `$1-$2-$3` puts back the dashes. `12-34` is too short to match.
+
+```javascript title="ex_phone.mjs"
+const text = "Call (555) 123-4567 or 555.987.6543, not 12-34.";
+const phone = /\(?(\d{3})\)?[ .-]?(\d{3})[.-](\d{4})/g;
+console.log(text.replace(phone, "$1-$2-$3"));
+```
+
+```text
+Call 555-123-4567 or 555-987-6543, not 12-34.
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Word frequencies">
+
+Count the words in `The cat and the hat. The end, and THE start.` ignoring case, using `matchAll`. Print the three most frequent words with their counts, one per line, most frequent first and alphabetical among equal counts. The expected output is `the 4`, `and 2` and `cat 1`.
+
+<Solution>
+
+`matchAll` yields each word, which is lowercased before counting in a `Map`. The sort compares counts first, and falls back to `localeCompare` when the counts are equal (`||` takes the second comparison when the first is 0).
+
+```javascript title="ex_wordfreq.mjs"
+const text = "The cat and the hat. The end, and THE start.";
+
+const counts = new Map();
+for (const m of text.matchAll(/[a-z']+/gi)) {
+  const word = m[0].toLowerCase();
+  counts.set(word, (counts.get(word) ?? 0) + 1);
+}
+
+const top = [...counts]
+  .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  .slice(0, 3);
+for (const [word, n] of top) {
+  console.log(word, n);
+}
+```
+
+```text
+the 4
+and 2
+cat 1
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fill in a template">
+
+Write `fill(template, values)` that replaces each `{key}` in the template with `values[key]`, and with `?` when the key is missing. Call it with the template `Hello {name}, you owe {amount} by {due}.` and the values `name: "Ada"` and `amount: "$12"`. The expected output is `Hello Ada, you owe $12 by ?.`
+
+<Solution>
+
+The pattern `\{(\w+)\}` captures the key, which is passed to the replacer as its second argument. `??` supplies the fallback.
+
+```javascript title="ex_template.mjs"
+function fill(template, values) {
+  return template.replace(/\{(\w+)\}/g, (_, key) => values[key] ?? "?");
+}
+
+const template = "Hello {name}, you owe {amount} by {due}.";
+console.log(fill(template, { name: "Ada", amount: "$12" }));
+```
+
+```text
+Hello Ada, you owe $12 by ?.
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Write patterns as literals `/.../flags`. Use `new RegExp(string)` only for patterns built at run time, and double the backslashes.
+- Flags: `g` all matches, `i` ignore case, `m` line anchors, `s` dot matches newline, `u` code points.
+- Classes, quantifiers, anchors, alternation and groups are the core. Quantifiers are greedy unless followed by `?`.
+- `test` gives a boolean, `exec` and `match` give a match, and `matchAll` gives every match with groups.
+- A regex with `g` keeps `lastIndex` between calls.
+- `replace` takes `$1`-style strings or a function. `split` accepts a pattern.
+
+Next: [named groups, lookaround and the v flag](../regex-advanced/).

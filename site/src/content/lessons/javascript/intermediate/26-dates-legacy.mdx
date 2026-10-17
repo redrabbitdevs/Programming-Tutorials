@@ -1,0 +1,443 @@
+---
+language: javascript
+level: intermediate
+module: Text, patterns, dates and numbers
+order: 26
+title: Date, the legacy API
+description: Read and use the built-in Date object safely, covering epoch milliseconds, zero-based months, UTC versus local time, parsing rules and the daylight saving traps.
+minVersion: "22"
+objectives:
+  - Explain that a Date is a count of milliseconds since the epoch
+  - Create dates from ISO strings and from parts, using UTC where you can
+  - Use the zero-based month and the UTC getters and setters correctly
+  - Predict how date-only and date-time strings are parsed
+  - Find the daylight saving bug in day arithmetic and fix it
+estimatedMinutes: 55
+fundamentals: ["fundamentals/beginner/03-values-and-types"]
+---
+
+`Date` has been in JavaScript since the first version, and it is still what every browser and Node supports, what libraries return and what `JSON` carries around. It is also error-prone, so this lesson is about using it with care. A newer replacement exists, [Temporal](../temporal/), but it is not available everywhere yet. You need `Date` either way, to read old code and to work with APIs that give you one.
+
+The shared ideas of representing values are in the fundamentals lesson on [values and types](../../../fundamentals/beginner/values-and-types/). For `Date`, the key fact is below.
+
+## A Date is a number
+
+A `Date` holds one number: the milliseconds since `1970-01-01T00:00:00Z`, the **epoch**. There is no time zone stored inside it. A time zone only matters when you turn the number into text or into parts like "hour".
+
+```javascript title="date_basics.mjs"
+const epoch = new Date(0);
+console.log(epoch.toISOString(), epoch.getTime());
+```
+
+```text
+1970-01-01T00:00:00.000Z 0
+```
+
+```javascript title="date_basics.mjs (continued)"
+const moment = new Date("2026-03-14T15:30:00Z");
+console.log(moment.getTime());
+console.log(moment.toISOString());
+console.log(JSON.stringify({ at: moment }));
+```
+
+```text
+1773502200000
+2026-03-14T15:30:00.000Z
+{"at":"2026-03-14T15:30:00.000Z"}
+```
+
+- `getTime()` returns the number, and `toISOString()` always writes UTC in the form `YYYY-MM-DDTHH:mm:ss.sssZ`.
+- `JSON.stringify` calls `toJSON` on a date, which gives the same ISO string. `JSON.parse` does **not** turn it back into a `Date`. You get a string, and you have to build the `Date` again.
+
+```javascript title="date_basics.mjs (continued)"
+const fromParts = new Date(Date.UTC(2026, 2, 14, 15, 30));
+console.log(fromParts.getTime() === moment.getTime());
+console.log(typeof Date.now(), typeof Date());
+console.log(moment - epoch === moment.getTime());
+```
+
+```text
+true
+number string
+true
+```
+
+- `Date.UTC(year, month, ...)` computes the epoch milliseconds from UTC parts, and `new Date(number)` wraps it.
+- `Date.now()` is the current time as a number.
+- Calling `Date()` **without** `new` returns a *string* describing the current time, not a date object. Always write `new Date(...)`.
+- Subtracting two dates gives the difference in milliseconds, because the minus operator converts each date to its number.
+
+## Months count from zero
+
+The month argument and the month getters run from 0 (January) to 11 (December). The day of the month starts at 1, and the day of the week runs from 0 (Sunday) to 6 (Saturday).
+
+```javascript title="date_getters.mjs"
+const d = new Date(Date.UTC(2026, 2, 14, 15, 30, 45, 120));
+
+console.log(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+console.log(d.getUTCDay(), d.getUTCHours(), d.getUTCMinutes());
+console.log(d.getUTCSeconds(), d.getUTCMilliseconds());
+```
+
+```text
+2026 2 14
+6 15 30
+45 120
+```
+
+```javascript title="date_getters.mjs (continued)"
+const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+console.log(names[d.getUTCDay()]);
+```
+
+```text
+Sat
+```
+
+March is `2`, and 14 March 2026 was a Saturday, `6`. The names array lines up with the numbers. A lookup table like it is the usual way to write weekday names by hand, though [`Intl`](../intl-formatting/) can do it for you in any language.
+
+Every getter has two forms. `getUTCHours()` reads the hour in UTC. `getHours()` reads it in the **local time zone of the machine**, which can be different on every computer. Unless you really need the user's own wall-clock time, prefer the UTC forms. The same goes for setters: `setUTCDate`, `setUTCMonth`, and so on.
+
+There are also the old trap methods. `getYear()` returns the year minus 1900, so 2026 gives `126`. It is deprecated, and `getFullYear()` replaces it.
+
+```javascript title="date_getters.mjs (continued)"
+console.log(d.getYear());
+console.log(d.getUTCFullYear() - 1900 === d.getYear());
+```
+
+```text
+126
+true
+```
+
+## Parsing
+
+`new Date(string)` and `Date.parse(string)` read text. Only one format is guaranteed by the language: the ISO format. Anything else (`"March 14, 2026"`, `"14/03/2026"`) is left to each engine, and results can differ, so avoid it.
+
+Within the ISO format there is a subtle rule that has caught many programmers. The next example sets the machine's time zone to New York, to show what the same text does on a machine that is not in UTC. (Setting `process.env.TZ` is only a way to make this demonstration repeatable.)
+
+```javascript title="date_parsing.mjs"
+process.env.TZ = "America/New_York";
+
+console.log(new Date("2026-03-14").toISOString());
+console.log(new Date("2026-03-14T00:00").toISOString());
+console.log(new Date("2026-03-14T00:00Z").toISOString());
+console.log(new Date(2026, 2, 14).toISOString());
+```
+
+```text
+2026-03-14T00:00:00.000Z
+2026-03-14T04:00:00.000Z
+2026-03-14T00:00:00.000Z
+2026-03-14T04:00:00.000Z
+```
+
+- A **date-only** string like `2026-03-14` is read as **UTC midnight**.
+- A date **with a time and no zone**, like `2026-03-14T00:00`, is read as **local time**. In New York that is four hours after UTC midnight.
+- A `Z` or an offset like `+02:00` says exactly which moment you mean. Prefer them.
+- The parts constructor `new Date(2026, 2, 14)` also uses **local time**. It gives the same moment as the date-time string without a zone.
+
+So a date-only string and the parts constructor give different moments except on a machine in UTC. If you mean "the calendar day 14 March", use UTC for everything, parts and getters alike.
+
+Invalid input does not throw. It gives an **Invalid Date**, whose number is `NaN`.
+
+```javascript title="date_parsing.mjs (continued)"
+const bad = new Date("not a date");
+console.log(bad.getTime(), String(bad));
+console.log(Number.isNaN(bad.getTime()), bad instanceof Date);
+```
+
+```text
+NaN Invalid Date
+true true
+```
+
+```javascript title="date_parsing.mjs (continued)"
+try {
+  bad.toISOString();
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+RangeError
+```
+
+Check with `Number.isNaN(date.getTime())`. Note that `toISOString` on an invalid date throws a `RangeError`, but `toString` just returns the text `Invalid Date`.
+
+## Arithmetic
+
+Dates have setters that carry over. Setting a day past the end of the month moves to the next month, which is useful and surprising in equal parts.
+
+```javascript title="date_arith.mjs"
+const jan31 = new Date(Date.UTC(2026, 0, 31));
+const next = new Date(jan31);
+next.setUTCMonth(next.getUTCMonth() + 1);
+console.log(jan31.toISOString().slice(0, 10), next.toISOString().slice(0, 10));
+```
+
+```text
+2026-01-31 2026-03-03
+```
+
+January 31 plus one month asks for February 31, which does not exist, so the result is 3 March. If you add months, check the day of the month afterwards.
+
+A neat trick uses day `0`, which means "the day before the first". The date `Date.UTC(2026, 2, 0)` is the last day of February:
+
+```javascript title="date_arith.mjs (continued)"
+const lastDay = new Date(Date.UTC(2026, 2, 0));
+console.log(lastDay.getUTCDate());
+```
+
+```text
+28
+```
+
+```javascript title="date_arith.mjs (continued)"
+const start = new Date(Date.UTC(2026, 0, 1));
+const later = new Date(start);
+later.setUTCDate(later.getUTCDate() + 45);
+console.log(later.toISOString().slice(0, 10));
+```
+
+```text
+2026-02-15
+```
+
+`setUTCDate` with `getUTCDate() + 45` rolls over months by itself.
+
+To count days between two moments, subtract and divide by the length of a day. This is exact in UTC, which has no daylight saving.
+
+```javascript title="date_arith.mjs (continued)"
+const DAY = 24 * 60 * 60 * 1000;
+const a = Date.UTC(2026, 0, 1);
+const b = Date.UTC(2026, 11, 25);
+console.log((b - a) / DAY);
+```
+
+```text
+358
+```
+
+Dates compare correctly with `<` and `>`, since they become numbers. They do not compare with `==` or `===`, which test whether both sides are the same object.
+
+```javascript title="date_arith.mjs (continued)"
+console.log(new Date(2026, 0, 1) < new Date(2026, 0, 2));
+console.log(new Date(0) == new Date(0), +new Date(0) === +new Date(0));
+```
+
+```text
+true
+false true
+```
+
+Convert with `+date` or `getTime()` to compare for equality.
+
+## The daylight saving trap
+
+In the zone `America/New_York`, clocks jump forward on Sunday 8 March 2026. That day has only 23 hours. So "24 hours later" and "tomorrow" are not the same thing on that weekend.
+
+```javascript title="date_dst.mjs"
+process.env.TZ = "America/New_York";
+
+const show = (d) => d.toString().slice(0, 33);
+const eve = new Date(2026, 2, 7, 12, 0);
+console.log(show(eve));
+```
+
+```text
+Sat Mar 07 2026 12:00:00 GMT-0500
+```
+
+```javascript title="date_dst.mjs (continued)"
+const plus24h = new Date(eve.getTime() + 24 * 60 * 60 * 1000);
+console.log(show(plus24h));
+```
+
+```text
+Sun Mar 08 2026 13:00:00 GMT-0400
+```
+
+```javascript title="date_dst.mjs (continued)"
+const nextDay = new Date(eve);
+nextDay.setDate(nextDay.getDate() + 1);
+console.log(show(nextDay));
+```
+
+```text
+Sun Mar 08 2026 12:00:00 GMT-0400
+```
+
+```javascript title="date_dst.mjs (continued)"
+console.log((nextDay - eve) / 3600000);
+```
+
+```text
+23
+```
+
+- Adding 24 hours of milliseconds landed at **13:00** on Sunday, because an hour vanished during the night.
+- `setDate(getDate() + 1)` works with the calendar, and keeps **12:00**.
+- The two results differ by 23 real hours.
+
+Rule of thumb: for "the same time tomorrow", change the calendar field with a setter. For "a fixed length of time later", add milliseconds. Do the calendar part in UTC if no one's wall clock matters, since UTC has no daylight saving changes.
+
+## What `Date` cannot do
+
+- It has no time zones other than UTC and the machine's. You cannot ask for "9:00 in Tokyo" without help from `Intl`.
+- It is mutable. Setters change the object, and passing a date to a function that mutates it is a bug waiting to happen. Copy with `new Date(original)`.
+- It has milliseconds only, and no date-only type, so "a birthday" carries a time of day it should not have.
+
+Those gaps are why [Temporal](../temporal/) exists.
+
+## Common pitfalls
+
+- **Forgetting that months start at 0.** `new Date(2026, 3, 1)` is 1 April.
+- **Mixing UTC and local getters.** A date built with `Date.UTC` should be read with the `getUTC...` methods.
+- **Parsing non-ISO strings.** Results depend on the engine.
+- **Relying on how date-only strings are parsed.** They are UTC, while date-times without a zone are local.
+- **Adding 24 hours for "tomorrow".** It breaks twice a year in zones with daylight saving.
+- **Comparing with `===`.** Two dates are two objects. Compare `getTime()`.
+- **Mutating a date you were given.** Copy it first.
+- **Using `getYear`.** It is deprecated and returns the year minus 1900.
+- **Treating Invalid Date as an exception.** It is a normal date object holding `NaN`.
+
+## Exercises
+
+<Exercise title="Days between two dates">
+
+Write `daysBetween(from, to)` for two date-only strings such as `2026-03-01`, returning the whole number of days from the first to the second, negative if the second is earlier. Print the results for `2026-03-01` to `2026-03-31`, `2026-01-01` to `2027-01-01`, `2026-03-10` to `2026-03-01`, and `2028-02-28` to `2028-03-01`. The expected output is `30`, `365`, `-9` and `2`, because 2028 is a leap year.
+
+<Solution>
+
+Date-only strings are read as UTC midnight, so each day is exactly 86,400,000 milliseconds and no daylight saving gets in the way. `Math.round` guards against any fractional rounding.
+
+```javascript title="ex_daysbetween.mjs"
+function daysBetween(from, to) {
+  const ms = Date.parse(to) - Date.parse(from);
+  return Math.round(ms / (24 * 60 * 60 * 1000));
+}
+
+console.log(daysBetween("2026-03-01", "2026-03-31"));
+console.log(daysBetween("2026-01-01", "2027-01-01"));
+console.log(daysBetween("2026-03-10", "2026-03-01"));
+console.log(daysBetween("2028-02-28", "2028-03-01"));
+```
+
+```text
+30
+365
+-9
+2
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Find and fix the daylight saving bug">
+
+This function is meant to return a date `n` days later at the same wall-clock time.
+
+```javascript
+const DAY = 24 * 60 * 60 * 1000;
+const addDays = (d, n) => new Date(d.getTime() + n * DAY);
+```
+
+With the machine in `America/New_York`, start at noon on 7 March 2026 and add 2 days. Print the hour of the result for this version, labelled `buggy`, and for a fixed version, labelled `fixed`, plus the starting hour labelled `start`. Make the fixed version without changing the original date. The expected output is `buggy 13`, `fixed 12` and `start 12`.
+
+<Solution>
+
+The bug is that clocks moved forward during the two days, so 48 hours later is 13:00. The fix copies the date and moves the calendar day with `setDate`, which keeps the wall-clock hour.
+
+```javascript title="ex_dstbug.mjs"
+process.env.TZ = "America/New_York";
+
+const DAY = 24 * 60 * 60 * 1000;
+const addDaysBuggy = (d, n) => new Date(d.getTime() + n * DAY);
+
+function addDays(d, n) {
+  const copy = new Date(d);
+  copy.setDate(copy.getDate() + n);
+  return copy;
+}
+
+const start = new Date(2026, 2, 7, 12, 0);
+console.log("buggy", addDaysBuggy(start, 2).getHours());
+console.log("fixed", addDays(start, 2).getHours());
+console.log("start", start.getHours());
+```
+
+```text
+buggy 13
+fixed 12
+start 12
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Days in a month">
+
+Write `daysInMonth(year, month)` with a month from 1 to 12, using only `Date.UTC` with day 0 and a getter, with no table of month lengths. Print the results for February 2026 and February 2028 on one line, and December 2026 and April 2026 on the next. The expected output is `28 29` and `31 30`.
+
+<Solution>
+
+With a one-based month passed straight to `Date.UTC`, which is zero-based, the call asks for day 0 of the month after, which is the last day of the month you want. A getter then reads the day number.
+
+```javascript title="ex_lastday.mjs"
+function daysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+console.log(daysInMonth(2026, 2), daysInMonth(2028, 2));
+console.log(daysInMonth(2026, 12), daysInMonth(2026, 4));
+```
+
+```text
+28 29
+31 30
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Friday the 13th">
+
+Find every Friday the 13th in 2026. Loop over the twelve months, build the 13th of each in UTC, and keep those whose weekday is Friday (5). Print the array of ISO dates (just the `YYYY-MM-DD` part). The expected output is `[ '2026-02-13', '2026-03-13', '2026-11-13' ]`.
+
+<Solution>
+
+`getUTCDay()` returns 5 for Friday. Slicing the first ten characters of the ISO string leaves the date.
+
+```javascript title="ex_friday13.mjs"
+const found = [];
+for (let month = 0; month < 12; month++) {
+  const day = new Date(Date.UTC(2026, month, 13));
+  if (day.getUTCDay() === 5) {
+    found.push(day.toISOString().slice(0, 10));
+  }
+}
+console.log(found);
+```
+
+```text
+[ '2026-02-13', '2026-03-13', '2026-11-13' ]
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A `Date` is milliseconds since the epoch, with no zone stored. `getTime()` returns the number.
+- Months run from 0 to 11. `Date.UTC` and the `getUTC...` and `setUTC...` methods avoid dependence on the machine's zone.
+- Only ISO strings parse reliably. A date-only string is UTC, a date-time without a zone is local, and `Z` or an offset removes the doubt.
+- Invalid input gives an Invalid Date with the number `NaN`. It does not throw.
+- Setters roll over, so adding a month to 31 January gives March. Day 0 is the last day of the previous month.
+- Add milliseconds for fixed lengths of time and use calendar setters for "same time tomorrow". Avoid `getYear`.
+- `Date` is mutable and has no time zones of its own. [Temporal](../temporal/) fixes that.
