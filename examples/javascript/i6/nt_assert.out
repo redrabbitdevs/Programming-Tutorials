@@ -1,0 +1,5 @@
+Expected values to be strictly equal:
+Expected values to be strictly deep-equal:
+zero is falsy
+the loose module accepts '1' == 1
+the strict module does not

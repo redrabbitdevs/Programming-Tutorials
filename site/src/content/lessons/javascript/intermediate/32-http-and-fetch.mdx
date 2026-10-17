@@ -1,0 +1,478 @@
+---
+language: javascript
+level: intermediate
+module: Node.js essentials
+order: 32
+title: "HTTP: fetch and a small server"
+description: Call web APIs with the global fetch, read status codes and JSON bodies, send POST requests, and write a small HTTP server with node:http, with every example running against a local server.
+minVersion: "22"
+objectives:
+  - Make GET and POST requests with fetch and read text, JSON and headers
+  - Explain that fetch rejects only on network failure and check response.ok for HTTP errors
+  - Write an HTTP server with node:http that routes by method and path and reads a request body
+  - Choose sensible status codes and content types for responses
+  - Stream a response body and know where the WebSocket client fits
+estimatedMinutes: 55
+fundamentals: []
+---
+
+Most programs talk to other programs over **HTTP**: a client sends a request made of a method (`GET`, `POST`, ...), a path, headers and sometimes a body; a server answers with a **status code**, headers and a body. This lesson shows both sides in Node. To keep every example runnable and deterministic, the clients will talk to a small server that the same script starts on your own machine. No example touches the internet.
+
+## A first request and a first server
+
+Node's built-in `node:http` module creates servers. `createServer` takes a function that runs for each request. It receives the request (a Readable stream) and the response (a Writable stream). `res.writeHead(status, headers)` sets the status and headers, and `res.end(body)` sends the body and finishes.
+
+`server.listen(0, "127.0.0.1")` asks the operating system for any free port, on the local machine only. The port number is only known afterwards, from `server.address().port`, and the example never prints it because it changes on every run.
+
+```javascript title="hf_hello.mjs"
+import { createServer } from "node:http";
+
+const server = createServer((req, res) => {
+  res.writeHead(200, { "content-type": "text/plain" });
+  res.end("hello from the server");
+});
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const url = `http://127.0.0.1:${server.address().port}/`;
+```
+
+`fetch` is a global function, based on the web standard and stable in Node since version 21. It returns a promise of a **Response**. Reading the body is a second asynchronous step, because the body may still be arriving: `response.text()`, `response.json()` and a few others return promises too.
+
+```javascript title="hf_hello.mjs (continued)"
+const response = await fetch(url);
+console.log(response.status, response.ok, response.statusText);
+console.log(response.headers.get("content-type"));
+console.log(await response.text());
+
+server.close();
+server.closeAllConnections();
+```
+
+```text
+200 true OK
+text/plain
+hello from the server
+```
+
+`status` is the number, `ok` is `true` for any status from 200 to 299, and `headers` has the `Headers` interface: `get` is not case-sensitive. At the end we close the server. `fetch` keeps connections open for reuse, so `closeAllConnections()` is needed, or the program would stay alive waiting for them. (The [cancellation lesson](../cancellation/) used the same ending.)
+
+## A helper for the rest of the lesson
+
+Starting and stopping a server takes the same few lines every time, so here they are as a reusable helper. It returns the base address and a `stop` function. Save it as `hf_helper.mjs`; the rest of the examples import it.
+
+```javascript title="hf_helper.mjs"
+import { createServer } from "node:http";
+
+export async function startServer(handler) {
+  const server = createServer(handler);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const stop = () =>
+    new Promise((resolve) => {
+      server.close(resolve);
+      server.closeAllConnections();
+    });
+  return { url, stop };
+}
+```
+
+`server.close(callback)` stops accepting new connections and calls back when all existing ones are finished, so `closeAllConnections()` follows to end the idle ones at once.
+
+## Routing and JSON
+
+A server decides what to do from the request's method and URL. `req.url` holds only the path and query (`/users/1?x=2`), so to take it apart, give it to the `URL` class with a made-up base. APIs usually speak **JSON**: set the `content-type` header to `application/json` and send `JSON.stringify(data)`.
+
+```javascript title="hf_json.mjs"
+import { startServer } from "./hf_helper.mjs";
+
+const users = new Map([
+  ["1", { id: 1, name: "Ada" }],
+  ["2", { id: 2, name: "Alan" }],
+]);
+
+function send(res, status, data) {
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify(data));
+}
+
+const { url, stop } = await startServer((req, res) => {
+  const { pathname } = new URL(req.url, "http://localhost");
+  const match = pathname.match(/^\/users\/(\d+)$/);
+  if (req.method === "GET" && match && users.has(match[1])) {
+    return send(res, 200, users.get(match[1]));
+  }
+  send(res, 404, { error: "not found" });
+});
+```
+
+The first rule of the handler is "answer every request": the last line sends a 404 for anything that did not match. Now the client side.
+
+```javascript title="hf_json.mjs (continued)"
+const found = await fetch(`${url}/users/1`);
+console.log(found.status, await found.json());
+
+const missing = await fetch(`${url}/users/99`);
+console.log(missing.status, missing.ok, await missing.json());
+await stop();
+```
+
+```text
+200 { id: 1, name: 'Ada' }
+404 false { error: 'not found' }
+```
+
+Look at the second request. The server answered 404, and **`fetch` did not throw**. This is the most common surprise: a promise from `fetch` is rejected only when no response arrived at all (no network, refused connection, a malformed URL). Any response, even a 500, counts as success for `fetch`. You must look at `response.ok` or `response.status` yourself. A small wrapper gives the "throw on HTTP errors" behaviour that most programs want.
+
+```javascript title="hf_errors.mjs"
+import { startServer } from "./hf_helper.mjs";
+
+async function getJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+}
+
+const live = await startServer((req, res) => {
+  res.writeHead(500);
+  res.end("oops");
+});
+try {
+  await getJson(`${live.url}/data`);
+} catch (error) {
+  console.log(error.message);
+}
+await live.stop();
+```
+
+```text
+HTTP 500 Internal Server Error
+```
+
+Real network failures are a different kind of error. The next example starts a server and stops it at once, so the address is certain to be closed, and then calls `fetch`.
+
+```javascript title="hf_errors.mjs (continued)"
+const dead = await startServer(() => {});
+await dead.stop();
+try {
+  await fetch(dead.url);
+} catch (error) {
+  console.log(error.name, error.message);
+  console.log(error.cause.code);
+}
+```
+
+```text
+TypeError fetch failed
+ECONNREFUSED
+```
+
+The error is always a `TypeError` with the message `fetch failed`. The useful detail is in `error.cause`, which holds the system error code, here `ECONNREFUSED` (nothing is listening). This is the `cause` property you met in [the async errors lesson](../async-errors/). For timeouts and cancellation, pass `signal: AbortSignal.timeout(ms)` as in [the cancellation lesson](../cancellation/).
+
+## Sending data: POST
+
+For a request with a body, give `fetch` an options object: the `method`, the `headers` and the `body`. A JSON body needs `JSON.stringify` and the matching `content-type` header. On the server side, the request is a Readable stream; the body arrives in chunks, which we collect with `for await`. `setEncoding("utf8")` makes the chunks strings and avoids cutting a multi-byte character in two.
+
+The server below accepts `POST /todos` with a JSON body `{ "title": "..." }`. It answers `201 Created` with the new item, or `400 Bad Request` if the body is not valid JSON or has no title.
+
+```javascript title="hf_post.mjs"
+import { startServer } from "./hf_helper.mjs";
+
+async function readBody(req) {
+  req.setEncoding("utf8");
+  let text = "";
+  for await (const chunk of req) text += chunk;
+  return text;
+}
+
+const todos = [];
+const { url, stop } = await startServer(async (req, res) => {
+  const reply = (status, data) => {
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(data));
+  };
+  try {
+    const body = JSON.parse(await readBody(req));
+    if (typeof body.title !== "string") {
+      return reply(400, { error: "title required" });
+    }
+    todos.push({ id: todos.length + 1, title: body.title });
+    reply(201, todos.at(-1));
+  } catch {
+    reply(400, { error: "invalid JSON" });
+  }
+});
+```
+
+Now two requests: one good and one bad.
+
+```javascript title="hf_post.mjs (continued)"
+async function post(body) {
+  const response = await fetch(`${url}/todos`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+  });
+  console.log(response.status, await response.json());
+}
+
+await post(JSON.stringify({ title: "write lesson" }));
+await post(JSON.stringify({ name: "no title" }));
+await post("{ not json");
+await stop();
+```
+
+```text
+201 { id: 1, title: 'write lesson' }
+400 { error: 'title required' }
+400 { error: 'invalid JSON' }
+```
+
+Three outcomes, three status codes. Choosing the right code is part of an API's design:
+
+- `200 OK`, and `201 Created` after a successful creation.
+- `400 Bad Request` when the client sent something invalid, `404 Not Found` for an unknown path, `405 Method Not Allowed` for a known path with the wrong method.
+- `500 Internal Server Error` when the fault is the server's own. A handler that throws should not leave the request hanging, so answer with a 500.
+
+The client should treat `4xx` (the request was wrong, do not just repeat it) and `5xx` (the server failed, a retry may help) differently, as the third exercise shows.
+
+## Streaming a response
+
+A response body does not have to be read in one piece. `response.body` is a **web stream** (see the [streams lesson](../streams-intro/)), which is async iterable. This matters for large downloads and for servers that send data over time. `res.write` sends a chunk without ending the response.
+
+```javascript title="hf_stream.mjs"
+import { startServer } from "./hf_helper.mjs";
+
+const { url, stop } = await startServer((req, res) => {
+  res.writeHead(200, { "content-type": "text/plain" });
+  let n = 0;
+  const timer = setInterval(() => {
+    res.write(`line ${++n}\n`);
+    if (n === 3) {
+      clearInterval(timer);
+      res.end();
+    }
+  }, 10);
+});
+
+const response = await fetch(url);
+let text = "";
+for await (const part of response.body.pipeThrough(new TextDecoderStream())) {
+  text += part;
+}
+console.log(JSON.stringify(text));
+await stop();
+```
+
+```text
+"line 1\nline 2\nline 3\n"
+```
+
+The server sent three chunks 10 ms apart, and the client could have acted on each one as it came. `TextDecoderStream` turns the bytes into text, taking care of characters that are split across chunks. We join the pieces and print the result, because how the network groups the bytes into chunks can vary.
+
+## WebSocket
+
+HTTP is request and response: the client always asks first. When a server must push messages as they happen (a chat, a live score) the web uses a **WebSocket**, a long-lived two-way connection. Node has the standard `WebSocket` **client** as a global, stable since Node 22.4: `new WebSocket("wss://...")`, with `message`, `open` and `close` events and a `send` method. Node has no built-in WebSocket server; real programs use a package for that. For this reason there is no runnable WebSocket example here.
+
+## Common pitfalls
+
+- **Assuming `fetch` rejects on 404 or 500.** It does not. Check `response.ok`.
+- **Not reading the body.** Unread bodies keep connections busy. Call `.text()`, `.json()` or cancel the stream.
+- **Reading the body twice.** `response.json()` after `response.text()` fails because the body is a stream that has been consumed. Use `response.clone()` if you need both.
+- **A handler that sometimes does not answer.** Every code path must end with `res.end`, or the client waits forever.
+- **Forgetting the `content-type` header** on a JSON request or response.
+- **Not closing the server.** The script stays alive. Use `close()` and `closeAllConnections()`.
+- **Hard-coding a port in examples and tests.** Use `listen(0)` and read the port afterwards.
+- **No timeout.** A `fetch` without a `signal` can wait for a very long time.
+
+## Exercises
+
+<Exercise title="Weather lookup">
+
+Start a mock server with the route `GET /weather?city=NAME`. It knows `Oslo` (3 degrees) and `Cairo` (31 degrees) and answers `{ "city": ..., "tempC": ... }`. For any other city it answers 404. Write `describeWeather(base, city)` that returns `Oslo: 3C`, or `no data for Paris` on a 404. Build the query with `URL` and `searchParams` and print the result for `Oslo`, `Cairo` and `Paris`.
+
+Expected output:
+
+```text
+Oslo: 3C
+Cairo: 31C
+no data for Paris
+```
+
+<Solution>
+
+The server reads the `city` parameter from the parsed URL. The client builds the address with `searchParams`, which also escapes unusual city names.
+
+```javascript title="hf_ex_weather.mjs"
+import { startServer } from "./hf_helper.mjs";
+
+const temps = { Oslo: 3, Cairo: 31 };
+const { url, stop } = await startServer((req, res) => {
+  const city = new URL(req.url, "http://localhost").searchParams.get("city");
+  if (!(city in temps)) {
+    res.writeHead(404);
+    return res.end();
+  }
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(JSON.stringify({ city, tempC: temps[city] }));
+});
+
+async function describeWeather(base, city) {
+  const target = new URL("/weather", base);
+  target.searchParams.set("city", city);
+  const response = await fetch(target);
+  if (response.status === 404) return `no data for ${city}`;
+  const { tempC } = await response.json();
+  return `${city}: ${tempC}C`;
+}
+
+for (const city of ["Oslo", "Cairo", "Paris"]) {
+  console.log(await describeWeather(url, city));
+}
+await stop();
+```
+
+```text
+Oslo: 3C
+Cairo: 31C
+no data for Paris
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Validating a POST">
+
+Write a server with `POST /sum` that expects a JSON body `{ "a": number, "b": number }`. It answers `200` with `{ "sum": ... }`, or `400` with `{ "error": "numbers required" }` when either value is not a number. Send `{ "a": 2, "b": 3 }` and then `{ "a": "2", "b": 3 }` and print the status and body of each.
+
+Expected output:
+
+```text
+200 { sum: 5 }
+400 { error: 'numbers required' }
+```
+
+<Solution>
+
+The check `typeof ... === "number"` rejects the string `"2"`, which would otherwise be silently added as text.
+
+```javascript title="hf_ex_sum.mjs"
+import { startServer } from "./hf_helper.mjs";
+
+const { url, stop } = await startServer(async (req, res) => {
+  req.setEncoding("utf8");
+  let text = "";
+  for await (const chunk of req) text += chunk;
+  const { a, b } = JSON.parse(text);
+  const valid = typeof a === "number" && typeof b === "number";
+  res.writeHead(valid ? 200 : 400, { "content-type": "application/json" });
+  const answer = valid ? { sum: a + b } : { error: "numbers required" };
+  res.end(JSON.stringify(answer));
+});
+
+for (const body of [{ a: 2, b: 3 }, { a: "2", b: 3 }]) {
+  const response = await fetch(`${url}/sum`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  console.log(response.status, await response.json());
+}
+await stop();
+```
+
+```text
+200 { sum: 5 }
+400 { error: 'numbers required' }
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Retry on a server error">
+
+A flaky server answers `503` to its first two requests and `200` with the text `ready` to the third. Write `fetchRetry(url, attempts)` that tries again after a `5xx` status (without waiting) up to `attempts` times, returns the text on success, and throws `Error("giving up")` if every attempt failed. A `4xx` status must not be retried: it should throw `Error("client error 404")` at once. Test it with 5 attempts against the flaky server, then with 2 attempts, and then against a server that always answers 404. Print what happens.
+
+Expected output:
+
+```text
+ready after 3 requests
+giving up
+client error 404
+```
+
+<Solution>
+
+The loop counts attempts and treats only statuses of 500 and above as retryable. The servers count requests so the first line can report how many were needed.
+
+```javascript title="hf_ex_retry.mjs"
+import { startServer } from "./hf_helper.mjs";
+
+async function fetchRetry(url, attempts) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const response = await fetch(url);
+    if (response.ok) return response.text();
+    if (response.status < 500) {
+      throw new Error(`client error ${response.status}`);
+    }
+  }
+  throw new Error("giving up");
+}
+
+```
+
+A mock server that fails the first `failures` requests with a 503 and then answers `ready` is all we need to test it. It also counts the requests it receives.
+
+```javascript title="hf_ex_retry.mjs (continued)"
+function flaky(failures) {
+  let requests = 0;
+  return startServer((req, res) => {
+    requests++;
+    res.writeHead(requests <= failures ? 503 : 200);
+    res.end("ready");
+  }).then((server) => ({ ...server, count: () => requests }));
+}
+
+```
+
+Now the three scenarios.
+
+```javascript title="hf_ex_retry.mjs (continued)"
+const first = await flaky(2);
+console.log(await fetchRetry(first.url, 5), "after", first.count(), "requests");
+await first.stop();
+
+const second = await flaky(2);
+await fetchRetry(second.url, 2).catch((e) => console.log(e.message));
+await second.stop();
+
+const gone = await startServer((req, res) => {
+  res.writeHead(404);
+  res.end();
+});
+await fetchRetry(gone.url, 3).catch((e) => console.log(e.message));
+await gone.stop();
+```
+
+```text
+ready after 3 requests
+giving up
+client error 404
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `fetch(url, options)` returns a promise of a `Response`. Read the body with `text()` or `json()`, once.
+- `fetch` rejects only when no response arrived (`TypeError: fetch failed`, with the system code in `error.cause`). Always check `response.ok` for HTTP errors.
+- A POST needs `method`, `headers` (with `content-type`) and a `body`, usually `JSON.stringify(...)`.
+- `node:http` `createServer` runs a function for every request. Route by `req.method` and the path of `new URL(req.url, base)`, read the request body with `for await`, and always finish with `res.end`.
+- Use meaningful status codes: 200, 201, 400, 404, 500. Retry on 5xx, not on 4xx.
+- `response.body` is a web stream. `listen(0)` picks a free port. Node has a WebSocket client, stable since 22.4, and no built-in WebSocket server.
+
+Next: managing the packages your project depends on, with npm.

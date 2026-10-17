@@ -1,0 +1,2 @@
+200 { id: 1, name: 'Ada' }
+404 false { error: 'not found' }

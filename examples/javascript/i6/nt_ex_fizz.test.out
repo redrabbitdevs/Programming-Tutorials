@@ -1,0 +1,13 @@
+▶ fizzbuzz
+  ✔ fizzbuzz(1)
+  ✔ fizzbuzz(3)
+  ✔ fizzbuzz(5)
+  ✔ fizzbuzz(15)
+✔ fizzbuzz
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0

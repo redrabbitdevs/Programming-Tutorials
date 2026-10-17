@@ -1,0 +1,15 @@
+▶ Cart
+  ✔ starts empty
+  ▶ add
+    ✔ counts quantities
+    ✔ sums price times quantity
+    ✔ rejects negative prices
+  ✔ add
+✔ Cart
+ℹ tests 4
+ℹ suites 2
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0

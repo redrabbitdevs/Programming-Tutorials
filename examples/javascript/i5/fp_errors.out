@@ -1,0 +1,3 @@
+ENOENT open
+ENOENT: no such file or directory, open '<dir>/missing.txt'
+EEXIST

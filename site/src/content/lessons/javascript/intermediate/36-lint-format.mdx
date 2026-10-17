@@ -1,0 +1,435 @@
+---
+language: javascript
+level: intermediate
+module: Testing and tooling
+order: 36
+title: Linting and formatting
+description: Catch likely bugs and settle style arguments automatically with ESLint's flat config, Prettier and Biome, plus the zero-install syntax check of node --check.
+minVersion: "22"
+objectives:
+  - Explain the difference between a linter, a formatter and a syntax check
+  - Write a small ESLint flat config and read and fix its reports
+  - Format code with Prettier or Biome and check formatting in CI
+  - Wire lint and format commands into package.json scripts
+  - Recognise the bugs that rules such as eqeqeq, no-var and no-undef protect against
+estimatedMinutes: 50
+fundamentals: []
+---
+
+Two kinds of mistakes survive a quick read of your own code. The first are **likely bugs**: a variable that is declared and never used, a name with a typo, `==` where `===` was meant. The second is **inconsistency**: single quotes in one file and double quotes in the next, indentation that wanders, a line that runs off the screen. Both can be found by a program, so a team should not spend its attention on them. Two kinds of tools do the job.
+
+- A **linter** reads your code without running it and reports patterns that are probably wrong. It knows *rules* ("no unused variables"), and you decide which rules to turn on and how serious each one is. The standard linter for JavaScript is **ESLint**.
+- A **formatter** rewrites the layout of your code (quotes, spaces, line breaks) into one fixed style. It never changes what the program does. Style is decided once, by the tool, and nobody needs to argue about it again. The common formatters are **Prettier** and **Biome**.
+
+A third tool is already on your machine: Node's own parser can check that a file is valid JavaScript without running it. And a **type checker**, the subject of [the next lesson](../types-for-js/), finds a different class of mistakes.
+
+## What a linter protects you from
+
+Before the tools, look at the bugs that the most useful rules exist for. The program below runs three of them.
+
+Rule `eqeqeq` demands `===`, because `==` converts its operands before comparing, with results that are hard to remember.
+
+```javascript title="ll_bugs.mjs"
+console.log(0 == "", null == undefined, [] == false, "1" == 1);
+console.log(0 === "", null === undefined, [] === false, "1" === 1);
+```
+
+```text
+true true true true
+false false false false
+```
+
+Rule `no-undef` reports names that were never declared, which is what a typo is. Without the linter, you find out only when that line runs:
+
+```javascript title="ll_bugs.mjs (continued)"
+const total = 10;
+try {
+  console.log(totl + 1);
+} catch (error) {
+  console.log(`${error.name}: ${error.message}`);
+}
+```
+
+```text
+ReferenceError: totl is not defined
+```
+
+Rule `no-var` forbids `var`, which has function scope and not block scope. The loop below closes over a `var` and a `let`:
+
+```javascript title="ll_bugs.mjs (continued)"
+const withVar = [];
+for (var i = 0; i < 3; i++) withVar.push(() => i);
+
+const withLet = [];
+for (let j = 0; j < 3; j++) withLet.push(() => j);
+
+console.log(withVar.map((f) => f()), withLet.map((f) => f()));
+```
+
+```text
+[ 3, 3, 3 ] [ 0, 1, 2 ]
+```
+
+All three closures of the `var` loop see the same `i`, which is `3` when they run. These are the bugs behind the rules: a linter is a collection of hard-won lessons.
+
+## The built-in check: node --check
+
+`node --check file.mjs` parses a file and reports a syntax error, without running anything. It finds only mistakes that make the code unparseable, such as a missing bracket, but it needs no installation and is quick. The exit status is `0` for good syntax and `1` for an error. The program below writes one good and one bad file into a temporary directory (with `withTempDir` from [the files lesson](../files-and-paths/)) and checks both.
+
+```javascript title="ll_check.mjs"
+import { spawnSync } from "node:child_process";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { withTempDir } from "./fp_helper.mjs";
+
+const sources = {
+  "good.mjs": "const total = [1, 2, 3].reduce((a, b) => a + b, 0);\n",
+  "bad.mjs": "const total = (1 + ;\n",
+};
+
+await withTempDir(async (dir) => {
+  for (const [name, text] of Object.entries(sources)) {
+    await writeFile(join(dir, name), text);
+    const options = { cwd: dir, encoding: "utf8" };
+    const run = spawnSync(process.execPath, ["--check", name], options);
+    const lines = run.stderr.split("\n");
+    const problem = lines.find((line) => line.startsWith("SyntaxError"));
+    console.log(name, "exit", run.status, problem ?? "no problem");
+  }
+});
+```
+
+```text
+good.mjs exit 0 no problem
+bad.mjs exit 1 SyntaxError: Unexpected token ';'
+```
+
+## ESLint
+
+The rest of this lesson uses tools from npm, which need a network and are not run by the course's own checks. The outputs below come from real runs of ESLint 10.13.0, Prettier 3.9.10 and Biome 2.5.15 on Node 26.11.1, on 17 October 2026. Tool versions move quickly, so treat the numbers as a dated snapshot and read each tool's own documentation for the current options.
+
+Install ESLint as a development dependency, together with its set of recommended rules and a list of the global names that Node provides:
+
+```bash
+npm install --save-dev eslint @eslint/js globals
+```
+
+ESLint is configured by a **flat config** file at the root of the project, named `eslint.config.mjs` (or `.js`, or `.cjs`). The flat config became the default in ESLint 9, and ESLint 10.13.0 does not load the older `.eslintrc` files: when it finds only one of those, it stops with a message that points to the migration guide. The file exports an array of configuration objects, and each object says which files it applies to and what to do with them.
+
+```javascript
+// eslint.config.mjs
+import { defineConfig } from "eslint/config";
+import js from "@eslint/js";
+import globals from "globals";
+
+export default defineConfig([
+  { ignores: ["dist/"] },
+  {
+    files: ["**/*.{js,mjs}"],
+    extends: [js.configs.recommended],
+    languageOptions: { globals: globals.node },
+    rules: {
+      eqeqeq: "error",
+      "no-var": "error",
+      "prefer-const": "warn",
+    },
+  },
+]);
+```
+
+Reading it from the top:
+
+- An object that contains **only** `ignores` is a global ignore list: ESLint will not look at those paths at all. Generated folders such as `dist/` belong here.
+- `files` chooses the files that the rest of the object applies to.
+- `extends` pulls in a ready-made set of rules. `js.configs.recommended` is ESLint's own list of rules for things that are almost certainly mistakes, including `no-unused-vars` and `no-undef`.
+- `languageOptions.globals` tells ESLint which global names exist. Without `globals.node`, a use of `process` would be reported by `no-undef` as an undefined name.
+- `rules` sets the severity of each rule: `"off"`, `"warn"` or `"error"`. The rules `eqeqeq`, `no-var` and `prefer-const` are not in the recommended set, so this config turns them on.
+
+Run it on a file that has several problems, and the report lists them with line and column:
+
+```javascript
+import { readFile } from "node:fs/promises";
+var count = 0;
+let name = "Ada";
+function total(a, b) {
+  const unused = 1;
+  if (a == b) {
+    return a + b;
+  }
+  return count;
+}
+console.log(total(1, "1"), name, undefinedThing);
+```
+
+```bash
+npx eslint src
+```
+
+```text
+src/messy.mjs
+   1:10  error    'readFile' is defined but never used             no-unused-vars
+   2:1   error    Unexpected var, use let or const instead         no-var
+   3:5   warning  'name' is never reassigned. Use 'const' instead  prefer-const
+   5:9   error    'unused' is assigned a value but never used      no-unused-vars
+   6:9   error    Expected '===' and instead saw '=='              eqeqeq
+  11:34  error    'undefinedThing' is not defined                  no-undef
+
+✖ 6 problems (5 errors, 1 warning)
+  1 error and 1 warning potentially fixable with the `--fix` option.
+```
+
+(The real report starts with the absolute path of the file.) Each line has the position, the severity, a message and the name of the rule, which you can look up on ESLint's website. Errors make ESLint exit with status `1`, so a CI job fails; a run that has only warnings exits with `0`.
+
+Some problems are safe to repair mechanically. `npx eslint --fix src` rewrote `var count` and `let name` to `const` in the example above, and left the four problems that need a human decision (an unused import, an unused variable, a loose comparison, a misspelled name).
+
+Sometimes a rule is wrong for one line. A comment turns it off for the next line, ideally with the reason beside it:
+
+```javascript
+// eslint-disable-next-line eqeqeq -- comparing with null on purpose
+if (value == null) {
+  // ...
+}
+```
+
+Use that sparingly. A project full of disable comments has a configuration that does not fit, or code that does not fit the configuration.
+
+## Prettier
+
+Prettier formats code. It reads the file, throws away the original layout, and prints the same program in its own style. Install it, then check or rewrite files:
+
+```bash
+npm install --save-dev prettier
+npx prettier --check .       # list unformatted files; exit status 1 if any
+npx prettier --write .       # rewrite them
+```
+
+Here is a badly formatted file and what `prettier --write` made of it:
+
+```javascript
+const   items=['a',"b",   'c'];
+function show( list ){
+    for(const item of list){console.log( item )}
+  return list.length
+}
+export const config = {name:'demo',retries:3,verbose:false,
+  tags:["one","two","three","four","five","six"]}
+```
+
+```javascript
+const items = ["a", "b", "c"];
+function show(list) {
+  for (const item of list) {
+    console.log(item);
+  }
+  return list.length;
+}
+export const config = {
+  name: "demo",
+  retries: 3,
+  verbose: false,
+  tags: ["one", "two", "three", "four", "five", "six"],
+};
+```
+
+The defaults, as the run shows, are double quotes, semicolons, a two-space indent, trailing commas in multi-line lists, and lines wrapped at 80 columns. The `config` object was too long for one line, so it was broken up; the `tags` array fits on a line of its own, so it stayed together. The few options that exist go in a `.prettierrc.json` file, for example `{ "singleQuote": true, "printWidth": 100 }`. Prettier deliberately has few options. The point is to stop discussions, not to host them.
+
+Prettier does not lint: it will not tell you about an unused variable. And ESLint is not for layout. Use both, each for its own job.
+
+## Biome
+
+**Biome** is a single tool that both lints and formats, written to be fast, and with a configuration file `biome.json`. `npx biome init` creates one. Its main commands are:
+
+```bash
+npm install --save-dev --save-exact @biomejs/biome
+npx biome init              # create biome.json
+npx biome check .           # lint, and check formatting
+npx biome check --write .   # apply the safe fixes and format
+npx biome format --write .  # only format
+```
+
+On the same messy file, `biome format --write` produced the same code as Prettier except for the indentation: **Biome indents with tabs by default**, where Prettier uses two spaces. Both can be configured to match the other. Biome's lint rules have their own names and categories, and they differ from ESLint's: a rule that exists in one is not always in the other. Choose either ESLint with Prettier or Biome alone for a project; running two linters on the same code only doubles the noise.
+
+## Wiring it into the project
+
+Commands that a team must all remember are best written down as scripts. Then there is one word for each job, for people and for CI:
+
+```json
+{
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "check": "prettier --check . && eslint ."
+  }
+}
+```
+
+`npm run check` (or `node --run check`, which also finds the tools in `node_modules/.bin`) formats nothing and changes nothing; it only fails if something is wrong, which is what a CI job wants. During development you run `npm run format` and `npm run lint`. The `&&` runs the second command only if the first succeeded.
+
+Editors close the loop. The ESLint and Prettier extensions for VS Code, and the plugins for most other editors, show the lint problems as underlines while you type and can format a file whenever you save it (in VS Code, the setting `editor.formatOnSave`). You then rarely meet the problems in CI at all.
+
+Introduce these tools at the start of a project if you can. Adding a formatter to an old project produces one enormous commit that touches every line; do that in a commit of its own, so that nobody has to read it.
+
+## Common pitfalls
+
+- **Turning on every rule.** A noisy linter gets ignored. Start from the recommended set and add rules you can explain.
+- **Arguing with the formatter.** Pick options once, in the config, and move on.
+- **Using ESLint and Prettier to do the same job.** Let Prettier format, and ESLint find bugs.
+- **Linting generated code and `node_modules`.** Put build output in a global `ignores` entry.
+- **Disabling a rule file-wide** to silence one case. Disable it for the line, with a reason.
+- **Mixing a formatter change with real changes** in one commit.
+- **Forgetting that warnings do not fail the build.** If a warning matters, make it an error.
+- **Trusting a tool version from a tutorial.** Options and rule names change; read the documentation of the version you installed.
+
+## Exercises
+
+<Exercise title="A tiny linter">
+
+Write `lint(source)`, which takes the text of a program and returns an array of strings, one per problem, in the form `line: rule`. It reports `no-var` for every line that begins (after any indentation) with `var ` and `eqeqeq` for every line that contains ` == ` or ` != `. Print the problems for this source, one per line:
+
+```javascript
+var a = 1;
+if (a == "1") { }
+if (a === 1) { }
+let b = a != 2;
+```
+
+Expected output:
+
+```text
+1: no-var
+2: eqeqeq
+4: eqeqeq
+```
+
+<Solution>
+
+Real linters parse the program into a tree and look at the nodes; this one only reads the lines of text, so it would be fooled by a string that contains ` == `. That is the reason real rules work on the syntax tree.
+
+```javascript title="ll_ex_minilint.mjs"
+function lint(source) {
+  const problems = [];
+  source.split("\n").forEach((line, index) => {
+    const number = index + 1;
+    if (line.trimStart().startsWith("var ")) problems.push(`${number}: no-var`);
+    if (line.includes(" == ") || line.includes(" != ")) {
+      problems.push(`${number}: eqeqeq`);
+    }
+  });
+  return problems;
+}
+
+const source = `var a = 1;
+if (a == "1") { }
+if (a === 1) { }
+let b = a != 2;`;
+console.log(lint(source).join("\n"));
+```
+
+```text
+1: no-var
+2: eqeqeq
+4: eqeqeq
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Errors, warnings and the exit code">
+
+ESLint exits with `1` when there is at least one error, and with `0` when there are only warnings. Write `summarize(results)`, which takes an array of objects such as `{ rule: "eqeqeq", severity: 2 }` (severity `1` is a warning, `2` an error) and returns an object `{ errors, warnings, exitCode }`. Print the summary for these three cases: no results, two warnings, and one warning with one error.
+
+Expected output:
+
+```text
+{ errors: 0, warnings: 0, exitCode: 0 }
+{ errors: 0, warnings: 2, exitCode: 0 }
+{ errors: 1, warnings: 1, exitCode: 1 }
+```
+
+<Solution>
+
+Counting with `filter` is enough. The exit code depends only on the number of errors.
+
+```javascript title="ll_ex_exit.mjs"
+function summarize(results) {
+  const errors = results.filter((r) => r.severity === 2).length;
+  const warnings = results.filter((r) => r.severity === 1).length;
+  return { errors, warnings, exitCode: errors > 0 ? 1 : 0 };
+}
+
+console.log(summarize([]));
+console.log(summarize([
+  { rule: "prefer-const", severity: 1 },
+  { rule: "no-console", severity: 1 },
+]));
+console.log(summarize([
+  { rule: "prefer-const", severity: 1 },
+  { rule: "eqeqeq", severity: 2 },
+]));
+```
+
+```text
+{ errors: 0, warnings: 0, exitCode: 0 }
+{ errors: 0, warnings: 2, exitCode: 0 }
+{ errors: 1, warnings: 1, exitCode: 1 }
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Wrap at a given width">
+
+Prettier puts a list on one line if it fits within the print width, and otherwise prints one item per line, indented by two spaces and with a trailing comma. Write `formatList(items, width)` that does this for a list of strings, printing each item in double quotes (use `JSON.stringify`). Print the result for `["aa", "bb", "cc"]` and for `["aaaaaaaa", "bbbbbbbb", "cccccccc"]`, both with a width of 20.
+
+Expected output:
+
+```text
+["aa", "bb", "cc"]
+[
+  "aaaaaaaa",
+  "bbbbbbbb",
+  "cccccccc",
+]
+```
+
+<Solution>
+
+Build the one-line version first and measure it. If it is too long, build the multi-line version instead.
+
+```javascript title="ll_ex_wrap.mjs"
+function formatList(items, width) {
+  const quoted = items.map((item) => JSON.stringify(item));
+  const oneLine = `[${quoted.join(", ")}]`;
+  if (oneLine.length <= width) return oneLine;
+  return ["[", ...quoted.map((q) => `  ${q},`), "]"].join("\n");
+}
+
+console.log(formatList(["aa", "bb", "cc"], 20));
+console.log(formatList(["aaaaaaaa", "bbbbbbbb", "cccccccc"], 20));
+```
+
+```text
+["aa", "bb", "cc"]
+[
+  "aaaaaaaa",
+  "bbbbbbbb",
+  "cccccccc",
+]
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A **linter** (ESLint) finds likely bugs; a **formatter** (Prettier or Biome) fixes layout and nothing else. `node --check` finds syntax errors with no installation.
+- Rules such as `eqeqeq`, `no-var`, `no-undef` and `no-unused-vars` exist because of real bugs: loose comparison, `var` scoping, typos, dead code.
+- ESLint 10.13.0 reads the flat config `eslint.config.mjs` (the old `.eslintrc` is not loaded): an array of objects with `files`, `ignores`, `extends`, `languageOptions` and `rules` (`"off"`, `"warn"`, `"error"`). Errors exit with `1`, warnings alone with `0`, and `--fix` repairs what is safe to repair.
+- Prettier is almost option-free (`--check` to verify, `--write` to rewrite). Biome does both jobs in one tool and indents with tabs by default.
+- Put `lint`, `format` and `check` in `package.json` scripts, run `check` in CI, and let the editor do the same on save.
+- Tool versions in this lesson: ESLint 10.13.0, Prettier 3.9.10, Biome 2.5.15 (17 October 2026).
+
+Next: type checking for plain JavaScript, with JSDoc comments and with TypeScript syntax that Node can strip.

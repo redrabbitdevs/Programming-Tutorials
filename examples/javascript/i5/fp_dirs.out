@@ -1,0 +1,3 @@
+[ 'a.txt', 'old' ]
+[ 'docs', 'docs/a.txt', 'docs/old', 'docs/old/b.txt' ]
+5 true false

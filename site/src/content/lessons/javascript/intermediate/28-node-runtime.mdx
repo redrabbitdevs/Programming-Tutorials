@@ -1,0 +1,341 @@
+---
+language: javascript
+level: intermediate
+module: Node.js essentials
+order: 28
+title: The Node.js runtime
+description: "See what Node.js adds to the language: built-in modules with the node prefix, the process object, environment variables, .env files with --env-file, and the Web APIs that Node shares with browsers."
+minVersion: "22"
+objectives:
+  - Explain what Node.js adds to the JavaScript language and what it leaves out
+  - Import built-in modules with the node prefix and tell which globals exist in Node
+  - Read process.argv, process.env and the exit event
+  - Build a small, validated configuration object from environment variables
+  - Load variables from a .env file with --env-file, util.parseEnv and process.loadEnvFile
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/02-tools-of-the-trade"]
+---
+
+Every lesson so far has been about the **language**: values, functions, classes, promises. The language says nothing about files, networks, command-line arguments or the clock on the wall. Those come from the **host** that runs your code. In a browser the host adds `document`, `window` and events. In Node.js the host adds files, processes, sockets and a standard library. This module is about that second host.
+
+Node.js is three things in one program: the V8 engine (it runs the JavaScript), an event loop (the one you met in [the event loop lesson](../event-loop/)), and a library of **built-in modules**. If you have not installed Node yet, [the install lesson](../../beginner/install-node/) covers it. The [tools of the trade](../../../fundamentals/beginner/tools-of-the-trade/) lesson explains the terminal, which you will use a lot here.
+
+## Built-in modules and the node: prefix
+
+Node ships with modules such as `node:fs` for files, `node:path` for file names, `node:os` for facts about the machine, and `node:test` for tests. You import them like any ES module, with the `node:` prefix in front of the name.
+
+```javascript title="nr_builtins.mjs"
+import { isBuiltin } from "node:module";
+
+console.log(isBuiltin("node:fs"), isBuiltin("fs"));
+console.log(isBuiltin("express"));
+console.log(isBuiltin("node:test"), isBuiltin("test"));
+```
+
+```text
+true true
+false
+true false
+```
+
+The prefix does two jobs. It tells the reader that this is part of Node and not a package from npm, and it protects you from a package that happens to have the same name. A few modules, `node:test` among them, can only be reached with the prefix: plain `test` is not a built-in. Use the prefix everywhere in new code.
+
+## Globals: the same language, a different global object
+
+In a browser, the global object is `window`. In Node there is no `window` and no `document`, because there is no page. The standard global object `globalThis` exists in both (and Node also calls it `global`). What Node puts on it is different.
+
+```javascript title="nr_globals.mjs"
+console.log(typeof window, typeof document);
+console.log(typeof process, typeof fetch, typeof URL);
+console.log(globalThis === global);
+console.log(typeof require, typeof __dirname);
+```
+
+```text
+undefined undefined
+object function function
+true
+undefined undefined
+```
+
+- `process` is Node's own global. It is the subject of the next section.
+- `fetch`, `URL`, `AbortController`, `TextEncoder`, `structuredClone`, `performance` and the timer functions are **Web APIs**. They are defined by web standards and Node implements the same names, so code that uses only them runs in both places. `fetch` has been stable since Node 21 and the `WebSocket` client since 22.4.
+- `require` and `__dirname` belong to the older CommonJS module system. In an ES module (a `.mjs` file) they do not exist. The [CommonJS lesson](../../beginner/commonjs-awareness/) explains where you will still meet them.
+
+## The process object
+
+`process` describes the running program and lets you talk to the outside world. Three parts of it matter right away.
+
+```javascript title="nr_process.mjs"
+console.log(process.argv.length, process.argv.slice(2));
+
+const major = Number(process.versions.node.split(".")[0]);
+console.log("Node 22 or newer:", major >= 22);
+
+process.on("exit", (code) => console.log("exit event, code", code));
+console.log("last line of the script");
+```
+
+```text
+2 []
+Node 22 or newer: true
+last line of the script
+exit event, code 0
+```
+
+- `process.argv` is an array of strings. The first item is the path of the `node` program, the second is the path of your script, and everything after that is what the user typed. That is why `slice(2)` gives the real arguments. We ran the script with none, so the list is empty. The [command-line tools lesson](../cli-tools/) builds on this.
+- `process.versions.node` is the version as a string such as `"26.11.1"`. Comparing the major number is how a program refuses to run on an old Node.
+- `process.on("exit", ...)` registers a function that runs just before the program ends, for whatever reason. The code is `0` when all went well. The function must do only **synchronous** work: when the listeners are done the process ends and any queued timer or promise is abandoned.
+
+You can end the program early with `process.exit(code)`, but it stops everything at once, even writes to the screen that are still on their way. Prefer to set `process.exitCode = 1` and let the program finish normally. The [command-line tools lesson](../cli-tools/) shows both.
+
+## Environment variables
+
+Every program starts with a set of **environment variables**: named strings that the parent process (usually your shell) hands down. They are the standard way to configure a program without editing its code: a port number, a database address, a switch for debug output. Node shows them as the object `process.env`.
+
+```javascript title="nr_env.mjs"
+process.env.RETRIES = 3;
+console.log(typeof process.env.RETRIES, process.env.RETRIES + 1);
+console.log(Number(process.env.RETRIES) + 1);
+
+console.log(process.env.TUTORIAL_NOT_SET);
+console.log(process.env.TUTORIAL_NOT_SET ?? "default value");
+
+delete process.env.RETRIES;
+console.log("RETRIES" in process.env);
+```
+
+```text
+string 31
+4
+undefined
+default value
+false
+```
+
+Here is what to remember:
+
+- Values are always **strings**. Assigning the number `3` stores `"3"`, and `"3" + 1` is `"31"`. Convert with `Number(...)` yourself.
+- A variable that is not set reads as `undefined`, so `??` is the natural way to supply a default.
+- Assigning to `process.env` converts the value to a string, even `undefined` (it becomes the text `"undefined"`), and the Node documentation marks that conversion as deprecated. Use `delete` to remove a variable.
+- Changes affect only your process and the children it starts later. They never reach your shell.
+
+## Turning the environment into a config object
+
+Reading `process.env` all over a program makes it hard to see what the program needs, and a typo such as `PROT` fails silently. A tidier habit is to read the environment **once**, at the start, into a plain object with defaults and checks. Pass the environment in as a parameter, and the function is easy to test.
+
+```javascript title="nr_config.mjs"
+function loadConfig(env) {
+  const port = Number(env.PORT ?? 3000);
+  if (!Number.isInteger(port) || port < 1) {
+    throw new Error(`PORT must be a positive integer, got "${env.PORT}"`);
+  }
+  return { port, debug: env.DEBUG === "1", name: env.APP_NAME ?? "app" };
+}
+
+console.log(loadConfig({}));
+console.log(loadConfig({ PORT: "8080", DEBUG: "1" }));
+try {
+  loadConfig({ PORT: "eighty" });
+} catch (error) {
+  console.log(error.message);
+}
+```
+
+```text
+{ port: 3000, debug: false, name: 'app' }
+{ port: 8080, debug: true, name: 'app' }
+PORT must be a positive integer, got "eighty"
+```
+
+The program fails at start-up with a clear message instead of failing later with a puzzling one. A real program calls `loadConfig(process.env)` once and passes the result around.
+
+## .env files and --env-file
+
+Setting a dozen variables by hand before every run is tedious. The convention is a text file named `.env`, one `NAME=value` per line. Node can read it for you with the `--env-file` flag:
+
+```bash
+node --env-file=.env app.mjs
+```
+
+The flag has been stable since Node 24.10 and 22.21. On older 22.x releases it works but prints an experimental warning. The file format is simple:
+
+- one `NAME=value` pair per line, and text after a `#` is a comment;
+- a value may be wrapped in single quotes, double quotes or backticks, which are removed;
+- an `export` before the name is ignored.
+
+Two rules matter more than the format. A variable that is **already set** in the real environment wins over the file, so a deployment can override your defaults. And a missing file is an error, unless you use `--env-file-if-exists` (added in Node 22.9), which carries on without it.
+
+To see all this without leaving JavaScript, the next example writes a `.env` file into a fresh temporary directory, starts a second Node process with the flag, and removes the directory afterwards. `execFileSync` runs a program and returns what it printed; the [command-line tools lesson](../cli-tools/) explains it properly.
+
+```javascript title="nr_envfile.mjs"
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+
+const dir = await mkdtemp(join(tmpdir(), "envdemo-"));
+const file = join(dir, ".env");
+const text = 'GREETING=hello\nNAME="Ada L"\n# a comment\nPORT=8080\n';
+await writeFile(file, text);
+```
+
+The file has three variables, a comment and a quoted value. Now run a one-line program in a child process, once with only the file and once with `PORT` also set in the real environment.
+
+```javascript title="nr_envfile.mjs (continued)"
+const show =
+  "console.log(process.env.GREETING, process.env.NAME, process.env.PORT)";
+const run = (env) =>
+  execFileSync(process.execPath, [`--env-file=${file}`, "-e", show], {
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  }).trim();
+
+console.log(run({}));
+console.log(run({ PORT: "9000" }));
+await rm(dir, { recursive: true, force: true });
+```
+
+```text
+hello Ada L 8080
+hello Ada L 9000
+```
+
+The quotes around `Ada L` are gone, the comment is ignored, and in the second run the real `PORT` of `9000` beat the `8080` in the file. `process.execPath` is the path of the running `node`, so the child is guaranteed to be the same version.
+
+You can also read a file from inside the program. `util.parseEnv(text)` turns the text of a `.env` file into an object without touching `process.env`, and `process.loadEnvFile(path)` loads a file into `process.env` (without overriding variables that already exist). Both were added in Node 21.7 and 20.12, and became stable in 24.10 and 22.21.
+
+```javascript title="nr_parseenv.mjs"
+import { parseEnv } from "node:util";
+
+const text = 'A=1\n# note\nB="two words"\nexport C=3\n';
+const parsed = parseEnv(text);
+console.log(Object.entries(parsed));
+```
+
+```text
+[ [ 'A', '1' ], [ 'B', 'two words' ], [ 'C', '3' ] ]
+```
+
+Never commit a `.env` file that holds passwords or API keys. Add it to `.gitignore`, and commit an example file with fake values instead.
+
+## Common pitfalls
+
+- **Expecting browser globals.** `window`, `document` and `localStorage` do not exist in Node. Code that needs them belongs in the optional browser strand.
+- **Forgetting that env values are strings.** `process.env.DEBUG = false` stores `"false"`, which is truthy. Compare against an exact string such as `"1"`.
+- **Calling `process.exit()` in the middle of work.** Pending writes and timers are dropped. Set `process.exitCode` instead.
+- **Reading `process.env` everywhere.** Read it once into a config object.
+- **Using `require` or `__dirname` in a `.mjs` file.** They are not defined there.
+- **Committing secrets** in `.env` files.
+
+## Exercises
+
+<Exercise title="Parsing a boolean flag">
+
+Environment variables are strings, so `DEBUG=false` is a trap. Write `flag(env, name)` that returns `true` when `env[name]` is one of `"1"`, `"true"` or `"yes"` (in any letter case) and `false` otherwise, including when the variable is missing. Test it on a plain object with the values `1`, `TRUE`, `no`, `false` and a missing name, and print the results on one line, separated by spaces.
+
+Expected output:
+
+```text
+true true false false false
+```
+
+<Solution>
+
+Lower-casing the value makes the comparison case-insensitive, and the optional chaining handles a missing variable.
+
+```javascript title="nr_ex_flag.mjs"
+function flag(env, name) {
+  const value = env[name]?.toLowerCase();
+  return ["1", "true", "yes"].includes(value);
+}
+
+const env = { A: "1", B: "TRUE", C: "no", D: "false" };
+const names = ["A", "B", "C", "D", "MISSING"];
+console.log(names.map((name) => flag(env, name)).join(" "));
+```
+
+```text
+true true false false false
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Prefixed settings">
+
+A program reads every variable that starts with `APP_` as a setting. Write `settings(env)` that returns an object with the prefix removed and the rest of the name in lower case. Try it on `{ APP_PORT: "80", APP_NAME: "demo", HOME: "/home/x", APPLE: "red" }` and print the result with `console.log`.
+
+Expected output:
+
+```text
+{ port: '80', name: 'demo' }
+```
+
+<Solution>
+
+`Object.entries` gives pairs, `filter` keeps the prefixed ones, and `Object.fromEntries` builds the result. Note that `APPLE` does not match, because the prefix includes the underscore.
+
+```javascript title="nr_ex_prefix.mjs"
+function settings(env) {
+  const prefix = "APP_";
+  return Object.fromEntries(
+    Object.entries(env)
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => [key.slice(prefix.length).toLowerCase(), value]),
+  );
+}
+
+const env = { APP_PORT: "80", APP_NAME: "demo", HOME: "/home/x", APPLE: "red" };
+console.log(settings(env));
+```
+
+```text
+{ port: '80', name: 'demo' }
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="File values and real values">
+
+Use `util.parseEnv` on the text `MODE=dev\nPORT=3000\nCOLOR=blue\n`. Then merge it with a pretend real environment `{ PORT: "9000" }` so that the real environment wins, the way `--env-file` behaves. Print the values of `MODE`, `PORT` and `COLOR`, in that order, on one line.
+
+Expected output:
+
+```text
+dev 9000 blue
+```
+
+<Solution>
+
+With object spread, later values replace earlier ones. Putting the real environment last makes it win. The solution reads the keys by name, because the order of the keys in the parsed object is not something to rely on.
+
+```javascript title="nr_ex_merge.mjs"
+import { parseEnv } from "node:util";
+
+const fromFile = parseEnv("MODE=dev\nPORT=3000\nCOLOR=blue\n");
+const real = { PORT: "9000" };
+const merged = { ...fromFile, ...real };
+console.log(merged.MODE, merged.PORT, merged.COLOR);
+```
+
+```text
+dev 9000 blue
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Node.js is V8 plus an event loop plus built-in modules. It adds files, processes and networking, and it has no DOM.
+- Import built-ins with the `node:` prefix. `globalThis` exists everywhere; Node also provides the Web APIs `fetch`, `URL`, `AbortController` and others.
+- `process.argv` holds the arguments, `process.env` holds string variables, and the `exit` event runs synchronous clean-up. Prefer `process.exitCode` to `process.exit()`.
+- Read the environment once into a validated config object.
+- `--env-file` (stable since 24.10 and 22.21) loads a `.env` file. Real environment variables win. `util.parseEnv` and `process.loadEnvFile` do the same from code.
+
+Next: reading and writing files, and the path and URL tools that go with them.

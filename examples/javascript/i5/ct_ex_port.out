@@ -1,0 +1,2 @@
+{ port: 8080, open: true, files: [ 'a.txt', 'b.txt' ] }
+invalid port: abc

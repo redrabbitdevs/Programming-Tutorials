@@ -1,0 +1,483 @@
+---
+language: javascript
+level: intermediate
+module: Testing and tooling
+order: 37
+title: Types for JavaScript code
+description: Get type checking without leaving JavaScript, with JSDoc comments and the TypeScript compiler as a checker, and learn what Node's type stripping does when it runs TypeScript files directly.
+minVersion: "22"
+objectives:
+  - Describe parameters, results and objects with JSDoc type comments
+  - Run the TypeScript compiler as a checker over JavaScript files with tsconfig.json
+  - Explain why a type error does not stop a JavaScript program from running
+  - Run erasable TypeScript directly with Node and name the syntax it cannot handle
+  - Decide when JSDoc is enough and when to move to the TypeScript track
+estimatedMinutes: 55
+fundamentals: []
+---
+
+JavaScript checks types **while the program runs**. The call `area({ width: 3, height: "4" })` is accepted until the moment a line inside `area` misbehaves, and the mistake may show itself far from where it was made, or not at all. A **static type checker** reads the program without running it, follows the values from where they are created to where they are used, and reports the places where the types do not fit. You see the mistake in your editor, and the tests and users never meet it.
+
+TypeScript is the language and the tool that made this popular. The surprise for many people is that you do not have to change language to use the checker. There are two routes, and this lesson covers both:
+
+1. **JSDoc comments**: you keep writing plain JavaScript and describe the types in comments. The TypeScript compiler reads the comments and checks the code. Nothing changes for the runtime.
+2. **TypeScript syntax**: you write `.ts` files with type annotations, and Node can run them directly by removing (*stripping*) the annotations.
+
+TypeScript itself is a separate course with its own track. This lesson covers only what you need to know from the JavaScript side.
+
+## JSDoc types
+
+A JSDoc comment starts with `/**`. Tags that start with `@` describe the code below the comment. For types, the type goes in curly braces:
+
+```javascript title="tj_area.mjs"
+// @ts-check
+
+/**
+ * @typedef {object} Rect
+ * @property {number} width
+ * @property {number} height
+ */
+
+/**
+ * Area of a rectangle.
+ * @param {Rect} rect
+ * @returns {number}
+ */
+export function area(rect) {
+  return rect.width * rect.height;
+}
+
+/**
+ * @param {string[]} names
+ * @param {number} [limit] how many names to keep
+ * @returns {string}
+ */
+export function shortList(names, limit = 2) {
+  return names.slice(0, limit).join(", ");
+}
+```
+
+- `@typedef` defines a named type; `@property` lists the members of an object type.
+- `@param {Type} name` types a parameter. Square brackets, `[limit]`, mark it **optional**. `@returns {Type}` types the result.
+- Types use TypeScript's notation: `number`, `string`, `boolean`, `string[]` for an array, `Map<string, number>`, `string | number` for "either", `(item: number) => boolean` for a function. `@template T` declares a generic type for functions that work with any type. `@type {X}` annotates a variable.
+- The comment `// @ts-check` at the top asks the checker to look at this file. Editors that use the TypeScript language service, such as VS Code, show the errors as you type.
+
+The comments are ordinary comments for JavaScript, so the file above is an ordinary module that runs exactly as before. That is also why a type error does not stop a program, as the next example shows. It imports the two functions and calls them wrongly, on purpose:
+
+```javascript title="tj_misuse.mjs"
+import { area, shortList } from "./tj_area.mjs";
+
+console.log(area({ width: 3, height: "4" }));
+console.log(area({ width: 3 }));
+try {
+  shortList("Ada", 2);
+} catch (error) {
+  console.log(String(error).split(":")[0]);
+}
+```
+
+```text
+12
+NaN
+TypeError
+```
+
+The first call even printed the right number by luck, because JavaScript converts the string `"4"` when it multiplies. The second gives `NaN`, and the third crashes inside `shortList`, because a string has no `join` method. A checker reports all three before the program is started.
+
+## Running the checker
+
+The checker is the TypeScript compiler, `tsc`, used in a mode in which it only reports and writes nothing. It is installed from npm, together with the type definitions of Node itself, which describe `process`, `node:fs` and the rest of the built-in modules:
+
+```bash
+npm install --save-dev typescript @types/node
+```
+
+Its settings go into a file named `tsconfig.json` in the project:
+
+```json
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "target": "esnext",
+    "module": "nodenext",
+    "types": ["node"]
+  },
+  "include": ["*.mjs"]
+}
+```
+
+- `allowJs` and `checkJs` make the compiler read JavaScript files and check them, with or without the `// @ts-check` comment.
+- `noEmit` means that it must not write any output files.
+- `strict` turns on the full set of checks. It is demanding, but it is where the value is.
+- `module: "nodenext"` makes the compiler resolve imports the way current Node does.
+- `types: ["node"]` loads the Node type definitions. Without them, `import ... from "node:fs/promises"` and `process` are reported as unknown names.
+- `include` lists the files to check.
+
+Run `npx tsc` (add `--pretty false` for plain text). On the two files above, with TypeScript 7.0.2:
+
+```bash
+npx tsc --pretty false
+```
+
+```text
+tj_misuse.mjs(3,30): error TS2322: Type 'string' is not assignable to type 'number'.
+tj_misuse.mjs(4,18): error TS2741: Property 'height' is missing in type '{ width: number; }' but required in type 'Rect'.
+tj_misuse.mjs(6,13): error TS2345: Argument of type 'string' is not assignable to parameter of type 'string[]'.
+```
+
+Each message has the file, the line and column, an error code (`TS2322`) and a sentence. All three mistakes were found without running the program. The command exits with a non-zero status when it finds errors, so you can add `"typecheck": "tsc"` to the `scripts` of `package.json` and run it in CI next to the tests and the linter from [the previous lesson](../lint-format/).
+
+Two details about the command line. Run `tsc` without file names so that it uses `tsconfig.json`: TypeScript 7 refuses to combine a config file with files named on the command line. And the checker never changes your files: you add types to a project as slowly as you like, file by file, starting with the ones that matter most.
+
+A richer example uses generics, a variable annotation and a union. The comment tags are `@template` for the generic and `@type` for the variable:
+
+```javascript title="tj_jsdoc.mjs"
+// @ts-check
+
+/**
+ * @template T
+ * @param {T[]} items
+ * @param {(item: T) => boolean} test
+ * @returns {T | undefined}
+ */
+export function findFirst(items, test) {
+  for (const item of items) {
+    if (test(item)) return item;
+  }
+  return undefined;
+}
+
+/** @type {Map<string, number>} */
+const stock = new Map([["pen", 12], ["ink", 0]]);
+
+/** @param {string | number} id */
+function label(id) {
+  return typeof id === "number" ? `#${id}` : id.toUpperCase();
+}
+
+console.log(findFirst([...stock], ([, count]) => count === 0));
+console.log(label(7), label("abc"));
+```
+
+```text
+[ 'ink', 0 ]
+#7 ABC
+```
+
+The checker knows that `findFirst` returns an entry of the map or `undefined`, and that inside the `typeof` test, `id` is a number in one branch and a string in the other, so that `id.toUpperCase()` is safe. Writing `findFirst([1, 2, 3], (n) => n.toUpperCase())` would be reported, since `n` is a number there.
+
+When the checker is wrong, or you know better, a comment placed on the line above silences one error: `// @ts-expect-error reason`. It also complains when the line it was protecting has no error any more, so it cannot go stale in silence.
+
+## Running TypeScript files with Node
+
+The second route is to write TypeScript and let Node run it. <Since v="22.18" /> From Node 22.18 and Node 23.6, `node file.ts` simply works: Node removes the type annotations and runs what is left. Earlier 22.x releases need the flag `--experimental-strip-types`. The feature is marked stable from Node 24.12 and 25.2, and it no longer prints an experimental warning from 22.18 and 24.3.
+
+The key words are *strip* and *erase*. Node does not compile the TypeScript. It replaces the type syntax with blank space, so everything that remains is plain JavaScript in the same positions, and then runs it. Consequently:
+
+- **No type checking happens.** Node does not look at the types at all. The checker is still `tsc`.
+- It works only for syntax that can be erased without changing the meaning of the program: annotations, `interface`, `type`, generics, `as` assertions, `import type`, the non-null `!`.
+- Syntax that needs real code generated is refused: `enum`, `namespace` with runtime code, constructor parameter properties (`constructor(private x: number)`) and `import a = require(...)` aliases. Node reports an error and does not run the file.
+- `tsconfig.json` is ignored by Node, and Node refuses `.ts` files inside `node_modules`.
+- Imports of local files must spell the extension: `from "./greet.ts"`.
+
+Here is a small program in three files. A file with types, a file with a function, and a main program:
+
+```typescript title="tj_types.ts"
+export interface User {
+  id: number;
+  name: string;
+}
+```
+
+```typescript title="tj_greet.ts"
+export function greet(name: string): string {
+  return `Hello, ${name}`;
+}
+```
+
+```typescript title="tj_main.ts"
+import type { User } from "./tj_types.ts";
+import { greet } from "./tj_greet.ts";
+
+type Id = number | string;
+
+interface Options {
+  loud?: boolean;
+}
+
+const user: User = { id: 1, name: "Ada" };
+
+function describe(id: Id, options: Options = {}): string {
+  const text = `${greet(user.name)} (#${id})`;
+  return options.loud ? text.toUpperCase() : text;
+}
+
+console.log(describe(user.id));
+console.log(describe("x", { loud: true }));
+```
+
+Note `import type`: the interface `User` exists only for the checker and has no runtime value, so the import must be marked as type-only, and Node removes it entirely. The command is `node tj_main.ts`. To show that from a program, the next example starts that command in a child process:
+
+```javascript title="tj_strip.mjs"
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
+
+const file = join(import.meta.dirname, "tj_main.ts");
+const output = execFileSync(process.execPath, [file], { encoding: "utf8" });
+console.log(output.trimEnd());
+```
+
+```text
+Hello, Ada (#1)
+HELLO, ADA (#X)
+```
+
+Now the failures. The next three files are wrong for Node in three different ways. The first uses an `enum`. The second imports an interface without `import type`, so Node looks for a runtime export that does not exist. The third tells a lie with a cast: the checker accepts it, and Node does not look at types at all.
+
+```typescript title="tj_enum.ts"
+enum Color {
+  Red,
+  Green,
+}
+console.log(Color.Green);
+```
+
+```typescript title="tj_badimport.ts"
+import { User } from "./tj_types.ts";
+
+const user: User = { id: 1, name: "Ada" };
+console.log(user.name);
+```
+
+```typescript title="tj_wrongtype.ts"
+function double(n: number): number {
+  return n * 2;
+}
+const input = "21" as unknown as number;
+console.log(double(input), typeof input);
+```
+
+```javascript title="tj_strip_errors.mjs"
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+
+function run(name) {
+  const file = join(import.meta.dirname, name);
+  const result = spawnSync(process.execPath, [file], { encoding: "utf8" });
+  const lines = result.stderr.split("\n");
+  const problem = lines.find((line) => /^\w*Error/.test(line));
+  const shown = problem ?? result.stdout.trim();
+  console.log(`${name}: exit ${result.status}`, shown);
+}
+
+run("tj_enum.ts");
+run("tj_badimport.ts");
+run("tj_wrongtype.ts");
+```
+
+```text
+tj_enum.ts: exit 1 SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript enum is not supported in strip-only mode
+tj_badimport.ts: exit 1 SyntaxError: The requested module './tj_types.ts' does not provide an export named 'User'
+tj_wrongtype.ts: exit 0 42 string
+```
+
+The last file is the lesson in one line. The cast `as unknown as number` told the checker that the string `"21"` is a number, and Node printed `42 string`: the string went into `double`, which multiplied it, and JavaScript converted it. The declared types said `number`, and types do not exist at run time. Node removes the types, `tsc` enforces them, and a cast is a promise that only you can keep.
+
+To make `tsc` agree with Node about which syntax is allowed, the Node documentation recommends these compiler options for a project that runs TypeScript with type stripping, together with TypeScript 5.8 or later: `noEmit`, `target: "esnext"`, `module: "nodenext"`, `rewriteRelativeImportExtensions`, `erasableSyntaxOnly` and `verbatimModuleSyntax`. With them, the compiler reports the `enum` in `tj_enum.ts` (error TS1294, "This syntax is not allowed when 'erasableSyntaxOnly' is enabled") and the missing `import type` (TS1484), so the mistakes that Node would only discover at run time are found earlier. The project also needs `"type": "module"` in its `package.json`, because the compiler reads `.ts` files as CommonJS otherwise. The flag that turns type stripping off is `--no-strip-types`. The older `--experimental-transform-types`, which compiled `enum` and friends, was removed in Node 26.
+
+## Which route should you choose?
+
+- **JSDoc** suits plain JavaScript projects, small tools and libraries that publish `.js` files and want to describe them. It adds no build step and no new syntax, but complex types are awkward to write in comments.
+- **TypeScript with type stripping** gives the full, comfortable syntax and no build step in development. You must limit yourself to erasable syntax, write `.ts` in import paths, and a package published to npm normally still ships compiled `.js` and `.d.ts` files, because Node refuses `.ts` inside `node_modules`.
+- A **bigger project or team** is usually better served by the TypeScript track, with its build tools.
+
+Both routes use the same checker, so you can start with JSDoc and change later without losing the work.
+
+## Common pitfalls
+
+- **Believing that types protect the running program.** Types exist only for the checker. Data that comes from outside (files, JSON, the network, user input) must still be validated at run time.
+- **Never running the checker.** Types that are not checked are comments that may be wrong. Put `tsc` in CI.
+- **Starting with `any` everywhere.** The value comes from `strict` and from real types. Add them gradually, but add them.
+- **Lying with `as` casts.** `"21" as unknown as number` silences the checker and does not make it true.
+- **Using `enum`, `namespace` or parameter properties** in files that Node runs directly. Use objects with `as const`, plain classes with fields, and ES modules.
+- **Forgetting `import type`** for types, or the `.ts` extension in imports.
+- **Expecting `tsconfig.json` to affect `node file.ts`.** It does not.
+
+## Exercises
+
+<Exercise title="Types for a function">
+
+The program below is checked with `// @ts-check` and `strict`. The checker reports that the parameters have an implicit `any` type. Once they are typed, it will also notice that the call passes a string where a list belongs.
+
+```javascript
+// @ts-check
+function average(numbers) {
+  return numbers.reduce((sum, n) => sum + n, 0) / numbers.length;
+}
+console.log(average("2,4,9"));
+```
+
+Add JSDoc to `average`, describing the parameter as an array of numbers and the result as a number, and fix the call so that the checker has nothing to report. The program should print the average of 2, 4 and 9.
+
+Expected output:
+
+```text
+5
+```
+
+<Solution>
+
+Once `numbers` is typed, `reduce` knows the type of `sum` and `n`. The wrong call is an error that the checker would show you; the fix is to pass an array. (With TypeScript 7.0.2 and the settings of this lesson, `tsc` reports nothing for this solution.)
+
+```javascript title="tj_ex_average.mjs"
+// @ts-check
+
+/**
+ * @param {number[]} numbers
+ * @returns {number}
+ */
+function average(numbers) {
+  return numbers.reduce((sum, n) => sum + n, 0) / numbers.length;
+}
+
+console.log(average([2, 4, 9]));
+```
+
+```text
+5
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="What can Node strip?">
+
+Write a program that tests these five snippets. Write each one into a file `case.ts` in a temporary directory (use `withTempDir` from [the files lesson](../files-and-paths/)), run it with `node case.ts` in a child process with `spawnSync`, and print `name: ok` when it exited with `0`, or `name:` followed by the error code (`ERR_...`) from standard error when it did not.
+
+The snippets are:
+
+- `interface`: `interface A { x: number }` followed by `const a: A = { x: 1 };`
+- `generic`: `function id<T>(v: T): T { return v; }` followed by `id<number>(1);`
+- `enum`: `enum E { A }` followed by `console.log(E.A);`
+- `property`: `class P { constructor(public x: number) {} }` followed by `new P(1);`
+- `namespace`: `namespace N { export const a = 1 }` followed by `console.log(N.a);`
+
+Expected output:
+
+```text
+interface: ok
+generic: ok
+enum: ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX
+property: ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX
+namespace: ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX
+```
+
+<Solution>
+
+Annotations and generics are erasable. `enum`, parameter properties and runtime namespaces each need generated code, so Node refuses them with the same error code. The code is read from the standard error text with a regular expression.
+
+```javascript title="tj_ex_strip.mjs"
+import { spawnSync } from "node:child_process";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { withTempDir } from "./fp_helper.mjs";
+
+const cases = {
+  interface: "interface A { x: number }\nconst a: A = { x: 1 };\n",
+  generic: "function id<T>(v: T): T { return v; }\nid<number>(1);\n",
+  enum: "enum E { A }\nconsole.log(E.A);\n",
+  property: "class P { constructor(public x: number) {} }\nnew P(1);\n",
+  namespace: "namespace N { export const a = 1 }\nconsole.log(N.a);\n",
+};
+
+await withTempDir(async (dir) => {
+  for (const [name, source] of Object.entries(cases)) {
+    await writeFile(join(dir, "case.ts"), source);
+    const options = { cwd: dir, encoding: "utf8" };
+    const run = spawnSync(process.execPath, ["case.ts"], options);
+    const code = run.stderr.match(/ERR_[A-Z_]+/)?.[0];
+    console.log(`${name}: ${run.status === 0 ? "ok" : code}`);
+  }
+});
+```
+
+```text
+interface: ok
+generic: ok
+enum: ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX
+property: ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX
+namespace: ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="An object type in JSDoc">
+
+Here is another checked file. The checker reports that the parameter `person` has an implicit `any` type. Once the type is added, it will also notice that the first call misspells the name of a property.
+
+```javascript
+// @ts-check
+function greet(person) {
+  const age = person.age === undefined ? "unknown age" : `${person.age} years`;
+  return `${person.name}, ${age}`;
+}
+console.log(greet({ nme: "Ada" }));
+console.log(greet({ name: "Alan", age: 41 }));
+```
+
+Define a type `Person` with `@typedef`, with a required `name` string and an optional `age` number, use it for the parameter, and fix the call. The output should be the two greetings.
+
+Expected output:
+
+```text
+Ada, unknown age
+Alan, 41 years
+```
+
+<Solution>
+
+In the object notation of a `@typedef`, a property marked `age?` is optional, so the first call is allowed without it. With the type in place, the misspelling `nme` is exactly the kind of mistake that the checker finds. (`tsc` reports nothing for this solution.)
+
+```javascript title="tj_ex_person.mjs"
+// @ts-check
+
+/** @typedef {{ name: string, age?: number }} Person */
+
+/**
+ * @param {Person} person
+ * @returns {string}
+ */
+function greet(person) {
+  const age = person.age === undefined ? "unknown age" : `${person.age} years`;
+  return `${person.name}, ${age}`;
+}
+
+console.log(greet({ name: "Ada" }));
+console.log(greet({ name: "Alan", age: 41 }));
+```
+
+```text
+Ada, unknown age
+Alan, 41 years
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A static type checker finds type mistakes before the program runs. In JavaScript you can use it through **JSDoc comments**, with `// @ts-check` per file or `checkJs` in `tsconfig.json`, and run it with `npx tsc` (`noEmit`, `strict`, and `types: ["node"]` with `@types/node` for Node code).
+- JSDoc tags: `@param {Type} name`, `[name]` for optional, `@returns`, `@typedef` and `@property`, `@template`, `@type`; `@ts-expect-error` silences one line.
+- Types do not exist at run time. A program with type errors still runs; validate outside data at run time.
+- <Since v="22.18" /> `node file.ts` runs erasable TypeScript by removing the types (stable from Node 24.12 and 25.2). It does no type checking and ignores `tsconfig.json`. `enum`, runtime `namespace`, parameter properties and import aliases are refused, imports need the `.ts` extension, and type-only imports need `import type`.
+- Use `tsc` with `erasableSyntaxOnly` and `verbatimModuleSyntax` to keep the checker in step with Node.
+- Versions in this lesson: TypeScript 7.0.2 and `@types/node` 26.6.5, checked on 17 October 2026.
+
+Next: the module project. You will build and test a small API client that combines `fetch`, retries, cancellation and the test runner.

@@ -1,0 +1,2 @@
+good.mjs exit 0 no problem
+bad.mjs exit 1 SyntaxError: Unexpected token ';'

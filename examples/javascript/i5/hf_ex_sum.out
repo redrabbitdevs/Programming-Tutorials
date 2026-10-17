@@ -1,0 +1,2 @@
+200 { sum: 5 }
+400 { error: 'numbers required' }
