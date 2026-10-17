@@ -1,0 +1,5 @@
+read           get
+assign         set, getOwnPropertyDescriptor, defineProperty
+in             has
+delete         deleteProperty
+Object.keys    ownKeys, getOwnPropertyDescriptor, getOwnPropertyDescriptor

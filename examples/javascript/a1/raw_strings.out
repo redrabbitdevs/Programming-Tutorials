@@ -1,0 +1,5 @@
+[ 'one\ttwo', 'one\\ttwo' ]
+C:\Users\new\table.txt
+C:\Users\new\table.txt
+C:\${folder}
+\d+\.\d+ true

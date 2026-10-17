@@ -1,0 +1,2 @@
+<h1>Hello, &lt;img src=x onerror=&quot;alert(1)&quot;&gt;</h1>
+<ul><li>a&amp;b</li><li>c</li></ul>

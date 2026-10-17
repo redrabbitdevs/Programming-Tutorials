@@ -1,0 +1,4 @@
+{
+  text: 'SELECT * FROM users WHERE name = $1 LIMIT $2',
+  values: [ "x' OR '1'='1", 10 ]
+}
