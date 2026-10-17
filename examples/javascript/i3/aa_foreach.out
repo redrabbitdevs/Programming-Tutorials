@@ -1,0 +1,8 @@
+after forEach
+forEach item done 10
+forEach item done 20
+forEach item done 30
+for-of item done 30
+for-of item done 20
+for-of item done 10
+after for-of

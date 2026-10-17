@@ -1,0 +1,450 @@
+---
+language: javascript
+level: intermediate
+module: Asynchronous JavaScript
+order: 19
+title: Error handling in async code
+description: Find and fix unhandled rejections and floating promises, wrap errors with cause, check thrown values with Error.isError, and retry with backoff.
+minVersion: "22"
+objectives:
+  - Explain what Node does with a rejection that nobody handles
+  - Find floating promises and fix them with await or catch
+  - Know why try and catch do not reach errors thrown inside timers and callbacks
+  - Wrap errors with the cause option and read a chain of causes
+  - Write a retry helper with exponential backoff
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/12-errors-and-exceptions"]
+---
+
+Errors in synchronous code are loud: an exception unwinds the stack until some `catch` handles it, or the program stops with a message. The ideas are in the [fundamentals lesson on errors](../../../fundamentals/beginner/errors-and-exceptions/). In asynchronous code the stack that started the work is long gone by the time something fails, so an error has nowhere to unwind to. This lesson is about making sure that every failure lands somewhere you chose.
+
+## What happens to an unhandled rejection
+
+A promise that rejects with no handler attached is an **unhandled rejection**. Node emits the `unhandledRejection` event when a promise is rejected and no handler is attached within a turn of the event loop. If nothing handles that event, Node raises the rejection as an uncaught exception. The default mode of the `--unhandled-rejections` flag is `throw`, since Node 15, and an uncaught exception prints the stack trace and exits with code 1.
+
+To see this without crashing the lesson itself, the next example starts a child Node process that rejects a promise and nobody handles it.
+
+```javascript title="ae_unhandled.mjs"
+import { spawnSync } from "node:child_process";
+
+const code = `
+  console.log("child: start");
+  Promise.reject(new Error("nobody handles me"));
+  setTimeout(() => console.log("child: never printed"), 50);
+`;
+const child = spawnSync(process.execPath, ["-e", code], { encoding: "utf8" });
+
+console.log("exit code:", child.status);
+console.log("stdout:", child.stdout.trim());
+console.log("error on stderr:", child.stderr.includes("nobody handles me"));
+```
+
+```text
+exit code: 1
+stdout: child: start
+error on stderr: true
+```
+
+The child printed its first line, then died with exit code 1 before its 50 ms timer could fire. The error message went to standard error. The child's `Promise.reject` is the whole bug: no `catch`, no `await`, no handler. If this were a server, a single forgotten rejection in a request handler would stop it for every user.
+
+## Floating promises
+
+A **floating promise** is a promise that your code starts and does not wait for or handle. Calling an async function without `await` is the commonest way to make one. The error does not stay in the function. It becomes a rejection of a promise nobody holds.
+
+```javascript title="ae_handler.mjs"
+process.on("unhandledRejection", (reason) => {
+  console.log("unhandled:", reason.message);
+});
+
+async function save() {
+  throw new Error("disk full");
+}
+
+save();
+console.log("program keeps going");
+setTimeout(() => console.log("timer still runs"), 10);
+```
+
+```text
+program keeps going
+unhandled: disk full
+timer still runs
+```
+
+Here a handler was attached to the process with `process.on("unhandledRejection", ...)`. The program printed `program keeps going` first, then the handler reported `disk full`, and the timer still ran. A handler like this is a safety net for logging, not a fix: the code still did not wait for `save()`, so it never knows whether saving worked.
+
+Fixing a floating promise means choosing who owns the failure. Either wait for it and handle it, or attach a handler to it:
+
+```javascript title="ae_fixes.mjs"
+async function save(name) {
+  if (name === "bad") throw new Error(`cannot save ${name}`);
+  return `saved ${name}`;
+}
+
+try {
+  console.log(await save("bad"));
+} catch (error) {
+  console.log("await and try/catch:", error.message);
+}
+
+save("bad").catch((error) => console.log(".catch:", error.message));
+
+save("good").then((message) => console.log(message));
+```
+
+```text
+await and try/catch: cannot save bad
+.catch: cannot save bad
+saved good
+```
+
+All three calls end up somewhere: `await` inside `try`, `.catch`, and `.then` for a call that cannot fail. If you truly want fire-and-forget, write the `.catch` yourself, so the next reader knows it was a choice.
+## try and catch stop at the callback boundary
+
+A `try` block protects the code that runs while the block is on the stack. A timer callback runs later, on a fresh stack. An error thrown there cannot reach the `try`.
+
+```javascript title="ae_timer_throw.mjs"
+import { spawnSync } from "node:child_process";
+
+const code = `
+  try {
+    setTimeout(() => { throw new Error("late"); }, 1);
+  } catch {
+    console.log("child: caught");
+  }
+  console.log("child: end of script");
+`;
+const child = spawnSync(process.execPath, ["-e", code], { encoding: "utf8" });
+
+console.log("exit code:", child.status);
+console.log(child.stdout.trim().split("\n"));
+```
+
+```text
+exit code: 1
+[ 'child: end of script' ]
+```
+
+The `catch` never ran, because the `try` had finished long before the timer fired. The throw inside the timer was an uncaught exception, so the child process exited with code 1. This is why callback APIs pass errors as arguments, and why promise-returning functions are a better home for failure: a rejection can always be awaited inside a `try`.
+
+## Add context with cause
+
+When you catch an error and throw a new one, do not throw away the original. The `cause` option of the `Error` constructor keeps it. It was added in ES2022. The new error carries the message that fits the level you are at, and `error.cause` still has the technical detail.
+
+```javascript title="ae_cause.mjs"
+function parseConfig(text) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error("invalid config file", { cause: error });
+  }
+}
+
+try {
+  parseConfig("{port: 80}");
+} catch (error) {
+  console.log(error.message);
+  console.log(error.cause.name);
+  console.log(error.cause instanceof SyntaxError);
+}
+```
+
+```text
+invalid config file
+SyntaxError
+true
+```
+
+The caller sees `invalid config file`, a message about its own world, and can still reach the original `SyntaxError` for debugging. The value of `cause` can be anything, so do not assume it is an `Error`.
+
+## Is it really an Error?
+
+JavaScript lets you `throw` any value, so the variable in a `catch` block can be a string, an object or `undefined`. `instanceof Error` fails for errors created in another realm, such as an iframe. And it succeeds for objects that merely inherit from `Error.prototype`.
+
+<Since v="24" /> `Error.isError(value)` checks whether a value is a real error, like `Array.isArray` does for arrays. MDN notes that it also returns `true` for `DOMException`, which is what an aborted signal produces. It is not Baseline yet: Safari lacks it.
+
+```javascript title="ae_iserror.mjs"
+const fake = { name: "Error", message: "I am not an error" };
+console.log(fake instanceof Error, Error.isError(fake));
+console.log(Error.isError(new TypeError("bad type")));
+console.log(Error.isError(new DOMException("stop", "AbortError")));
+
+function describe(thrown) {
+  return Error.isError(thrown)
+    ? `Error: ${thrown.message}`
+    : `not an Error: ${String(thrown)}`;
+}
+console.log(describe(new RangeError("too big")));
+console.log(describe("just a string"));
+```
+
+```text
+false false
+true
+true
+Error: too big
+not an Error: just a string
+```
+
+The object that only looks like an error is rejected by `Error.isError`, even though it has a `name` and a `message`.
+
+## Retry with exponential backoff
+
+Some failures are temporary: a busy server, a dropped connection. A retry helper tries again after a pause. **Exponential backoff** doubles the pause each time, which gives an overloaded service room to recover. The helper below also keeps the last error as the `cause` when it gives up.
+
+```javascript title="ae_retry.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function retry(task, { tries = 3, delay = 5 } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await task(attempt);
+    } catch (error) {
+      if (attempt === tries) {
+        throw new Error(`gave up after ${tries} tries`, { cause: error });
+      }
+      console.log(`attempt ${attempt} failed: ${error.message}`);
+      console.log(`  waiting ${delay} ms`);
+      await sleep(delay);
+      delay *= 2;
+    }
+  }
+}
+```
+
+```javascript title="ae_retry.mjs (continued)"
+const flaky = async (attempt) => {
+  if (attempt < 3) throw new Error(`glitch ${attempt}`);
+  return `worked on attempt ${attempt}`;
+};
+console.log(await retry(flaky));
+```
+
+```text
+attempt 1 failed: glitch 1
+  waiting 5 ms
+attempt 2 failed: glitch 2
+  waiting 10 ms
+worked on attempt 3
+```
+
+```javascript title="ae_retry.mjs (continued)"
+const down = async () => {
+  throw new Error("server down");
+};
+try {
+  await retry(down, { tries: 2 });
+} catch (error) {
+  console.log(error.message, "<-", error.cause.message);
+}
+```
+
+```text
+attempt 1 failed: server down
+  waiting 5 ms
+gave up after 2 tries <- server down
+```
+
+`flaky` failed twice and succeeded on the third attempt, with pauses of 5 and then 10 milliseconds. `down` always fails. With two tries, `retry` made one pause, gave up, and threw a new error with the last failure as its cause.
+
+Two rules keep a retry helper from doing harm. Always limit the number of tries, and retry only errors that can get better: a timeout might, a bad request will not. The exercise below adds the second rule.
+
+## Common pitfalls
+
+- **Calling an async function and ignoring the result.** Its failure becomes an unhandled rejection, which ends the process.
+- **Using `process.on("unhandledRejection")` as the fix.** It hides the symptom. The work you did not wait for is still unwaited.
+- **Wrapping a callback or timer in `try`.** The error happens after the `try` has finished.
+- **Throwing a new error and losing the old one.** Pass `{ cause: error }`.
+- **Assuming `catch (e)` always gets an `Error`.** Anything can be thrown.
+- **Retrying without a limit, or retrying errors that cannot improve.**
+- **Attaching a `catch` long after the rejection.** Handlers must be attached in the same turn of the event loop.
+
+## Exercises
+
+<Exercise title="Retry only temporary failures">
+
+Change `retry` so that it only retries errors that have the property `transient` set to `true`. Any other error must be thrown at once, without a pause. Test it with a task that fails twice with a transient `timeout` error and then succeeds, and with a task that throws a plain `bad request` error.
+
+Expected output:
+
+```text
+transient failure on attempt 1, retrying
+transient failure on attempt 2, retrying
+finally answered
+no retry: bad request
+```
+
+<Solution>
+
+The check `!error.transient` rethrows immediately. `Object.assign(new Error(message), { transient: true })` makes a normal error with the extra property.
+
+```javascript title="ae_ex_transient.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function retry(task, tries = 3) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await task(attempt);
+    } catch (error) {
+      if (!error.transient || attempt === tries) throw error;
+      console.log(`transient failure on attempt ${attempt}, retrying`);
+      await sleep(5);
+    }
+  }
+}
+```
+
+```javascript title="ae_ex_transient.mjs (continued)"
+function transient(message) {
+  return Object.assign(new Error(message), { transient: true });
+}
+
+const timesOut = async (attempt) => {
+  if (attempt < 3) throw transient("timeout");
+  return "finally answered";
+};
+const badRequest = async () => {
+  throw new Error("bad request");
+};
+```
+
+```javascript title="ae_ex_transient.mjs (continued)"
+console.log(await retry(timesOut));
+await retry(badRequest).catch((error) => {
+  console.log("no retry:", error.message);
+});
+```
+
+```text
+transient failure on attempt 1, retrying
+transient failure on attempt 2, retrying
+finally answered
+no retry: bad request
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Find the lost error">
+
+This shutdown code never reports that clean-up failed. Run it, then change it so the failure is reported before the line `shutdown complete`.
+
+```javascript title="ae_ex_floating_bug.mjs"
+async function cleanup() {
+  throw new Error("disk busy");
+}
+
+process.on("unhandledRejection", (reason) => {
+  console.log("lost error:", reason.message);
+});
+
+cleanup();
+console.log("shutdown complete");
+```
+
+```text
+shutdown complete
+lost error: disk busy
+```
+
+<Solution>
+
+`cleanup()` is a floating promise, so `shutdown complete` printed before the failure was even noticed, and the failure arrived through the process-level handler. Awaiting it in a `try` block puts the error handling where the call is.
+
+```javascript title="ae_ex_floating.mjs"
+async function cleanup() {
+  throw new Error("disk busy");
+}
+
+try {
+  await cleanup();
+} catch (error) {
+  console.log("cleanup failed:", error.message);
+}
+console.log("shutdown complete");
+```
+
+```text
+cleanup failed: disk busy
+shutdown complete
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Read the chain of causes">
+
+`startApp` fails because `loadConfig` failed, which failed because `readFile` failed. Each layer wraps the error below it with `cause`. Write `trace(error)` that returns an array with the messages from the outermost error down to the root cause, and print it.
+
+Expected output:
+
+```text
+[ 'cannot start app', 'cannot load config', 'file not found' ]
+```
+
+<Solution>
+
+A `for` loop can follow the links: start at the error, move to `e.cause`, and stop when there is none.
+
+```javascript title="ae_ex_chain.mjs"
+function trace(error) {
+  const messages = [];
+  for (let e = error; e; e = e.cause) {
+    messages.push(e.message);
+  }
+  return messages;
+}
+```
+
+```javascript title="ae_ex_chain.mjs (continued)"
+function readFile() {
+  throw new Error("file not found");
+}
+
+function loadConfig() {
+  try {
+    readFile();
+  } catch (error) {
+    throw new Error("cannot load config", { cause: error });
+  }
+}
+```
+
+```javascript title="ae_ex_chain.mjs (continued)"
+function startApp() {
+  try {
+    loadConfig();
+  } catch (error) {
+    throw new Error("cannot start app", { cause: error });
+  }
+}
+```
+
+```javascript title="ae_ex_chain.mjs (continued)"
+try {
+  startApp();
+} catch (error) {
+  console.log(trace(error));
+}
+```
+
+```text
+[ 'cannot start app', 'cannot load config', 'file not found' ]
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A rejected promise that nobody handles ends a Node program with exit code 1 by default. The `unhandledRejection` event is for logging, not for fixing.
+- Never leave a promise floating: `await` it inside `try`, or attach `.catch`.
+- `try` and `catch` only protect code that runs inside the block. Errors thrown in timers and callbacks bypass them.
+- `new Error(message, { cause })` keeps the original error. Follow `error.cause` to read the chain.
+- `Error.isError` checks for real errors <Since v="24" />, because any value can be thrown.
+- A retry helper needs a limit, a growing pause and a rule for which errors are worth retrying.
+
+Next: cancelling work that is no longer needed, and putting a deadline on work that takes too long.

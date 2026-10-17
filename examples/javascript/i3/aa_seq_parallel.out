@@ -1,0 +1,12 @@
+-- one after the other
+start a
+end a
+start b
+end b
+A B
+-- both at once
+start a
+start b
+end b
+end a
+A B

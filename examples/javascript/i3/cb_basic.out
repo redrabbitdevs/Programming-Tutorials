@@ -1,0 +1,3 @@
+requests sent
+failed: bad id: 0
+loaded { id: 1, name: 'user1' }

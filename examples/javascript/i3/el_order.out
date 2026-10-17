@@ -1,0 +1,5 @@
+1 sync start
+2 sync end
+3 promise callback
+4 microtask
+5 timer, 0 ms

@@ -1,0 +1,381 @@
+---
+language: javascript
+level: intermediate
+module: Asynchronous JavaScript
+order: 18
+title: Running promises together
+description: Wait for many promises with Promise.all, allSettled, any and race, handle AggregateError, and limit how many run at once.
+minVersion: "22"
+objectives:
+  - Start several promises at once and collect their results with Promise.all
+  - Choose between all, allSettled, any and race for a given problem
+  - Read an AggregateError from Promise.any
+  - Build a timeout with Promise.race
+  - Run a list of jobs with a limit on how many are active at once
+estimatedMinutes: 50
+fundamentals: []
+---
+
+The [async and await lesson](../async-await/) showed how to start tasks together and wait for them one by one. JavaScript has four built-in **combinators** that take a collection of promises and return one promise. They differ in two ways: when they settle, and what they do with failures. Picking the right one is most of the skill.
+
+All four take an iterable, usually an array. Values that are not promises are treated as already fulfilled. Every example below uses the same `sleep(ms, value)` helper, a promise that fulfils with `value` after `ms` milliseconds.
+
+## Promise.all: everything must succeed
+
+`Promise.all` fulfils with an array of all the results, **in the order of the input**, no matter which finished first. It rejects as soon as any input rejects, with that first reason.
+
+```javascript title="pc_all.mjs"
+const sleep = (ms, value) =>
+  new Promise((resolve) => setTimeout(resolve, ms, value));
+
+const results = await Promise.all([
+  sleep(30, "slow"),
+  sleep(10, "fast"),
+  "plain value",
+]);
+console.log(results);
+```
+
+```text
+[ 'slow', 'fast', 'plain value' ]
+```
+
+```javascript title="pc_all.mjs (continued)"
+const failing = Promise.all([
+  sleep(10, "ok"),
+  Promise.reject(new Error("one failed")),
+  sleep(20, "also ok"),
+]);
+await failing.catch((error) => console.log("rejected:", error.message));
+```
+
+```text
+rejected: one failed
+```
+
+The slow promise came first in the array and therefore first in the result. The plain string passed through. In the second call, one input rejected and the whole `Promise.all` rejected with that error. The other promises were not cancelled; they kept running, and their results were ignored.
+
+An empty array makes `Promise.all` fulfil at once with `[]`. The usual way to use it is `await Promise.all(items.map(asyncFunction))`, which starts every call and waits for all of them.
+
+## Promise.allSettled: wait for everything, whatever happens
+
+`Promise.allSettled` never rejects. It waits until every input has settled, and fulfils with an array of small result objects: `{ status: "fulfilled", value }` or `{ status: "rejected", reason }`. It was added in ES2020.
+
+```javascript title="pc_allsettled.mjs"
+const sleep = (ms, value) =>
+  new Promise((resolve) => setTimeout(resolve, ms, value));
+
+const results = await Promise.allSettled([
+  sleep(10, "a"),
+  Promise.reject(new Error("b failed")),
+  sleep(5, "c"),
+]);
+
+for (const result of results) {
+  if (result.status === "fulfilled") {
+    console.log("ok:", result.value);
+  } else {
+    console.log("failed:", result.reason.message);
+  }
+}
+console.log(results[0]);
+```
+
+```text
+ok: a
+failed: b failed
+ok: c
+{ status: 'fulfilled', value: 'a' }
+```
+
+Use it when you want every outcome: a batch of independent jobs where one failure should not hide the others, such as a health check of several services.
+
+## Promise.any: the first success
+
+`Promise.any` fulfils with the first input that **fulfils**, and ignores rejections along the way. Only when every input has rejected does it reject, with an `AggregateError`. It was added in ES2021. The `errors` property of the `AggregateError` holds all the reasons, in the order of the input promises.
+
+```javascript title="pc_any.mjs"
+const sleep = (ms, value) =>
+  new Promise((resolve) => setTimeout(resolve, ms, value));
+
+const first = await Promise.any([
+  sleep(30, "mirror A"),
+  Promise.reject(new Error("mirror B is down")),
+  sleep(10, "mirror C"),
+]);
+console.log("first success:", first);
+```
+
+```text
+first success: mirror C
+```
+
+```javascript title="pc_any.mjs (continued)"
+try {
+  await Promise.any([
+    Promise.reject(new Error("x")),
+    Promise.reject(new Error("y")),
+  ]);
+} catch (error) {
+  console.log(error.name, error instanceof AggregateError);
+  console.log(error.message);
+  console.log(error.errors.map((e) => e.message));
+}
+```
+
+```text
+AggregateError true
+All promises were rejected
+[ 'x', 'y' ]
+```
+
+Mirror B failed immediately, and the result still came from mirror C, because it fulfilled before mirror A. In the second call every input rejected, so the call threw an `AggregateError` whose `errors` list both reasons. `Promise.any` with an empty array rejects at once.
+
+## Promise.race: the first to settle
+
+`Promise.race` settles like the first input that settles, fulfilled or rejected. It is the tool for "whichever comes first". An empty array gives a promise that stays pending for ever.
+
+```javascript title="pc_race.mjs"
+const sleep = (ms, value) =>
+  new Promise((resolve) => setTimeout(resolve, ms, value));
+const timeout = (ms) =>
+  new Promise((_, reject) => setTimeout(reject, ms, new Error("timed out")));
+
+console.log(await Promise.race([sleep(30, "slow"), sleep(10, "fast")]));
+
+try {
+  await Promise.race([sleep(50, "late answer"), timeout(10)]);
+} catch (error) {
+  console.log(error.message);
+}
+```
+
+```text
+fast
+timed out
+```
+
+The second call is a timeout. Racing the work against a promise that rejects after 10 ms makes the combined promise reject if the work takes longer. Be aware that `race` does not stop the loser. The 50 ms timer still ran. The exercise below tidies the timer, and the [cancellation lesson](../cancellation/) shows how to stop real work.
+
+## Choosing a combinator
+
+| You want | Use | A rejected input |
+|---|---|---|
+| All results, or fail fast | `Promise.all` | rejects the result at once |
+| Every outcome, never fail | `Promise.allSettled` | becomes a `rejected` entry |
+| The first success | `Promise.any` | is ignored unless all reject |
+| The first outcome, good or bad | `Promise.race` | rejects the result if first |
+
+## Limiting concurrency
+
+`Promise.all(items.map(job))` starts every job at once. For five jobs that is fine. For five thousand requests it overloads a server, or opens more files than the operating system allows. You need a limit.
+
+A short and reliable pattern uses a fixed number of **workers**. Each worker is an async function that takes the next unclaimed item, waits for it and loops. Because JavaScript runs one job at a time, the shared `next` counter needs no lock: `next++` happens in one step, with no `await` in between.
+
+```javascript title="pc_pool.mjs"
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: limit }, worker));
+  return results;
+}
+```
+
+`mapLimit(items, limit, fn)` starts `limit` workers and waits for all of them with `Promise.all`. Results go into their original positions, so the output order matches the input order even though the jobs finish in a different order. Here is a run with five jobs, a limit of 2 and delays of 100, 25, 50, 50 and 75 milliseconds:
+
+```javascript title="pc_pool.mjs (continued)"
+let running = 0;
+let peak = 0;
+const out = await mapLimit([100, 25, 50, 50, 75], 2, async (ms, i) => {
+  running++;
+  peak = Math.max(peak, running);
+  console.log("start", i);
+  await sleep(ms);
+  console.log("done", i);
+  running--;
+  return ms / 25;
+});
+console.log(out, "peak:", peak);
+```
+
+```text
+start 0
+start 1
+done 1
+start 2
+done 2
+start 3
+done 0
+start 4
+done 3
+done 4
+[ 4, 1, 2, 2, 3 ] peak: 2
+```
+
+Read the log. Jobs 0 and 1 start together. Job 1 is done at 25 ms, and its worker takes job 2 at once. Job 0 finishes at 100 ms and its worker takes job 4. The `peak` counter shows that no more than two jobs were ever active. The jobs here have gaps of at least 25 ms between events so that the printed order is stable.
+
+## Common pitfalls
+
+- **Expecting `Promise.all` to cancel the other promises.** It does not.
+- **Using `Promise.all` when one failure should not hide the rest.** Use `allSettled`.
+- **Forgetting that `Promise.race([])` never settles.**
+- **Starting promises inside the array literal for a limit.** Creating a promise starts the work. To limit, create the promise only when a worker is free, as `mapLimit` does.
+- **Using `race` for a timeout and leaving the timer running.** Clear it when the work wins.
+- **Treating a rejected `allSettled` entry as an exception.** It is data; check `status`.
+
+## Exercises
+
+<Exercise title="A health report with allSettled">
+
+`check(name, ok)` returns a promise that fulfils with `name` after 5 ms when `ok` is true and rejects with `new Error(name)` otherwise. Check `db` (up), `cache` (down), `queue` (up) and `mail` (down) together. Print how many are up and which, then how many are down and which.
+
+```javascript
+const check = (name, ok) =>
+  new Promise((resolve, reject) => {
+    setTimeout(() => (ok ? resolve(name) : reject(new Error(name))), 5);
+  });
+```
+
+Expected output:
+
+```text
+2 up: [ 'db', 'queue' ]
+2 down: [ 'cache', 'mail' ]
+```
+
+<Solution>
+
+`allSettled` waits for all four. Filtering by `status` splits the results into two groups, and `map` pulls out the `value` or the `reason.message`.
+
+```javascript title="pc_ex_settled.mjs"
+const check = (name, ok) =>
+  new Promise((resolve, reject) => {
+    setTimeout(() => (ok ? resolve(name) : reject(new Error(name))), 5);
+  });
+
+const results = await Promise.allSettled([
+  check("db", true),
+  check("cache", false),
+  check("queue", true),
+  check("mail", false),
+]);
+
+const up = results.filter((r) => r.status === "fulfilled");
+const down = results.filter((r) => r.status === "rejected");
+console.log(`${up.length} up:`, up.map((r) => r.value));
+console.log(`${down.length} down:`, down.map((r) => r.reason.message));
+```
+
+```text
+2 up: [ 'db', 'queue' ]
+2 down: [ 'cache', 'mail' ]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="The fastest mirror, or a summary of failures">
+
+Write an async function `fastest(mirrors)` that takes an array of promises. It returns the value of the first one that fulfils. If all of them reject, it returns the string `all failed: ` followed by the error messages joined with `, `. Test it with mirrors `eu` (30 ms) and `us` (10 ms) that succeed, and with two that fail.
+
+Expected output:
+
+```text
+us
+all failed: eu, us
+```
+
+<Solution>
+
+`Promise.any` does the racing. When it rejects with an `AggregateError`, the `errors` array holds each reason.
+
+```javascript title="pc_ex_mirrors.mjs"
+const mirror = (name, ms, ok) =>
+  new Promise((resolve, reject) => {
+    setTimeout(() => (ok ? resolve(name) : reject(new Error(name))), ms);
+  });
+
+async function fastest(mirrors) {
+  try {
+    return await Promise.any(mirrors);
+  } catch (error) {
+    const names = error.errors.map((e) => e.message);
+    return `all failed: ${names.join(", ")}`;
+  }
+}
+
+console.log(await fastest([mirror("eu", 30, true), mirror("us", 10, true)]));
+console.log(await fastest([mirror("eu", 5, false), mirror("us", 10, false)]));
+```
+
+```text
+us
+all failed: eu, us
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A timeout that cleans up">
+
+Write `withTimeout(promise, ms)`. It returns a promise that follows `promise`, but rejects with `Error("timed out after <ms> ms")` if `promise` takes longer than `ms`. When the work wins, the timer must be cleared. Try it with a task that takes 5 ms and a limit of 50, and with a task that takes 100 ms and a limit of 10.
+
+Expected output:
+
+```text
+fast enough
+timed out after 10 ms
+```
+
+<Solution>
+
+The timer id is kept outside the executor, so that `finally` can clear it whichever way the race ends. Without `clearTimeout`, a program whose work finished in 5 ms would keep running for 50.
+
+```javascript title="pc_ex_timeout.mjs"
+const sleep = (ms, value) =>
+  new Promise((resolve) => setTimeout(resolve, ms, value));
+
+function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(reject, ms, new Error(`timed out after ${ms} ms`));
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+console.log(await withTimeout(sleep(5, "fast enough"), 50));
+try {
+  await withTimeout(sleep(100, "too slow"), 10);
+} catch (error) {
+  console.log(error.message);
+}
+```
+
+```text
+fast enough
+timed out after 10 ms
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `Promise.all` gives all results in input order, or rejects with the first failure.
+- `Promise.allSettled` never rejects and reports `{ status, value }` or `{ status, reason }` for each input.
+- `Promise.any` gives the first success, or an `AggregateError` with all reasons in `errors`.
+- `Promise.race` follows the first promise to settle. It does not cancel the others.
+- To limit concurrency, run a fixed number of workers that take jobs from a shared counter.
+
+Next: what happens to errors that nobody handles, and how to keep them from disappearing.

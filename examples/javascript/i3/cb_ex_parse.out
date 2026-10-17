@@ -1,0 +1,3 @@
+callback got { a: 1 }
+outside: handler failed
+bad json: SyntaxError

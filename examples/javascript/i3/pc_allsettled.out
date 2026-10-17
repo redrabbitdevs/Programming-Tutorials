@@ -1,0 +1,4 @@
+ok: a
+failed: b failed
+ok: c
+{ status: 'fulfilled', value: 'a' }

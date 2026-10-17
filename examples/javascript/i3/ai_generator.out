@@ -1,0 +1,6 @@
+3
+2
+1
+after the loop
+{ value: 1, done: false }
+{ value: 'liftoff', done: true }

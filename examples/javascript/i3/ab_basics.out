@@ -1,0 +1,5 @@
+aborted? false
+abort event fired
+aborted? true
+AbortError
+user pressed cancel

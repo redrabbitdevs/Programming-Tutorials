@@ -1,0 +1,7 @@
+start header
+start body
+start footer
+end body
+end footer
+end header
+[ 'header', 'body', 'footer' ]

@@ -1,0 +1,407 @@
+---
+language: javascript
+level: intermediate
+module: Asynchronous JavaScript
+order: 16
+title: Promises
+description: Create promises with new Promise, chain them with then, catch and finally, and use Promise.withResolvers and Promise.try.
+minVersion: "22"
+objectives:
+  - Describe the three states of a promise and what it means for a promise to settle
+  - Create a promise with new Promise and settle it with resolve and reject
+  - Chain then, catch and finally, and return values or promises from handlers
+  - Write a promise-returning sleep helper
+  - Use Promise.withResolvers and Promise.try
+estimatedMinutes: 50
+fundamentals: []
+---
+
+A **promise** is an object that stands for a result that is not ready yet. Where a callback API says "call me back", a promise API says "here is a receipt, ask it later". The receipt is a normal value. You can store it, pass it around, return it from a function and attach several readers to it. That one change removes most of the problems in the [callbacks lesson](../callbacks/): the result can be read more than once, it settles only once, and errors travel along the chain.
+
+## The three states
+
+A promise is always in one of three states:
+
+- **pending**: the result is not known yet.
+- **fulfilled**: the work succeeded, and the promise holds a value.
+- **rejected**: the work failed, and the promise holds a reason, normally an `Error`.
+
+A promise that is fulfilled or rejected is **settled**. It never changes again. MDN also uses the word "resolved" for a promise that is settled or locked in to follow another promise; in everyday speech people use "resolved" for "fulfilled". This course says fulfilled and rejected when the difference matters.
+
+`console.log` shows the state:
+
+```javascript title="pr_states.mjs"
+const pending = new Promise((resolve) => {
+  setTimeout(resolve, 10, "ready");
+});
+console.log(pending);
+await pending;
+console.log(pending);
+
+console.log(Promise.resolve(42));
+const rejected = Promise.reject(new Error("nope"));
+rejected.catch((error) => console.log("caught", error.message));
+```
+
+```text
+Promise { <pending> }
+Promise { 'ready' }
+Promise { 42 }
+caught nope
+```
+
+The first line was logged while the timer was still running. After `await pending`, the same object is fulfilled with `'ready'`. `Promise.resolve(value)` makes a promise that is already fulfilled. `Promise.reject(reason)` makes one that is already rejected. The rejected promise gets a `.catch` handler on the very next line. The reason for that will become clear in the lesson on async errors: a rejected promise nobody handles crashes a Node program.
+
+## Creating a promise
+
+`new Promise(executor)` takes a function, the **executor**, and calls it at once with two functions: `resolve` and `reject`. You start your asynchronous work inside the executor, and call one of the two functions when it ends.
+
+```javascript title="pr_executor.mjs"
+console.log("before");
+const p = new Promise((resolve) => {
+  console.log("inside executor");
+  resolve("value");
+  console.log("after resolve call");
+});
+p.then((value) => console.log("then got", value));
+console.log("after then call");
+```
+
+```text
+before
+inside executor
+after resolve call
+after then call
+then got value
+```
+
+The executor ran synchronously, in the middle of the `new Promise` line, and `resolve("value")` did not stop it: the line after it still ran. But the `then` callback ran last. Callbacks passed to `then` are never called synchronously, even for a promise that is already fulfilled. They are queued as microtasks, as the [event loop lesson](../event-loop/) showed.
+
+Only the first call counts. Once `resolve` or `reject` has been called, later calls do nothing.
+
+## Reading a promise: then, catch and finally
+
+- `promise.then(onFulfilled)` runs the function with the value.
+- `promise.catch(onRejected)` runs the function with the reason.
+- `promise.finally(onSettled)` runs the function in either case, with no arguments, for clean-up.
+
+All three return a **new promise**. That is what makes chaining possible.
+
+## Chaining
+
+The value a handler returns becomes the value of the promise that `then` returned. If the handler returns a promise, the chain waits for it and continues with its value.
+
+```javascript title="pr_chain.mjs"
+Promise.resolve(2)
+  .then((n) => n * 2)
+  .then((n) => {
+    console.log("got", n);
+    return new Promise((resolve) => setTimeout(resolve, 10, n + 1));
+  })
+  .then((n) => console.log("after the wait:", n));
+```
+
+```text
+got 4
+after the wait: 5
+```
+
+The first `then` returns a number, and the second receives it. The second `then` returns a promise that is fulfilled after 10 milliseconds, and the third `then` receives `5` only after that. The whole chain is flat: each step is one line of indentation, however many steps there are.
+
+### Always return
+
+If a handler starts more asynchronous work and does not `return` it, the chain does not wait for it. MDN calls such a promise "floating".
+
+```javascript title="pr_forgot.mjs"
+const step = (n) => Promise.resolve(n + 1);
+
+const lost = await step(1).then((n) => {
+  step(n);
+});
+console.log("without return:", lost);
+
+const kept = await step(1).then((n) => {
+  return step(n);
+});
+console.log("with return:", kept);
+```
+
+```text
+without return: undefined
+with return: 3
+```
+
+In the first call, the `then` handler called `step(n)` but did not return the result. The next step in the chain saw `undefined`. In the second, `return step(n)` made the chain wait and pass on the value.
+
+## Errors travel down the chain
+
+When a handler throws, or returns a rejected promise, the promise from that `then` is rejected. Every `then` after it is skipped, until a `catch` handles the error. A `catch` that returns a value recovers: the chain continues as fulfilled.
+
+```javascript title="pr_catch.mjs"
+Promise.resolve("start")
+  .then((value) => {
+    console.log("step 1 got", value);
+    throw new Error("step 1 failed");
+  })
+  .then(() => console.log("step 2 (skipped)"))
+  .catch((error) => {
+    console.log("caught:", error.message);
+    return "recovered";
+  })
+  .then((value) => console.log("step 3 got", value))
+  .finally(() => console.log("finally runs last"));
+```
+
+```text
+step 1 got start
+caught: step 1 failed
+step 3 got recovered
+finally runs last
+```
+
+Step 2 never ran. The `catch` turned the failure into the value `"recovered"`, step 3 received it, and `finally` ran last. This is the same flow as `try`, `catch` and `finally` in synchronous code, as the [beginner lesson on errors](../../beginner/errors-basics-js/) described.
+
+`finally` is for clean-up. It does not receive the result, and by default it does not change it:
+
+```javascript title="pr_finally.mjs"
+const kept = await Promise.resolve("value").finally(() => "ignored");
+console.log(kept);
+
+const failing = Promise.reject(new Error("boom")).finally(() => {
+  console.log("cleanup runs");
+});
+try {
+  await failing;
+} catch (error) {
+  console.log("still rejected:", error.message);
+}
+```
+
+```text
+value
+cleanup runs
+still rejected: boom
+```
+
+The fulfilled value `"value"` passed through, in spite of the `"ignored"` returned by the handler. The rejection passed through too, after the clean-up message. If a `finally` handler throws, or returns a rejected promise, that new rejection replaces the result.
+
+## A sleep helper
+
+Wrapping `setTimeout` in a promise is the first helper most programs grow. It uses the third argument of `setTimeout`, which is passed to the callback, so `resolve` receives the value.
+
+```javascript title="pr_sleep.mjs"
+function sleep(ms, value) {
+  return new Promise((resolve) => setTimeout(resolve, ms, value));
+}
+
+console.log("waiting");
+sleep(20, "first")
+  .then((value) => {
+    console.log(value);
+    return sleep(10, "second");
+  })
+  .then((value) => console.log(value));
+```
+
+```text
+waiting
+first
+second
+```
+
+The rest of this module uses `sleep` for fake slow work. Node also ships it ready-made as `setTimeout` from `node:timers/promises`, which the lesson on cancellation uses.
+
+## Promise.withResolvers
+
+Sometimes the code that settles the promise lives somewhere other than the executor: in an event handler, or a different function. Declaring `let resolve` outside, and filling it in from the executor, is awkward. `Promise.withResolvers()` returns the promise together with its `resolve` and `reject` functions as an object. It was added in ES2024 and runs on Node 22.
+
+```javascript title="pr_resolvers.mjs"
+const { promise, resolve } = Promise.withResolvers();
+
+promise.then((value) => console.log("A got", value));
+promise.then((value) => console.log("B got", value));
+
+setTimeout(() => resolve("data"), 10);
+setTimeout(() => resolve("ignored"), 20);
+```
+
+```text
+A got data
+B got data
+```
+
+Two readers wait on the same promise, and both got the value when `resolve` was called at 10 ms. The second call, at 20 ms, did nothing, because a promise settles only once.
+
+## Promise.try
+
+<Since v="24" /> `Promise.try(fn, ...args)` calls `fn` with the arguments and always gives you back a promise. A returned value becomes a fulfilled promise. A thrown error becomes a rejected one. A returned promise is passed on. You want it for functions that might throw before they get to the asynchronous part, so that you handle both kinds of failure in one place.
+
+```javascript title="pr_try.mjs"
+function parse(text) {
+  if (text === "") throw new Error("empty input");
+  return JSON.parse(text);
+}
+
+console.log(await Promise.try(parse, '{"a":1}'));
+try {
+  await Promise.try(parse, "");
+} catch (error) {
+  console.log("rejected:", error.message);
+}
+
+try {
+  Promise.resolve(parse(""));
+} catch (error) {
+  console.log("threw at once:", error.message);
+}
+```
+
+```text
+{ a: 1 }
+rejected: empty input
+threw at once: empty input
+```
+
+The last block shows what `Promise.try` saves you from: `Promise.resolve(parse(""))` runs `parse` first, so its `throw` happens in your own code, before any promise exists.
+
+## Common pitfalls
+
+- **Forgetting to `return` inside `then`.** The next step gets `undefined` and does not wait.
+- **Nesting `then` inside `then`.** Return the inner promise and keep the chain flat.
+- **Assuming `then` callbacks run immediately.** They always run later.
+- **Leaving a rejection unhandled.** End chains with `catch`, or `await` them inside `try`.
+- **Expecting `finally` to see the value.** It gets no arguments.
+- **Calling `resolve` and carrying on.** The code after it in the executor still runs.
+
+## Exercises
+
+<Exercise title="Three steps in a chain">
+
+Write `total(json)`, which returns a promise. Starting from the text of a JSON array of numbers, it must parse the text, add up the numbers and give back the string `total = <sum>`. If anything fails, the promise must fulfil with `bad input (<error name>)` instead. Use `then` and `catch`, not `await` inside `total`. Call it with `"[1, 2, 3]"` and with `"[1,"`.
+
+Expected output:
+
+```text
+total = 6
+bad input (SyntaxError)
+```
+
+<Solution>
+
+Each `then` does one step, and one `catch` at the end handles a failure from any of them. The `catch` returns a string, so the final promise is fulfilled either way.
+
+```javascript title="pr_ex_chain.mjs"
+function total(json) {
+  return Promise.resolve(json)
+    .then((text) => JSON.parse(text))
+    .then((numbers) => numbers.reduce((sum, n) => sum + n, 0))
+    .then((sum) => `total = ${sum}`)
+    .catch((error) => `bad input (${error.name})`);
+}
+
+console.log(await total("[1, 2, 3]"));
+console.log(await total("[1,"));
+```
+
+```text
+total = 6
+bad input (SyntaxError)
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Wrap a callback API">
+
+`doubleLater` is a callback API: it calls back with `n * 2` after 5 ms, or with a `TypeError` if `n` is not a number. Without `util.promisify`, write `doubleAsync(n)` that returns a promise for the result. Print `doubleAsync(21)`, and then the name and message of the error from `doubleAsync("x")`.
+
+Expected output:
+
+```text
+42
+TypeError: not a number
+```
+
+<Solution>
+
+The executor starts the callback-style call and settles the promise from inside the callback: `reject` for an error, `resolve` for a value. This is what `promisify` does for you.
+
+```javascript title="pr_ex_wrap.mjs"
+function doubleLater(n, callback) {
+  setTimeout(() => {
+    if (typeof n !== "number") {
+      return callback(new TypeError("not a number"));
+    }
+    callback(null, n * 2);
+  }, 5);
+}
+
+function doubleAsync(n) {
+  return new Promise((resolve, reject) => {
+    doubleLater(n, (error, result) => {
+      if (error) reject(error);
+      else resolve(result);
+    });
+  });
+}
+
+console.log(await doubleAsync(21));
+await doubleAsync("x").catch((e) => console.log(e.name + ":", e.message));
+```
+
+```text
+42
+TypeError: not a number
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Predict the output">
+
+What does this program print, and in which order? Work it out on paper first.
+
+```javascript title="pr_ex_predict.mjs"
+console.log("1");
+const p = new Promise((resolve) => {
+  console.log("2");
+  resolve("3");
+});
+p.then((value) => {
+  console.log(value);
+  throw new Error("4");
+})
+  .catch(() => console.log("5"))
+  .finally(() => console.log("6"));
+console.log("7");
+```
+
+<Solution>
+
+
+```text
+1
+2
+7
+3
+5
+6
+```
+
+The executor runs at once and prints `2`, and the last line prints `7` before any handler. Then the handlers run, one after another: the first prints `3` and throws. The throw rejects the promise from `then`, so the `catch` handler prints `5`. The handler returned normally, so the promise it returned is fulfilled, and `finally` prints `6`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A promise is pending, then fulfilled or rejected. It settles once and then never changes.
+- `new Promise(executor)` runs the executor at once. Handlers added with `then`, `catch` and `finally` always run later, as microtasks.
+- Each handler returns a new promise, so steps chain. Return a value to pass it on, or a promise to wait for it.
+- A throw or a rejection skips the `then` steps until a `catch`. A `catch` that returns a value recovers.
+- `Promise.withResolvers()` gives you a promise and its settling functions. `Promise.try(fn)` turns a function that may throw into a promise.
+
+Next: `async` and `await`, which let you write this flow like ordinary sequential code.
