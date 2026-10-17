@@ -303,6 +303,11 @@ printf '%s\n' "$VER_OUT"
 if [ $VER_CODE -eq 0 ]; then pass "$(printf '%s\n' "$VER_OUT" | tail -1)"; else fail "version claims (minVersion / <Since>)"; fi
 
 # 6. Headings ----------------------------------------------------------------
+step "frontmatter: no unquoted ' #' (YAML would cut the value)"
+FM_OUT="$(python3 "$ROOT/scripts/check_frontmatter.py" 2>&1)"; FM_CODE=$?
+printf '%s\n' "$FM_OUT"
+if [ $FM_CODE -eq 0 ]; then pass "$(printf '%s\n' "$FM_OUT" | tail -1)"; else fail "frontmatter (unquoted # truncates a value)"; fi
+
 step "fundamentals: every lesson's fundamentals ids exist"
 FD_OUT="$(python3 "$ROOT/scripts/check_fundamentals.py" 2>&1)"; FD_CODE=$?
 printf '%s\n' "$FD_OUT"
