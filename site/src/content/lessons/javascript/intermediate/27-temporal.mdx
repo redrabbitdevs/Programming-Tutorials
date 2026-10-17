@@ -16,7 +16,7 @@ estimatedMinutes: 55
 fundamentals: ["fundamentals/beginner/03-values-and-types"]
 ---
 
-`Temporal` is the replacement for `Date`. It reached stage 4 in the TC39 process in May 2026 and is part of the ECMAScript 2027 draft. Node 26 turns it on by default, so every example in this lesson needs **Node 26 or newer**. On Node 22 and 24 the name `Temporal` does not exist, and using it throws a `ReferenceError`.
+`Temporal` is the replacement for `Date`. It reached stage 4 (finished) in the TC39 process in May 2026 and is expected in ECMAScript 2027. Node 26 turns it on by default, so every example in this lesson needs **Node 26 or newer**. On Node 22 and 24 the name `Temporal` does not exist, and using it throws a `ReferenceError`.
 
 It is also **not yet available in every browser**. At the time of writing, MDN lists it in Chrome and Edge 144 and Firefox 139, but not in Safari, so MDN marks it as "limited availability". For code that runs in browsers you do not control, `Date` and [`Intl`](../intl-formatting/) from the previous lessons are still the safe choice. On a server where you pick the Node version, `Temporal` is ready.
 
@@ -519,7 +519,7 @@ console.log(gap.toString());
 
 ## Summary
 
-- `Temporal` is on by default in Node 26, was finished as a standard in May 2026, and is not yet in Safari. Use `Date` and `Intl` where it is missing.
+- `Temporal` is on by default in Node 26, reached stage 4 in TC39 in May 2026 (expected in ECMAScript 2027), and is not yet in Safari. Use `Date` and `Intl` where it is missing.
 - Pick a type by the question: `PlainDate`, `PlainTime`, `PlainDateTime`, `PlainYearMonth`, `Instant`, `ZonedDateTime` or `Duration`.
 - Months start at 1 and Monday is day 1. All values are immutable, and operations return new ones.
 - `ZonedDateTime` knows time zones and daylight saving. A calendar day and 24 hours are different things.
