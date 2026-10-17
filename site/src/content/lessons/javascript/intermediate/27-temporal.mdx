@@ -1,0 +1,530 @@
+---
+language: javascript
+level: intermediate
+module: Text, patterns, dates and numbers
+order: 27
+title: Temporal
+description: Use the modern date-time API, with separate types for dates, times, zoned moments and durations, immutable values and real time zone support.
+minVersion: "26"
+objectives:
+  - Pick the right Temporal type for a date, a time, a moment or a zoned moment
+  - Do date arithmetic and comparisons without mutating anything
+  - Convert a moment between time zones, including across daylight saving
+  - Measure and add durations, and balance them with round
+  - Convert between Date and Temporal, and decide when Temporal is safe to use
+estimatedMinutes: 55
+fundamentals: ["fundamentals/beginner/03-values-and-types"]
+---
+
+`Temporal` is the replacement for `Date`. It reached stage 4 in the TC39 process in May 2026 and is part of the ECMAScript 2027 draft. Node 26 turns it on by default, so every example in this lesson needs **Node 26 or newer**. On Node 22 and 24 the name `Temporal` does not exist, and using it throws a `ReferenceError`.
+
+It is also **not yet available in every browser**. At the time of writing, MDN lists it in Chrome and Edge 144 and Firefox 139, but not in Safari, so MDN marks it as "limited availability". For code that runs in browsers you do not control, `Date` and [`Intl`](../intl-formatting/) from the previous lessons are still the safe choice. On a server where you pick the Node version, `Temporal` is ready.
+
+The problems it solves are the ones from the [Date lesson](../dates-legacy/): months from zero, mutable objects, local-or-UTC confusion, no time zones, and one type for everything. The ideas of values and types are in the fundamentals lesson on [values and types](../../../fundamentals/beginner/values-and-types/).
+
+## One type per idea
+
+Instead of one `Date`, `Temporal` has a type for each question you can ask.
+
+| Type | Holds | Example |
+|---|---|---|
+| `PlainDate` | a calendar date, no time or zone | a birthday, a holiday |
+| `PlainTime` | a wall-clock time | "opens at 09:00" |
+| `PlainDateTime` | a date and a time, no zone | a local appointment, zone unknown |
+| `PlainYearMonth` | a year and month | a billing period |
+| `Instant` | an exact moment, no zone | a timestamp in a log |
+| `ZonedDateTime` | an exact moment *and* a time zone | a meeting in New York |
+| `Duration` | a length of time | "1 hour 30 minutes" |
+
+Choose the simplest type that has what you need. A birthday should be a `PlainDate`: it has no time of day to get wrong.
+
+## PlainDate
+
+Months start at 1, the way people write them, and the week runs from Monday (1) to Sunday (7).
+
+```javascript title="temporal_plain.mjs"
+const date = Temporal.PlainDate.from("2026-03-14");
+console.log(date.toString(), date.year, date.month, date.day);
+console.log(date.dayOfWeek, date.daysInMonth, date.inLeapYear);
+```
+
+```text
+2026-03-14 2026 3 14
+6 31 false
+```
+
+`from` reads an ISO string, and the constructor `new Temporal.PlainDate(2026, 12, 25)` takes numbers. The properties `year`, `month` and `day` are plain numbers.
+
+**Values never change.** Every operation returns a new value, and the original stays as it was. That removes the whole class of bugs where one function changes a date another function still uses.
+
+```javascript title="temporal_plain.mjs (continued)"
+const later = date.add({ days: 20 });
+console.log(later.toString(), date.toString());
+console.log(date.with({ day: 1 }).toString());
+const jan31 = Temporal.PlainDate.from("2026-01-31");
+console.log(jan31.add({ months: 1 }).toString());
+```
+
+```text
+2026-04-03 2026-03-14
+2026-03-01
+2026-02-28
+```
+
+- `add` takes an object of units and gives back a new date.
+- `with` replaces some fields, here the day, to find the first of the month.
+- Adding one month to 31 January gives 28 February. A day that does not exist in the target month is moved back to the last valid day by default (this is the `constrain` rule).
+
+Comparing and measuring:
+
+```javascript title="temporal_plain.mjs (continued)"
+const built = new Temporal.PlainDate(2026, 12, 25);
+console.log(built.toString(), Temporal.PlainDate.compare(date, built));
+```
+
+```text
+2026-12-25 -1
+```
+
+```javascript title="temporal_plain.mjs (continued)"
+console.log(date.until(built).toString());
+console.log(date.until(built, { largestUnit: "day" }).days);
+console.log(date.equals(Temporal.PlainDate.from("2026-03-14")));
+```
+
+```text
+P286D
+286
+true
+```
+
+- `Temporal.PlainDate.compare(a, b)` returns -1, 0 or 1, which suits `sort`.
+- `until` returns a `Duration`. Its text form `P286D` is an ISO 8601 duration: a period of 286 days.
+- With `largestUnit: "day"` the `days` property is the total number of days.
+- `equals` tests equality of value. The operators `===` and `==` compare objects, so they would say `false` for two equal but separate values.
+
+## Time, date-time and year-month
+
+The other plain types follow the same pattern.
+
+```javascript title="temporal_types.mjs"
+const time = Temporal.PlainTime.from("15:30");
+console.log(time.add({ minutes: 45 }).toString());
+```
+
+```text
+16:15:00
+```
+
+```javascript title="temporal_types.mjs (continued)"
+const dt = Temporal.PlainDateTime.from("2026-03-14T23:30:00");
+console.log(dt.add({ hours: 1 }).toString());
+console.log(dt.toPlainDate().toString(), dt.toPlainTime().toString());
+```
+
+```text
+2026-03-15T00:30:00
+2026-03-14 23:30:00
+```
+
+`PlainTime` wraps around midnight, so 15:30 plus 45 minutes is 16:15. A `PlainDateTime` is a date and time with **no zone**. Adding an hour at 23:30 rolls over into the next day. Use it when a zone does not matter or is not known yet, and `toPlainDate` and `toPlainTime` take the parts out.
+
+## Instant: an exact moment
+
+An `Instant` is a point on the universal timeline, with nanosecond precision, and no zone. It is the closest thing to a `Date`, and what you store in databases and logs.
+
+```javascript title="temporal_types.mjs (continued)"
+const instant = Temporal.Instant.from("2026-03-14T15:30:00Z");
+console.log(instant.epochMilliseconds, instant.toString());
+console.log(instant.add({ hours: 2 }).toString());
+console.log(instant.toZonedDateTimeISO("Asia/Tokyo").toString());
+```
+
+```text
+1773502200000 2026-03-14T15:30:00Z
+2026-03-14T17:30:00Z
+2026-03-15T00:30:00+09:00[Asia/Tokyo]
+```
+
+- The string form always ends in `Z`.
+- `epochMilliseconds` is the same number a `Date` holds. There are also `epochNanoseconds` (a `BigInt`) for full precision.
+- `add` on an `Instant` only accepts exact units (hours and smaller). A "day" has no fixed length without a zone, and the call throws for it.
+- `toZonedDateTimeISO` attaches a zone to the moment.
+
+One more plain type is worth knowing. `PlainYearMonth` fits monthly periods, like a statement for February 2026.
+
+```javascript title="temporal_types.mjs (continued)"
+const yearMonth = Temporal.PlainYearMonth.from("2026-02");
+console.log(yearMonth.daysInMonth, yearMonth.add({ months: 1 }).toString());
+```
+
+```text
+28 2026-03
+```
+
+## ZonedDateTime: a moment with a zone
+
+A `ZonedDateTime` is an exact moment together with a time zone. It knows the offset in effect, and it knows about daylight saving.
+
+```javascript title="temporal_zoned.mjs"
+const meeting = Temporal.ZonedDateTime.from(
+  "2026-03-09T09:00:00[America/New_York]",
+);
+console.log(meeting.toString());
+console.log(meeting.offset, meeting.timeZoneId, meeting.hour);
+```
+
+```text
+2026-03-09T09:00:00-04:00[America/New_York]
+-04:00 America/New_York 9
+```
+
+The text form shows the offset and, in square brackets, the zone name. The offset changes during the year in New York, and the zone name stays. A time zone is always an IANA name like `Europe/London` here.
+
+`withTimeZone` shows the **same moment** on a wall clock somewhere else, which makes a meeting planner simple.
+
+```javascript title="temporal_zoned.mjs (continued)"
+const london = meeting.withTimeZone("Europe/London");
+const tokyo = meeting.withTimeZone("Asia/Tokyo");
+console.log(london.toString());
+console.log(tokyo.toString());
+console.log(meeting.epochMilliseconds === tokyo.epochMilliseconds);
+```
+
+```text
+2026-03-09T13:00:00+00:00[Europe/London]
+2026-03-09T22:00:00+09:00[Asia/Tokyo]
+true
+```
+
+Nine in the morning in New York is 13:00 in London, because the US clocks changed on 8 March while the UK ones change later in the month, and 22:00 in Tokyo. The last line confirms that all three are one moment.
+
+### Daylight saving, done right
+
+The bug from the Date lesson goes away, because `ZonedDateTime` understands what a "day" is:
+
+```javascript title="temporal_zoned.mjs (continued)"
+const eve = Temporal.ZonedDateTime.from("2026-03-07T12:00[America/New_York]");
+console.log(eve.add({ days: 2 }).toString());
+console.log(eve.add({ hours: 48 }).toString());
+console.log(eve.until(eve.add({ days: 1 })).toString());
+```
+
+```text
+2026-03-09T12:00:00-04:00[America/New_York]
+2026-03-09T13:00:00-04:00[America/New_York]
+PT23H
+```
+
+- `add({ days: 2 })` moves the calendar by two days and keeps the wall-clock time, 12:00.
+- `add({ hours: 48 })` adds exact time, so the result is 13:00, as the clocks moved forward in between.
+- `until` shows that the day of the change is **23 hours** long.
+
+If you give a wall-clock time that does not exist because the clock skipped it, `Temporal` picks the nearest valid one by default. Parsing `02:30` on the night the clocks jump past 02:00 gives 03:30.
+
+## Duration
+
+A `Duration` holds separate units. It is an amount of time, not a moment. The text form, such as `PT1H30M`, is the ISO 8601 form: `P` starts the period, `T` starts the time part.
+
+```javascript title="temporal_duration.mjs"
+const d = Temporal.Duration.from({ hours: 1, minutes: 30 });
+console.log(d.toString(), d.total("minute"), d.minutes);
+console.log(Temporal.Duration.from("P1Y2M3DT4H").months);
+```
+
+```text
+PT1H30M 90 30
+2
+```
+
+- `total` converts the whole duration to one unit, as a number.
+- Fields like `minutes` give the stored part only: 30, not 90.
+- `Duration.from` also reads the ISO text, and `P1Y2M3DT4H` has 2 months.
+
+A duration does **not** rebalance itself. Adding 30 minutes to 135 minutes gives 165 minutes, not 2 hours 45 minutes. Use `round` with a `largestUnit` when you want it tidy.
+
+```javascript title="temporal_duration.mjs (continued)"
+const long = Temporal.Duration.from({ minutes: 135 });
+console.log(long.round({ largestUnit: "hour" }).toString());
+console.log(long.add({ minutes: 30 }).toString());
+```
+
+```text
+PT2H15M
+PT165M
+```
+
+Dates produce durations with `until` and `since`. The `largestUnit` option decides which units are used.
+
+```javascript title="temporal_duration.mjs (continued)"
+const a = Temporal.PlainDate.from("2026-01-31");
+const b = Temporal.PlainDate.from("2026-03-15");
+console.log(a.until(b, { largestUnit: "month" }).toString());
+console.log(a.until(b, { largestUnit: "week" }).toString());
+console.log(a.since(b).toString());
+```
+
+```text
+P1M15D
+P6W1D
+-P43D
+```
+
+- From 31 January to 15 March is "1 month and 15 days" with months allowed, and "6 weeks and 1 day" with weeks.
+- `since` is the reverse of `until` and gives a negative duration, written with a leading `-`.
+- Months have different lengths, so a month-based duration only makes sense relative to a date. `total` of a duration with months or years needs a `relativeTo` date.
+
+Between two `Instant` values the units are exact:
+
+```javascript title="temporal_duration.mjs (continued)"
+const x = Temporal.Instant.from("2026-03-14T10:00:00Z");
+const y = Temporal.Instant.from("2026-03-14T12:15:00Z");
+console.log(x.until(y).toString(), x.until(y).total("minute"));
+```
+
+```text
+PT8100S 135
+```
+
+## Moving between Date and Temporal
+
+You will keep meeting `Date`. `date.toTemporalInstant()` converts it, and `new Date(instant.epochMilliseconds)` converts back.
+
+```javascript title="temporal_interop.mjs"
+const legacy = new Date("2026-03-14T15:30:00Z");
+const instant = legacy.toTemporalInstant();
+console.log(instant.toString());
+console.log(new Date(instant.epochMilliseconds).toISOString());
+```
+
+```text
+2026-03-14T15:30:00Z
+2026-03-14T15:30:00.000Z
+```
+
+`toLocaleString` exists on all the Temporal types and takes the same locale and options as [`Intl.DateTimeFormat`](../intl-formatting/).
+
+```javascript title="temporal_interop.mjs (continued)"
+const zoned = instant.toZonedDateTimeISO("Europe/Berlin");
+const style = { dateStyle: "long", timeStyle: "short" };
+console.log(zoned.toLocaleString("en-GB", style));
+const full = { dateStyle: "full" };
+console.log(zoned.toPlainDate().toLocaleString("de-DE", full));
+```
+
+```text
+14 March 2026 at 16:30
+Samstag, 14. März 2026
+```
+
+`Temporal.Now` reads the clock. It is the only part of the API whose results depend on when and where the code runs, so tests should pass the date in as an argument instead of calling `Now` deep inside a function.
+
+```javascript title="temporal_interop.mjs (continued)"
+const now = Temporal.Now.instant();
+console.log(typeof now.epochMilliseconds, typeof Temporal.Now.timeZoneId());
+console.log(Temporal.Now.plainDateISO("UTC") instanceof Temporal.PlainDate);
+```
+
+```text
+number string
+true
+```
+
+Everything is immutable, which the next lines check:
+
+```javascript title="temporal_interop.mjs (continued)"
+const d = Temporal.PlainDate.from("2026-03-14");
+console.log(d.add({ days: 1 }) === d, d.toString());
+```
+
+```text
+false 2026-03-14
+```
+
+`add` returned a new object, so it is not `d`, and `d` still prints the original date.
+
+Invalid dates are handled on purpose. A property object with a day that does not exist is clamped by default, and the option `overflow: "reject"` turns that into an error. Text that is not a valid date, such as `2026-02-30`, always throws.
+
+```javascript title="temporal_interop.mjs (continued)"
+const feb30 = { year: 2026, month: 2, day: 30 };
+console.log(Temporal.PlainDate.from(feb30).toString());
+try {
+  Temporal.PlainDate.from(feb30, { overflow: "reject" });
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+2026-02-28
+RangeError
+```
+
+```javascript title="temporal_interop.mjs (continued)"
+try {
+  Temporal.PlainDate.from("2026-02-30");
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+RangeError
+```
+
+## Common pitfalls
+
+- **Using it where it does not exist.** `Temporal` needs Node 26. Safari does not have it yet. Check your targets first.
+- **Using `ZonedDateTime` for everything.** A birthday or a holiday is a `PlainDate`. Using a type with a time and zone adds problems that are not there.
+- **Using `PlainDateTime` for a moment.** Without a zone it is not an exact moment, and two of them cannot be compared as moments.
+- **Using `===` to compare values.** Use `equals` or `compare`.
+- **Expecting a duration to rebalance.** `PT165M` stays minutes until you call `round`.
+- **Adding days to an `Instant`.** It only accepts exact units. Convert to a `ZonedDateTime` first.
+- **Storing the offset instead of the zone name.** `-05:00` does not say whether it will change in summer. Keep the `Europe/London` style name.
+- **Calling `Temporal.Now` inside logic you want to test.** Pass the date in.
+
+## Exercises
+
+<Exercise title="A meeting planner">
+
+Write `plan(start, hostZone)` that takes a local start such as `2026-03-09T09:00` in the host's zone, and prints the same moment in `America/New_York`, `Europe/London` and `Asia/Tokyo`, one line per zone, with the zone name padded to 16 characters followed by the time formatted with `toLocaleString("en-GB", ...)` using `dateStyle: "medium"`, `timeStyle: "short"` and `hourCycle: "h23"`. Call it for `2026-03-09T09:00` hosted in New York, and `2026-03-30T09:00` hosted in London. The expected output is 09:00, 13:00 and 22:00 for the first meeting (on 9 Mar), and 04:00, 09:00 and 17:00 for the second (on 30 Mar). The second shows the effect of the UK switching to summer time.
+
+<Solution>
+
+`ZonedDateTime.from` reads the start with the host zone in brackets, and `withTimeZone` shows it in each zone. All three prints use the same moment, and the library handles the daylight saving offsets.
+
+```javascript title="ex_planner.mjs"
+const zones = ["America/New_York", "Europe/London", "Asia/Tokyo"];
+const style = { dateStyle: "medium", timeStyle: "short", hourCycle: "h23" };
+
+function plan(start, hostZone) {
+  const host = Temporal.ZonedDateTime.from(`${start}[${hostZone}]`);
+  for (const zone of zones) {
+    const local = host.withTimeZone(zone);
+    console.log(zone.padEnd(16), local.toLocaleString("en-GB", style));
+  }
+}
+
+plan("2026-03-09T09:00", "America/New_York");
+plan("2026-03-30T09:00", "Europe/London");
+```
+
+```text
+America/New_York 9 Mar 2026, 09:00
+Europe/London    9 Mar 2026, 13:00
+Asia/Tokyo       9 Mar 2026, 22:00
+America/New_York 30 Mar 2026, 04:00
+Europe/London    30 Mar 2026, 09:00
+Asia/Tokyo       30 Mar 2026, 17:00
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A countdown in months and days">
+
+Write `untilDate(from, to)` that returns text like `9m 11d` for the time from one ISO date to another, using `PlainDate`, `until` and `largestUnit: "month"`. Print the results for `2026-03-14` to `2026-12-25`, `2026-01-31` to `2026-03-01` and `2026-12-25` to the same day. The expected output is `9m 11d`, `1m 1d` and `0m 0d`.
+
+<Solution>
+
+`until` with months allowed gives a `Duration` whose `months` and `days` properties hold the parts. The second case shows the month rule: 31 January plus one month is 28 February, and one more day is 1 March.
+
+```javascript title="ex_countdown.mjs"
+function untilDate(from, to) {
+  const a = Temporal.PlainDate.from(from);
+  const b = Temporal.PlainDate.from(to);
+  const span = a.until(b, { largestUnit: "month" });
+  return `${span.months}m ${span.days}d`;
+}
+
+console.log(untilDate("2026-03-14", "2026-12-25"));
+console.log(untilDate("2026-01-31", "2026-03-01"));
+console.log(untilDate("2026-12-25", "2026-12-25"));
+```
+
+```text
+9m 11d
+1m 1d
+0m 0d
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Add working days">
+
+Write `addWorkdays(start, count)` that moves forward by `count` days from an ISO date, counting only Monday to Friday, and returns the ISO text. Use `dayOfWeek`, where Monday is 1 and Sunday is 7. Print the result of adding 1 working day to `2026-03-13` (a Friday), 5 to `2026-03-13`, and 3 to `2026-03-14` (a Saturday). The expected output is `2026-03-16`, `2026-03-20` and `2026-03-18`.
+
+<Solution>
+
+The loop steps one calendar day at a time and only counts a day when its `dayOfWeek` is 5 or less. Since `PlainDate` is immutable, `day` is replaced by the result of `add` each time.
+
+```javascript title="ex_workdays.mjs"
+function addWorkdays(start, count) {
+  let day = Temporal.PlainDate.from(start);
+  let left = count;
+  while (left > 0) {
+    day = day.add({ days: 1 });
+    if (day.dayOfWeek <= 5) {
+      left -= 1;
+    }
+  }
+  return day.toString();
+}
+
+console.log(addWorkdays("2026-03-13", 1));
+console.log(addWorkdays("2026-03-13", 5));
+console.log(addWorkdays("2026-03-14", 3));
+```
+
+```text
+2026-03-16
+2026-03-20
+2026-03-18
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="One day or 24 hours">
+
+In `America/New_York`, take noon on 7 March 2026 as a `ZonedDateTime`. Add one day, and separately add 24 hours, and print the wall-clock time of each (`toPlainTime().toString()`), separated by a space. Then parse `2026-03-08T02:30` in the same zone, a time that the clocks skipped, and print the result. The expected output is `12:00:00 13:00:00` and `2026-03-08T03:30:00-04:00[America/New_York]`.
+
+<Solution>
+
+A calendar day keeps the wall clock at 12:00, while 24 exact hours pass 13:00 on the clock because the hour from 02:00 to 03:00 does not exist that night. The skipped time resolves to the next valid one, 03:30.
+
+```javascript title="ex_shiftdst.mjs"
+const start = Temporal.ZonedDateTime.from("2026-03-07T12:00[America/New_York]");
+
+const tomorrow = start.add({ days: 1 });
+const in24h = start.add({ hours: 24 });
+console.log(tomorrow.toPlainTime().toString(), in24h.toPlainTime().toString());
+
+const gap = Temporal.ZonedDateTime.from("2026-03-08T02:30[America/New_York]");
+console.log(gap.toString());
+```
+
+```text
+12:00:00 13:00:00
+2026-03-08T03:30:00-04:00[America/New_York]
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `Temporal` is on by default in Node 26, was finished as a standard in May 2026, and is not yet in Safari. Use `Date` and `Intl` where it is missing.
+- Pick a type by the question: `PlainDate`, `PlainTime`, `PlainDateTime`, `PlainYearMonth`, `Instant`, `ZonedDateTime` or `Duration`.
+- Months start at 1 and Monday is day 1. All values are immutable, and operations return new ones.
+- `ZonedDateTime` knows time zones and daylight saving. A calendar day and 24 hours are different things.
+- Durations are ISO 8601 periods that do not rebalance by themselves. Use `round`, `total`, `until` and `since`.
+- `toTemporalInstant()` and `epochMilliseconds` convert to and from `Date`.
+- Compare with `equals` and `compare`, never with `===`.
+
+That finishes the module. You can now match patterns in text, handle Unicode correctly, format for any locale, and work with dates in both the old and the new API.

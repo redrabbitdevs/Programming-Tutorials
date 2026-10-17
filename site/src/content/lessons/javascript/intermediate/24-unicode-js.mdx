@@ -1,0 +1,451 @@
+---
+language: javascript
+level: intermediate
+module: Text, patterns, dates and numbers
+order: 24
+title: Unicode in JavaScript strings
+description: Count and split text correctly, with code points, normalization, well-formed strings, grapheme segmentation and UTF-8 bytes.
+minVersion: "22"
+objectives:
+  - Tell UTF-16 code units, code points, graphemes and bytes apart
+  - Iterate and build strings by code point
+  - Compare and clean accented text with normalize
+  - Detect and repair broken surrogates with isWellFormed and toWellFormed
+  - Count and cut user-visible characters with Intl.Segmenter
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/06-text-and-strings"]
+---
+
+[Strings](../../beginner/strings-js/) showed that `"😀".length` is 2 and that `normalize()` makes two spellings of `é` equal. This lesson explains why, and gives you the tools to get "first character", "length" and "cut to N" right. The general ideas of encodings and text are in the fundamentals lesson on [text and strings](../../../fundamentals/beginner/text-and-strings/). Here the focus is on how JavaScript represents text.
+
+## Four ways to count text
+
+The same piece of text has different sizes depending on what you count.
+
+| Unit | What it is | JavaScript |
+|---|---|---|
+| Code unit | a 16-bit number, the storage unit of a string | `length`, `charCodeAt`, indexing |
+| Code point | one Unicode character number (up to `0x10FFFF`) | `codePointAt`, `for...of`, spread |
+| Grapheme | what a reader sees as one character | `Intl.Segmenter` |
+| Byte | one 8-bit value in a file or network message | `TextEncoder` |
+
+A JavaScript string is a sequence of **UTF-16 code units**. Characters above `U+FFFF`, including most emoji, take two code units, called a **surrogate pair**.
+
+## Code units and code points
+
+The escape `\u{...}` writes a code point by number, with any number of digits.
+
+```javascript title="uni_units.mjs"
+const smile = "\u{1F600}";
+console.log(smile.length, smile === "😀");
+```
+
+```text
+2 true
+```
+
+```javascript title="uni_units.mjs (continued)"
+console.log(smile.charCodeAt(0).toString(16), smile.charCodeAt(1).toString(16));
+console.log(smile.codePointAt(0).toString(16));
+console.log(smile.codePointAt(1).toString(16));
+console.log(String.fromCodePoint(0x1f600) === smile);
+```
+
+```text
+d83d de00
+1f600
+de00
+true
+```
+
+- The emoji is stored as two code units, `d83d` then `de00`, in hex.
+- `codePointAt(0)` reads the whole pair and gives `1f600`. `codePointAt(1)` points into the middle of the pair and returns only the second half, `de00`. Use it at positions you know are starts.
+- `String.fromCodePoint` is the reverse of `codePointAt`. The older `String.fromCharCode` only handles one code unit.
+
+Indexing, `slice` and `length` all work on code units. `for...of` and spread work on code points.
+
+```javascript title="uni_units.mjs (continued)"
+const word = "a😀b";
+console.log(word.length, [...word].length);
+console.log(word.slice(0, 2) === "a😀", word.slice(0, 2).length);
+```
+
+```text
+4 3
+false 2
+```
+
+```javascript title="uni_units.mjs (continued)"
+for (const ch of word) {
+  console.log(ch, ch.codePointAt(0));
+}
+```
+
+```text
+a 97
+😀 128512
+b 98
+```
+
+`slice(0, 2)` kept `a` and only half of the emoji, which is a broken string with length 2. Cutting by code unit can split a pair. Loop with `for...of` or spread first when you take parts of text that may contain emoji.
+
+## Normalization
+
+Many characters have more than one spelling. `é` can be one code point (`U+00E9`) or `e` followed by a combining acute accent (`U+0301`). They look the same and compare as different.
+
+```javascript title="uni_normalize.mjs"
+const composed = "café";
+const decomposed = "café";
+console.log(composed === decomposed, composed.length, decomposed.length);
+```
+
+```text
+false 4 5
+```
+
+```javascript title="uni_normalize.mjs (continued)"
+console.log(composed.normalize("NFD") === decomposed);
+console.log(decomposed.normalize("NFC") === composed);
+```
+
+```text
+true
+true
+```
+
+`normalize` takes a form name:
+
+- **NFC** composes where it can (the default). Use it for storing and comparing.
+- **NFD** decomposes into base letters and combining marks.
+- **NFKC** and **NFKD** also replace "compatibility" characters, such as ligatures, with plain equivalents.
+
+Decomposing is also the standard trick for stripping accents. After NFD, the marks are separate code points that the Unicode property `\p{M}` (mark) finds:
+
+```javascript title="uni_normalize.mjs (continued)"
+const stripAccents = (s) => s.normalize("NFD").replace(/\p{M}/gu, "");
+console.log(stripAccents("Crème brûlée, señor"));
+```
+
+```text
+Creme brulee, senor
+```
+
+The compatibility forms are for matching and search, not for storage, because they lose information:
+
+```javascript title="uni_normalize.mjs (continued)"
+console.log("ﬁnd".normalize("NFKC"), "①".normalize("NFKC"));
+console.log("ﬁnd".normalize("NFC") === "find");
+```
+
+```text
+find 1
+false
+```
+
+The ligature `ﬁ` becomes the two letters `fi` and the circled digit becomes `1` under NFKC, but NFC leaves the ligature alone.
+
+## Well-formed strings
+
+JavaScript does not stop you from creating a string with a **lone surrogate**, one half of a pair with no partner. It is not valid Unicode text and cannot be encoded as UTF-8. It usually comes from slicing in the middle of an emoji. `isWellFormed()` checks for it and `toWellFormed()` replaces each lone surrogate with the replacement character `U+FFFD`.
+
+```javascript title="uni_wellformed.mjs"
+const good = "ok \u{1F600}";
+const bad = "ok \uD83D";
+console.log(good.isWellFormed(), bad.isWellFormed());
+console.log(bad.toWellFormed() === "ok �");
+```
+
+```text
+true false
+true
+```
+
+Some APIs refuse broken strings, others quietly change them.
+
+```javascript title="uni_wellformed.mjs (continued)"
+try {
+  encodeURIComponent(bad);
+} catch (error) {
+  console.log(error.name);
+}
+console.log(encodeURIComponent(bad.toWellFormed()));
+console.log(JSON.stringify(bad));
+```
+
+```text
+URIError
+ok%20%EF%BF%BD
+"ok \ud83d"
+```
+
+- `encodeURIComponent` throws a `URIError` on a lone surrogate.
+- After `toWellFormed`, it encodes the replacement character as `%EF%BF%BD`.
+- `JSON.stringify` writes the lone surrogate as the escape `\ud83d`, so the JSON stays valid.
+
+Call `toWellFormed()` before sending text to something that insists on UTF-8, if the text could have been cut by code unit.
+
+## Graphemes with Intl.Segmenter
+
+Even code points are not "characters" in the reader's sense. A family emoji is three people joined by invisible zero-width joiners. A flag is two regional-indicator code points. `é` as `e` plus a combining mark is two code points. A reader sees one symbol in each case.
+
+`Intl.Segmenter` splits text by the rules of a locale. With `granularity: "grapheme"` it splits into **grapheme clusters**, the user-visible characters.
+
+```javascript title="uni_graphemes.mjs"
+const family = "👨‍👩‍👧";
+const flag = "🇯🇵";
+const accented = "é";
+
+for (const s of [family, flag, accented]) {
+  console.log(s.length, [...s].length);
+}
+```
+
+```text
+8 5
+4 2
+2 2
+```
+
+Each line shows the `length` and the code point count. The family emoji is 8 units and 5 code points, but one symbol.
+
+```javascript title="uni_graphemes.mjs (continued)"
+const seg = new Intl.Segmenter("en", { granularity: "grapheme" });
+const graphemes = (s) => Array.from(seg.segment(s), (part) => part.segment);
+
+for (const s of [family, flag, accented]) {
+  console.log(graphemes(s).length);
+}
+console.log(graphemes("a👨‍👩‍👧é"));
+```
+
+```text
+1
+1
+1
+[ 'a', '👨‍👩‍👧', 'é' ]
+```
+
+- `segment` returns an iterable of parts, and each part has a `segment` string (and an `index`).
+- `Array.from` with a mapping function turns the parts into strings.
+- All three samples count as one grapheme, and the mixed string splits into three.
+
+The segmenter has two more granularities. `"word"` marks the pieces of text that are words, via `isWordLike`:
+
+```javascript title="uni_words.mjs"
+const words = new Intl.Segmenter("en", { granularity: "word" });
+const text = "Well, it's 3.5 days!";
+
+const found = [];
+for (const part of words.segment(text)) {
+  if (part.isWordLike) {
+    found.push(part.segment);
+  }
+}
+console.log(found);
+```
+
+```text
+[ 'Well', "it's", '3.5', 'days' ]
+```
+
+Punctuation and spaces are segments too, but `isWordLike` is `false` for them. The segmenter knows that `it's` and `3.5` are each one word, which a plain split on spaces and punctuation would break. The third granularity is `"sentence"`.
+
+Creating a segmenter has a cost, so make one and reuse it.
+
+## Bytes and encodings
+
+Files and networks carry bytes, and JavaScript text is turned into them with an encoding. UTF-8 is the common choice. The built-in `TextEncoder` always produces UTF-8, and `TextDecoder` reads it.
+
+```javascript title="uni_bytes.mjs"
+const encoder = new TextEncoder();
+for (const s of ["a", "é", "€", "😀"]) {
+  console.log(s, s.length, encoder.encode(s).length);
+}
+```
+
+```text
+a 1 1
+é 1 2
+€ 1 3
+😀 2 4
+```
+
+```javascript title="uni_bytes.mjs (continued)"
+const bytes = encoder.encode("é");
+console.log([...bytes]);
+console.log(new TextDecoder().decode(bytes));
+console.log(new TextDecoder().decode(Uint8Array.of(0xff, 0x41)));
+```
+
+```text
+[ 195, 169 ]
+é
+�A
+```
+
+- A string of one character takes between one and four bytes. The same emoji is 2 code units but 4 bytes.
+- Decoding bytes that are not valid UTF-8 does not throw by default. Each bad byte becomes the replacement character `�`.
+
+So the length you need depends on the question. A database column with a byte limit needs `TextEncoder`. A tweet-like counter needs graphemes. An array index needs code units.
+
+## Common pitfalls
+
+- **Using `length` as the number of characters.** It counts code units. Count graphemes for user-visible length.
+- **Taking `text[0]` or `slice(0, n)` of text with emoji.** It can cut a pair in half. Use `Intl.Segmenter` to take the first user-visible character.
+- **Reversing with `split("").reverse().join("")`.** It scrambles surrogate pairs and combining marks. Reverse graphemes instead.
+- **Comparing accented text without `normalize()`.** Two equal-looking strings can differ.
+- **Using NFKC for storage.** It loses distinctions. Use NFC for storage and comparisons, and the K forms for search.
+- **Using `\w` or `[a-z]` for names.** They only match ASCII letters. Use `\p{L}` with the `u` or `v` flag.
+- **Mixing up characters and bytes.** `length` is not a size in bytes.
+
+## Exercises
+
+<Exercise title="First character and length">
+
+Write `firstChar(text)` and `charCount(text)` that work with user-visible characters. For each of `😀 party`, `👩‍💻 dev`, `🇯🇵 Tokyo` and `école` (spelled with a combining accent), print the first character, the character count and the plain `length`, separated by spaces. The expected output is `😀 7 8`, `👩‍💻 5 9`, `🇯🇵 7 10` and `é 5 6`.
+
+<Solution>
+
+Taking the first item of the segmenter's iterable gives the first grapheme. `?.segment ?? ""` handles empty text, where there is no first part.
+
+```javascript title="ex_firstchar.mjs"
+const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+
+function firstChar(text) {
+  const [first] = segmenter.segment(text);
+  return first?.segment ?? "";
+}
+
+function charCount(text) {
+  return [...segmenter.segment(text)].length;
+}
+
+for (const s of ["😀 party", "👩‍💻 dev", "🇯🇵 Tokyo", "école"]) {
+  console.log(firstChar(s), charCount(s), s.length);
+}
+```
+
+```text
+😀 7 8
+👩‍💻 5 9
+🇯🇵 7 10
+é 5 6
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A URL slug">
+
+Write `slugify(title)` that turns a title into a URL slug: accents removed, lowercase, every run of other characters replaced by one `-`, and no leading or trailing `-`. `slugify("Crème Brûlée à la Carte!")` gives `creme-brulee-a-la-carte` and `slugify("  Año nuevo -- 2027  ")` gives `ano-nuevo-2027`.
+
+<Solution>
+
+NFD plus `\p{M}` strips the accents. Lowercase text then keeps only `a-z` and digits, and the last replace trims dashes at either end.
+
+```javascript title="ex_slug.mjs"
+function slugify(title) {
+  return title
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+console.log(slugify("Crème Brûlée à la Carte!"));
+console.log(slugify("  Año nuevo -- 2027  "));
+```
+
+```text
+creme-brulee-a-la-carte
+ano-nuevo-2027
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Truncate without breaking symbols">
+
+Write `truncate(text, max)` that returns the text unchanged when it has at most `max` graphemes, and otherwise the first `max - 1` graphemes followed by `…`. Try `Hello, world` with 8, four family emoji (`👨‍👩‍👧`) with 3, and `short` with 8. The expected output is `Hello, …`, two family emoji followed by `…`, and `short`.
+
+<Solution>
+
+The text is split into graphemes first, so the join can never cut a family emoji in half.
+
+```javascript title="ex_truncate.mjs"
+const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
+
+function truncate(text, max) {
+  const parts = Array.from(segmenter.segment(text), (p) => p.segment);
+  if (parts.length <= max) {
+    return text;
+  }
+  return parts.slice(0, max - 1).join("") + "…";
+}
+
+console.log(truncate("Hello, world", 8));
+console.log(truncate("👨‍👩‍👧👨‍👩‍👧👨‍👩‍👧👨‍👩‍👧", 3));
+console.log(truncate("short", 8));
+```
+
+```text
+Hello, …
+👨‍👩‍👧👨‍👩‍👧…
+short
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Cut to a byte limit">
+
+A database column holds at most 10 bytes of UTF-8. Write `cutBytes(text, maxBytes)` that returns the longest start of the text that fits, never splitting a character. Print the result for `Héllo wörld 😀` with limit 10, followed by its byte size. Then print `cutBytes("ab😀", 5)` and `cutBytes("ab😀", 6)`. The expected output is `Héllo wö 10` and then `ab ab😀`.
+
+<Solution>
+
+Looping with `for...of` visits whole code points. Each one is measured with `TextEncoder`, and the loop stops before the first one that would not fit.
+
+```javascript title="ex_bytelimit.mjs"
+const encoder = new TextEncoder();
+
+function cutBytes(text, maxBytes) {
+  let used = 0;
+  let result = "";
+  for (const ch of text) {
+    const size = encoder.encode(ch).length;
+    if (used + size > maxBytes) {
+      break;
+    }
+    used += size;
+    result += ch;
+  }
+  return result;
+}
+
+const cut = cutBytes("Héllo wörld 😀", 10);
+console.log(cut, encoder.encode(cut).length);
+console.log(cutBytes("ab😀", 5), cutBytes("ab😀", 6));
+```
+
+```text
+Héllo wö 10
+ab ab😀
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A string is a sequence of UTF-16 code units. `length` and indexing use them; `for...of`, spread and `codePointAt` use code points.
+- A symbol the reader sees as one character can be several code points. `Intl.Segmenter` with `granularity: "grapheme"` counts and splits them correctly.
+- `normalize("NFC")` makes spellings comparable. NFD plus `\p{M}` strips accents. The K forms are for search.
+- `isWellFormed` and `toWellFormed` find and repair lone surrogates, which some APIs reject.
+- `TextEncoder` gives UTF-8 bytes. Characters, code units and bytes are three different counts.
+
+Next: [Intl, for numbers, dates, lists and plurals](../intl-formatting/).

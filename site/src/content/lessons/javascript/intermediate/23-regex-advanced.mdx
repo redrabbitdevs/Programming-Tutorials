@@ -1,0 +1,402 @@
+---
+language: javascript
+level: intermediate
+module: Text, patterns, dates and numbers
+order: 23
+title: Named groups, lookaround and the v flag
+description: Write patterns you can still read next month, with named groups, lookaround, match indices, the v flag, inline modifiers and RegExp.escape.
+minVersion: "22"
+objectives:
+  - Name capture groups and read them from groups, replacements and replacer functions
+  - Use lookahead and lookbehind to match around text without consuming it
+  - Get match positions with the d flag
+  - Combine character classes with the v flag
+  - Escape user text with RegExp.escape, and know which features need Node 24
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/06-text-and-strings"]
+---
+
+The [previous lesson](../regex-basics/) covered the everyday parts of regular expressions. Patterns grow, and numbered groups like `m[3]` stop being readable. This lesson is about keeping patterns maintainable, plus a few newer features. Most of it runs on every supported Node. Three features need Node 24, and each is marked.
+
+## Named groups
+
+Write `(?<name>...)` and the match gets a `groups` object keyed by name.
+
+```javascript title="regex_named.mjs"
+const re = /(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/;
+const { year, month, day } = "on 2026-03-14".match(re).groups;
+console.log(year, month, day);
+```
+
+```text
+2026 03 14
+```
+
+- The named parts are read with destructuring from `groups`. Numbered access (`m[1]`) still works too.
+- In a replacement string, `$<name>` inserts a named group.
+- A replacer function gets the `groups` object as its **last** argument, after the match, the groups, the position and the whole string. `args.at(-1)` finds it without counting.
+
+```javascript title="regex_named.mjs (continued)"
+console.log("2026-03-14".replace(re, "$<day>.$<month>.$<year>"));
+```
+
+```text
+14.03.2026
+```
+
+```javascript title="regex_named.mjs (continued)"
+const short = (...args) => {
+  const groups = args.at(-1);
+  return `${groups.day}/${groups.month}`;
+};
+console.log("2026-03-14".replace(re, short));
+```
+
+```text
+14/03
+```
+
+- `\k<name>` inside the pattern refers back to what a named group matched. Here it forces the closing quote to be the same kind as the opening one.
+
+```javascript title="regex_named.mjs (continued)"
+const quoted = /(?<q>["'])(.*?)\k<q>/;
+console.log(quoted.exec(`say "hi" and 'bye'`)[0]);
+```
+
+```text
+"hi"
+```
+
+If there is no match, `exec` returns `null`, so `exec(text)?.groups` is `undefined` instead of an error.
+
+## Lookaround
+
+A **lookaround** checks what is next to the current position without including it in the match. There are four forms:
+
+| Form | Meaning |
+|---|---|
+| `(?=...)` | followed by |
+| `(?!...)` | not followed by |
+| `(?<=...)` | preceded by (lookbehind) |
+| `(?<!...)` | not preceded by (negative lookbehind) |
+
+```javascript title="regex_lookaround.mjs"
+const text = "cost $42, 17 euro, $5";
+console.log(text.match(/(?<=\$)\d+/g));
+```
+
+```text
+[ '42', '5' ]
+```
+
+```javascript title="regex_lookaround.mjs (continued)"
+console.log(text.match(/\d+(?= euro)/g));
+console.log(text.match(/(?<!\$)\b\d+\b/g));
+```
+
+```text
+[ '17' ]
+[ '17' ]
+```
+
+- `(?<=\$)\d+` finds numbers after a dollar sign and returns only the digits, because the `$` is checked but not consumed.
+- `\d+(?= euro)` finds the number before the word `euro`.
+- `(?<!\$)\b\d+\b` finds numbers that do **not** follow a dollar sign.
+
+Lookaround is useful for splitting or inserting at a position rather than replacing text. The classic is a thousands separator:
+
+```javascript title="regex_lookaround.mjs (continued)"
+const digits = "1234567";
+console.log(digits.replace(/\B(?=(\d{3})+(?!\d))/g, ","));
+```
+
+```text
+1,234,567
+```
+
+`\B` is a position inside a number, and the lookahead asks "is the rest of the digits a multiple of three?". The match is empty, so `replace` only inserts the comma.
+
+Several lookaheads at the start of a pattern each check a rule against the whole string, which suits password rules:
+
+```javascript title="regex_lookaround.mjs (continued)"
+const strong = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{8,}$/;
+console.log(strong.test("Passw0rdX"), strong.test("password1"));
+```
+
+```text
+true false
+```
+
+Each `(?=.*...)` scans ahead for one requirement (a digit, a lowercase letter, an uppercase letter), and `.{8,}` checks the length. This is a demonstration of stacked lookaheads, not a complete password policy.
+
+## Where was it? The d flag
+
+The `d` flag adds an `indices` property with the start and end of every group.
+
+```javascript title="regex_indices.mjs"
+const m = /(?<word>b+)/d.exec("aabbbc");
+console.log(m.indices[0], m.indices.groups.word);
+```
+
+```text
+[ 2, 5 ] [ 2, 5 ]
+```
+
+Indices are pairs `[start, end]`, with `end` exclusive, ready for `slice`. They are what you need to highlight, underline or edit text in place, since the match alone says nothing about position of groups inside it.
+
+```javascript title="regex_indices.mjs (continued)"
+const text = "aabbbc";
+const [start, end] = m.indices.groups.word;
+const marked = text.slice(0, start) + "[" + text.slice(start, end) + "]";
+console.log(marked + text.slice(end));
+```
+
+```text
+aa[bbb]c
+```
+
+## The v flag
+
+The `v` flag (ES2024, works on Node 22) is an upgrade of `u`. It turns on the same Unicode mode and adds **set operations** inside character classes: `--` subtracts, `&&` intersects, and nested classes are allowed. It also adds `\q{...}` for multi-character strings, and properties of strings such as `\p{RGI_Emoji}`.
+
+```javascript title="regex_vflag.mjs"
+const text = "naïve Straße ΑΒγ";
+console.log(text.match(/[\p{L}--[a-z]]/gv));
+console.log(text.match(/[\p{Script=Greek}&&\p{Lu}]/gv));
+console.log(text.match(/[\p{L}--\p{ASCII}--\p{Script=Greek}]/gv));
+```
+
+```text
+[ 'ï', 'S', 'ß', 'Α', 'Β', 'γ' ]
+[ 'Α', 'Β' ]
+[ 'ï', 'ß' ]
+```
+
+```javascript title="regex_vflag.mjs (continued)"
+console.log("a😀b".match(/\p{RGI_Emoji}/gv));
+console.log(/^[\q{ab|cd}x]$/v.test("cd"));
+```
+
+```text
+[ '😀' ]
+true
+```
+
+- `\p{L}` is any letter, so `[\p{L}--[a-z]]` is "any letter except `a` to `z`". That includes `ï`, `ß`, the capital `S` and the Greek letters.
+- `&&` keeps only characters in both sets: Greek *and* uppercase.
+- Subtracting twice leaves letters that are neither ASCII nor Greek.
+- `\p{RGI_Emoji}` matches a whole emoji, even one made from several code points. The older `u` flag cannot do this.
+- `\q{ab|cd}` adds the strings `ab` and `cd` to the class.
+
+`v` is stricter than `u`. Characters that are ambiguous inside a class, such as an unescaped `&&` or `(`, are syntax errors instead of being quietly accepted.
+
+```javascript title="regex_vflag.mjs (continued)"
+try {
+  new RegExp("[a-z&&]", "v");
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+SyntaxError
+```
+
+You cannot use `u` and `v` together. For new code on Node 22 and later, prefer `v`.
+
+## Features that need Node 24
+
+### RegExp.escape
+
+<Since v="24" /> Text typed by a user must not be pasted into a pattern directly. A `+` or `(` inside it would change the meaning, or crash with a syntax error. `RegExp.escape(text)` returns text that matches literally.
+
+```javascript title="regex_escape.mjs"
+const query = "1+1";
+const pattern = RegExp.escape(query);
+console.log(pattern);
+console.log("is 1+1=2?".replace(new RegExp(pattern, "g"), "[$&]"));
+console.log(new RegExp(query).test("is 1+1=2?"));
+```
+
+```text
+\x31\+1
+is [1+1]=2?
+false
+```
+
+The escaped form is `\x31\+1`. Besides the usual syntax characters, a leading digit or letter is written as a hex escape such as `\x31`. You do not need to read the result, only to use it. Without escaping, `1+1` means "one or more 1s followed by 1", which does not match the text `1+1`.
+
+On Node 22, `RegExp.escape` is missing. A well-known replacement escapes the pattern syntax characters:
+
+```javascript title="regex_escape.mjs (continued)"
+const escapeOld = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+console.log(escapeOld("a.b (c)"));
+```
+
+```text
+a\.b \(c\)
+```
+
+It covers what is needed inside a pattern outside a class, and is a fair stand-in for Node 22. It is not identical to the built-in.
+
+### Duplicate named groups
+
+<Since v="24" /> The same group name may appear in different alternatives, which is useful when one value can be written in two layouts.
+
+```javascript title="regex_new24.mjs"
+const either = /(?<y>\d{4})-(?<m>\d\d)|(?<m>\d\d)\/(?<y>\d{4})/;
+for (const input of ["2026-03", "03/2026"]) {
+  const { y, m } = either.exec(input).groups;
+  console.log(y, m);
+}
+```
+
+```text
+2026 03
+2026 03
+```
+
+Only one alternative can match, so `y` and `m` are never ambiguous. On Node 22 this pattern is a `SyntaxError`.
+
+### Inline modifiers
+
+<Since v="24" /> `(?i:...)` applies a flag to only part of a pattern. `(?-i:...)` switches it off for a part. The flags that can be changed this way are `i`, `m` and `s`.
+
+```javascript title="regex_new24.mjs (continued)"
+const mixed = /(?i:hello) World/;
+console.log(mixed.test("HELLO World"), mixed.test("HELLO world"));
+```
+
+```text
+true false
+```
+
+```javascript title="regex_new24.mjs (continued)"
+const strict = /a(?-i:B)c/i;
+console.log(strict.test("AbC"), strict.test("ABC"));
+```
+
+```text
+false true
+```
+
+`(?i:hello)` ignores the case of `hello` but not of `World`. In the second pattern the outer `i` makes the rest case-insensitive, while `(?-i:B)` insists on a capital B.
+
+## Common pitfalls
+
+- **Putting user text into `new RegExp`.** Escape it with `RegExp.escape` (Node 24) or a helper. Or avoid a regex: `includes` is enough for a plain search.
+- **Using lookbehind or lookaround for a job a group can do.** Lookaround is for position checks. If you just want a part of the match, a capture group is simpler.
+- **Mixing numbered and named groups.** Once a pattern has named groups, count carefully. Prefer names everywhere.
+- **Forgetting that `groups` is `undefined` without named groups.** Destructuring it throws.
+- **Using `v` with unescaped class syntax.** `[a-z&&]` and unescaped `(`, `{` or `|` inside a class are errors. Escape them with a backslash.
+- **Assuming Node 24 features on Node 22.** `RegExp.escape`, duplicate names and `(?i:...)` fail there. `d`, lookbehind and `v` are fine.
+- **Catastrophic backtracking.** A pattern like `(a+)+$` can take exponential time on some inputs. Never run a pattern you did not write on untrusted text without a length limit.
+
+## Exercises
+
+<Exercise title="Safe search and highlight">
+
+<Since v="24" /> Write `highlight(text, term)` that wraps every case-insensitive occurrence of `term` in `<mark>` and `</mark>`, returning the text unchanged for an empty term. The term must be matched literally, so `5.00` must not match `5x00` and `c++` must not crash. Print `highlight` on `Cost: 5.00 or 5x00? C++ rocks, c++ too` for the terms `5.00` and `c++`. The expected output is the sentence with `<mark>5.00</mark>` in the first line, and with `<mark>C++</mark>` and `<mark>c++</mark>` in the second.
+
+<Solution>
+
+`RegExp.escape` makes the term literal, `gi` makes it global and case-insensitive, and `$&` in the replacement puts back what matched, so the original capitalisation is kept.
+
+```javascript title="ex_highlight.mjs"
+function highlight(text, term) {
+  if (term === "") {
+    return text;
+  }
+  const re = new RegExp(RegExp.escape(term), "gi");
+  return text.replace(re, "<mark>$&</mark>");
+}
+
+console.log(highlight("Cost: 5.00 or 5x00? C++ rocks, c++ too", "5.00"));
+console.log(highlight("Cost: 5.00 or 5x00? C++ rocks, c++ too", "c++"));
+```
+
+```text
+Cost: <mark>5.00</mark> or 5x00? C++ rocks, c++ too
+Cost: 5.00 or 5x00? <mark>C++</mark> rocks, <mark>c++</mark> too
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Parse log lines with named groups">
+
+Parse lines of the form `HH:MM [LEVEL] message` with one pattern that has the named groups `time`, `level` and `msg`. Skip lines that do not fit. For these four lines, print `LEVEL time message` with the level padded to five characters: `09:15 [INFO] server started`, `09:16 [WARN] disk at 91%`, `garbage line` and `09:20 [ERROR] connection lost`. The expected output is `INFO  09:15 server started`, `WARN  09:16 disk at 91%` and `ERROR 09:20 connection lost`.
+
+<Solution>
+
+The pattern is anchored at both ends. `exec(...)?.groups` is `undefined` for the garbage line, so the `if` skips it.
+
+```javascript title="ex_logparse.mjs"
+const line = /^(?<time>\d\d:\d\d) \[(?<level>[A-Z]+)\] (?<msg>.+)$/;
+
+const logs = [
+  "09:15 [INFO] server started",
+  "09:16 [WARN] disk at 91%",
+  "garbage line",
+  "09:20 [ERROR] connection lost",
+];
+
+for (const text of logs) {
+  const parts = line.exec(text)?.groups;
+  if (parts) {
+    console.log(`${parts.level.padEnd(5)} ${parts.time} ${parts.msg}`);
+  }
+}
+```
+
+```text
+INFO  09:15 server started
+WARN  09:16 disk at 91%
+ERROR 09:20 connection lost
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="camelCase to snake_case">
+
+Write `toSnake(name)` using a single `replace` with a lookbehind and a lookahead, so that no characters are consumed. An underscore goes at each position that follows a lowercase letter or digit and precedes an uppercase letter. Lowercase the result. The calls with `userName`, `getUserId`, `already_snake` and `version2Beta` should print `user_name`, `get_user_id`, `already_snake` and `version2_beta`.
+
+<Solution>
+
+The pattern `(?<=[a-z0-9])(?=[A-Z])` matches an empty position between the two characters. `replace` inserts the underscore there.
+
+```javascript title="ex_snake.mjs"
+function toSnake(name) {
+  return name.replace(/(?<=[a-z0-9])(?=[A-Z])/g, "_").toLowerCase();
+}
+
+console.log(toSnake("userName"));
+console.log(toSnake("getUserId"));
+console.log(toSnake("already_snake"));
+console.log(toSnake("version2Beta"));
+```
+
+```text
+user_name
+get_user_id
+already_snake
+version2_beta
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Name groups with `(?<name>...)`, and use `groups`, `$<name>` and `\k<name>`. A replacer function receives `groups` as its last argument.
+- Lookaround checks the surroundings without consuming them: `(?=...)`, `(?!...)`, `(?<=...)`, `(?<!...)`.
+- The `d` flag adds `indices`, pairs of start and end for the match and each group.
+- The `v` flag supports `--`, `&&`, nested classes, `\q{}` and `\p{RGI_Emoji}`, and is stricter than `u`. It works on Node 22.
+- <Since v="24" /> `RegExp.escape`, duplicate group names and inline modifiers `(?i:...)` need Node 24.
+- Never put raw user text into a pattern.
+
+Next: [Unicode in JavaScript strings](../unicode-js/).

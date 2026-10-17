@@ -1,0 +1,438 @@
+---
+language: javascript
+level: intermediate
+module: Text, patterns, dates and numbers
+order: 25
+title: "Intl: numbers, dates, lists and plurals"
+description: Format numbers, currencies, dates, lists, plurals and relative times for any locale with the built-in Intl objects.
+minVersion: "22"
+objectives:
+  - Format numbers, currencies and percentages with Intl.NumberFormat
+  - Format dates and times with Intl.DateTimeFormat, always naming the time zone
+  - Join lists and pick plural forms with ListFormat and PluralRules
+  - Describe times with RelativeTimeFormat
+  - Explain why output must not be compared as text across machines
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/06-text-and-strings"]
+---
+
+Hand-written formatting breaks as soon as the audience changes. `1,234.50` is `1.234,50` in Germany, dates run day-first in most of the world, and "1 file" becomes "2 files" by rules that differ per language. The `Intl` object contains the formatters that know those rules. It is built into every supported Node and every browser, and needs no package. The general idea of keeping the data separate from how it is shown is in the fundamentals lesson on [text and strings](../../../fundamentals/beginner/text-and-strings/).
+
+Two habits make `Intl` code predictable, and the examples in this lesson follow both:
+
+- **Always pass a locale** such as `"en-US"`. With none, JavaScript uses the machine's default, so the same program prints differently on different computers.
+- **Always pass a `timeZone`** when formatting dates. Without one, the machine's local zone is used.
+
+## Numbers
+
+`new Intl.NumberFormat(locale, options)` makes a formatter, and its `format` method produces text. The same number looks different in each locale.
+
+```javascript title="intl_numbers.mjs"
+const n = 1234567.891;
+for (const locale of ["en-US", "de-DE", "fr-FR", "en-IN"]) {
+  console.log(locale, new Intl.NumberFormat(locale).format(n));
+}
+```
+
+```text
+en-US 1,234,567.891
+de-DE 1.234.567,891
+fr-FR 1 234 567,891
+en-IN 12,34,567.891
+```
+
+The grouping and decimal marks are different, and `en-IN` groups the last three digits and then pairs. The French and German outputs use a special space character (a no-break or narrow no-break space) so that numbers are never split across lines. It looks like an ordinary space, but it is not one, so do not compare formatted text with `===` against a typed space.
+
+For **currency**, pass `style: "currency"` and a currency code. The code is separate from the locale: you choose the currency of the amount, and the locale decides how to write it.
+
+```javascript title="intl_numbers.mjs (continued)"
+function money(locale, currency, amount) {
+  const style = "currency";
+  return new Intl.NumberFormat(locale, { style, currency }).format(amount);
+}
+console.log(money("en-US", "USD", 1234.5));
+console.log(money("de-DE", "EUR", 1234.5));
+console.log(money("ja-JP", "JPY", 1234.5));
+```
+
+```text
+$1,234.50
+1.234,50 €
+￥1,235
+```
+
+The symbol goes before or after the number depending on the locale, `EUR` has two decimals, and `JPY` has none, so `1234.5` rounds to `1,235`. The formatter knows the usual digits for each currency.
+
+Other options cover the usual needs:
+
+```javascript title="intl_numbers.mjs (continued)"
+const pct = new Intl.NumberFormat("en-US", {
+  style: "percent",
+  maximumFractionDigits: 1,
+});
+console.log(pct.format(0.256), pct.format(1.5));
+```
+
+```text
+25.6% 150%
+```
+
+```javascript title="intl_numbers.mjs (continued)"
+const fixed = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 });
+console.log(fixed.format(3), fixed.format(2.5), fixed.format(1 / 3));
+```
+
+```text
+3.00 2.50 0.333
+```
+
+```javascript title="intl_numbers.mjs (continued)"
+const compact = new Intl.NumberFormat("en-US", { notation: "compact" });
+console.log(compact.format(1500), compact.format(2300000));
+```
+
+```text
+1.5K 2.3M
+```
+
+```javascript title="intl_numbers.mjs (continued)"
+const speed = { style: "unit", unit: "kilometer-per-hour" };
+console.log(new Intl.NumberFormat("en-US", speed).format(88));
+```
+
+```text
+88 km/h
+```
+
+- `style: "percent"` multiplies by 100 and adds the sign. `maximumFractionDigits` limits the decimals.
+- `minimumFractionDigits: 2` pads, so `3` shows as `3.00`. Without a maximum, the default maximum of 3 decimals applies, and `1 / 3` shows `0.333`.
+- `notation: "compact"` gives `1.5K` and `2.3M`.
+- `style: "unit"` formats a quantity with a unit such as `kilometer-per-hour`.
+
+The result is always **text**. It is for showing to a person. Keep the number itself as a number for calculations, as in [Numbers](../../beginner/numbers-js/), and format at the last moment.
+
+Money should still be held as whole cents or similar, and divided only for display. `Intl` rounds for display and does not fix floating-point sums.
+
+## Dates and times
+
+`Intl.DateTimeFormat` formats a `Date`. The dates here are built from an ISO string with a `Z` at the end, which means UTC. [The next lesson](../dates-legacy/) explains `Date` fully.
+
+```javascript title="intl_dates.mjs"
+const moment = new Date("2026-03-14T15:30:00Z");
+
+const base = { timeZone: "UTC", dateStyle: "long" };
+console.log(new Intl.DateTimeFormat("en-US", base).format(moment));
+console.log(new Intl.DateTimeFormat("en-GB", base).format(moment));
+console.log(new Intl.DateTimeFormat("de-DE", base).format(moment));
+console.log(new Intl.DateTimeFormat("ja-JP", base).format(moment));
+```
+
+```text
+March 14, 2026
+14 March 2026
+14. März 2026
+2026年3月14日
+```
+
+- `dateStyle` takes `full`, `long`, `medium` or `short`, and `timeStyle` takes the same.
+- The same moment is written `March 14, 2026`, `14 March 2026`, `14. März 2026` and `2026年3月14日`.
+- `timeZone: "UTC"` fixes the zone. Without it, a moment close to midnight can land on a different day on a different machine.
+
+When the styles are not exact enough, choose the fields yourself.
+
+```javascript title="intl_dates.mjs (continued)"
+const fields = {
+  timeZone: "Asia/Tokyo",
+  weekday: "long",
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+};
+console.log(new Intl.DateTimeFormat("en-GB", fields).format(moment));
+```
+
+```text
+Sunday, 15 Mar 2026, 00:30
+```
+
+The `timeZone` is a name from the IANA database, such as `Asia/Tokyo`, not an offset like `+09:00`. Names know about daylight saving time. `hourCycle: "h23"` asks for a 24-hour clock without AM and PM. The moment `15:30` UTC is already `00:30` on the next day in Tokyo, so the date moves too.
+
+`toLocaleString`, `toLocaleDateString` and `toLocaleTimeString` are shortcuts that take the same locale and options.
+
+```javascript title="intl_dates.mjs (continued)"
+const ny = { timeZone: "America/New_York", timeStyle: "short" };
+console.log(moment.toLocaleTimeString("en-GB", { ...ny, hourCycle: "h23" }));
+console.log(moment.toLocaleDateString("sv-SE", { timeZone: "UTC" }));
+```
+
+```text
+11:30
+2026-03-14
+```
+
+The first line prints the New York time of the same moment. (March 14 is before US daylight saving begins, so New York is five hours behind UTC.) The Swedish locale, `sv-SE`, writes dates as `2026-03-14`, which is a handy trick for a plain ISO-like date.
+
+When you format many values, create one `Intl` formatter and reuse it. Each shortcut call builds a new formatter inside, which is slower.
+
+## Lists
+
+`Intl.ListFormat` joins items with the right words and punctuation. The `type` is `conjunction` ("and"), `disjunction` ("or") or `unit`.
+
+```javascript title="intl_words.mjs"
+const list = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
+console.log(list.format(["tea", "coffee", "milk"]));
+console.log(list.format(["tea", "coffee"]));
+```
+
+```text
+tea, coffee, and milk
+tea and coffee
+```
+
+```javascript title="intl_words.mjs (continued)"
+const or = new Intl.ListFormat("en", { type: "disjunction" });
+console.log(or.format(["red", "green", "blue"]));
+console.log(new Intl.ListFormat("de").format(["Tee", "Kaffee", "Milch"]));
+```
+
+```text
+red, green, or blue
+Tee, Kaffee und Milch
+```
+
+The English "Oxford comma" in `tea, coffee, and milk` and the German `und` without a comma are part of the data, not of your code.
+
+## Plurals
+
+Languages have different plural categories. English has `one` and `other`. Other languages have `few`, `many`, `two` or `zero`. `Intl.PluralRules` tells you the category for a number, and your code picks the matching word.
+
+```javascript title="intl_words.mjs (continued)"
+const plural = new Intl.PluralRules("en");
+console.log([0, 1, 2, 5].map((n) => plural.select(n)));
+```
+
+```text
+[ 'other', 'one', 'other', 'other' ]
+```
+
+`select` returns `"one"` only for 1 in English. Zero is `other` ("0 files"). With `type: "ordinal"` the categories are for ranking words (1st, 2nd, 3rd, 4th):
+
+```javascript title="intl_words.mjs (continued)"
+const ordinal = new Intl.PluralRules("en", { type: "ordinal" });
+console.log([1, 2, 3, 4, 11, 21].map((n) => ordinal.select(n)));
+```
+
+```text
+[ 'one', 'two', 'few', 'other', 'other', 'one' ]
+```
+
+The rules do not give you the words. You still write a table such as `{ one: "st", two: "nd", few: "rd", other: "th" }`. For other languages you need a table per language.
+
+## Relative times
+
+`Intl.RelativeTimeFormat` writes "3 months ago" and "in 2 days". Negative numbers are the past. With `numeric: "auto"` it uses words like "yesterday" when the language has them.
+
+```javascript title="intl_words.mjs (continued)"
+const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+console.log(rtf.format(-1, "day"), "|", rtf.format(2, "day"));
+console.log(rtf.format(-3, "month"));
+console.log(new Intl.RelativeTimeFormat("es").format(-2, "hour"));
+```
+
+```text
+yesterday | in 2 days
+3 months ago
+hace 2 horas
+```
+
+The method takes a number and a unit: `second`, `minute`, `hour`, `day`, `week`, `month`, `quarter` or `year`. It does not work out the unit for you or compare dates. That is up to your code, as in the last exercise.
+
+## Common pitfalls
+
+- **Leaving out the locale.** The result then depends on the machine. Pass one explicitly, or pass `undefined` only when you really mean "the user's own".
+- **Leaving out `timeZone`.** The same moment prints differently on different machines.
+- **Comparing formatted text across environments.** Different Node builds and browsers carry different locale data. The result for less common locales and styles can change between versions. Test your formatting logic, not the exact wording.
+- **Assuming spaces in output are normal spaces.** Many locales use no-break spaces. Compare with care.
+- **Formatting too early.** `Intl` output is text. Keep numbers as numbers and dates as dates until the last step.
+- **Building formatters in a loop.** Create one and reuse it.
+- **Using `toFixed` for display of money.** Currency digits and signs depend on the currency and the locale. Use `NumberFormat`.
+
+## Exercises
+
+<Exercise title="A receipt in three locales">
+
+Print a receipt for 2 teas at 3.50 and 1 cake at 4.25, sold at `2026-03-14T15:30:00Z`, in three locales: `en-US` with `USD` and the zone `America/New_York`, `de-DE` with `EUR` and `Europe/Berlin`, and `ja-JP` with `JPY` and `Asia/Tokyo`. Each receipt prints the locale name, the date in the `long` style in that zone, one line per item as `2 x tea: <price>`, and a `Total:` line. The expected output has the dates `March 14, 2026`, `14. März 2026` and `2026年3月15日` (Tokyo is already on the 15th), the prices `$7.00`, `7,00 €` and `￥7`, and the totals `$11.25`, `11,25 €` and `￥11`.
+
+<Solution>
+
+One formatter per kind is created inside `receipt`, and the date formatter gets the zone. The yen has no decimals, so `4.25` shows as `￥4`. This is exactly what the formatter is for: the arithmetic uses the plain numbers, and only the display changes.
+
+```javascript title="ex_receipt.mjs"
+const items = [
+  { name: "tea", qty: 2, price: 3.5 },
+  { name: "cake", qty: 1, price: 4.25 },
+];
+const sale = new Date("2026-03-14T15:30:00Z");
+```
+
+```javascript title="ex_receipt.mjs (continued)"
+function receipt(locale, currency, timeZone) {
+  const money = new Intl.NumberFormat(locale, { style: "currency", currency });
+  const day = new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone });
+  const lines = [locale, day.format(sale)];
+  let total = 0;
+  for (const { name, qty, price } of items) {
+    lines.push(`${qty} x ${name}: ${money.format(qty * price)}`);
+    total += qty * price;
+  }
+  lines.push(`Total: ${money.format(total)}`);
+  return lines.join("\n");
+}
+```
+
+```javascript title="ex_receipt.mjs (continued)"
+console.log(receipt("en-US", "USD", "America/New_York"));
+console.log(receipt("de-DE", "EUR", "Europe/Berlin"));
+console.log(receipt("ja-JP", "JPY", "Asia/Tokyo"));
+```
+
+```text
+en-US
+March 14, 2026
+2 x tea: $7.00
+1 x cake: $4.25
+Total: $11.25
+de-DE
+14. März 2026
+2 x tea: 7,00 €
+1 x cake: 4,25 €
+Total: 11,25 €
+ja-JP
+2026年3月15日
+2 x tea: ￥7
+1 x cake: ￥4
+Total: ￥11
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Ordinal numbers">
+
+Write `ordinal(n)` that returns `1st`, `2nd`, `3rd`, `4th` and so on, using `Intl.PluralRules` with `type: "ordinal"`. Print the results for 1, 2, 3, 4, 11, 12, 21, 22 and 103 on one line separated by spaces. The expected output is `1st 2nd 3rd 4th 11th 12th 21st 22nd 103rd`.
+
+<Solution>
+
+The rules return `one` for 1, 21 and 101, `two` for 2 and 22, `few` for 3, and `other` for 11, 12 and 4. The table turns the category into a suffix.
+
+```javascript title="ex_ordinal.mjs"
+const rules = new Intl.PluralRules("en", { type: "ordinal" });
+const suffixes = { one: "st", two: "nd", few: "rd", other: "th" };
+
+function ordinal(n) {
+  return `${n}${suffixes[rules.select(n)]}`;
+}
+
+console.log([1, 2, 3, 4, 11, 12, 21, 22, 103].map(ordinal).join(" "));
+```
+
+```text
+1st 2nd 3rd 4th 11th 12th 21st 22nd 103rd
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Time ago">
+
+Write `fromNow(seconds)` that takes a number of seconds (negative for the past) and returns the text from `Intl.RelativeTimeFormat` with `numeric: "auto"`, using the largest unit from day, hour, minute and second that fits. Print the results for -45, 7200, -259200 and 86400. The expected output is `45 seconds ago`, `in 2 hours`, `3 days ago` and `tomorrow`.
+
+<Solution>
+
+The units are listed from large to small, and the first one the value reaches is used. Dividing and rounding gives the count. 86400 seconds is one day, which the `auto` option turns into `tomorrow`.
+
+```javascript title="ex_fromnow.mjs"
+const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+const units = [
+  ["day", 86400],
+  ["hour", 3600],
+  ["minute", 60],
+  ["second", 1],
+];
+
+function fromNow(seconds) {
+  for (const [unit, size] of units) {
+    if (Math.abs(seconds) >= size || unit === "second") {
+      return rtf.format(Math.round(seconds / size), unit);
+    }
+  }
+}
+
+for (const s of [-45, 7200, -259200, 86400]) {
+  console.log(fromNow(s));
+}
+```
+
+```text
+45 seconds ago
+in 2 hours
+3 days ago
+tomorrow
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A file summary">
+
+Write `summary(files)` that returns `No files` for an empty array, otherwise the count with the right noun and the names joined as a list. Use `PluralRules` for the noun and `ListFormat` for the list. Print the results for `[]`, one file, two files and three files, named `a.txt`, `b.txt` and `c.txt`. The expected output is `No files`, `1 file: a.txt`, `2 files: a.txt and b.txt` and `3 files: a.txt, b.txt, and c.txt`.
+
+<Solution>
+
+`PluralRules` decides between `file` and `files`, and `ListFormat` supplies the commas and the final "and". Zero is handled first, because it needs its own wording.
+
+```javascript title="ex_filesummary.mjs"
+const plural = new Intl.PluralRules("en");
+const list = new Intl.ListFormat("en");
+
+function summary(files) {
+  const word = plural.select(files.length) === "one" ? "file" : "files";
+  if (files.length === 0) {
+    return "No files";
+  }
+  return `${files.length} ${word}: ${list.format(files)}`;
+}
+
+console.log(summary([]));
+console.log(summary(["a.txt"]));
+console.log(summary(["a.txt", "b.txt"]));
+console.log(summary(["a.txt", "b.txt", "c.txt"]));
+```
+
+```text
+No files
+1 file: a.txt
+2 files: a.txt and b.txt
+3 files: a.txt, b.txt, and c.txt
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `Intl` formatters turn data into text for a locale: `NumberFormat`, `DateTimeFormat`, `ListFormat`, `PluralRules` and `RelativeTimeFormat`.
+- Always pass a locale, and for dates always pass a `timeZone`, so the output does not depend on the machine.
+- Currency, percent, compact and unit styles are options of `NumberFormat`. Currency decides the decimals, the locale decides the layout.
+- `PluralRules` gives a category, and you supply the words. `RelativeTimeFormat` needs the unit chosen by your code.
+- Create a formatter once and reuse it. The `toLocale...String` methods are shortcuts with the same options.
+- Output is for people. Keep real values as numbers and dates, and do not compare formatted text across environments.
+
+Next: [Date, the legacy API](../dates-legacy/).

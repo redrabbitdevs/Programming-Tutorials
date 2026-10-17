@@ -1,0 +1,5 @@
+true false
+true
+URIError
+ok%20%EF%BF%BD
+"ok \ud83d"
