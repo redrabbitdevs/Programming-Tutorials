@@ -20,7 +20,7 @@ Most programs talk to other programs over **HTTP**: a client sends a request mad
 
 ## A first request and a first server
 
-Node's built-in `node:http` module creates servers. `createServer` takes a function that runs for each request. It receives the request (a Readable stream) and the response (a Writable stream). `res.writeHead(status, headers)` sets the status and headers, and `res.end(body)` sends the body and finishes.
+Node's built-in `node:http` module creates servers. A server is an [event emitter](../node-runtime/#events-and-eventemitter), and the function you give to `createServer` is a listener for its `"request"` event, so it runs for each request. It receives the request (a Readable stream) and the response (a Writable stream). `res.writeHead(status, headers)` sets the status and headers, and `res.end(body)` sends the body and finishes.
 
 `server.listen(0, "127.0.0.1")` asks the operating system for any free port, on the local machine only. The port number is only known afterwards, from `server.address().port`, and the example never prints it because it changes on every run.
 
@@ -184,7 +184,11 @@ async function readBody(req) {
   for await (const chunk of req) text += chunk;
   return text;
 }
+```
 
+The handler parses the body, validates it, and always answers.
+
+```javascript title="hf_post.mjs (continued)"
 const todos = [];
 const { url, stop } = await startServer(async (req, res) => {
   const reply = (status, data) => {
@@ -254,7 +258,11 @@ const { url, stop } = await startServer((req, res) => {
     }
   }, 10);
 });
+```
 
+The client decodes the bytes to text as they arrive.
+
+```javascript title="hf_stream.mjs (continued)"
 const response = await fetch(url);
 let text = "";
 for await (const part of response.body.pipeThrough(new TextDecoderStream())) {
@@ -269,6 +277,30 @@ await stop();
 ```
 
 The server sent three chunks 10 ms apart, and the client could have acted on each one as it came. `TextDecoderStream` turns the bytes into text, taking care of characters that are split across chunks. We join the pieces and print the result, because how the network groups the bytes into chunks can vary.
+
+## Shutting down cleanly
+
+Ctrl+C sends the signal `SIGINT`, and a container or process manager sends `SIGTERM`. With no listener, Node dies on the spot, possibly in the middle of a request. A listener on `process` (an emitter, too) can stop the server first. The example sends the signal to itself with `process.kill`, which works on Linux and macOS; Windows does not support signals and only emulates some of this.
+
+```javascript title="hf_shutdown.mjs"
+import { startServer } from "./hf_helper.mjs";
+
+const { url, stop } = await startServer((req, res) => res.end("hi"));
+console.log(await (await fetch(url)).text());
+
+process.once("SIGINT", async () => {
+  await stop();
+  console.log("server closed");
+});
+process.kill(process.pid, "SIGINT");
+```
+
+```text
+hi
+server closed
+```
+
+Once the server is closed nothing keeps the event loop alive, so the program ends by itself.
 
 ## WebSocket
 
@@ -475,4 +507,4 @@ client error 404
 - Use meaningful status codes: 200, 201, 400, 404, 500. Retry on 5xx, not on 4xx.
 - `response.body` is a web stream. `listen(0)` picks a free port. Node has a WebSocket client, stable since 22.4, and no built-in WebSocket server.
 
-Next: managing the packages your project depends on, with npm.
+Next: [managing the packages your project depends on](../npm-in-depth/), with npm.

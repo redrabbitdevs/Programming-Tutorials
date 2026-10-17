@@ -1,0 +1,4 @@
+$ node app.mjs
+Hello, Ada! HI 42
+esm build | cjs build
+ERR_PACKAGE_PATH_NOT_EXPORTED

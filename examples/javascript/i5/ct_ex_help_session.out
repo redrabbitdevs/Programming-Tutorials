@@ -1,0 +1,9 @@
+$ node ct_ex_help.mjs
+hello, world
+$ node ct_ex_help.mjs --name Ada
+hello, Ada
+$ node ct_ex_help.mjs -h
+usage: node ct_ex_help.mjs [--name NAME]
+$ node ct_ex_help.mjs --colour; echo $?
+Unknown option '--colour'
+2

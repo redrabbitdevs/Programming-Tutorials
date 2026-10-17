@@ -1,0 +1,9 @@
+$ node tj_main.ts
+Hello, Ada (#1)
+HELLO, ADA (#X)
+$ node tj_enum.ts 2>&1 | grep Error
+SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript enum is not supported in strip-only mode
+$ node tj_badimport.ts 2>&1 | grep Error
+SyntaxError: The requested module './tj_types.ts' does not provide an export named 'User'
+$ node tj_wrongtype.ts
+42 string

@@ -9,43 +9,59 @@ const options = {
 
 function parse(argv) {
   try {
-    return parseArgs({ args: argv, options, allowPositionals: true });
+    const parsed = parseArgs({ args: argv, options, allowPositionals: true });
+    if (parsed.positionals.length >= 2) return parsed;
+    console.error("usage: ct_grep [-i] [-n] pattern file...");
+  } catch (error) {
+    console.error(`grep: ${error.message}`);
+  }
+  return null;
+}
+
+function compile(pattern, ignoreCase) {
+  try {
+    return new RegExp(pattern, ignoreCase ? "i" : "");
   } catch (error) {
     console.error(`grep: ${error.message}`);
     return null;
   }
 }
 
-async function main(argv) {
-  const parsed = parse(argv);
-  if (parsed === null) return 2;
-  const [pattern, ...files] = parsed.positionals;
-  if (pattern === undefined || files.length === 0) {
-    console.error("usage: ct_grep [-i] [-n] pattern file...");
-    return 2;
-  }
-  const ignoreCase = parsed.values["ignore-case"];
-  const needle = ignoreCase ? pattern.toLowerCase() : pattern;
+async function grepFile(file, regex, flags) {
+  const lines = (await readFile(file, "utf8")).split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  let found = false;
+  lines.forEach((line, index) => {
+    if (!regex.test(line)) return;
+    found = true;
+    const where = flags.prefix ? `${file}:` : "";
+    const number = flags.numbers ? `${index + 1}:` : "";
+    console.log(`${where}${number}${line}`);
+  });
+  return found;
+}
+
+async function grepAll(files, regex, flags) {
   let found = false;
   for (const file of files) {
-    let text;
     try {
-      text = await readFile(file, "utf8");
+      found = (await grepFile(file, regex, flags)) || found;
     } catch (error) {
       console.error(`grep: ${file}: ${error.code}`);
       return 2;
     }
-
-    text.split("\n").forEach((line, index) => {
-      const hay = ignoreCase ? line.toLowerCase() : line;
-      if (!hay.includes(needle)) return;
-      found = true;
-      const where = files.length > 1 ? `${file}:` : "";
-      const number = parsed.values["line-numbers"] ? `${index + 1}:` : "";
-      console.log(`${where}${number}${line}`);
-    });
   }
   return found ? 0 : 1;
+}
+
+async function main(argv) {
+  const parsed = parse(argv);
+  if (parsed === null) return 2;
+  const [pattern, ...files] = parsed.positionals;
+  const regex = compile(pattern, parsed.values["ignore-case"]);
+  if (regex === null) return 2;
+  const numbers = parsed.values["line-numbers"];
+  return grepAll(files, regex, { prefix: files.length > 1, numbers });
 }
 
 process.exitCode = await main(process.argv.slice(2));

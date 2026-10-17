@@ -1,0 +1,4 @@
+$ chmod +x ct_grep.mjs
+$ ./ct_grep.mjs -n apple fruit.txt
+1:apple
+4:apple pie

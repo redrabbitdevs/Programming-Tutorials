@@ -4,21 +4,24 @@ level: intermediate
 module: Node.js essentials
 order: 28
 title: The Node.js runtime
-description: "See what Node.js adds to the language: built-in modules with the node prefix, the process object, environment variables, .env files with --env-file, and the Web APIs that Node shares with browsers."
+description: "See what Node.js adds to the language: built-in modules with the node prefix, events and EventEmitter, the process object, environment variables, .env files with --env-file, and the Web APIs that Node shares with browsers."
 minVersion: "22"
 objectives:
   - Explain what Node.js adds to the JavaScript language and what it leaves out
   - Import built-in modules with the node prefix and tell which globals exist in Node
+  - Listen for and emit events with EventEmitter, and wait for one with events.once
   - Read process.argv, process.env and the exit event
   - Build a small, validated configuration object from environment variables
   - Load variables from a .env file with --env-file, util.parseEnv and process.loadEnvFile
-estimatedMinutes: 50
+estimatedMinutes: 55
 fundamentals: ["fundamentals/beginner/02-tools-of-the-trade"]
 ---
 
-Every lesson so far has been about the **language**: values, functions, classes, promises. The language says nothing about files, networks, command-line arguments or the clock on the wall. Those come from the **host** that runs your code. In a browser the host adds `document`, `window` and events. In Node.js the host adds files, processes, sockets and a standard library. This module is about that second host.
+Every lesson so far has been about the **language**: values, functions, classes, promises. The language says nothing about files, networks or command-line arguments. Those come from the **host** that runs your code. In a browser the host adds `document`, `window` and events. In Node.js it adds files, processes, sockets and a standard library. This module is about that second host.
 
-Node.js is three things in one program: the V8 engine (it runs the JavaScript), an event loop (the one you met in [the event loop lesson](../event-loop/)), and a library of **built-in modules**. If you have not installed Node yet, [the install lesson](../../beginner/install-node/) covers it. The [tools of the trade](../../../fundamentals/beginner/tools-of-the-trade/) lesson explains the terminal, which you will use a lot here.
+Node.js is three things in one program: the V8 engine, an event loop (the one from [the event loop lesson](../event-loop/)), and a library of **built-in modules**. [The install lesson](../../beginner/install-node/) covers installing it, and [tools of the trade](../../../fundamentals/beginner/tools-of-the-trade/) explains the terminal you will use here.
+
+**Which Node?** Use the latest 22.x release, or Node 24 or 26. Every example was run on 22.22, 24.21 and 26.11. When a feature needs a particular minor release of 22, the lesson says so.
 
 ## Built-in modules and the node: prefix
 
@@ -38,11 +41,11 @@ false
 true false
 ```
 
-The prefix does two jobs. It tells the reader that this is part of Node and not a package from npm, and it protects you from a package that happens to have the same name. A few modules, `node:test` among them, can only be reached with the prefix: plain `test` is not a built-in. Use the prefix everywhere in new code.
+The prefix tells the reader that this is part of Node and not an npm package, and it protects you from a package with the same name. A few modules, `node:test` among them, can only be reached with the prefix. Use it everywhere in new code.
 
 ## Globals: the same language, a different global object
 
-In a browser, the global object is `window`. In Node there is no `window` and no `document`, because there is no page. The standard global object `globalThis` exists in both (and Node also calls it `global`). What Node puts on it is different.
+In Node there is no `window` and no `document`, because there is no page. The standard `globalThis` exists in both worlds (Node also calls it `global`).
 
 ```javascript title="nr_globals.mjs"
 console.log(typeof window, typeof document);
@@ -58,13 +61,94 @@ true
 undefined undefined
 ```
 
-- `process` is Node's own global. It is the subject of the next section.
-- `fetch`, `URL`, `AbortController`, `TextEncoder`, `structuredClone`, `performance` and the timer functions are **Web APIs**. They are defined by web standards and Node implements the same names, so code that uses only them runs in both places. `fetch` has been stable since Node 21 and the `WebSocket` client since 22.4.
+- `process` is Node's own global, described below.
+- `fetch`, `URL`, `AbortController`, `TextEncoder`, `structuredClone`, `performance` and the timer functions are **Web APIs**: Node implements the same names as browsers, so code that uses only them runs in both. `fetch` has been stable since Node 21 and the `WebSocket` client since 22.4.
 - `require` and `__dirname` belong to the older CommonJS module system. In an ES module (a `.mjs` file) they do not exist. The [CommonJS lesson](../../beginner/commonjs-awareness/) explains where you will still meet them.
+
+## Events and EventEmitter
+
+Much of Node rests on one small idea: an object announces that something happened, and the functions that asked to hear about it are called. The class is `EventEmitter` from `node:events`. The `process` object, streams, HTTP servers and child processes are all emitters, so the next lessons keep using `.on(...)`.
+
+- `on(name, listener)` registers a listener. `once(name, listener)` registers one that removes itself after its first call. `off(name, listener)` removes one.
+- `emit(name, ...args)` calls the listeners **synchronously**, in the order they were registered, passing the arguments along. It returns `true` if at least one listener ran.
+
+```javascript title="nr_events.mjs"
+import { EventEmitter } from "node:events";
+
+const bus = new EventEmitter();
+bus.on("greet", (name) => console.log("hello,", name));
+bus.once("greet", () => console.log("first greeting only"));
+
+console.log(bus.emit("greet", "Ada"));
+console.log(bus.emit("greet", "Alan"));
+console.log(bus.emit("nobody-listens"));
+```
+
+```text
+hello, Ada
+first greeting only
+true
+hello, Alan
+true
+false
+```
+
+Both listeners ran inside the first `emit`, before it returned. Names are free text, with one exception: **`"error"` is special**. Emitting it with no listener throws the error, which would end your program. So code that can fail (streams, servers, child processes) emits `"error"`, and you must listen for it.
+
+```javascript title="nr_events_error.mjs"
+import { EventEmitter } from "node:events";
+
+const job = new EventEmitter();
+job.on("error", (error) => console.log("handled:", error.message));
+job.emit("error", new Error("disk full"));
+
+const bare = new EventEmitter();
+try {
+  bare.emit("error", new Error("nobody listens"));
+} catch (error) {
+  console.log("thrown:", error.message);
+}
+```
+
+```text
+handled: disk full
+thrown: nobody listens
+```
+
+Callbacks are awkward with `async` code. The function `once(emitter, name)` from `node:events` (not the method) returns a **promise** that resolves with the array of the event's arguments. If the emitter emits `"error"` first, the promise rejects with it. An `AbortSignal` can be passed as `{ signal }` to stop waiting.
+
+A stream is an emitter that fires `"data"` for each chunk, `"end"` when there is no more, and `"error"` when something fails. Everything in the streams lesson is built from events like these.
+
+```javascript title="nr_events_once.mjs"
+import { EventEmitter, once } from "node:events";
+import { Readable } from "node:stream";
+
+const task = new EventEmitter();
+setTimeout(() => task.emit("done", 42, "ok"), 10);
+const [value, label] = await once(task, "done");
+console.log(value, label);
+
+setTimeout(() => task.emit("error", new Error("task failed")), 10);
+await once(task, "done").catch((error) => console.log(error.message));
+
+const stream = Readable.from(["a", "b"]);
+console.log(stream instanceof EventEmitter, process instanceof EventEmitter);
+stream.on("data", (chunk) => console.log("data:", chunk));
+stream.on("end", () => console.log("end"));
+```
+
+```text
+42 ok
+task failed
+true true
+data: a
+data: b
+end
+```
 
 ## The process object
 
-`process` describes the running program and lets you talk to the outside world. Three parts of it matter right away.
+`process` describes the running program and lets you talk to the outside world. It is an `EventEmitter`, which is why `process.on(...)` works.
 
 ```javascript title="nr_process.mjs"
 console.log(process.argv.length, process.argv.slice(2));
@@ -83,15 +167,15 @@ last line of the script
 exit event, code 0
 ```
 
-- `process.argv` is an array of strings. The first item is the path of the `node` program, the second is the path of your script, and everything after that is what the user typed. That is why `slice(2)` gives the real arguments. We ran the script with none, so the list is empty. The [command-line tools lesson](../cli-tools/) builds on this.
-- `process.versions.node` is the version as a string such as `"26.11.1"`. Comparing the major number is how a program refuses to run on an old Node.
-- `process.on("exit", ...)` registers a function that runs just before the program ends, for whatever reason. The code is `0` when all went well. The function must do only **synchronous** work: when the listeners are done the process ends and any queued timer or promise is abandoned.
+- `process.argv` is an array of strings: the path of `node`, then your script, then whatever the user typed. That is why `slice(2)` gives the real arguments. The [command-line tools lesson](../cli-tools/) builds on this.
+- `process.versions.node` is the version as a string such as `"26.11.1"`.
+- The `"exit"` listener runs just before the program ends, for whatever reason. It must do only **synchronous** work: queued timers and promises are abandoned.
 
-You can end the program early with `process.exit(code)`, but it stops everything at once, even writes to the screen that are still on their way. Prefer to set `process.exitCode = 1` and let the program finish normally. The [command-line tools lesson](../cli-tools/) shows both.
+`process.exit(code)` ends the program at once, even with writes still on their way. Prefer to set `process.exitCode = 1` and let the program finish normally.
 
 ## Environment variables
 
-Every program starts with a set of **environment variables**: named strings that the parent process (usually your shell) hands down. They are the standard way to configure a program without editing its code: a port number, a database address, a switch for debug output. Node shows them as the object `process.env`.
+Every program starts with **environment variables**: named strings that the parent process (usually your shell) hands down. They configure a program without editing its code: a port number, a database address, a switch for debug output. Node shows them as the object `process.env`.
 
 ```javascript title="nr_env.mjs"
 process.env.RETRIES = 3;
@@ -113,16 +197,13 @@ default value
 false
 ```
 
-Here is what to remember:
-
-- Values are always **strings**. Assigning the number `3` stores `"3"`, and `"3" + 1` is `"31"`. Convert with `Number(...)` yourself.
+- Values are always **strings**. Assigning the number `3` stores `"3"`, and `"3" + 1` is `"31"`. Convert with `Number(...)` yourself. (Assigning a non-string is deprecated, DEP0104; write the string.)
 - A variable that is not set reads as `undefined`, so `??` is the natural way to supply a default.
-- Assigning to `process.env` converts the value to a string, even `undefined` (it becomes the text `"undefined"`), and the Node documentation marks that conversion as deprecated. Use `delete` to remove a variable.
-- Changes affect only your process and the children it starts later. They never reach your shell.
+- Use `delete` to remove a variable. Changes affect only your process and the children it starts later, never your shell.
 
 ## Turning the environment into a config object
 
-Reading `process.env` all over a program makes it hard to see what the program needs, and a typo such as `PROT` fails silently. A tidier habit is to read the environment **once**, at the start, into a plain object with defaults and checks. Pass the environment in as a parameter, and the function is easy to test.
+Reading `process.env` all over a program hides what it needs, and a typo such as `PROT` fails silently. Read the environment **once**, at the start, into a plain object with defaults and checks. Taking the environment as a parameter makes the function easy to test.
 
 ```javascript title="nr_config.mjs"
 function loadConfig(env) {
@@ -148,62 +229,45 @@ try {
 PORT must be a positive integer, got "eighty"
 ```
 
-The program fails at start-up with a clear message instead of failing later with a puzzling one. A real program calls `loadConfig(process.env)` once and passes the result around.
+The program fails at start-up with a clear message. A real program calls `loadConfig(process.env)` once and passes the result around.
 
 ## .env files and --env-file
 
-Setting a dozen variables by hand before every run is tedious. The convention is a text file named `.env`, one `NAME=value` per line. Node can read it for you with the `--env-file` flag:
+Setting a dozen variables by hand before every run is tedious. The convention is a text file named `.env`, one `NAME=value` per line, and Node reads it for you with `--env-file`. Here is a `.env` file, with a comment and a quoted value, and a program that prints three variables.
 
-```bash
-node --env-file=.env app.mjs
+```text title=".env"
+APP_GREETING=hello
+APP_NAME="Ada L"
+# a comment
+APP_PORT=8080
 ```
 
-The flag has been stable since Node 24.10 and 22.21. On older 22.x releases it works but prints an experimental warning. The file format is simple:
-
-- one `NAME=value` pair per line, and text after a `#` is a comment;
-- a value may be wrapped in single quotes, double quotes or backticks, which are removed;
-- an `export` before the name is ignored.
-
-Two rules matter more than the format. A variable that is **already set** in the real environment wins over the file, so a deployment can override your defaults. And a missing file is an error, unless you use `--env-file-if-exists` (added in Node 22.9), which carries on without it.
-
-To see all this without leaving JavaScript, the next example writes a `.env` file into a fresh temporary directory, starts a second Node process with the flag, and removes the directory afterwards. `execFileSync` runs a program and returns what it printed; the [command-line tools lesson](../cli-tools/) explains it properly.
-
-```javascript title="nr_envfile.mjs"
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { execFileSync } from "node:child_process";
-
-const dir = await mkdtemp(join(tmpdir(), "envdemo-"));
-const file = join(dir, ".env");
-const text = 'GREETING=hello\nNAME="Ada L"\n# a comment\nPORT=8080\n';
-await writeFile(file, text);
+```javascript title="nr_dotenv.mjs"
+const { APP_GREETING, APP_NAME, APP_PORT } = process.env;
+console.log(APP_GREETING, APP_NAME, APP_PORT);
 ```
 
-The file has three variables, a comment and a quoted value. Now run a one-line program in a child process, once with only the file and once with `PORT` also set in the real environment.
+Now run it the way you would in a terminal. The second command sets `APP_PORT` in the real environment first. The fourth names a file that does not exist.
 
-```javascript title="nr_envfile.mjs (continued)"
-const show =
-  "console.log(process.env.GREETING, process.env.NAME, process.env.PORT)";
-const run = (env) =>
-  execFileSync(process.execPath, [`--env-file=${file}`, "-e", show], {
-    encoding: "utf8",
-    env: { ...process.env, ...env },
-  }).trim();
-
-console.log(run({}));
-console.log(run({ PORT: "9000" }));
-await rm(dir, { recursive: true, force: true });
-```
-
-```text
+```text frame="terminal"
+$ node --env-file=.env nr_dotenv.mjs
 hello Ada L 8080
+$ APP_PORT=9000 node --env-file=.env nr_dotenv.mjs
 hello Ada L 9000
+$ node nr_dotenv.mjs
+undefined undefined undefined
+$ node --env-file=missing.env nr_dotenv.mjs
+node: missing.env: not found
+$ echo $?
+9
+$ node --env-file-if-exists=missing.env nr_dotenv.mjs
+missing.env not found. Continuing without it.
+undefined undefined undefined
 ```
 
-The quotes around `Ada L` are gone, the comment is ignored, and in the second run the real `PORT` of `9000` beat the `8080` in the file. `process.execPath` is the path of the running `node`, so the child is guaranteed to be the same version.
+The quotes around `Ada L` are gone and the comment is ignored. A variable that is **already set** in the real environment wins over the file, which is why the second run prints `9000`: a deployment can override your defaults. A missing file is an error (exit status 9) unless you use `--env-file-if-exists`, which needs Node 22.9 or later. `--env-file` works on every 22.x. It was flagged experimental until 22.21 and 24.10, but behaves the same.
 
-You can also read a file from inside the program. `util.parseEnv(text)` turns the text of a `.env` file into an object without touching `process.env`, and `process.loadEnvFile(path)` loads a file into `process.env` (without overriding variables that already exist). Both were added in Node 21.7 and 20.12, and became stable in 24.10 and 22.21.
+From inside a program, `util.parseEnv(text)` turns the text of a `.env` file into an object without touching `process.env`, and `process.loadEnvFile(path)` loads a file into `process.env` without overriding variables that exist. Both were flagged experimental until the same releases.
 
 ```javascript title="nr_parseenv.mjs"
 import { parseEnv } from "node:util";
@@ -217,12 +281,13 @@ console.log(Object.entries(parsed));
 [ [ 'A', '1' ], [ 'B', 'two words' ], [ 'C', '3' ] ]
 ```
 
-Never commit a `.env` file that holds passwords or API keys. Add it to `.gitignore`, and commit an example file with fake values instead.
+An `export` before the name is ignored. Never commit a `.env` file that holds passwords or API keys. Add it to `.gitignore`, and commit an example file with fake values instead.
 
 ## Common pitfalls
 
-- **Expecting browser globals.** `window`, `document` and `localStorage` do not exist in Node. Code that needs them belongs in the optional browser strand.
+- **Expecting browser globals.** `window`, `document` and `localStorage` do not exist in Node.
 - **Forgetting that env values are strings.** `process.env.DEBUG = false` stores `"false"`, which is truthy. Compare against an exact string such as `"1"`.
+- **Emitting `"error"` with no listener.** It throws. Listen for it on every stream and server.
 - **Calling `process.exit()` in the middle of work.** Pending writes and timers are dropped. Set `process.exitCode` instead.
 - **Reading `process.env` everywhere.** Read it once into a config object.
 - **Using `require` or `__dirname` in a `.mjs` file.** They are not defined there.
@@ -330,12 +395,49 @@ dev 9000 blue
 
 </Exercise>
 
+<Exercise title="Wait for an event">
+
+Make an `EventEmitter` called `loader` that, after 20 ms, emits `"loaded"` with the arguments `"config.json"` and `3`. Use `once` from `node:events` with `await` to receive them, and print `loaded config.json 3`. Then show that `once` rejects: 20 ms later emit `"error"` with `new Error("bad file")` while waiting for `"loaded"` again, and print the message of the error.
+
+Expected output:
+
+```text
+loaded config.json 3
+bad file
+```
+
+<Solution>
+
+`once` resolves with an array of the event's arguments, so destructuring picks them apart. When `"error"` is emitted while `once` waits for another event, the promise rejects with that error.
+
+```javascript title="nr_ex_wait.mjs"
+import { EventEmitter, once } from "node:events";
+
+const loader = new EventEmitter();
+setTimeout(() => loader.emit("loaded", "config.json", 3), 20);
+const [file, count] = await once(loader, "loaded");
+console.log("loaded", file, count);
+
+setTimeout(() => loader.emit("error", new Error("bad file")), 20);
+await once(loader, "loaded").catch((error) => console.log(error.message));
+```
+
+```text
+loaded config.json 3
+bad file
+```
+
+</Solution>
+
+</Exercise>
+
 ## Summary
 
 - Node.js is V8 plus an event loop plus built-in modules. It adds files, processes and networking, and it has no DOM.
 - Import built-ins with the `node:` prefix. `globalThis` exists everywhere; Node also provides the Web APIs `fetch`, `URL`, `AbortController` and others.
+- `EventEmitter` has `on`, `once`, `off` and `emit`. Listeners run synchronously in order, an `"error"` event with no listener throws, and `once(emitter, name)` from `node:events` turns an event into a promise. Streams, servers and `process` are emitters.
 - `process.argv` holds the arguments, `process.env` holds string variables, and the `exit` event runs synchronous clean-up. Prefer `process.exitCode` to `process.exit()`.
 - Read the environment once into a validated config object.
-- `--env-file` (stable since 24.10 and 22.21) loads a `.env` file. Real environment variables win. `util.parseEnv` and `process.loadEnvFile` do the same from code.
+- `--env-file` loads a `.env` file (real variables win; `--env-file-if-exists` needs 22.9). `util.parseEnv` and `process.loadEnvFile` do the same from code.
 
-Next: reading and writing files, and the path and URL tools that go with them.
+Next: [reading and writing files](../files-and-paths/), and the path and URL tools that go with them.

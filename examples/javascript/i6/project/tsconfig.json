@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "target": "esnext",
+    "module": "nodenext",
+    "types": ["node"]
+  },
+  "include": ["src/*.mjs", "demo*.mjs"]
+}

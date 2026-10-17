@@ -16,9 +16,9 @@ estimatedMinutes: 55
 fundamentals: []
 ---
 
-Almost every JavaScript project is built from other people's code. **npm** is the program that downloads it (it ships with Node), and the **npm registry** is the public server that stores it. The [beginner lesson on package.json](../../beginner/package-json-npm/) showed how to create a project and add one dependency. This lesson is about doing it deliberately: what the version numbers promise, what the lock file protects you from, and how packages decide what the outside world may import.
+Almost every JavaScript project is built from other people's code. **npm** downloads it (it ships with Node) from the **npm registry**. The [beginner lesson on package.json](../../beginner/package-json-npm/) added one dependency. This lesson does it deliberately: what version numbers promise, what the lock file protects you from, and how a package decides what others may import.
 
-Some commands below need a network and a registry, so they appear as plain `bash` listings and not as runnable programs. Everything that can run offline does, in a temporary project that the program builds and removes.
+Listings that need the network (`npm install`, `npx`) are pasted from real runs on 17 October 2026 with npm 11.20.0 on Node 26.11.1, so your numbers will differ. Listings that need only Node are checked on Node 22, 24 and 26.
 
 ## Semantic versions
 
@@ -28,9 +28,7 @@ Package versions follow **semantic versioning** (semver): three numbers, `MAJOR.
 - **MINOR** goes up when features are added in a compatible way.
 - **MAJOR** goes up when something may break existing users.
 
-It is a promise made by the package author, and it is only as good as their discipline. The numbers are compared **as numbers**, one part at a time. `1.10.0` is newer than `1.9.0`, although as text `"1.10.0"` sorts before `"1.9.0"`.
-
-A version with a hyphen, `2.0.0-beta.1`, is a **prerelease**, which comes before `2.0.0` and is not matched by ordinary ranges.
+It is a promise by the author, only as good as their discipline. The parts are compared **as numbers**: `1.10.0` is newer than `1.9.0`, although as text `"1.10.0"` sorts first. A hyphen, as in `2.0.0-beta.1`, marks a **prerelease**: it comes before `2.0.0` and ordinary ranges do not match it.
 
 ## Ranges in package.json
 
@@ -45,259 +43,187 @@ The `dependencies` of a package.json do not name one version. They name a **rang
 | `1.x` | any `1.*.*` | `1.2.3` and `1.9.0` |
 | `*` | any version | all three |
 
-The caret `^` is what `npm install some-package` writes by default: the installed version with a caret in front. For versions below 1.0.0 the rule is stricter, because anything may change in 0.x software: `^0.2.3` means `>=0.2.3 <0.3.0`, and `^0.0.3` means exactly `0.0.3`.
+The caret `^` is what `npm install some-package` writes by default. Below 1.0.0 the rule is stricter, because anything may change in 0.x software: `^0.2.3` means `>=0.2.3 <0.3.0`, and `^0.0.3` means exactly `0.0.3`.
 
-To make the rules concrete, here is a small implementation of the caret and tilde rules for plain `MAJOR.MINOR.PATCH` versions. A real tool uses the `semver` package, which also handles prereleases and many other forms; the intention here is to see the rules as code.
+npm decides with the `semver` package, which has a command-line tool that prints the versions that fit a range. Run it with `npx`, which downloads a package's command on first use.
 
-```javascript title="np_semver.mjs"
-const parse = (text) => text.split(".").map(Number);
-
-function compare(a, b) {
-  for (let i = 0; i < 3; i++) {
-    if (a[i] !== b[i]) return a[i] - b[i];
-  }
-  return 0;
-}
-
-function upperBound([major, minor, patch], kind) {
-  if (kind === "~") return [major, minor + 1, 0];
-  if (major > 0) return [major + 1, 0, 0];
-  if (minor > 0) return [0, minor + 1, 0];
-  return [0, 0, patch + 1];
-}
-
-function satisfies(version, range) {
-  const low = parse(range.slice(1));
-  const high = upperBound(low, range[0]);
-  const v = parse(version);
-  return compare(v, low) >= 0 && compare(v, high) < 0;
-}
+```text frame="terminal"
+$ npx semver -r '^1.2.3' 0.0.3 1.2.3 1.3.0 1.9.0 2.0.0
+1.2.3
+1.3.0
+1.9.0
+$ npx semver -r '~1.2.3' 0.0.3 1.2.3 1.2.9 1.3.0 2.0.0
+1.2.3
+1.2.9
+$ npx semver -r '^0.2.3' 0.0.3 0.2.9 0.3.0 1.2.3
+0.2.9
+$ npx semver -r '^0.0.3' 0.0.3 0.0.4 0.2.9
+0.0.3
+$ npx semver -r '^2.0.0' 2.0.0-beta.1 2.0.0 2.1.0
+2.0.0
+2.1.0
+$ npx semver 1.10.0 1.9.0 1.2.3
+1.2.3
+1.9.0
+1.10.0
 ```
 
-`upperBound` is the first version that is *no longer* allowed. For a caret, the leftmost non-zero part decides. Now the table, computed:
-
-```javascript title="np_semver.mjs (continued)"
-const versions = "0.0.3 0.2.9 0.3.0 1.2.3 1.3.0 1.9.0 2.0.0".split(" ");
-for (const range of ["^1.2.3", "^0.2.3", "^0.0.3", "~1.2.3"]) {
-  const ok = versions.filter((v) => satisfies(v, range));
-  console.log(range.padEnd(7), ok.join(" "));
-}
-console.log("1.10.0" > "1.9.0", compare(parse("1.10.0"), parse("1.9.0")) > 0);
-```
-
-```text
-^1.2.3  1.2.3 1.3.0 1.9.0
-^0.2.3  0.2.9
-^0.0.3  0.0.3
-~1.2.3  1.2.3
-false true
-```
-
-The last line is the trap from the start of the lesson: compared as text, `"1.10.0"` is *not* greater than `"1.9.0"`, and compared as numbers it is.
+Without `-r` the tool sorts, and `1.9.0` comes before `1.10.0`. The beta did not match `^2.0.0`. (semver 7.8.5.)
 
 ## Installing, locking and updating
 
-`npm install` reads the ranges in `package.json`, picks the newest matching version of every package (and of the packages those packages need), puts them in `node_modules`, and writes the choice down in **`package-lock.json`**. The lock file records the exact version of every package in the tree, where it came from and an integrity hash of its contents.
+`npm install` reads the ranges in `package.json`, picks the newest matching version of every package (and of the packages those need), puts them in `node_modules`, and writes the choice into **`package-lock.json`**. In a fresh folder:
 
-```bash
-npm install is-odd@^3.0.0
+```text frame="terminal"
+$ npm init -y
+$ npm install is-odd@^3.0.0
+
+added 2 packages, and audited 3 packages in 534ms
+
+found 0 vulnerabilities
 ```
 
-Afterwards `package.json` says `"is-odd": "^3.0.1"` (the version that was newest at the time, with a caret) and the lock file says exactly which versions of `is-odd` and of its own dependency were installed. This split is the key idea:
+`npm init -y` wrote this `package.json`, and `npm install` added the last four lines:
 
-- `package.json` states what you will **accept**: a range.
-- `package-lock.json` states what you **got**: an exact tree.
-
-Commit both. When a colleague, a build server or you in six months run the install, the lock file makes the result the same, instead of whatever is newest that day.
-
-For that, there are two commands:
-
-- `npm install` may change the lock file: it follows the ranges and updates it when needed.
-- `npm ci` (*clean install*) deletes `node_modules` and installs **exactly** what the lock file says. If `package.json` and the lock file disagree, it stops with an error and changes nothing. Use it in CI and in deployment scripts.
-
-That error is the safety net. Changing the range in `package.json` to `^2.0.0` without updating the lock file gives:
-
-```text
-npm error `npm ci` can only install packages when your package.json and package-lock.json or npm-shrinkwrap.json are in sync. Please update your lock file with `npm install` before continuing.
-npm error
-npm error Invalid: lock file's is-odd@3.0.1 does not satisfy is-odd@2.0.0
-```
-
-Other commands you will use regularly:
-
-```bash
-npm outdated          # installed vs wanted (by range) vs latest
-npm update            # move to the newest versions the ranges allow
-npm ls                # the dependency tree
-npm audit             # check for known vulnerabilities
-npm uninstall name    # remove a dependency
-```
-
-Use `npm install --save-dev name`, or `-D`, for tools that only your development needs, such as a test helper or a linter; these go in `devDependencies` and are not installed when someone adds your package as a dependency.
-
-## Scripts
-
-The `"scripts"` field of `package.json` names commands for the project. They give every contributor the same few words: `npm test`, `npm start`, `npm run build`. `test` and `start` can be run without `run`; other names need `npm run name`.
-
-Node can also run them itself. `node --run name` (added in Node 22) reads `scripts` from the nearest `package.json` and runs the command in that folder, with `node_modules/.bin` of the project on the `PATH`. It starts faster than `npm run`, but it is intentionally smaller: it does not run `pre` and `post` scripts, and it does not set npm's own environment variables. Arguments after `--` are appended to the command.
-
-The program below creates a project in a temporary directory with two scripts and runs them through `node --run`. (It uses `withTempDir` from [the files lesson](../files-and-paths/).)
-
-```javascript title="np_scripts.mjs"
-import { execFileSync } from "node:child_process";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { withTempDir } from "./fp_helper.mjs";
-
-const scripts = {
-  hello: `node -e "console.log('hello from a script')"`,
-  show: `node -p "process.argv.slice(1).join(' ')"`,
-};
-
-await withTempDir(async (dir) => {
-  const pkg = JSON.stringify({ name: "demo", scripts });
-  await writeFile(join(dir, "package.json"), pkg);
-
-  const options = { cwd: dir, encoding: "utf8" };
-  const run = (...args) =>
-    execFileSync(process.execPath, ["--run", ...args], options).trim();
-
-  console.log(run("hello"));
-  console.log(run("show", "--", "one", "two"));
-});
-```
-
-```text
-hello from a script
-one two
-```
-
-The second call shows how arguments travel: `one two` was appended to the `show` command line. Note also what `node --run` leaves out: variables from `--env-file` are not passed on to the script's command.
-
-## npx
-
-`npx` runs a command that a package provides. It looks first in your project's `node_modules/.bin`; if the command is not installed there, it downloads the package into a cache and runs it, and npm warns you that it is doing so (`npm warn exec The following package was not found and will be installed`). It is handy for one-off tools such as project generators.
-
-```bash
-npx some-generator my-new-project
-```
-
-Running `npx` on a name you do not know means running someone else's code with your permissions. Check the name, as typos of popular package names are a known trick.
-
-## What a package exposes: exports
-
-Without any configuration, `import "greeter/src/internal.js"` can reach every file inside the installed package, and people will, which then freezes your file layout forever. The **`exports`** field of a package's `package.json` lists the paths that are public. Anything not listed cannot be imported from outside.
-
-The project in the next program is built by the code itself, in a temporary directory: an installed package `greeter` (a folder in `node_modules`, written by hand instead of downloaded) with an `exports` map, and an application that uses it. `writeTree` writes a set of files given as a name-to-text object, creating folders as needed; save it as `np_helper.mjs`.
-
-```javascript title="np_helper.mjs"
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-
-export async function writeTree(root, files) {
-  for (const [name, text] of Object.entries(files)) {
-    const target = join(root, name);
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, text);
+```json
+{
+  "name": "proj",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "is-odd": "^3.0.1"
   }
 }
 ```
 
-The package exposes its main file and one extra file under the name `greeter/extra`. A third file, `internal.js`, stays private.
+The range is the newest version at the time, with a caret. The lock file records what was installed, where it came from and an integrity hash:
 
-```javascript title="np_exports.mjs"
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { withTempDir } from "./fp_helper.mjs";
-import { writeTree } from "./np_helper.mjs";
-
-const json = (value) => JSON.stringify(value);
-
-const files = {
-  "node_modules/greeter/package.json": json({
-    name: "greeter",
-    version: "2.1.0",
-    type: "module",
-    exports: { ".": "./src/main.js", "./extra": "./src/extra.js" },
-  }),
-  "node_modules/greeter/src/main.js":
-    'export const greet = (n) => "Hello, " + n + "!";\n',
-  "node_modules/greeter/src/extra.js":
-    "export const shout = (t) => t.toUpperCase();\n",
-  "node_modules/greeter/src/internal.js": "export const secret = 42;\n",
+```text title="package-lock.json (excerpt)"
+    "node_modules/is-odd": {
+      "version": "3.0.1",
+      "resolved": "https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz",
+      "integrity": "sha512-CQpnWPrDwmP1+SMHXZhtLtJv90yiyVfluGsX5iNCVkrhQtU3TQHsUWPG9wkdk9Lgd5yNpAg9jQEo90CBaXgWMA==",
+      "license": "MIT",
+      "dependencies": {
+        "is-number": "^6.0.0"
+      },
 ```
 
-The application has its own `package.json` with an **`imports`** field. Names in `imports` must start with `#`, and they are private to the package that declares them, which makes them a tidy alternative to long relative paths such as `../../lib/util.js`. The `*` is a pattern that stands for any text.
+So `package.json` states what you will **accept**, a range, and `package-lock.json` what you **got**, an exact tree. Commit both: the lock file makes every install the same, instead of whatever is newest that day.
 
-```javascript title="np_exports.mjs (continued)"
-  "package.json": json({
-    name: "app",
-    type: "module",
-    imports: { "#lib/*": "./lib/*.js" },
-  }),
-  "lib/util.js": "export const twice = (n) => n * 2;\n",
-  "app.mjs": `
-    import { greet } from "greeter";
-    import { shout } from "greeter/extra";
-    import { twice } from "#lib/util";
-    console.log(greet("Ada"), shout("hi"), twice(21));
-    await import("greeter/src/internal.js").catch((e) => console.log(e.code));
-  `,
-};
+- `npm install` follows the ranges and may change the lock file.
+- `npm ci` (*clean install*) deletes `node_modules` and installs **exactly** what the lock file says. If the two files disagree it stops and changes nothing. Use it in CI and in deployments.
+
+That is the safety net. Change the range to `^2.0.0` without updating the lock file and `npm ci` refuses. This error block is shortened: the real message goes on to print npm's usage text.
+
+```text frame="terminal"
+$ npm ci
+npm error code EUSAGE
+npm error
+npm error `npm ci` can only install packages when your package.json and package-lock.json or npm-shrinkwrap.json are in sync. Please update your lock file with `npm install` before continuing.
+npm error
+npm error Invalid: lock file's is-odd@3.0.1 does not satisfy is-odd@2.0.0
+npm error Invalid: lock file's is-number@6.0.0 does not satisfy is-number@4.0.0
+npm error
+npm error Clean install a project
+(shortened: npm then prints its usage text)
 ```
 
-Finally, build the project and load `app.mjs` from it. Because the file lives inside the temporary project, Node resolves `greeter` from the project's own `node_modules`.
+Other commands: `npm outdated` (installed, wanted, latest), `npm update` (newest versions the ranges allow), `npm ls` (the tree), `npm audit` (known vulnerabilities), `npm uninstall name`. Use `npm install --save-dev name` (`-D`) for tools only development needs, such as a linter; they go in `devDependencies`.
 
-```javascript title="np_exports.mjs (continued)"
-await withTempDir(async (dir) => {
-  await writeTree(dir, files);
-  await import(pathToFileURL(join(dir, "app.mjs")).href);
-});
+## Scripts
+
+The `"scripts"` field names commands for the project, so every contributor has the same few words: `npm test`, `npm start`, `npm run build`. Here is a complete `package.json` with two scripts:
+
+```json
+{
+  "name": "np-scripts",
+  "version": "1.0.0",
+  "scripts": {
+    "hello": "node -p \"'hello from a script'\"",
+    "show": "node -p \"process.argv.slice(1).join(' ')\""
+  }
+}
 ```
+
+`npm run hello` runs one. Node can run them itself with `node --run`, available from Node 22.0 (from 22.3 it also finds a `package.json` in a parent folder). It starts faster than `npm run`, but is deliberately smaller: no `pre` and `post` scripts, no npm environment variables, and `--env-file` variables are not passed to the script. Arguments after `--` are appended to the command.
+
+```text frame="terminal"
+$ node --run hello
+hello from a script
+$ node --run show -- one two
+one two
+```
+
+## npx
+
+`npx` runs a command that a package provides. It looks in your project's `node_modules/.bin` first; otherwise it downloads the package into a cache and runs it, as with `semver` above. Running a name you do not know means running someone else's code with your permissions, so check it: typos of popular package names are a known trick.
+
+## What a package exposes: exports
+
+Without configuration, `import "greeter/src/internal.js"` reaches every file inside an installed package, and people will, which freezes your file layout forever. The **`exports`** field lists the public paths; nothing else can be imported from outside. The **`imports`** field names private shortcuts inside your own package; names start with `#`, and `*` stands for any text.
+
+A package with `exports` can import itself by name, the easiest way to try this without installing anything; other packages see the same map. The folder `np_demo`:
 
 ```text
+np_demo/
+  package.json
+  app.mjs
+  lib/util.js
+  src/main.js   src/extra.js   src/internal.js
+  src/dual.mjs  src/dual.cjs
+```
+
+`src/main.js` exports `greet`, `src/extra.js` exports `shout`, `lib/util.js` exports `twice`, `src/internal.js` exports `secret`, and the two `dual` files each export a string, `"esm build"` and `"cjs build"`. The map makes three of these public:
+
+```json title="np_demo/package.json"
+{
+  "name": "np-demo",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/main.js",
+    "./extra": "./src/extra.js",
+    "./dual": { "import": "./src/dual.mjs", "require": "./src/dual.cjs" }
+  },
+  "imports": { "#lib/*": "./lib/*.js" }
+}
+```
+
+An entry can depend on **how** the package is loaded: `"./dual"` has one file for `import` and one for `require`, as a package ships ES module and CommonJS builds ([why both exist](../../beginner/commonjs-awareness/)). The app uses the public names and the private `#lib/util`, then reaches for a file that is not exported.
+
+```javascript title="np_demo/app.mjs"
+import { createRequire } from "node:module";
+import { greet } from "np-demo";
+import { shout } from "np-demo/extra";
+import dual from "np-demo/dual";
+import { twice } from "#lib/util";
+
+console.log(greet("Ada"), shout("hi"), twice(21));
+console.log(dual, "|", createRequire(import.meta.url)("np-demo/dual"));
+await import("np-demo/src/internal.js").catch((e) => console.log(e.code));
+```
+
+```text frame="terminal"
+$ node app.mjs
 Hello, Ada! HI 42
+esm build | cjs build
 ERR_PACKAGE_PATH_NOT_EXPORTED
 ```
 
-Three things happened. `greeter` and `greeter/extra` were found through the `exports` map, `#lib/util` was found through `imports`, and the attempt to reach `greeter/src/internal.js` was refused with the error code `ERR_PACKAGE_PATH_NOT_EXPORTED`, although the file exists.
-
-An `exports` entry can also depend on **how** the package is loaded. A package that ships both an ES module build and a CommonJS build lists them under the conditions `import` and `require`, and each kind of caller gets its own file. The [CommonJS lesson](../../beginner/commonjs-awareness/) explained why both worlds still exist.
-
-```javascript title="np_dual.mjs"
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { withTempDir } from "./fp_helper.mjs";
-import { writeTree } from "./np_helper.mjs";
-
-const files = {
-  "node_modules/dual/package.json": JSON.stringify({
-    name: "dual",
-    version: "1.0.0",
-    exports: { ".": { import: "./esm.mjs", require: "./cjs.cjs" } },
-  }),
-  "node_modules/dual/esm.mjs": 'export default "esm build";\n',
-  "node_modules/dual/cjs.cjs": 'module.exports = "cjs build";\n',
-  "app.mjs": `
-    import { createRequire } from "node:module";
-    import dual from "dual";
-    console.log(dual, "|", createRequire(import.meta.url)("dual"));
-  `,
-};
-
-await withTempDir(async (dir) => {
-  await writeTree(dir, files);
-  await import(pathToFileURL(join(dir, "app.mjs")).href);
-});
-```
-
-```text
-esm build | cjs build
-```
+The public names came through `exports`, with different files for `import` and `require`; `#lib/util` came through `imports`; and `np-demo/src/internal.js` was refused with `ERR_PACKAGE_PATH_NOT_EXPORTED`, although the file exists.
 
 ## Workspaces
 
-A **monorepo** keeps several packages in one repository, for example a library and the app that uses it. With the `workspaces` field in the root `package.json`, npm installs the dependencies of all of them in one go and, instead of downloading a package that lives in the same repository, links it into `node_modules`.
+A **monorepo** keeps several packages in one repository, such as a library and its app. With the `workspaces` field in the root `package.json`, npm installs all their dependencies at once and links packages from the same repository into `node_modules` instead of downloading them.
 
 ```json
 {
@@ -307,57 +233,48 @@ A **monorepo** keeps several packages in one repository, for example a library a
 }
 ```
 
-With packages `a` and `b` under `packages/`, where `b` lists `a` in its dependencies, a single `npm install` at the root creates `node_modules/a` and `node_modules/b` as links to the folders in `packages/`. Code in `b` that says `import "a"` therefore sees the current source of `a`, with no publishing step. `npm run build --workspaces --if-present` runs a script in every workspace that defines it.
+If `b` lists `a` in its dependencies, one `npm install` at the root links both to their folders, so `import "a"` in `b` sees the current source of `a` with no publishing step. `npm run build --workspaces --if-present` runs a script in every workspace that defines it.
 
 ## Common pitfalls
 
 - **Not committing `package-lock.json`.** Every install can then produce a different tree.
 - **Using `npm install` in CI.** Use `npm ci`, which fails when the files disagree.
-- **Editing `node_modules`.** It is generated. Your changes disappear on the next install.
-- **Committing `node_modules`.** Add it to `.gitignore`.
-- **Putting a test tool in `dependencies`.** Users of your package then download it. Use `devDependencies`.
+- **Editing or committing `node_modules`.** It is generated; add it to `.gitignore`.
+- **Putting a test tool in `dependencies`.** Users of your package download it too. Use `devDependencies`.
 - **Comparing versions as strings.** `"1.10.0" > "1.9.0"` is `false`. Use a semver library.
 - **Expecting `^0.x` to float like `^1.x`.** For 0.x versions the caret allows far less.
-- **Installing packages without looking.** More dependencies mean more code you did not write and more places for vulnerabilities. Prefer a few well-maintained packages, and check what a package pulls in with `npm ls`.
+- **Installing packages without looking.** Every dependency is code you did not write. Check what a package pulls in with `npm ls`.
 - **Importing `package/dist/internal.js`** from a package without `exports`. It may vanish in the next release.
 
 ## Exercises
 
-<Exercise title="Bump a version">
+<Exercise title="Bump a version with npm">
 
-Write `bump(version, kind)` for `"patch"`, `"minor"` and `"major"` that returns the next version string. Bumping a minor resets the patch to 0. Bumping a major resets the minor and the patch to 0. Print `bump("1.2.3", ...)` for the three kinds.
+Make a folder with a `package.json` that holds only a name and the version `1.2.3`. Use the real tool to bump the version: `npm version patch`, then `minor`, then `major`, each with `--no-git-tag-version` (so that npm does not need a git repository). Then read the version back with `npm pkg get version`. Predict the five outputs first: a minor bump resets the patch to 0, and a major bump resets the minor and the patch.
 
-Expected output:
+```json
+{
+  "name": "bump-demo",
+  "version": "1.2.3"
+}
+```
 
-```text
-1.2.4
-1.3.0
-2.0.0
+Expected output (npm 11.20.0, 17 October 2026):
+
+```text frame="terminal"
+$ npm version patch --no-git-tag-version
+v1.2.4
+$ npm version minor --no-git-tag-version
+v1.3.0
+$ npm version major --no-git-tag-version
+v2.0.0
+$ npm pkg get version
+"2.0.0"
 ```
 
 <Solution>
 
-Split into numbers, change the right part, reset everything after it.
-
-```javascript title="np_ex_bump.mjs"
-function bump(version, kind) {
-  let [major, minor, patch] = version.split(".").map(Number);
-  if (kind === "major") [major, minor, patch] = [major + 1, 0, 0];
-  else if (kind === "minor") [minor, patch] = [minor + 1, 0];
-  else patch += 1;
-  return `${major}.${minor}.${patch}`;
-}
-
-for (const kind of ["patch", "minor", "major"]) {
-  console.log(bump("1.2.3", kind));
-}
-```
-
-```text
-1.2.4
-1.3.0
-2.0.0
-```
+Nothing to write: the exercise is to run the three commands in order. Each bump starts from the result of the previous one, so `minor` turns `1.2.4` into `1.3.0` and `major` turns `1.3.0` into `2.0.0`. `npm version` also rewrites `package.json`, which now holds `"version": "2.0.0"`. Without `--no-git-tag-version`, npm would also commit and tag in a git repository.
 
 </Solution>
 
@@ -365,103 +282,79 @@ for (const kind of ["patch", "minor", "major"]) {
 
 <Exercise title="A package with a pattern export">
 
-Build, in a temporary directory, a package `mathy` in `node_modules` whose `exports` field is `{ "./*": "./lib/*.js" }` and which has the files `lib/add.js` and `lib/mul.js` (each exporting a function as default; use `export default (a, b) => a + b` and `a * b`). Write an app module that imports `mathy/add` and `mathy/mul`, prints `add(2, 3)` and `mul(2, 3)`, then tries `import("mathy/missing")` and prints the error code of the failure. Use `writeTree` from `np_helper.mjs`.
+Make a folder `mathy` with the `package.json` below (it has no `exports` yet), the files `lib/add.js` and `lib/mul.js`, and an `app.mjs` that imports `mathy/add` and `mathy/mul`. Add an `exports` field to `package.json` so that every name `mathy/NAME` maps to `./lib/NAME.js`. Then `node app.mjs` must print the sum and the product, and the failed import of `mathy/missing` must print its error code.
+
+```json
+{
+  "name": "mathy",
+  "version": "1.0.0",
+  "type": "module"
+}
+```
+
+```javascript
+// lib/add.js
+export default (a, b) => a + b;
+// lib/mul.js
+export default (a, b) => a * b;
+```
+
+```javascript
+// app.mjs
+import add from "mathy/add";
+import mul from "mathy/mul";
+
+console.log(add(2, 3), mul(2, 3));
+await import("mathy/missing").catch((e) => console.log(e.code));
+```
 
 Expected output:
 
-```text
+```text frame="terminal"
+$ node app.mjs
 5 6
 ERR_MODULE_NOT_FOUND
 ```
 
 <Solution>
 
-A `*` in an `exports` key stands for any subpath, and the same text replaces the `*` in the target. A name that matches the pattern but whose file does not exist fails with a different error (`ERR_MODULE_NOT_FOUND`) from a name that the map does not offer at all.
+A package can import itself by name only when it has an `exports` field, so the app fails until you add one. A `*` in an `exports` key stands for any subpath, and the same text replaces the `*` in the target. A name that matches the pattern but whose file does not exist fails with `ERR_MODULE_NOT_FOUND`, which differs from `ERR_PACKAGE_PATH_NOT_EXPORTED` for a name the map does not offer at all.
 
-```javascript title="np_ex_pattern.mjs"
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { withTempDir } from "./fp_helper.mjs";
-import { writeTree } from "./np_helper.mjs";
-
-const files = {
-  "node_modules/mathy/package.json": JSON.stringify({
-    name: "mathy",
-    version: "1.0.0",
-    type: "module",
-    exports: { "./*": "./lib/*.js" },
-  }),
-  "node_modules/mathy/lib/add.js": "export default (a, b) => a + b;\n",
-  "node_modules/mathy/lib/mul.js": "export default (a, b) => a * b;\n",
-  "app.mjs": `
-    import add from "mathy/add";
-    import mul from "mathy/mul";
-    console.log(add(2, 3), mul(2, 3));
-    await import("mathy/missing").catch((e) => console.log(e.code));
-  `,
-};
-
-await withTempDir(async (dir) => {
-  await writeTree(dir, files);
-  await import(pathToFileURL(join(dir, "app.mjs")).href);
-});
-```
-
-```text
-5 6
-ERR_MODULE_NOT_FOUND
+```json title="np_ex_pattern/package.json"
+{
+  "name": "mathy",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": { "./*": "./lib/*.js" }
+}
 ```
 
 </Solution>
 
 </Exercise>
 
-<Exercise title="A dependency report">
+<Exercise title="Predict what a range accepts">
 
-Given this text of a `package.json`, print each dependency on a line in alphabetical order as `name range`, with `(dev)` added for the ones in `devDependencies`. A package missing a section must not break the program.
+For the versions `0.9.0 1.0.0 1.4.9 1.5.0 2.0.0 3.1.0`, predict which ones each range accepts, then check your answer with `npx semver -r RANGE VERSIONS...` (quote the range). The ranges are `1.x`, `>=1.2.3 <1.5.0` and `^1.2.3 || ^3.0.0`. A `||` joins alternatives.
 
-```json
-{
-  "dependencies": { "zod": "^3.0.0", "chalk": "~5.3.0" },
-  "devDependencies": { "eslint": "^9.0.0" }
-}
-```
+Expected output (semver 7.8.5, 17 October 2026):
 
-Expected output:
-
-```text
-chalk ~5.3.0
-eslint ^9.0.0 (dev)
-zod ^3.0.0
+```text frame="terminal"
+$ npx semver -r '1.x' 0.9.0 1.0.0 1.4.9 1.5.0 2.0.0 3.1.0
+1.0.0
+1.4.9
+1.5.0
+$ npx semver -r '>=1.2.3 <1.5.0' 0.9.0 1.0.0 1.4.9 1.5.0 2.0.0 3.1.0
+1.4.9
+$ npx semver -r '^1.2.3 || ^3.0.0' 0.9.0 1.0.0 1.4.9 1.5.0 2.0.0 3.1.0
+1.4.9
+1.5.0
+3.1.0
 ```
 
 <Solution>
 
-`?? {}` makes a missing section an empty object. Tagging each entry first and sorting afterwards keeps the code short.
-
-```javascript title="np_ex_report.mjs"
-const text = `{
-  "dependencies": { "zod": "^3.0.0", "chalk": "~5.3.0" },
-  "devDependencies": { "eslint": "^9.0.0" }
-}`;
-const pkg = JSON.parse(text);
-
-const entries = (section, tag) =>
-  Object.entries(pkg[section] ?? {}).map(([name, range]) => [name, range, tag]);
-
-const rows = [
-  ...entries("dependencies", ""),
-  ...entries("devDependencies", " (dev)"),
-];
-rows.sort(([a], [b]) => a.localeCompare(b));
-for (const [name, range, tag] of rows) console.log(`${name} ${range}${tag}`);
-```
-
-```text
-chalk ~5.3.0
-eslint ^9.0.0 (dev)
-zod ^3.0.0
-```
+`1.x` accepts every `1.*.*`. The interval has an exclusive upper bound, so `1.5.0` is out. In the third range `^1.2.3` accepts `1.4.9` and `1.5.0` (but not `1.0.0`, which is below `1.2.3`) and `^3.0.0` accepts `3.1.0`. Nothing in these ranges accepts `0.9.0` or `2.0.0`. If a result surprises you, `npx semver` is the quickest way to find out what a range means.
 
 </Solution>
 
@@ -469,11 +362,11 @@ zod ^3.0.0
 
 ## Summary
 
-- Versions are `MAJOR.MINOR.PATCH` and are compared number by number. `^1.2.3` allows `>=1.2.3 <2.0.0`, `~1.2.3` allows `>=1.2.3 <1.3.0`, and `^0.x` is narrower.
+- Versions are `MAJOR.MINOR.PATCH` and compared number by number. `^1.2.3` allows `>=1.2.3 <2.0.0`, `~1.2.3` allows `>=1.2.3 <1.3.0`, and `^0.x` is narrower. `npx semver -r RANGE VERSIONS...` shows what a range accepts.
 - `package.json` holds the ranges you accept. `package-lock.json` holds the exact tree you got, with integrity hashes. Commit both.
-- `npm install` follows ranges and may update the lock file. `npm ci` installs exactly what the lock file says and fails if the two files disagree: use it in CI.
-- `npm run` and `node --run` (Node 22 and later; no pre/post scripts) run the scripts. `npx` runs a package's command.
+- `npm install` follows ranges and may update the lock file. `npm ci` installs exactly what the lock file says and fails if the two disagree: use it in CI.
+- `npm run` and `node --run` (Node 22.0 and later; no pre/post scripts) run the scripts. `npx` runs a package's command.
 - `exports` lists what a package makes public, with conditions such as `import` and `require` and patterns with `*`. `imports` defines private `#names` inside your own package.
 - `workspaces` link several packages of one repository together.
 
-That completes the Node essentials. Next module: testing and tooling, starting with Node's built-in test runner.
+That completes the Node essentials. Next module: testing and tooling, starting with [Node's built-in test runner](../node-test/).

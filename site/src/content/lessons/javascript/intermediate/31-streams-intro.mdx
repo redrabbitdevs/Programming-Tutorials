@@ -16,27 +16,28 @@ estimatedMinutes: 55
 fundamentals: []
 ---
 
-`readFile` gives you the whole file as one string. That is perfect for a settings file and a disaster for a 20 GB log: the program needs 20 GB of memory before it can look at the first line, and nothing happens until the last byte has arrived. A **stream** is the alternative: data handled one **chunk** at a time, in order, as it becomes available. At any moment only a few chunks are in memory, so a stream can process a file of any size, and it can start working on the first chunk while the rest is still on its way. Network connections, file reads, the output of child processes and compressed data are all streams.
+`readFile` gives you the whole file as one string. That is perfect for a settings file and a disaster for a 20 GB log: the program needs 20 GB of memory before it can look at the first line. A **stream** is the alternative: data handled one **chunk** at a time, in order, as it becomes available. Only a few chunks are in memory at any moment, so a stream can process a file of any size, and it can start on the first chunk while the rest is still on its way. Network connections, file reads, the output of child processes and compressed data are all streams.
 
 There are four kinds in Node:
 
 - a **Readable** produces chunks: a file being read, an HTTP request body, `process.stdin`;
 - a **Writable** consumes chunks: a file being written, `process.stdout`;
 - a **Transform** is both: chunks go in, changed chunks come out, as in compression;
-- a **Duplex** has two independent sides, such as a network socket. Transform is the special case where the output depends on the input.
+- a **Duplex** has two independent sides, such as a network socket.
 
-Everything in this lesson builds on what you know about [async iteration](../async-iteration/), because a Node `Readable` is an async iterable. Use the helper `withTempDir` from [the files lesson](../files-and-paths/) again; it creates a temporary directory and removes it at the end.
+Streams are [event emitters](../node-runtime/#events-and-eventemitter) (`"data"`, `"end"`, `"error"`, `"drain"`, `"finish"`), and a Readable is also an async iterable, so [async iteration](../async-iteration/) is the easiest way to consume one. The examples use `withTempDir` from [the files lesson](../files-and-paths/), which creates a temporary directory and removes it at the end.
 
 ## Writing a big file, and backpressure
 
 A chunk is a `Buffer` (bytes) for most streams, or a string when you set an encoding. `fs.createWriteStream(path)` returns a Writable. You write with `write(chunk)` and finish with `end()`.
 
-There is one rule you must understand, called **backpressure**. A fast producer and a slow consumer would make the data pile up in memory. So `write()` returns a boolean. `true` means "send more". `false` means "my buffer is full: stop, and wait for the `drain` event". The buffer size that counts as full is the stream's `highWaterMark`.
+One rule matters: **backpressure**. A fast producer and a slow consumer would make data pile up in memory. So `write()` returns a boolean. `true` means "send more". `false` means "my buffer is full: stop, and wait for the `drain` event". The buffer size that counts as full is the stream's `highWaterMark`.
 
-The next program writes a file of 100,000 lines and honours the rule: whenever `write` says `false`, it waits for `drain`. `once` from `node:events` turns an event into a promise.
+The first part of the program writes a file of 100,000 lines and honours the rule: whenever `write` says `false`, it waits for `drain`. `once` from `node:events` turns the event into a promise.
 
 ```javascript title="si_chunks.mjs"
 import { createWriteStream, createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
 import { once } from "node:events";
 import { join } from "node:path";
 import { withTempDir } from "./fp_helper.mjs";
@@ -44,15 +45,15 @@ import { withTempDir } from "./fp_helper.mjs";
 await withTempDir(async (dir) => {
   const file = join(dir, "big.txt");
   const out = createWriteStream(file);
-  for (let i = 0; i < 100000; i++) {
-    if (!out.write("some text line\n")) await once(out, "drain");
+  for (let i = 1; i <= 100000; i++) {
+    if (!out.write(`line number ${i}\n`)) await once(out, "drain");
   }
   out.end();
   await once(out, "finish");
   console.log("file written");
 ```
 
-The file is about 1.5 MB. Now read it back as a stream. A `Readable` is async iterable, and each iteration gives one chunk. Here we count the chunks and, to show that no whole-file string is needed, count the newline bytes (code 10) chunk by chunk.
+The file is about 1.8 MB. Now read it back as a stream. A `Readable` is async iterable, and each iteration gives one chunk. To show that no whole-file string is needed, we count the chunks and the newline bytes (code 10) chunk by chunk.
 
 ```javascript title="si_chunks.mjs (continued)"
   let chunks = 0;
@@ -65,31 +66,17 @@ The file is about 1.5 MB. Now read it back as a stream. A `Readable` is async it
   }
   console.log(`${chunks} chunks, largest ${largest} bytes`);
   console.log(`${newlines} newlines`);
-});
 ```
 
 ```text
 file written
-23 chunks, largest 65536 bytes
+28 chunks, largest 65536 bytes
 100000 newlines
 ```
 
-The file was read in 23 pieces of at most 65,536 bytes (64 KiB, the default `highWaterMark` of file streams), and at no time was it all in memory. Counting bytes works here because a newline is one byte. A chunk boundary can fall anywhere, even in the middle of a line or a multi-byte character, so code that works on text needs more care. The `readline` module takes that care for you.
+The file arrived in 28 pieces of at most 65,536 bytes (64 KiB, the default `highWaterMark` of file streams), and never sat in memory whole. Counting bytes works because a newline is one byte. A chunk boundary can fall anywhere, even in the middle of a line or of a multi-byte character, so code that works on text needs more care. The `readline` module takes that care and hands you whole lines.
 
-```javascript title="si_lines.mjs"
-import { createWriteStream, createReadStream } from "node:fs";
-import { createInterface } from "node:readline";
-import { once } from "node:events";
-import { join } from "node:path";
-import { withTempDir } from "./fp_helper.mjs";
-
-await withTempDir(async (dir) => {
-  const file = join(dir, "words.txt");
-  const out = createWriteStream(file);
-  for (let i = 1; i <= 50000; i++) out.write(`line number ${i}\n`);
-  out.end();
-  await once(out, "finish");
-
+```javascript title="si_chunks.mjs (continued)"
   let count = 0;
   let longest = "";
   const input = createReadStream(file);
@@ -103,14 +90,14 @@ await withTempDir(async (dir) => {
 ```
 
 ```text
-50000 line number 10000
+100000 line number 100000
 ```
 
-Memory use stays small however many lines there are, because each line is looked at and then dropped. (The loop that writes here ignores backpressure for brevity, which is acceptable for a small file but not for a producer that is much faster than its disk.) This is the answer to "count the lines of a very large file": a `for await` over a stream, never `readFile`.
+Each line is looked at and dropped, so memory stays small however many lines there are. This is the answer to "count the lines of a very large file": a `for await` over a stream, never `readFile`.
 
 ## Readable streams from your own data
 
-`Readable.from(iterable)` makes a stream out of any iterable or async iterable: an array, a generator, an async generator from [the async iteration lesson](../async-iteration/). Streams made this way are in **object mode**, so each chunk can be any JavaScript value and not only bytes.
+`Readable.from(iterable)` makes a stream out of any iterable or async iterable: an array, a generator, an async generator from [the async iteration lesson](../async-iteration/). Such streams are in **object mode**, so each chunk can be any JavaScript value and not only bytes.
 
 ```javascript title="si_readable.mjs"
 import { Readable } from "node:stream";
@@ -134,7 +121,7 @@ chunk: c
 [ 3, 2, 1 ]
 ```
 
-Because a Readable is just an async iterable with extra features, the `for await` loop is almost always the simplest way to consume one. Leaving the loop early with `break` or an exception destroys the stream and releases its resources.
+Leaving a `for await` loop early with `break` or an exception destroys the stream and releases its resources.
 
 ## Backpressure, seen up close
 
@@ -165,13 +152,11 @@ false
 drained 0
 ```
 
-After `"abc"` the buffer holds 3 bytes, below the limit of 4, so `write` returns `true`. After `"de"` it holds 5, so `write` returns `false`: the data was **accepted**, nothing was lost, but the stream asks you to pause. When the buffer has been emptied, `drain` fires. The `highWaterMark` is a threshold and not a hard limit, which is why 5 bytes fit. Streams made with `pipeline`, below, apply this rule for you.
+After `"abc"` the buffer holds 3 bytes, below the limit of 4, so `write` returns `true`. After `"de"` it holds 5, so `write` returns `false`: the data was **accepted**, nothing was lost, but the stream asks you to pause. When the buffer has emptied, `drain` fires. The `highWaterMark` is a threshold and not a hard limit, which is why 5 bytes fit. Streams connected with `pipeline`, below, apply this rule for you.
 
 ## Transform streams and pipeline
 
-A Transform sits in the middle. You supply a `transform(chunk, encoding, callback)` function; it calls `callback(error, output)` when it is done with a chunk. The next example uppercases text.
-
-Connecting stages by hand means wiring events and remembering to close everything on errors, and getting that wrong leaks file handles. `pipeline` from `node:stream/promises` does it correctly: it connects the stages, applies backpressure, destroys all the streams if any of them fails, and returns a promise that resolves when the last stage has finished.
+A Transform sits in the middle. You supply a `transform(chunk, encoding, callback)` function; it calls `callback(error, output)` when it is done with a chunk. Connecting stages by hand means wiring events and remembering to close everything on errors, and getting that wrong leaks file handles. `pipeline` from `node:stream/promises` connects the stages, applies backpressure, destroys every stream if one fails, and returns a promise that resolves when the last stage has finished.
 
 ```javascript title="si_pipeline.mjs"
 import { Readable, Transform } from "node:stream";
@@ -199,9 +184,9 @@ await withTempDir(async (dir) => {
 "HELLO STREAMS\n"
 ```
 
-The source produced two chunks, the Transform changed each, and the file received the result. (A byte-oriented Transform may see chunks split or joined differently from run to run and from version to version, so a stage that depends on chunk boundaries is a bug. Uppercasing does not.)
+The source produced two chunks, the Transform changed each, and the file received the result. A byte-oriented Transform may see chunks split or joined differently from run to run, so a stage that depends on chunk boundaries is a bug. Uppercasing does not.
 
-`pipeline` also accepts an **async generator function** as a stage, which is often shorter than a class: it receives the previous stage as an async iterable, and whatever it yields goes on to the next stage.
+`pipeline` also accepts an **async generator function** as a stage, often shorter than a class: it receives the previous stage as an async iterable, and whatever it yields goes on to the next stage.
 
 ```javascript title="si_pipeline.mjs (continued)"
 async function* exclaim(source) {
@@ -221,7 +206,7 @@ WOW!
 
 ### Errors travel through the pipeline
 
-If any stage fails, `pipeline` destroys the others and rejects with that error, so one `try`/`catch` around the `await` handles the whole chain.
+If any stage fails, `pipeline` destroys the others and rejects with that error, so one `try`/`catch` around the `await` handles the whole chain. These two stages use `objectMode: true` because they pass numbers and not bytes. The Transform fails on a negative number, and the Writable collects what reaches it.
 
 ```javascript title="si_errors.mjs"
 import { Readable, Transform, Writable } from "node:stream";
@@ -242,7 +227,11 @@ const sink = new Writable({
     callback();
   },
 });
+```
 
+Now run the stages over four numbers, one of them negative.
+
+```javascript title="si_errors.mjs (continued)"
 try {
   await pipeline(Readable.from([1, 2, -3, 4]), checker, sink);
 } catch (error) {
@@ -256,11 +245,11 @@ pipeline failed: negative number: -3
 sink saw [ 2, 4 ] and destroyed: true
 ```
 
-The first two numbers went through. The third made the Transform fail, the error reached the `catch`, and the sink was destroyed, so the 4 never arrived. These two stages use `objectMode: true` because they pass numbers and not bytes.
+The first two numbers went through. The third made the Transform fail, the error reached the `catch`, and the sink was destroyed, so the 4 never arrived.
 
 ## Compression
 
-Node's `node:zlib` module provides Transform streams for gzip and others. Compressing a file is a three-stage pipeline: read, compress, write. Decompressing is the reverse.
+`node:zlib` provides Transform streams for gzip and others. Compressing a file is a three-stage pipeline: read, compress, write. Decompressing is the reverse. The first part writes a file of repeated text and compresses it into `a.txt.gz`.
 
 ```javascript title="si_gzip.mjs"
 import { createReadStream, createWriteStream } from "node:fs";
@@ -280,17 +269,17 @@ await withTempDir(async (dir) => {
     createGzip(),
     createWriteStream(packed),
   );
+```
+
+The second part decompresses that file into `b.txt` and compares the files.
+
+```javascript title="si_gzip.mjs (continued)"
   await pipeline(
     createReadStream(packed),
     createGunzip(),
     createWriteStream(back),
   );
 
-```
-
-The two `pipeline` calls compress `a.txt` into `a.txt.gz` and then decompress that file into `b.txt`. What is left is to compare the files.
-
-```javascript title="si_gzip.mjs (continued)"
   const sizes = [plain, packed].map(async (f) => (await readFile(f)).length);
   const [before, after] = await Promise.all(sizes);
   console.log("smaller:", after < before / 10);
@@ -334,7 +323,7 @@ A
 B
 ```
 
-The two families can be converted: `Readable.toWeb(stream)` and `Readable.fromWeb(webStream)` (also on `Writable` and `Duplex`). For Node-only programs, the classic streams and `pipeline` are what you will use most. For code that must run in both Node and the browser, prefer web streams.
+The two families convert into each other: `Readable.toWeb(stream)` and `Readable.fromWeb(webStream)` (also on `Writable` and `Duplex`). For Node-only programs, classic streams and `pipeline` are what you will use most. For code that must run in both Node and the browser, prefer web streams.
 
 ## Common pitfalls
 
@@ -342,9 +331,9 @@ The two families can be converted: `Readable.toWeb(stream)` and `Readable.fromWe
 - **Ignoring the return value of `write()`.** The data piles up in memory.
 - **Wiring streams with `.pipe()` and forgetting errors.** An error in one stage does not close the others. Use `pipeline`.
 - **Splitting text by chunk.** A chunk may end in the middle of a line or of a character. Use `readline` or set the stream's encoding.
-- **Writing a Transform that depends on chunk boundaries.** Chunk sizes can change between runs and Node versions.
-- **Forgetting `objectMode`** when streams carry numbers or objects. Without it a stream expects strings or buffers.
+- **Forgetting `objectMode`** when streams carry numbers or objects.
 - **Not waiting for `finish`.** After `end()`, the data may still be on its way to the disk. Await `finish`, or use `pipeline`.
+- **No `"error"` listener on a stream you wire by hand.** An unhandled `"error"` event throws and ends the program.
 
 ## Exercises
 
@@ -478,9 +467,9 @@ true true
 
 - A stream handles data chunk by chunk, so memory stays small however large the data is. The kinds are Readable, Writable, Transform and Duplex.
 - A Readable is async iterable: `for await (const chunk of stream)`. `Readable.from` turns arrays and generators into streams, in object mode.
-- `write()` returns `false` when the buffer is full. Wait for `drain` (backpressure), or let `pipeline` do it.
+- Streams are event emitters. `write()` returns `false` when the buffer is full: wait for `drain` (backpressure), or let `pipeline` do it.
 - `pipeline` from `node:stream/promises` connects stages, handles backpressure, cleans up on error and rejects with the failure. Async generator functions work as stages.
 - `readline` splits a byte stream into whole lines. Never assume that chunks align with lines or characters.
 - `node:zlib` offers gzip as Transform streams. Web streams (`ReadableStream`, `TransformStream`) are global in Node and can be converted with `toWeb` and `fromWeb`.
 
-Next: talking to servers with `fetch`, and writing a small server of your own.
+Next: [talking to servers with `fetch`](../http-and-fetch/), and writing a small server of your own.

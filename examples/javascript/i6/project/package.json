@@ -1,0 +1,20 @@
+{
+  "name": "api-client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/client.mjs",
+  "scripts": {
+    "test": "node --test",
+    "lint": "eslint .",
+    "typecheck": "tsc",
+    "check": "node --run lint && node --run typecheck && node --run test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.5",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "typescript": "^7.0.2"
+  }
+}

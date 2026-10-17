@@ -1,0 +1,9 @@
+$ printf 'hello\nnode world\n' | node ct_stdin.mjs
+1: HELLO
+2: NODE WORLD
+2 lines read
+$ printf 'hello\nnode world\n' | node ct_stdin.mjs > upper.txt
+2 lines read
+$ cat upper.txt
+1: HELLO
+2: NODE WORLD
