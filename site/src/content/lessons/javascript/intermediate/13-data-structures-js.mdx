@@ -11,7 +11,8 @@ objectives:
   - Build a queue, a linked list and a binary search tree with classes and nodes
   - Represent a graph with a Map of Sets and walk it breadth-first
   - Solve small problems with a stack and with BFS
-estimatedMinutes: 50
+  - Pick and shuffle at random with an injectable random source
+estimatedMinutes: 55
 fundamentals: ["fundamentals/beginner/16-stacks-queues-linked", "fundamentals/beginner/17-trees-and-graphs"]
 ---
 
@@ -56,7 +57,7 @@ kcats
 
 ## Queues
 
-A **queue** adds at the back and removes from the front, first in, first out. It is tempting to use `push` and `shift` on an array, and for short queues that is fine. The catch is that `shift` removes the first item, so every other item has to move down one place. On a large queue, or a loop that does it millions of times, that renumbering adds up. A queue that tracks where its front is avoids it.
+A **queue** adds at the back and removes from the front, first in, first out. It is tempting to use `push` and `shift` on an array, and for short queues that is fine. The catch is that `shift` removes the first item, and the engine may have to move every other item down one place. V8 hides that cost for small arrays. In tests on Node 22 and 26, emptying an array of 10,000 numbers with `shift` took about a millisecond, while 100,000 numbers took seconds, ten times the items for well over a thousand times the work. The exact numbers depend on the machine and the engine version, but that jump does not. A queue that tracks where its front is avoids the problem.
 
 ```javascript title="queue_class.mjs"
 class Queue {
@@ -80,6 +81,8 @@ class Queue {
   }
 }
 ```
+
+Enqueue two items and take them out again, including one dequeue from an empty queue:
 
 ```javascript title="queue_class.mjs (continued)"
 const queue = new Queue();
@@ -109,6 +112,8 @@ class ListNode {
 }
 ```
 
+The list keeps its head and size in private fields, and is iterable through a generator method:
+
 ```javascript title="linked_list.mjs (continued)"
 class LinkedList {
   #head = null;
@@ -131,6 +136,8 @@ class LinkedList {
   }
 }
 ```
+
+Build a list and use it with spread and `Math.max`:
 
 ```javascript title="linked_list.mjs (continued)"
 const list = new LinkedList().prepend(3).prepend(2).prepend(1);
@@ -163,6 +170,8 @@ function insert(node, value) {
 }
 ```
 
+Searching and measuring follow the same recursive shape:
+
 ```javascript title="bst.mjs (continued)"
 function contains(node, value) {
   if (node === null) {
@@ -173,9 +182,7 @@ function contains(node, value) {
   }
   return contains(value < node.value ? node.left : node.right, value);
 }
-```
 
-```javascript title="bst.mjs (continued)"
 function height(node) {
   if (node === null) {
     return 0;
@@ -183,6 +190,8 @@ function height(node) {
   return 1 + Math.max(height(node.left), height(node.right));
 }
 ```
+
+Build a tree from six values and query it:
 
 ```javascript title="bst.mjs (continued)"
 let root = null;
@@ -217,9 +226,7 @@ function addEdge(a, b) {
     graph.get(from).add(to);
   }
 }
-```
 
-```javascript title="graph_bfs.mjs (continued)"
 addEdge("home", "shop");
 addEdge("home", "park");
 addEdge("shop", "mall");
@@ -251,9 +258,7 @@ function distances(start) {
   }
   return dist;
 }
-```
 
-```javascript title="graph_bfs.mjs (continued)"
 console.log(distances("home"));
 ```
 
@@ -269,9 +274,48 @@ Map(5) {
 
 The code keeps the queue as an array and walks it with an index, instead of using `shift`, so it is still efficient for big graphs. `dist` is both the record of the distance and the "seen" check: a node that is in it has been queued already. Every node's first visit is by a shortest route, since BFS reaches closer nodes first, which is why BFS finds shortest paths when every edge counts the same. Replace "queue" with "stack" and the same loop becomes depth-first search.
 
+## Random numbers and shuffling
+
+`Math.random()` returns a number from 0 up to, but not including, 1. Scale it and round down to get a whole number in a range, and use the same idea to pick an item or shuffle an array. The **Fisher-Yates shuffle** walks from the end, swaps each item with a random item at or before it, and gives every order the same chance.
+
+```javascript title="random_shuffle.mjs"
+function randomInt(min, max, random = Math.random) {
+  return Math.floor(random() * (max - min + 1)) + min;
+}
+
+function shuffle(items, random = Math.random) {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = randomInt(0, i, random);
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+```
+
+Both functions take the random source as a parameter that defaults to `Math.random`. Random output cannot be printed in a lesson, so the checks below look at properties that always hold, and pass a fixed source (`() => 0`) to get a repeatable shuffle:
+
+```javascript title="random_shuffle.mjs (continued)"
+const seen = new Set();
+for (let i = 0; i < 1000; i++) seen.add(randomInt(1, 6));
+console.log([...seen].sort());
+
+const deck = shuffle([1, 2, 3, 4, 5]);
+console.log(deck.length, [...deck].sort());
+console.log(shuffle([1, 2, 3], () => 0));
+```
+
+```text
+[ 1, 2, 3, 4, 5, 6 ]
+5 [ 1, 2, 3, 4, 5 ]
+[ 2, 3, 1 ]
+```
+
+A thousand throws of a six-sided die reach every face from 1 to 6, and the shuffled deck holds the same five numbers. Passing the random source in is also how you test code that uses chance. Two warnings. `items.sort(() => Math.random() - 0.5)` looks like a shuffle but is not fair, because sort expects a consistent comparison. And `Math.random` is not safe for secrets such as tokens or passwords: use `crypto.randomUUID()`, `crypto.getRandomValues()` or `randomInt` from `node:crypto`, which draw on the operating system's secure source.
+
 ## Common pitfalls
 
-- **Using `shift` for a large queue.** It renumbers every remaining item. Use a head index or a structure like the one above.
+- **Using `shift` for a large queue.** It can become very slow, because the remaining items may be moved on every call. Use a head index or a structure like the one above.
 - **Forgetting the "seen" set in a graph walk.** A cycle makes the loop run forever.
 - **Modifying a node's `next` before saving it.** In list code, keep `const next = current.next` before you relink, or the rest of the list is lost.
 - **Comparing nodes by their contents.** Nodes are objects, compared by identity. Compare the `value`.
@@ -304,9 +348,7 @@ function balanced(text) {
   }
   return stack.length === 0;
 }
-```
 
-```javascript title="brackets.mjs (continued)"
 for (const text of ["(a[b]{c})", "(]", "((", "", "a)"]) {
   console.log(JSON.stringify(text), balanced(text));
 }
@@ -345,6 +387,8 @@ function findStart(grid) {
 const moves = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 ```
 
+The search itself uses the helper and the `moves` table:
+
 ```javascript title="grid_path.mjs (continued)"
 function shortestPath(grid) {
   const start = findStart(grid);
@@ -367,6 +411,8 @@ function shortestPath(grid) {
   return -1;
 }
 ```
+
+Try a grid with a route, a grid that is blocked, and a grid where the end is next to the start:
 
 ```javascript title="grid_path.mjs (continued)"
 console.log(shortestPath(["S.#", "..#", "#.E"]));
@@ -398,9 +444,7 @@ class ListNode {
 
 function fromArray(values) {
   let head = null;
-  for (const value of [...values].reverse()) {
-    head = new ListNode(value, head);
-  }
+  for (const value of [...values].reverse()) head = new ListNode(value, head);
   return head;
 }
 
@@ -428,12 +472,12 @@ class ListNode {
 }
 ```
 
+Two helpers build a list from an array and read it back:
+
 ```javascript title="reverse_list.mjs (continued)"
 function fromArray(values) {
   let head = null;
-  for (const value of [...values].reverse()) {
-    head = new ListNode(value, head);
-  }
+  for (const value of [...values].reverse()) head = new ListNode(value, head);
   return head;
 }
 
@@ -445,6 +489,8 @@ function toArray(head) {
   return values;
 }
 ```
+
+Now the reversal itself, tested on a list of four items and a list of one:
 
 ```javascript title="reverse_list.mjs (continued)"
 function reverse(head) {
@@ -458,9 +504,7 @@ function reverse(head) {
   }
   return previous;
 }
-```
 
-```javascript title="reverse_list.mjs (continued)"
 console.log(toArray(reverse(fromArray([1, 2, 3, 4]))));
 console.log(toArray(reverse(fromArray([7]))), reverse(null));
 ```
@@ -477,7 +521,7 @@ console.log(toArray(reverse(fromArray([7]))), reverse(null));
 ## Summary
 
 - An array is a stack with `push`, `pop` and `at(-1)`.
-- `shift` makes a poor queue for large data. Keep a head index, as the `Queue` class does with a `Map` and a private `#head`.
+- `shift` can make a very slow queue for large data. Keep a head index, as the `Queue` class does with a `Map` and a private `#head`.
 - A linked list is nodes holding a value and a `next`. Add `*[Symbol.iterator]` to make it work with spread, `for...of` and the iterator helpers.
 - A binary search tree is nodes with `left` and `right`, handled with short recursive functions. An unbalanced tree degrades into a list.
 - A graph is a `Map` from node to a `Set` of neighbours. Breadth-first search uses a queue and a seen record, and finds shortest paths when all edges are equal.

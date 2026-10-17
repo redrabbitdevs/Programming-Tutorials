@@ -7,7 +7,7 @@ async function fetchPart(name, ms) {
   return name;
 }
 
-const header = await fetchPart("header", 30);
-const body = await fetchPart("body", 10);
-const footer = await fetchPart("footer", 20);
+const header = await fetchPart("header", 300);
+const body = await fetchPart("body", 100);
+const footer = await fetchPart("footer", 200);
 console.log([header, body, footer]);

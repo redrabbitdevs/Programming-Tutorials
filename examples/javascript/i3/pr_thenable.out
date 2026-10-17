@@ -1,0 +1,6 @@
+tick 1
+from a thenable
+tick 2
+resolved with a promise
+tick 3
+tick 4

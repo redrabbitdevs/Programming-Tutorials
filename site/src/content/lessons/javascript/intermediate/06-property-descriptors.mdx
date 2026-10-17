@@ -124,9 +124,7 @@ Object.defineProperty(config, "token", {
   value: "abc123",
   enumerable: false,
 });
-```
 
-```javascript title="writable_enumerable.mjs (continued)"
 try {
   config.version = "2.0";
 } catch (error) {
@@ -207,9 +205,7 @@ Object.defineProperty(temperature, "fahrenheit", {
   enumerable: true,
   configurable: true,
 });
-```
 
-```javascript title="accessor_define.mjs (continued)"
 console.log(temperature.fahrenheit);
 temperature.fahrenheit = 212;
 console.log(temperature.celsius, Object.keys(temperature));
@@ -250,6 +246,8 @@ function probe(label, object) {
   console.log(label.padEnd(10), results.join(" "));
 }
 ```
+
+Run it on an ordinary object and on one at each level:
 
 ```javascript title="freeze_levels.mjs (continued)"
 probe("normal", { value: 1 });
@@ -311,9 +309,7 @@ Object.defineProperties(settings, {
   port: { value: 8080, enumerable: true },
   secret: { value: "s3cr3t" },
 });
-```
 
-```javascript title="readonly_config.mjs (continued)"
 try {
   settings.port = 9090;
 } catch (error) {
@@ -355,6 +351,8 @@ function deepFreeze(value) {
 
 const config = deepFreeze({ db: { host: "localhost", ports: [1, 2] } });
 ```
+
+Try three changes on the frozen configuration:
 
 ```javascript title="deep_freeze.mjs (continued)"
 for (const change of [
@@ -411,17 +409,13 @@ const source = {
     return `${this.first} ${this.last}`;
   },
 };
-```
 
-```javascript title="copy_accessors.mjs (continued)"
 const assigned = Object.assign({}, source);
 const cloned = Object.defineProperties(
   {},
   Object.getOwnPropertyDescriptors(source),
 );
-```
 
-```javascript title="copy_accessors.mjs (continued)"
 assigned.first = "Grace";
 cloned.first = "Grace";
 console.log(assigned.full, "|", cloned.full);

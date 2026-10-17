@@ -12,5 +12,5 @@ async function fastest(mirrors) {
   }
 }
 
-console.log(await fastest([mirror("eu", 30, true), mirror("us", 10, true)]));
+console.log(await fastest([mirror("eu", 300, true), mirror("us", 10, true)]));
 console.log(await fastest([mirror("eu", 5, false), mirror("us", 10, false)]));

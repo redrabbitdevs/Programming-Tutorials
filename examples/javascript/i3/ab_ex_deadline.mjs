@@ -4,12 +4,12 @@ let pagesDone = 0;
 
 async function crawl(signal) {
   for (let page = 1; page <= 5; page++) {
-    await sleep(40, null, { signal });
+    await sleep(200, null, { signal });
     pagesDone = page;
   }
 }
 
-const signal = AbortSignal.timeout(100);
+const signal = AbortSignal.timeout(500);
 try {
   await crawl(signal);
 } catch (error) {

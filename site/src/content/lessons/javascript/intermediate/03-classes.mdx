@@ -68,9 +68,7 @@ class Point {
     return Math.hypot(this.x, this.y);
   }
 }
-```
 
-```javascript title="class_sugar.mjs (continued)"
 const p = new Point(3, 4);
 console.log(typeof Point, Object.getPrototypeOf(p) === Point.prototype);
 console.log(Object.hasOwn(p, "norm"), Object.hasOwn(Point.prototype, "norm"));
@@ -184,9 +182,7 @@ class Temperature {
     this.celsius = ((value - 32) * 5) / 9;
   }
 }
-```
 
-```javascript title="class_accessors.mjs (continued)"
 const t = new Temperature();
 t.celsius = 100;
 console.log(t.fahrenheit);
@@ -221,6 +217,8 @@ class Button {
   click = () => `clicked ${this.label}`;
 }
 ```
+
+Create two buttons and compare their methods. Then detach both methods and call them:
 
 ```javascript title="class_this.mjs (continued)"
 const save = new Button("save");
@@ -281,6 +279,8 @@ class Account {
   }
 ```
 
+The class continues with `withdraw` and a `summary` getter:
+
 ```javascript title="bank_account.mjs (continued)"
   withdraw(amount) {
     if (amount > this.balance) {
@@ -295,6 +295,8 @@ class Account {
   }
 }
 ```
+
+Use the class, with two calls that fail on purpose:
 
 ```javascript title="bank_account.mjs (continued)"
 const account = new Account("Ada").deposit(100).withdraw(30);
@@ -362,6 +364,8 @@ class Stack {
   }
 ```
 
+The rest of the class adds `pop`, `peek` and a `size` getter. A short demonstration follows it:
+
 ```javascript title="stack_class.mjs (continued)"
   pop() {
     return this.items.pop();
@@ -375,9 +379,7 @@ class Stack {
     return this.items.length;
   }
 }
-```
 
-```javascript title="stack_class.mjs (continued)"
 const stack = Stack.from([1, 2, 3]);
 console.log(stack.size, stack.peek());
 console.log(stack.pop(), stack.pop(), stack.size);

@@ -15,13 +15,13 @@ async function mapLimit(items, limit, fn) {
 
 let running = 0;
 let peak = 0;
-const out = await mapLimit([100, 25, 50, 50, 75], 2, async (ms, i) => {
+const out = await mapLimit([400, 100, 200, 200, 300], 2, async (ms, i) => {
   running++;
   peak = Math.max(peak, running);
   console.log("start", i);
   await sleep(ms);
   console.log("done", i);
   running--;
-  return ms / 25;
+  return ms / 100;
 });
 console.log(out, "peak:", peak);

@@ -2,7 +2,7 @@ const sleep = (ms, value) =>
   new Promise((resolve) => setTimeout(resolve, ms, value));
 
 const first = await Promise.any([
-  sleep(30, "mirror A"),
+  sleep(300, "mirror A"),
   Promise.reject(new Error("mirror B is down")),
   sleep(10, "mirror C"),
 ]);

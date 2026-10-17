@@ -2,7 +2,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 async function firstReason(userCancelsAfter) {
   const user = new AbortController();
-  const signal = AbortSignal.any([user.signal, AbortSignal.timeout(30)]);
+  const signal = AbortSignal.any([user.signal, AbortSignal.timeout(200)]);
   if (userCancelsAfter !== null) {
     setTimeout(() => user.abort(), userCancelsAfter);
   }

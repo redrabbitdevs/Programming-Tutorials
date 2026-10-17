@@ -14,8 +14,8 @@ function sleep(ms, signal) {
 }
 
 const controller = new AbortController();
-setTimeout(() => controller.abort(new Error("changed my mind")), 10);
-await sleep(5, controller.signal);
+setTimeout(() => controller.abort(new Error("changed my mind")), 200);
+await sleep(20, controller.signal);
 console.log("short sleep finished");
 await sleep(1000, controller.signal).catch((e) => console.log(e.message));
-await sleep(5, controller.signal).catch((e) => console.log(e.message));
+await sleep(20, controller.signal).catch((e) => console.log(e.message));
