@@ -313,6 +313,11 @@ FD_OUT="$(python3 "$ROOT/scripts/check_fundamentals.py" 2>&1)"; FD_CODE=$?
 printf '%s\n' "$FD_OUT"
 if [ $FD_CODE -eq 0 ]; then pass "$(printf '%s\n' "$FD_OUT" | tail -1)"; else fail "fundamentals ids (unknown lesson id)"; fi
 
+step "lesson style: code blocks <=20 lines and <=80 columns (ratchet against baseline)"
+LS_OUT="$(python3 "$ROOT/scripts/check_lesson_style.py" 2>&1)"; LS_CODE=$?
+printf '%s\n' "$LS_OUT"
+if [ $LS_CODE -eq 0 ]; then pass "$(printf '%s\n' "$LS_OUT" | tail -1)"; else fail "lesson style (more long/wide code blocks than baseline)"; fi
+
 step "headings: no bare __dunder__ in lesson headings"
 HD_OUT="$(python3 "$ROOT/scripts/check_headings.py" 2>&1)"; HD_CODE=$?
 printf '%s\n' "$HD_OUT"

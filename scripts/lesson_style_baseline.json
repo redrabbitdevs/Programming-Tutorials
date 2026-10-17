@@ -1,0 +1,370 @@
+{
+ "fundamentals/beginner/04-variables-and-assignment.mdx": [
+  0,
+  1
+ ],
+ "fundamentals/beginner/06-text-and-strings.mdx": [
+  1,
+  6
+ ],
+ "fundamentals/beginner/07-conditionals.mdx": [
+  1,
+  0
+ ],
+ "fundamentals/beginner/09-functions.mdx": [
+  2,
+  2
+ ],
+ "fundamentals/beginner/10-scope-and-lifetime.mdx": [
+  1,
+  3
+ ],
+ "fundamentals/beginner/11-recursion.mdx": [
+  3,
+  1
+ ],
+ "fundamentals/beginner/12-errors-and-exceptions.mdx": [
+  0,
+  3
+ ],
+ "fundamentals/beginner/13-sequences-and-arrays.mdx": [
+  3,
+  9
+ ],
+ "fundamentals/beginner/14-maps-and-sets.mdx": [
+  7,
+  3
+ ],
+ "fundamentals/beginner/15-records-and-objects.mdx": [
+  11,
+  4
+ ],
+ "fundamentals/beginner/16-stacks-queues-linked.mdx": [
+  6,
+  6
+ ],
+ "fundamentals/beginner/17-trees-and-graphs.mdx": [
+  13,
+  7
+ ],
+ "fundamentals/beginner/18-memory-and-references.mdx": [
+  5,
+  10
+ ],
+ "fundamentals/beginner/19-algorithmic-thinking.mdx": [
+  3,
+  0
+ ],
+ "fundamentals/beginner/20-big-o.mdx": [
+  6,
+  3
+ ],
+ "fundamentals/beginner/21-searching-and-sorting.mdx": [
+  11,
+  7
+ ],
+ "fundamentals/beginner/22-problem-patterns.mdx": [
+  11,
+  10
+ ],
+ "fundamentals/beginner/23-paradigms.mdx": [
+  5,
+  1
+ ],
+ "fundamentals/beginner/25-testing-mindset.mdx": [
+  6,
+  2
+ ],
+ "javascript/beginner/35-project-cli-quiz.mdx": [
+  1,
+  0
+ ],
+ "javascript/beginner/38-dom-events.mdx": [
+  2,
+  0
+ ],
+ "javascript/beginner/39-forms-and-validation.mdx": [
+  1,
+  0
+ ],
+ "javascript/beginner/40-project-todo-page.mdx": [
+  3,
+  0
+ ],
+ "javascript/intermediate/20-cancellation.mdx": [
+  1,
+  0
+ ],
+ "javascript/intermediate/31-streams-intro.mdx": [
+  3,
+  0
+ ],
+ "javascript/intermediate/32-http-and-fetch.mdx": [
+  2,
+  0
+ ],
+ "javascript/intermediate/33-npm-in-depth.mdx": [
+  3,
+  0
+ ],
+ "javascript/intermediate/35-mocks-and-fake-timers.mdx": [
+  4,
+  0
+ ],
+ "javascript/intermediate/37-types-for-js.mdx": [
+  2,
+  0
+ ],
+ "javascript/intermediate/38-project-rest-client.mdx": [
+  2,
+  0
+ ],
+ "python/advanced/03-protocols-structural.mdx": [
+  5,
+  0
+ ],
+ "python/advanced/04-narrowing.mdx": [
+  1,
+  0
+ ],
+ "python/advanced/07-modern-typing-315.mdx": [
+  3,
+  0
+ ],
+ "python/advanced/08-match-advanced.mdx": [
+  2,
+  0
+ ],
+ "python/advanced/09-collections-module.mdx": [
+  2,
+  1
+ ],
+ "python/advanced/12-regex.mdx": [
+  1,
+  0
+ ],
+ "python/advanced/14-concurrency-models.mdx": [
+  1,
+  0
+ ],
+ "python/advanced/15-threading.mdx": [
+  9,
+  1
+ ],
+ "python/advanced/16-multiprocessing.mdx": [
+  1,
+  0
+ ],
+ "python/advanced/17-asyncio-basics.mdx": [
+  3,
+  0
+ ],
+ "python/advanced/18-asyncio-structured.mdx": [
+  3,
+  0
+ ],
+ "python/advanced/20-subinterpreters.mdx": [
+  2,
+  0
+ ],
+ "python/advanced/21-descriptors.mdx": [
+  2,
+  0
+ ],
+ "python/advanced/23-metaclasses.mdx": [
+  1,
+  0
+ ],
+ "python/advanced/24-contextlib-advanced.mdx": [
+  1,
+  0
+ ],
+ "python/advanced/27-project-async-plugin-tool.mdx": [
+  7,
+  0
+ ],
+ "python/beginner/30-recursion-py.mdx": [
+  2,
+  0
+ ],
+ "python/beginner/35-files-first-look.mdx": [
+  0,
+  1
+ ],
+ "python/beginner/37-mini-project-word-counter.mdx": [
+  2,
+  1
+ ],
+ "python/expert/01-measuring-performance.mdx": [
+  2,
+  0
+ ],
+ "python/expert/03-memory-profiling.mdx": [
+  3,
+  0
+ ],
+ "python/expert/04-optimising-python.mdx": [
+  1,
+  0
+ ],
+ "python/expert/05-native-extensions.mdx": [
+  1,
+  0
+ ],
+ "python/expert/07-bytecode-dis.mdx": [
+  1,
+  0
+ ],
+ "python/expert/08-memory-model.mdx": [
+  1,
+  0
+ ],
+ "python/expert/10-import-system.mdx": [
+  1,
+  0
+ ],
+ "python/expert/11-monitoring-debugging.mdx": [
+  3,
+  0
+ ],
+ "python/expert/12-c-api-tour.mdx": [
+  3,
+  0
+ ],
+ "python/expert/13-packaging-publishing.mdx": [
+  1,
+  0
+ ],
+ "python/expert/14-cli-apps.mdx": [
+  2,
+  0
+ ],
+ "python/expert/15-security-python.mdx": [
+  2,
+  0
+ ],
+ "python/expert/16-config-observability.mdx": [
+  4,
+  0
+ ],
+ "python/expert/17-large-codebases.mdx": [
+  1,
+  0
+ ],
+ "python/expert/18-migrating-to-315.mdx": [
+  1,
+  0
+ ],
+ "python/expert/19-project-ship-a-fast-tool.mdx": [
+  5,
+  0
+ ],
+ "python/intermediate/03-notes-and-groups.mdx": [
+  0,
+  1
+ ],
+ "python/intermediate/06-context-managers.mdx": [
+  0,
+  1
+ ],
+ "python/intermediate/07-csv-json-toml.mdx": [
+  1,
+  1
+ ],
+ "python/intermediate/09-modules-imports.mdx": [
+  1,
+  0
+ ],
+ "python/intermediate/13-single-file-scripts.mdx": [
+  1,
+  0
+ ],
+ "python/intermediate/15-lazy-imports.mdx": [
+  2,
+  0
+ ],
+ "python/intermediate/18-methods-properties.mdx": [
+  1,
+  0
+ ],
+ "python/intermediate/19-inheritance.mdx": [
+  2,
+  0
+ ],
+ "python/intermediate/20-custom-exceptions.mdx": [
+  1,
+  2
+ ],
+ "python/intermediate/22-context-manager-classes.mdx": [
+  2,
+  0
+ ],
+ "python/intermediate/23-dataclasses.mdx": [
+  0,
+  1
+ ],
+ "python/intermediate/24-enums.mdx": [
+  1,
+  0
+ ],
+ "python/intermediate/25-abc-protocols.mdx": [
+  4,
+  0
+ ],
+ "python/intermediate/27-generators.mdx": [
+  1,
+  0
+ ],
+ "python/intermediate/28-contextmanager.mdx": [
+  1,
+  1
+ ],
+ "python/intermediate/29-itertools-functools.mdx": [
+  1,
+  0
+ ],
+ "python/intermediate/31-decorators.mdx": [
+  5,
+  0
+ ],
+ "python/intermediate/33-unittest-basics.mdx": [
+  1,
+  0
+ ],
+ "python/intermediate/34-pytest-basics.mdx": [
+  1,
+  0
+ ],
+ "python/intermediate/35-fixtures-and-parametrize.mdx": [
+  2,
+  0
+ ],
+ "python/intermediate/36-test-driven-workflow.mdx": [
+  1,
+  0
+ ],
+ "python/intermediate/37-mocking.mdx": [
+  1,
+  0
+ ],
+ "python/intermediate/38-doctest-and-docstrings.mdx": [
+  2,
+  0
+ ],
+ "python/intermediate/39-logging.mdx": [
+  4,
+  0
+ ],
+ "python/intermediate/40-debugging-pdb.mdx": [
+  1,
+  0
+ ],
+ "python/intermediate/41-profiling.mdx": [
+  1,
+  0
+ ],
+ "python/intermediate/42-project-tested-cli.mdx": [
+  5,
+  6
+ ]
+}
