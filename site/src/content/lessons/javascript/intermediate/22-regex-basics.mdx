@@ -356,7 +356,7 @@ Count the words in `The cat and the hat. The end, and THE start.` ignoring case,
 
 <Solution>
 
-`matchAll` yields each word, which is lowercased before counting in a `Map`. The sort compares counts first, and falls back to `localeCompare` when the counts are equal (`||` takes the second comparison when the first is 0).
+`matchAll` yields each word, which is lowercased before counting in a `Map`. The sort compares counts first, and falls back to `localeCompare`, a comparison that orders text by language rules (the [Intl lesson](../intl-formatting/) has the details), when the counts are equal (`||` takes the second comparison when the first is 0).
 
 ```javascript title="ex_wordfreq.mjs"
 const text = "The cat and the hat. The end, and THE start.";

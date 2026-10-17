@@ -32,9 +32,7 @@ function loadUser(id, callback) {
     callback(null, { id, name: `user${id}` });
   }, 10 + id * 10);
 }
-```
 
-```javascript title="cb_basic.mjs (continued)"
 loadUser(1, (error, user) => {
   if (error) {
     console.log("failed:", error.message);
@@ -145,9 +143,7 @@ function checkBad(value, callback) {
   }
   callback(null, Math.sqrt(value));
 }
-```
 
-```javascript title="cb_twice.mjs (continued)"
 function checkGood(value, callback) {
   if (value < 0) {
     return callback(new Error("negative"));
@@ -155,6 +151,8 @@ function checkGood(value, callback) {
   callback(null, Math.sqrt(value));
 }
 ```
+
+Call the bad version with a negative number, then the good version with a negative and a positive one:
 
 ```javascript title="cb_twice.mjs (continued)"
 const show = (error, root) => console.log(error ? "error" : "ok", root);
@@ -300,7 +298,7 @@ rejected with ENOENT
 
 Both `readFile` and our own `getUser` work, because both take the callback last and call it as `(error, value)`. The missing file turns into a rejection that `try`/`catch` handles, with the same `code` as before.
 
-Some points from the Node documentation:
+Four points to remember about [`util.promisify`](https://nodejs.org/api/util.html#utilpromisifyoriginal):
 
 - `promisify` assumes the original function takes a callback as its last argument, in every case. If it is not a function, `promisify` throws.
 - Methods that use `this` may not work as expected. Bind the method, or call the promisified function with `.call(object)`.
@@ -362,7 +360,6 @@ function getTemperature(city, callback) {
 }
 
 const getTemperatureAsync = promisify(getTemperature);
-
 console.log("Oslo:", await getTemperatureAsync("Oslo"));
 console.log("Cairo:", await getTemperatureAsync("Cairo"));
 try {
@@ -481,6 +478,8 @@ function series(tasks, done) {
 }
 ```
 
+Run it on three timed tasks, then on a list where the second task fails:
+
 ```javascript title="cb_ex_series.mjs (continued)"
 const wait = (ms, value) => (cb) => setTimeout(cb, ms, null, value);
 const broken = (cb) => cb(new Error("stop here"));
@@ -509,4 +508,4 @@ stop here undefined
 - A callback hands control to someone else's code. It can be called twice, never, or sometimes at once. Always call back later, never now.
 - Node's older APIs, such as `fs.readFile`, use callbacks, and `util.promisify` turns them into functions that return promises.
 
-Next: promises, the value that stands for a result that has not arrived yet.
+Next: [promises](../promises/), the value that stands for a result that has not arrived yet.

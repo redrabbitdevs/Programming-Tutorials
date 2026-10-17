@@ -26,7 +26,7 @@ A promise is always in one of three states:
 - **fulfilled**: the work succeeded, and the promise holds a value.
 - **rejected**: the work failed, and the promise holds a reason, normally an `Error`.
 
-A promise that is fulfilled or rejected is **settled**. It never changes again. MDN also uses the word "resolved" for a promise that is settled or locked in to follow another promise; in everyday speech people use "resolved" for "fulfilled". This course says fulfilled and rejected when the difference matters.
+A promise that is fulfilled or rejected is **settled**. It never changes again. The word "resolved" is looser. Strictly, a promise is resolved when it is settled or locked in to follow another promise; in everyday speech people use "resolved" for "fulfilled". This course says fulfilled and rejected when the difference matters.
 
 `console.log` shows the state:
 
@@ -110,7 +110,7 @@ The first `then` returns a number, and the second receives it. The second `then`
 
 ### Always return
 
-If a handler starts more asynchronous work and does not `return` it, the chain does not wait for it. MDN calls such a promise "floating".
+If a handler starts more asynchronous work and does not `return` it, the chain does not wait for it. Such a promise is called "floating": nobody is waiting for it, and nobody will see its error.
 
 ```javascript title="pr_forgot.mjs"
 const step = (n) => Promise.resolve(n + 1);
@@ -264,6 +264,41 @@ threw at once: empty input
 
 The last block shows what `Promise.try` saves you from: `Promise.resolve(parse(""))` runs `parse` first, so its `throw` happens in your own code, before any promise exists.
 
+## Thenables, and the cost of resolving with a promise
+
+A **thenable** is any object with a `then` method. `Promise.resolve`, `resolve(...)` inside the constructor, and `await` all treat a thenable as a promise and wait for it, which is how libraries with their own promise types work with native ones. Following a thenable or a promise takes a little longer than following a plain value. This program shows it by counting microtask turns:
+
+```javascript title="pr_thenable.mjs"
+const thenable = {
+  then(resolve) {
+    resolve("from a thenable");
+  },
+};
+Promise.resolve(thenable).then((value) => console.log(value));
+
+new Promise((resolve) => resolve(Promise.resolve("inner"))).then(() =>
+  console.log("resolved with a promise"),
+);
+Promise.resolve()
+  .then(() => console.log("tick 1"))
+  .then(() => console.log("tick 2"))
+  .then(() => console.log("tick 3"))
+  .then(() => console.log("tick 4"));
+```
+
+```text
+tick 1
+from a thenable
+tick 2
+resolved with a promise
+tick 3
+tick 4
+```
+
+A plain fulfilled promise would run its callback on tick 1. Following a thenable costs one extra turn, because the engine calls its `then` in a microtask of its own, and a promise that is resolved with another promise costs two. You rarely need to count ticks, but now you know why code that returns a promise from a `then` handler runs a little later than code that returns a value.
+
+One more detail of `then`: it takes a second argument, a handler for rejection. `promise.then(onFulfilled, onRejected)` is not the same as `promise.then(onFulfilled).catch(onRejected)`. With two arguments, `onRejected` handles only the promise itself, not an error thrown by `onFulfilled`. The `.catch` at the end handles both, which is why the chain form is the usual choice.
+
 ## Common pitfalls
 
 - **Forgetting to `return` inside `then`.** The next step gets `undefined` and does not wait.
@@ -404,4 +439,4 @@ The executor runs at once and prints `2`, and the last line prints `7` before an
 - A throw or a rejection skips the `then` steps until a `catch`. A `catch` that returns a value recovers.
 - `Promise.withResolvers()` gives you a promise and its settling functions. `Promise.try(fn)` turns a function that may throw into a promise.
 
-Next: `async` and `await`, which let you write this flow like ordinary sequential code.
+Next: [`async` and `await`](../async-await/), which let you write this flow like ordinary sequential code.

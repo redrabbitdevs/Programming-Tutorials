@@ -12,7 +12,8 @@ objectives:
   - Compare and clean accented text with normalize
   - Detect and repair broken surrogates with isWellFormed and toWellFormed
   - Count and cut user-visible characters with Intl.Segmenter
-estimatedMinutes: 50
+  - Percent-encode URL values and read the bitwise operators
+estimatedMinutes: 55
 fundamentals: ["fundamentals/beginner/06-text-and-strings"]
 ---
 
@@ -288,6 +289,94 @@ console.log(new TextDecoder().decode(Uint8Array.of(0xff, 0x41)));
 
 So the length you need depends on the question. A database column with a byte limit needs `TextEncoder`. A tweet-like counter needs graphemes. An array index needs code units.
 
+## Percent-encoding for URLs
+
+A URL may only carry a small set of ASCII characters. Anything else is written as its UTF-8 bytes, each as `%` and two hex digits. `encodeURIComponent` does that for one piece of a URL, such as a query value, and `decodeURIComponent` reverses it.
+
+```javascript title="uni_percent.mjs"
+const query = "café & crème?";
+const encoded = encodeURIComponent(query);
+
+console.log(encoded);
+console.log(decodeURIComponent(encoded) === query);
+console.log(encodeURIComponent("😀"));
+console.log(encodeURI("/search?q=café"));
+console.log(encodeURIComponent("/search?q=café"));
+```
+
+```text
+caf%C3%A9%20%26%20cr%C3%A8me%3F
+true
+%F0%9F%98%80
+/search?q=caf%C3%A9
+%2Fsearch%3Fq%3Dcaf%C3%A9
+```
+
+The emoji becomes four bytes, as in the table above. The last two lines show the difference between the two encoders. `encodeURI` is for a whole URL, so it keeps the characters that give a URL its structure (`/`, `?`, `&`, `=`, `#`). `encodeURIComponent` is for a single value, so it escapes them too. Use it for any text that a user typed, or the `&` in a name will split your query in two.
+
+Both functions throw a `URIError` for input that has no valid encoding, and so does `decodeURIComponent` for a stray `%`. A lone surrogate is the same broken text that `isWellFormed` finds:
+
+```javascript title="uni_percent_errors.mjs"
+for (const attempt of [
+  () => decodeURIComponent("100%"),
+  () => encodeURIComponent("\uD800"),
+]) {
+  try {
+    attempt();
+  } catch (error) {
+    console.log(error.name, error.message);
+  }
+}
+```
+
+```text
+URIError URI malformed
+URIError URI malformed
+```
+
+Decoding text from a request or a link is a place where this crash reaches a server, so wrap it in `try`/`catch`. When you build or read whole URLs, the `URL` and `URLSearchParams` classes in the [files and paths lesson](../files-and-paths/) do the encoding for you.
+
+## Bit operators you will meet
+
+Bytes bring the bitwise operators. You will not need them often, but you will read them in other people's code: `&` (and), `|` (or), `^` (exclusive or), `~` (not), `<<`, `>>` and `>>>` (shifts). They convert their operands to 32-bit integers first. A common use is a set of on/off flags stored in one number:
+
+```javascript title="uni_bits.mjs"
+const READ = 1;
+const WRITE = 2;
+const EXEC = 4;
+
+let mode = READ | WRITE;
+console.log(mode, (mode & WRITE) !== 0, (mode & EXEC) !== 0);
+mode ^= READ;
+console.log(mode);
+
+console.log(3.7 | 0, ~~-3.7, -1 >>> 0, 1 << 3, -16 >> 2, 2 ** 10);
+```
+
+```text
+3 true false
+2
+3 -3 4294967295 8 -4 1024
+```
+
+`|` sets a flag, `&` tests it, and `^` toggles it. The last line shows idioms from older code. `x | 0` and `~~x` cut off the fraction, as `Math.trunc` does for numbers in the 32-bit range, and `x >>> 0` turns a number into an unsigned 32-bit one. `1 << 3` is 8, and `-16 >> 2` is -4. The `**` operator in the same line is not a bit operator: it raises to a power. Prefer `Math.trunc` and `**` when you write new code.
+
+With bytes, `&` can look at the top bits. In UTF-8 a continuation byte starts with the bits `10`, so counting the bytes that do not is a way to count characters without decoding:
+
+```javascript title="uni_bits_utf8.mjs"
+const bytes = new TextEncoder().encode("a€😀");
+
+// A continuation byte looks like 10xxxxxx. Every other byte starts a character.
+const starts = bytes.filter((byte) => (byte & 0b11000000) !== 0b10000000);
+console.log(bytes.length, starts.length);
+```
+
+```text
+8 3
+```
+
+The text is 8 bytes and 3 code points.
+
 ## Common pitfalls
 
 - **Using `length` as the number of characters.** It counts code units. Count graphemes for user-visible length.
@@ -443,9 +532,10 @@ ab ab😀
 ## Summary
 
 - A string is a sequence of UTF-16 code units. `length` and indexing use them; `for...of`, spread and `codePointAt` use code points.
-- A symbol the reader sees as one character can be several code points. `Intl.Segmenter` with `granularity: "grapheme"` counts and splits them correctly.
+- A visible character can be several code points. `Intl.Segmenter` with `granularity: "grapheme"` counts and splits them correctly.
 - `normalize("NFC")` makes spellings comparable. NFD plus `\p{M}` strips accents. The K forms are for search.
 - `isWellFormed` and `toWellFormed` find and repair lone surrogates, which some APIs reject.
 - `TextEncoder` gives UTF-8 bytes. Characters, code units and bytes are three different counts.
+- `encodeURIComponent` percent-encodes the UTF-8 bytes of one URL value, and throws a `URIError` on broken text. Bit operators work on 32-bit integers.
 
 Next: [Intl, for numbers, dates, lists and plurals](../intl-formatting/).

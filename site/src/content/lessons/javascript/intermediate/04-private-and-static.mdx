@@ -81,6 +81,8 @@ class Counter {
   }
 ```
 
+`add` goes through the private helper, and a public static getter exposes the count:
+
 ```javascript title="private_methods.mjs (continued)"
   add(n) {
     this.#value = this.#clamp(this.#value + n);
@@ -126,9 +128,7 @@ class Wallet {
     return this;
   }
 }
-```
 
-```javascript title="brand_check.mjs (continued)"
 console.log(Wallet.isWallet(new Wallet()), Wallet.isWallet({ cents: 0 }));
 
 try {
@@ -161,9 +161,7 @@ class Level {
       Level.#byName.set(name, number);
     }
   }
-```
 
-```javascript title="static_block.mjs (continued)"
   static nameOf(number) {
     return Level.#names.get(number) ?? "unknown";
   }
@@ -173,6 +171,8 @@ class Level {
   }
 }
 ```
+
+Look levels up by number and by name:
 
 ```javascript title="static_block.mjs (continued)"
 console.log(Level.nameOf(2), Level.nameOf(9), Level.numberOf("error"));
@@ -244,6 +244,8 @@ class Limiter {
 }
 ```
 
+Create a limiter for two uses and try to use it three times:
+
 ```javascript title="limiter_class.mjs (continued)"
 const limiter = new Limiter(2);
 console.log(limiter.tryUse(), limiter.tryUse(), limiter.tryUse());
@@ -290,6 +292,8 @@ class Cart {
 }
 ```
 
+Compare carts of the same size and of different sizes:
+
 ```javascript title="private_total.mjs (continued)"
 const one = new Cart().add(5);
 const two = new Cart().add(1).add(2);
@@ -331,9 +335,7 @@ class Registry {
     return Registry.#items.get(name);
   }
 }
-```
 
-```javascript title="registry_static.mjs (continued)"
 console.log(Registry.names);
 console.log(Registry.path("about"), Registry.path("none"));
 ```

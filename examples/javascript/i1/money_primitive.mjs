@@ -14,4 +14,4 @@ class Money {
 const price = new Money(1250);
 const tip = new Money(300);
 console.log(`${price}`, price + tip, price > tip);
-console.log(`Total: ${new Money(price * 100 + tip * 100)}`);
+console.log(`Total: ${new Money(Math.round(price * 100 + tip * 100))}`);

@@ -161,7 +161,7 @@ The caller sees `invalid config file`, a message about its own world, and can st
 
 JavaScript lets you `throw` any value, so the variable in a `catch` block can be a string, an object or `undefined`. `instanceof Error` fails for errors created in another realm, such as an iframe. And it succeeds for objects that merely inherit from `Error.prototype`.
 
-<Since v="24" /> `Error.isError(value)` checks whether a value is a real error, like `Array.isArray` does for arrays. MDN notes that it also returns `true` for `DOMException`, which is what an aborted signal produces. It is not Baseline yet: Safari lacks it.
+<Since v="24" /> `Error.isError(value)` checks whether a value is a real error, like `Array.isArray` does for arrays. It also returns `true` for a `DOMException`, which is what an aborted signal produces. It is not Baseline yet, because not every browser supports it, and it does not exist on Node 22, where `error instanceof Error` is the fallback for ordinary errors.
 
 ```javascript title="ae_iserror.mjs"
 const fake = { name: "Error", message: "I am not an error" };
@@ -211,6 +211,8 @@ async function retry(task, { tries = 3, delay = 5 } = {}) {
   }
 }
 ```
+
+A task that fails twice and then works shows the doubling pauses:
 
 ```javascript title="ae_retry.mjs (continued)"
 const flaky = async (attempt) => {
@@ -294,6 +296,8 @@ async function retry(task, tries = 3) {
 }
 ```
 
+The test cases come next: a transient timeout that recovers, and a bad request that is not retried:
+
 ```javascript title="ae_ex_transient.mjs (continued)"
 function transient(message) {
   return Object.assign(new Error(message), { transient: true });
@@ -306,9 +310,7 @@ const timesOut = async (attempt) => {
 const badRequest = async () => {
   throw new Error("bad request");
 };
-```
 
-```javascript title="ae_ex_transient.mjs (continued)"
 console.log(await retry(timesOut));
 await retry(badRequest).catch((error) => {
   console.log("no retry:", error.message);
@@ -396,9 +398,7 @@ function trace(error) {
   }
   return messages;
 }
-```
 
-```javascript title="ae_ex_chain.mjs (continued)"
 function readFile() {
   throw new Error("file not found");
 }
@@ -412,6 +412,8 @@ function loadConfig() {
 }
 ```
 
+One more layer, and a call that prints the whole chain:
+
 ```javascript title="ae_ex_chain.mjs (continued)"
 function startApp() {
   try {
@@ -420,9 +422,7 @@ function startApp() {
     throw new Error("cannot start app", { cause: error });
   }
 }
-```
 
-```javascript title="ae_ex_chain.mjs (continued)"
 try {
   startApp();
 } catch (error) {
@@ -447,4 +447,4 @@ try {
 - `Error.isError` checks for real errors <Since v="24" />, because any value can be thrown.
 - A retry helper needs a limit, a growing pause and a rule for which errors are worth retrying.
 
-Next: cancelling work that is no longer needed, and putting a deadline on work that takes too long.
+Next: [cancellation](../cancellation/), or cancelling work that is no longer needed, and putting a deadline on work that takes too long.

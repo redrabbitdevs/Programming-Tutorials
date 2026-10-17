@@ -31,9 +31,7 @@ class Animal {
     return `${this.name} makes a sound`;
   }
 }
-```
 
-```javascript title="extends_basics.mjs (continued)"
 class Dog extends Animal {
   constructor(name, breed) {
     super(name);
@@ -75,9 +73,7 @@ class Base {
     return new this();
   }
 }
-```
 
-```javascript title="super_rules.mjs (continued)"
 class Derived extends Base {
   constructor() {
     try {
@@ -89,9 +85,7 @@ class Derived extends Base {
     this.ready = true;
   }
 }
-```
 
-```javascript title="super_rules.mjs (continued)"
 console.log(Derived.create() instanceof Derived);
 console.log(Object.getPrototypeOf(Derived) === Base);
 ```
@@ -104,6 +98,36 @@ true
 
 - **A subclass constructor must call `super()` before it touches `this`.** In a subclass, the object is created by the superclass constructor, so before `super()` there is no `this`. The `try` block shows that reading it first throws a `ReferenceError`.
 - **Static members are inherited too.** The class `Derived` itself has `Base` as its prototype, so `Derived.create()` finds the static method on `Base`. Inside it, `this` is the class the method was called on, so `new this()` builds a `Derived`, not a `Base`.
+
+Inside a constructor, `new.target` is the class that `new` was called on. It is `undefined` when the function was called without `new`. A base class can compare it with itself to refuse direct use, which gives JavaScript the "abstract class" pattern:
+
+```javascript title="new_target.mjs"
+class Shape {
+  constructor() {
+    if (new.target === Shape) {
+      throw new TypeError("Shape is abstract: extend it");
+    }
+    console.log("building a", new.target.name);
+  }
+}
+
+class Dot extends Shape {}
+
+console.log(new Dot() instanceof Shape);
+try {
+  new Shape();
+} catch (error) {
+  console.log(error.message);
+}
+```
+
+```text
+building a Dot
+true
+Shape is abstract: extend it
+```
+
+When `Dot` runs the `Shape` constructor through `super()`, `new.target` is still `Dot`, the class that `new` named. Only `new Shape()` itself matches the check.
 
 ## Subclassing built-ins
 
@@ -129,9 +153,7 @@ function parseAge(text) {
   }
   return age;
 }
-```
 
-```javascript title="error_subclass.mjs (continued)"
 try {
   parseAge("4.5");
 } catch (error) {
@@ -173,7 +195,7 @@ true 6
 Stack(3) [ 1, 2, 3 ]
 ```
 
-Reach for this only when you need a real array with extra methods. In most programs a function that takes an array, or a class that holds an array in a private field, is simpler.
+The new array is built from the class stored under `Symbol.species`, which defaults to your subclass. The [symbols lesson](../symbols/) shows how to change that. Reach for this only when you need a real array with extra methods. In most programs a function that takes an array, or a class that holds an array in a private field, is simpler.
 
 ## Mixins
 
@@ -195,6 +217,8 @@ const Comparable = (Base) =>
   };
 ```
 
+A plain `Item` class gets both features when it is wrapped in the two mixins:
+
 ```javascript title="mixin.mjs (continued)"
 class Item {
   constructor(value) {
@@ -203,9 +227,7 @@ class Item {
 }
 
 class Product extends Serializable(Comparable(Item)) {}
-```
 
-```javascript title="mixin.mjs (continued)"
 const a = new Product(3);
 console.log(a.serialize(), a.compareTo(new Product(1)));
 console.log(a instanceof Item);
@@ -232,9 +254,7 @@ const canSwim = (self) => ({
 const canFly = (self) => ({
   fly: () => `${self.name} flies`,
 });
-```
 
-```javascript title="composition.mjs (continued)"
 function createDuck(name) {
   const self = { name };
   return Object.assign(self, canSwim(self), canFly(self));
@@ -245,6 +265,8 @@ function createPenguin(name) {
   return Object.assign(self, canSwim(self));
 }
 ```
+
+Create one of each and ask what they can do:
 
 ```javascript title="composition.mjs (continued)"
 const duck = createDuck("Duck");
@@ -301,6 +323,8 @@ class Shape {
 }
 ```
 
+A circle supplies its own `area()`:
+
 ```javascript title="shapes_inherit.mjs (continued)"
 class Circle extends Shape {
   constructor(radius) {
@@ -313,6 +337,8 @@ class Circle extends Shape {
   }
 }
 ```
+
+So does a rectangle:
 
 ```javascript title="shapes_inherit.mjs (continued)"
 class Rectangle extends Shape {
@@ -327,6 +353,8 @@ class Rectangle extends Shape {
   }
 }
 ```
+
+A square is a rectangle with equal sides. The loop shows all three shapes describing themselves through the inherited `describe()`:
 
 ```javascript title="shapes_inherit.mjs (continued)"
 class Square extends Rectangle {
@@ -406,9 +434,7 @@ class HttpError extends Error {
     this.status = status;
   }
 }
-```
 
-```javascript title="http_errors.mjs (continued)"
 class NotFoundError extends HttpError {
   constructor(path, options) {
     super(404, `no page at ${path}`, options);
@@ -416,6 +442,8 @@ class NotFoundError extends HttpError {
   }
 }
 ```
+
+Throw one of these errors from a `catch` block, so that the original error travels along as its `cause`:
 
 ```javascript title="http_errors.mjs (continued)"
 function load(path) {
@@ -425,9 +453,7 @@ function load(path) {
     throw new NotFoundError(path, { cause });
   }
 }
-```
 
-```javascript title="http_errors.mjs (continued)"
 try {
   load("/missing");
 } catch (error) {

@@ -18,7 +18,7 @@ fundamentals: []
 
 Promise chains solve the nesting problem of callbacks, but a long chain still reads differently from the plain code you are used to. `async` and `await` are syntax over promises that let you write the same flow as ordinary statements, one after the other, with `try` and `catch` for errors. Everything you learned in the [promises lesson](../promises/) still applies. A function marked `async` returns a promise, and `await` reads one.
 
-You saw the first forms of this in the [beginner lesson on dynamic import](../../beginner/json-modules-dynamic-import/). Now you will see how it works.
+You saw the first forms of this in the beginner lessons on [dynamic import](../../beginner/json-modules-dynamic-import/) and the [command-line quiz](../../beginner/project-cli-quiz/). Now you will see how it works.
 
 ## async functions return promises
 
@@ -126,9 +126,7 @@ async function task(name, ms) {
   console.log("end", name);
   return name.toUpperCase();
 }
-```
 
-```javascript title="aa_seq_parallel.mjs (continued)"
 console.log("-- one after the other");
 const a1 = await task("a", 30);
 const b1 = await task("b", 10);
@@ -221,6 +219,8 @@ async function withoutAwait() {
   }
 }
 ```
+
+`return await` keeps the failure inside the `try`:
 
 ```javascript title="aa_return_await.mjs (continued)"
 async function withAwait() {
@@ -351,9 +351,9 @@ async function fetchPart(name, ms) {
   return name;
 }
 
-const header = await fetchPart("header", 30);
-const body = await fetchPart("body", 10);
-const footer = await fetchPart("footer", 20);
+const header = await fetchPart("header", 300);
+const body = await fetchPart("body", 100);
+const footer = await fetchPart("footer", 200);
 console.log([header, body, footer]);
 ```
 
@@ -381,9 +381,9 @@ async function fetchPart(name, ms) {
   return name;
 }
 
-const headerPromise = fetchPart("header", 30);
-const bodyPromise = fetchPart("body", 10);
-const footerPromise = fetchPart("footer", 20);
+const headerPromise = fetchPart("header", 300);
+const bodyPromise = fetchPart("body", 100);
+const footerPromise = fetchPart("footer", 200);
 
 const header = await headerPromise;
 const body = await bodyPromise;
@@ -451,6 +451,48 @@ total: 12
 
 </Exercise>
 
+<Exercise title="Predict the order, with await">
+
+The [event loop lesson](../event-loop/) asked you to order promise callbacks and timers. Now add an `async` function. Without running it, write down the order of the eight letters, then run it. The letters follow the order of the code.
+
+```javascript title="aa_ex_predict.mjs"
+async function job() {
+  console.log("A");
+  await null;
+  console.log("B");
+}
+
+console.log("C");
+setTimeout(() => console.log("D"), 0);
+Promise.resolve()
+  .then(() => console.log("E"))
+  .then(() => console.log("F"));
+job();
+console.log("G");
+queueMicrotask(() => console.log("H"));
+```
+
+<Solution>
+
+The output is:
+
+```text
+C
+A
+G
+E
+B
+H
+F
+D
+```
+
+`C` prints first. Then `job()` runs synchronously up to its first `await`, so `A` prints before `G`. The code after `await null` is a microtask, queued when `job` reached the `await`. The microtask queue then holds `E` (queued first), `B`, and `H`, in that order. `E` returns, which queues `F` behind them, so `F` comes last. The timer `D` is a task and waits for the whole microtask queue.
+
+</Solution>
+
+</Exercise>
+
 ## Summary
 
 - An `async` function always returns a promise: a returned value fulfils it and a thrown error rejects it.
@@ -460,4 +502,4 @@ total: 12
 - `forEach` does not wait for async callbacks; use `for...of`.
 - Use `return await` inside `try` when the `catch` should handle the failure.
 
-Next: combinators that wait for many promises at once.
+Next: [promise combinators](../promise-combinators/), which wait for many promises at once.

@@ -12,13 +12,14 @@ objectives:
   - Convert a moment between time zones, including across daylight saving
   - Measure and add durations, and balance them with round
   - Convert between Date and Temporal, and decide when Temporal is safe to use
-estimatedMinutes: 55
+  - Combine classes, generators, Map, regex, Intl and Temporal in one small program
+estimatedMinutes: 70
 fundamentals: ["fundamentals/beginner/03-values-and-types"]
 ---
 
 `Temporal` is the replacement for `Date`. It reached stage 4 (finished) in the TC39 process in May 2026 and is expected in ECMAScript 2027. Node 26 turns it on by default, so every example in this lesson needs **Node 26 or newer**. On Node 22 and 24 the name `Temporal` does not exist, and using it throws a `ReferenceError`.
 
-It is also **not yet available in every browser**. At the time of writing, MDN lists it in Chrome and Edge 144 and Firefox 139, but not in Safari, so MDN marks it as "limited availability". For code that runs in browsers you do not control, `Date` and [`Intl`](../intl-formatting/) from the previous lessons are still the safe choice. On a server where you pick the Node version, `Temporal` is ready.
+It is also **not yet available in every browser**. At the time of writing it ships in Chrome and Edge 144 and Firefox 139, but not in Safari, so it is not Baseline ([MDN: Temporal](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal) tracks the support). For code that runs in browsers you do not control, `Date` and [`Intl`](../intl-formatting/) from the previous lessons are still the safe choice. On a server where you pick the Node version, `Temporal` is ready.
 
 The problems it solves are the ones from the [Date lesson](../dates-legacy/): months from zero, mutable objects, local-or-UTC confusion, no time zones, and one type for everything. The ideas of values and types are in the fundamentals lesson on [values and types](../../../fundamentals/beginner/values-and-types/).
 
@@ -382,6 +383,7 @@ RangeError
 - **Adding days to an `Instant`.** It only accepts exact units. Convert to a `ZonedDateTime` first.
 - **Storing the offset instead of the zone name.** `-05:00` does not say whether it will change in summer. Keep the `Europe/London` style name.
 - **Calling `Temporal.Now` inside logic you want to test.** Pass the date in.
+- **Assuming it exists.** To support older runtimes, test with `typeof Temporal !== "undefined"` and fall back to `Date`.
 
 ## Exercises
 
@@ -526,5 +528,150 @@ console.log(gap.toString());
 - Durations are ISO 8601 periods that do not rebalance by themselves. Use `round`, `total`, `until` and `since`.
 - `toTemporalInstant()` and `epochMilliseconds` convert to and from `Date`.
 - Compare with `equals` and `compare`, never with `===`.
+
+## Putting it together: a log report
+
+This module gave you tools for text, patterns, numbers and time, and the module before it gave you classes, generators and collections. Here they work on one job: read a server log, count what happened and report it for a reader. It needs **Node 26** because of `Temporal`. Build it as one file, `log_report.mjs`, and run it after each stage.
+
+### Stage 1: parse a line
+
+The input is a list of lines. One of them is not a log line at all, as real logs often contain. A regular expression with named groups takes a line apart:
+
+```javascript title="log_report.mjs"
+const LOG = `2026-03-14T09:00:01Z INFO web: server started
+2026-03-14T09:15:02Z ERROR db: connection lost after 1523 ms
+2026-03-14T09:15:09Z WARN web: slow request took 840 ms
+2026-03-14T09:40:30Z ERROR cache: miss storm
+this line is not a log line
+2026-03-14T10:05:45Z INFO web: request ok in 120 ms
+2026-03-14T10:30:00Z ERROR db: timeout after 3011 ms
+2026-03-14T11:02:13Z DEBUG web: cache warmed`.split("\n");
+
+const LINE =
+  /^(?<time>\S+) (?<level>[A-Z]+) (?<source>[\w-]+): (?<text>.*)$/;
+```
+
+An `Entry` class turns the groups into an object. The timestamp becomes a `Temporal.Instant` held in a private field, so outside code can read `instant` but cannot replace it. `parse` returns `null` for a line that does not match:
+
+```javascript title="log_report.mjs (continued)"
+class Entry {
+  #instant;
+
+  constructor({ time, level, source, text }) {
+    this.#instant = Temporal.Instant.from(time);
+    Object.assign(this, { level, source, text });
+  }
+
+  get instant() {
+    return this.#instant;
+  }
+
+  static parse(line) {
+    const groups = LINE.exec(line)?.groups;
+    return groups ? new Entry(groups) : null;
+  }
+}
+```
+
+Try it on a good line and on the bad one:
+
+```javascript title="log_report.mjs (continued)"
+const first = Entry.parse(LOG[1]);
+console.log(first.level, first.source, first.instant.toString());
+console.log(Entry.parse(LOG[4]));
+```
+
+```text
+ERROR db 2026-03-14T09:15:02Z
+null
+```
+
+### Stage 2: stream the entries
+
+A generator turns the lines into entries one at a time and skips the bad ones. Because the generator makes an iterator, the iterator helpers `filter`, `map` and `take` work on it without building any array in between:
+
+```javascript title="log_report.mjs (continued)"
+function* entries(lines) {
+  for (const line of lines) {
+    const entry = Entry.parse(line);
+    if (entry) yield entry;
+  }
+}
+
+const errors = entries(LOG).filter((entry) => entry.level === "ERROR");
+console.log(errors.map((entry) => entry.source).toArray());
+console.log(entries(LOG).take(2).map((entry) => entry.source).toArray());
+```
+
+```text
+[ 'db', 'cache', 'db' ]
+[ 'web', 'db' ]
+```
+
+The first line keeps only errors and lists their sources. The second takes just the first two entries, and the generator never reads past them.
+
+### Stage 3: group and count
+
+`Map.groupBy` takes any iterable, including a fresh call of the generator, and returns a `Map` from each key to an array of the items with that key. The keys keep the order in which they first appeared:
+
+```javascript title="log_report.mjs (continued)"
+const byLevel = Map.groupBy(entries(LOG), (entry) => entry.level);
+for (const [level, group] of byLevel) {
+  console.log(level.padEnd(5), group.length);
+}
+```
+
+```text
+INFO  2
+ERROR 3
+WARN  1
+DEBUG 1
+```
+
+### Stage 4: report for a reader
+
+Now the output is for people. `Intl.ListFormat` joins the sources, `Intl.PluralRules` picks "error" or "errors" for the count, and a `Set` removes the duplicate source:
+
+```javascript title="log_report.mjs (continued)"
+const list = new Intl.ListFormat("en");
+const plural = new Intl.PluralRules("en");
+const words = { one: "error", other: "errors" };
+const failed = byLevel.get("ERROR");
+const sources = new Set(failed.map((entry) => entry.source));
+const count = failed.length;
+console.log(count, words[plural.select(count)], "in", list.format(sources));
+```
+
+```text
+3 errors in db and cache
+```
+
+Last, `Temporal` measures the log. `until` between two instants gives a `Duration`, and `Intl.DurationFormat` writes it in words. The final line says how long before the end of the log the last error happened, with `Intl.RelativeTimeFormat`:
+
+```javascript title="log_report.mjs (continued)"
+const all = [...entries(LOG)];
+const span = all[0].instant.until(all.at(-1).instant, { largestUnit: "hour" });
+console.log(span.toString(), new Intl.DurationFormat("en").format(span));
+```
+
+```text
+PT2H2M12S 2 hr, 2 min, 12 sec
+```
+
+```javascript title="log_report.mjs (continued)"
+const sinceLast = failed.at(-1).instant.until(all.at(-1).instant);
+const minutes = Math.floor(sinceLast.total("minute"));
+console.log(new Intl.RelativeTimeFormat("en").format(-minutes, "minute"));
+```
+
+```text
+32 minutes ago
+```
+
+Every part you met in these lessons did one small job: the regular expression found the fields, the class protected the timestamp, the generator and the helpers streamed, `Map.groupBy` counted, and `Intl` and `Temporal` turned the numbers into text. To go further, try these changes on your own:
+
+- Parse the number in "after 1523 ms" with a second regular expression, and report the slowest request.
+- Group the entries by hour with `Temporal.Instant.toZonedDateTimeISO("UTC").hour`.
+- Make `entries` accept a second argument, a minimum level, and skip anything below it.
 
 That finishes the module. You can now match patterns in text, handle Unicode correctly, format for any locale, and work with dates in both the old and the new API.

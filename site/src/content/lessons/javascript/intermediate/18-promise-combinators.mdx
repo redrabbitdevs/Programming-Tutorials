@@ -99,7 +99,7 @@ const sleep = (ms, value) =>
   new Promise((resolve) => setTimeout(resolve, ms, value));
 
 const first = await Promise.any([
-  sleep(30, "mirror A"),
+  sleep(300, "mirror A"),
   Promise.reject(new Error("mirror B is down")),
   sleep(10, "mirror C"),
 ]);
@@ -129,7 +129,7 @@ All promises were rejected
 [ 'x', 'y' ]
 ```
 
-Mirror B failed immediately, and the result still came from mirror C, because it fulfilled before mirror A. In the second call every input rejected, so the call threw an `AggregateError` whose `errors` list both reasons. `Promise.any` with an empty array rejects at once.
+Mirror B failed immediately, and the result still came from mirror C, because it fulfilled after 10 ms and mirror A needed 300. In the second call every input rejected, so the call threw an `AggregateError` whose `errors` list both reasons. `Promise.any` with an empty array rejects at once.
 
 ## Promise.race: the first to settle
 
@@ -189,19 +189,19 @@ async function mapLimit(items, limit, fn) {
 }
 ```
 
-`mapLimit(items, limit, fn)` starts `limit` workers and waits for all of them with `Promise.all`. Results go into their original positions, so the output order matches the input order even though the jobs finish in a different order. Here is a run with five jobs, a limit of 2 and delays of 100, 25, 50, 50 and 75 milliseconds:
+`mapLimit(items, limit, fn)` starts `limit` workers and waits for all of them with `Promise.all`. Results go into their original positions, so the output order matches the input order even though the jobs finish in a different order. Here is a run with five jobs, a limit of 2 and delays of 400, 100, 200, 200 and 300 milliseconds:
 
 ```javascript title="pc_pool.mjs (continued)"
 let running = 0;
 let peak = 0;
-const out = await mapLimit([100, 25, 50, 50, 75], 2, async (ms, i) => {
+const out = await mapLimit([400, 100, 200, 200, 300], 2, async (ms, i) => {
   running++;
   peak = Math.max(peak, running);
   console.log("start", i);
   await sleep(ms);
   console.log("done", i);
   running--;
-  return ms / 25;
+  return ms / 100;
 });
 console.log(out, "peak:", peak);
 ```
@@ -220,7 +220,7 @@ done 4
 [ 4, 1, 2, 2, 3 ] peak: 2
 ```
 
-Read the log. Jobs 0 and 1 start together. Job 1 is done at 25 ms, and its worker takes job 2 at once. Job 0 finishes at 100 ms and its worker takes job 4. The `peak` counter shows that no more than two jobs were ever active. The jobs here have gaps of at least 25 ms between events so that the printed order is stable.
+Read the log. Jobs 0 and 1 start together. Job 1 is done at 100 ms, and its worker takes job 2 at once. Job 0 finishes at 400 ms and its worker takes job 4. The `peak` counter shows that no more than two jobs were ever active. The jobs here have gaps of at least 100 ms between events so that the printed order is stable.
 
 ## Common pitfalls
 
@@ -313,7 +313,7 @@ async function fastest(mirrors) {
   }
 }
 
-console.log(await fastest([mirror("eu", 30, true), mirror("us", 10, true)]));
+console.log(await fastest([mirror("eu", 300, true), mirror("us", 10, true)]));
 console.log(await fastest([mirror("eu", 5, false), mirror("us", 10, false)]));
 ```
 
@@ -378,4 +378,4 @@ timed out after 10 ms
 - `Promise.race` follows the first promise to settle. It does not cancel the others.
 - To limit concurrency, run a fixed number of workers that take jobs from a shared counter.
 
-Next: what happens to errors that nobody handles, and how to keep them from disappearing.
+Next: [async errors](../async-errors/), or what happens to errors that nobody handles, and how to keep them from disappearing.

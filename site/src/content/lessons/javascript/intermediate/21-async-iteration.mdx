@@ -59,9 +59,7 @@ async function* countdown(from) {
   }
   return "liftoff";
 }
-```
 
-```javascript title="ai_generator.mjs (continued)"
 for await (const n of countdown(3)) {
   console.log(n);
 }
@@ -101,9 +99,7 @@ async function fetchPage(page) {
   const items = [1, 2, 3].map((n) => (page - 1) * 3 + n);
   return { items, next: page < 3 ? page + 1 : null };
 }
-```
 
-```javascript title="ai_pages.mjs (continued)"
 async function* allItems() {
   let page = 1;
   while (page !== null) {
@@ -186,9 +182,7 @@ const ticker = {
     };
   },
 };
-```
 
-```javascript title="ai_manual.mjs (continued)"
 for await (const n of ticker) {
   console.log("tick", n);
 }
@@ -339,6 +333,8 @@ async function fetchChunk(cursor) {
 }
 ```
 
+`allData` follows the cursor chain, and `Array.fromAsync` collects everything it yields:
+
 ```javascript title="ai_ex_cursor.mjs (continued)"
 async function* allData() {
   let cursor = "start";
@@ -390,9 +386,7 @@ async function* ids() {
     console.log("source closed");
   }
 }
-```
 
-```javascript title="ai_ex_take.mjs (continued)"
 async function* take(count, source) {
   if (count <= 0) return;
   let taken = 0;
@@ -402,6 +396,8 @@ async function* take(count, source) {
   }
 }
 ```
+
+Take three ids and watch the source close:
 
 ```javascript title="ai_ex_take.mjs (continued)"
 for await (const id of take(3, ids())) {
@@ -442,9 +438,7 @@ The generator fills a batch, yields it when it is full and starts a new one. Aft
 async function* numbers() {
   for (let i = 1; i <= 7; i++) yield i;
 }
-```
 
-```javascript title="ai_ex_batches.mjs (continued)"
 async function* batches(source, size) {
   let batch = [];
   for await (const value of source) {
@@ -456,9 +450,7 @@ async function* batches(source, size) {
   }
   if (batch.length > 0) yield batch;
 }
-```
 
-```javascript title="ai_ex_batches.mjs (continued)"
 for await (const batch of batches(numbers(), 3)) {
   console.log(batch);
 }

@@ -4,15 +4,17 @@ level: intermediate
 module: Text, patterns, dates and numbers
 order: 25
 title: "Intl: numbers, dates, lists and plurals"
-description: Format numbers, currencies, dates, lists, plurals and relative times for any locale with the built-in Intl objects.
+description: Format numbers, currencies, dates, lists, plurals, relative times and durations for any locale, sort text correctly, and name languages and regions with the built-in Intl objects.
 minVersion: "22"
 objectives:
   - Format numbers, currencies and percentages with Intl.NumberFormat
   - Format dates and times with Intl.DateTimeFormat, always naming the time zone
   - Join lists and pick plural forms with ListFormat and PluralRules
-  - Describe times with RelativeTimeFormat
+  - Describe times with RelativeTimeFormat and DurationFormat
+  - Sort and compare text with Intl.Collator
+  - Name languages and regions with Intl.DisplayNames
   - Explain why output must not be compared as text across machines
-estimatedMinutes: 50
+estimatedMinutes: 60
 fundamentals: ["fundamentals/beginner/06-text-and-strings"]
 ---
 
@@ -250,6 +252,103 @@ hace 2 horas
 
 The method takes a number and a unit: `second`, `minute`, `hour`, `day`, `week`, `month`, `quarter` or `year`. It does not work out the unit for you or compare dates. That is up to your code, as in the last exercise.
 
+## Durations
+
+<Since v="24" /> `Intl.DurationFormat` writes a length of time, such as the running time of a video, from an object with `hours`, `minutes`, `seconds` and the other fields. It has four styles. It does not exist on Node 22.
+
+```javascript title="intl_duration.mjs"
+const duration = { hours: 1, minutes: 30, seconds: 5 };
+
+for (const style of ["long", "short", "narrow", "digital"]) {
+  const format = new Intl.DurationFormat("en", { style });
+  console.log(style.padEnd(7), format.format(duration));
+}
+
+const french = new Intl.DurationFormat("fr", { style: "long" });
+console.log(french.format({ days: 2, hours: 3 }));
+```
+
+```text
+long    1 hour, 30 minutes, 5 seconds
+short   1 hr, 30 min, 5 sec
+narrow  1h 30m 5s
+digital 1:30:05
+2 jours et 3 heures
+```
+
+The `digital` style is the clock layout, and the others spell out the units in the language you ask for. The input is a plain object of numbers. It is not the same as the time between two dates: your code has to work out the hours, minutes and seconds first.
+
+## Sorting and comparing text
+
+Sorting strings with `sort()` and no argument orders them by code unit, so every capital letter comes before every lowercase one and `é` comes after `z`. People expect the order of a dictionary. `Intl.Collator` compares strings by the rules of a language, and its `compare` method can be passed straight to `sort`:
+
+```javascript title="intl_collator.mjs"
+const words = ["zebra", "Zebra", "écrit", "apple", "eagle"];
+const collator = new Intl.Collator("en");
+
+console.log([...words].sort());
+console.log([...words].sort(collator.compare));
+
+const files = ["file10", "file2", "File1"];
+const numeric = new Intl.Collator("en", { numeric: true });
+console.log(files.sort(numeric.compare));
+```
+
+```text
+[ 'Zebra', 'apple', 'eagle', 'zebra', 'écrit' ]
+[ 'apple', 'eagle', 'écrit', 'zebra', 'Zebra' ]
+[ 'File1', 'file2', 'file10' ]
+```
+
+The first line is the code unit order. The second is dictionary order, with `écrit` among the `e` words. The option `numeric: true` reads digit runs as numbers, so `file2` comes before `file10`. Without it, `file10` would sort first, because `"1"` comes before `"2"`.
+
+The `sensitivity` option decides what counts as different: `"base"` ignores case and accents, `"accent"` ignores only case, and `"case"` and `"variant"` care about more. The language matters too, because languages order their own letters differently:
+
+```javascript title="intl_collator_options.mjs"
+const base = new Intl.Collator("en", { sensitivity: "base" });
+const accent = new Intl.Collator("en", { sensitivity: "accent" });
+console.log(base.compare("a", "A"), base.compare("a", "á"));
+console.log(accent.compare("a", "A"), accent.compare("a", "á"));
+
+const letters = ["z", "ä", "a"];
+console.log([...letters].sort(new Intl.Collator("de").compare));
+console.log([...letters].sort(new Intl.Collator("sv").compare));
+console.log("a".localeCompare("B", "en"));
+```
+
+```text
+0 0
+0 -1
+[ 'a', 'ä', 'z' ]
+[ 'a', 'z', 'ä' ]
+-1
+```
+
+`compare` returns 0 for strings that are equal under the chosen sensitivity, a negative number when the first comes first, and a positive number otherwise. German puts `ä` next to `a`, and Swedish puts it after `z`. The method `a.localeCompare(b, locale, options)` takes the same locale and options and is the quick form for one comparison. When you sort a long list, build one collator and reuse it. A call to `localeCompare` without a locale uses the machine's default, which makes the order differ between computers, for the same reason as in the habits at the top of this lesson.
+
+## Names of languages and regions
+
+`Intl.DisplayNames` turns codes into names in the language of your choice. It saves you from keeping tables of country and language names for a settings page or a picker.
+
+```javascript title="intl_display_names.mjs"
+const regions = new Intl.DisplayNames("en", { type: "region" });
+const languages = new Intl.DisplayNames("de", { type: "language" });
+const currencies = new Intl.DisplayNames("en", { type: "currency" });
+const frenchRegions = new Intl.DisplayNames("fr", { type: "region" });
+
+console.log(regions.of("DE"), regions.of("JP"));
+console.log(languages.of("en"), languages.of("ja"));
+console.log(currencies.of("EUR"), frenchRegions.of("US"));
+```
+
+```text
+Germany Japan
+Englisch Japanisch
+Euro États-Unis
+```
+
+The `type` is one of `region`, `language`, `script`, `currency` and `calendar`, and `of` takes the matching code. The first argument is the language of the answer, so the German formatter names English `Englisch`.
+
 ## Common pitfalls
 
 - **Leaving out the locale.** The result then depends on the machine. Pass one explicitly, or pass `undefined` only when you really mean "the user's own".
@@ -258,6 +357,7 @@ The method takes a number and a unit: `second`, `minute`, `hour`, `day`, `week`,
 - **Assuming spaces in output are normal spaces.** Many locales use no-break spaces. Compare with care.
 - **Formatting too early.** `Intl` output is text. Keep numbers as numbers and dates as dates until the last step.
 - **Building formatters in a loop.** Create one and reuse it.
+- **Sorting text with plain `sort()`.** It orders by code unit, so `Z` comes before `a` and `é` after `z`. Use a collator.
 - **Using `toFixed` for display of money.** Currency digits and signs depend on the currency and the locale. Use `NumberFormat`.
 
 ## Exercises
@@ -276,9 +376,7 @@ const items = [
   { name: "cake", qty: 1, price: 4.25 },
 ];
 const sale = new Date("2026-03-14T15:30:00Z");
-```
 
-```javascript title="ex_receipt.mjs (continued)"
 function receipt(locale, currency, timeZone) {
   const money = new Intl.NumberFormat(locale, { style: "currency", currency });
   const day = new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone });
@@ -292,6 +390,8 @@ function receipt(locale, currency, timeZone) {
   return lines.join("\n");
 }
 ```
+
+Print the same receipt for three locales:
 
 ```javascript title="ex_receipt.mjs (continued)"
 console.log(receipt("en-US", "USD", "America/New_York"));
@@ -428,10 +528,11 @@ No files
 
 ## Summary
 
-- `Intl` formatters turn data into text for a locale: `NumberFormat`, `DateTimeFormat`, `ListFormat`, `PluralRules` and `RelativeTimeFormat`.
+- `Intl` formatters turn data into text for a locale: `NumberFormat`, `DateTimeFormat`, `ListFormat`, `PluralRules`, `RelativeTimeFormat` and, from Node 24, `DurationFormat`.
 - Always pass a locale, and for dates always pass a `timeZone`, so the output does not depend on the machine.
 - Currency, percent, compact and unit styles are options of `NumberFormat`. Currency decides the decimals, the locale decides the layout.
 - `PluralRules` gives a category, and you supply the words. `RelativeTimeFormat` needs the unit chosen by your code.
+- `Intl.Collator` sorts text by the rules of a language, with `numeric: true` for numbers inside text and `sensitivity` to ignore case or accents. `Intl.DisplayNames` names languages, regions and currencies.
 - Create a formatter once and reuse it. The `toLocale...String` methods are shortcuts with the same options.
 - Output is for people. Keep real values as numbers and dates, and do not compare formatted text across environments.
 

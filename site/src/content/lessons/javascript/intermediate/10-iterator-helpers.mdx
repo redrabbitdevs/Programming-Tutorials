@@ -28,9 +28,7 @@ function* naturals() {
     yield n++;
   }
 }
-```
 
-```javascript title="helpers_basics.mjs (continued)"
 const firstSquares = naturals()
   .filter((n) => n % 2 === 0)
   .map((n) => n * n)
@@ -241,9 +239,7 @@ function* lines() {
     console.log("source closed");
   }
 }
-```
 
-```javascript title="take_closes.mjs (continued)"
 const found = lines().take(2).toArray();
 console.log(found);
 ```
@@ -342,9 +338,7 @@ function isPrime(n) {
   }
   return n > 1;
 }
-```
 
-```javascript title="primes_helpers.mjs (continued)"
 const primes = countFrom(2).filter(isPrime).take(10).toArray();
 console.log(primes.join(" "));
 console.log(primes.values().reduce((sum, p) => sum + p, 0));
@@ -376,9 +370,7 @@ const lines = [
   "ERROR crash",
   "INFO done",
 ];
-```
 
-```javascript title="log_pipeline.mjs (continued)"
 let checked = 0;
 const firstTwo = lines
   .values()
@@ -390,6 +382,8 @@ const firstTwo = lines
   .take(2)
   .toArray();
 ```
+
+Print the result and how many lines the chain examined:
 
 ```javascript title="log_pipeline.mjs (continued)"
 console.log(firstTwo);

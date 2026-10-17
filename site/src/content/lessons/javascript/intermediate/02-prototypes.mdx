@@ -170,9 +170,7 @@ function Person(name) {
 Person.prototype.greet = function () {
   return `Hi, I am ${this.name}`;
 };
-```
 
-```javascript title="constructor_prototype.mjs (continued)"
 const ada = new Person("Ada");
 const grace = new Person("Grace");
 
@@ -296,6 +294,8 @@ bike.wheels = 2;
 const cart = Object.create(vehicle);
 cart.name = "Cart";
 ```
+
+Describe each object, and check whether `cart` has a `wheels` property of its own:
 
 ```javascript title="vehicle_chain.mjs (continued)"
 console.log(car.describe());

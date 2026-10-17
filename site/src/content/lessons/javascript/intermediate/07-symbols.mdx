@@ -75,7 +75,7 @@ console.log(user);
 { name: 'Ada', Symbol(id): 42 }
 ```
 
-The property is real: `user[id]` reads it, and `user.id` looks for a string key and finds nothing. The next lines show how the property is treated:
+On Node 22 the last line prints the key in brackets, as `[Symbol(id)]: 42`. Node 24 and later print `Symbol(id): 42`, as shown. The property is real: `user[id]` reads it, and `user.id` looks for a string key and finds nothing. The next lines show how the property is treated:
 
 - `Object.keys`, `for...in` and `JSON.stringify` skip symbol keys, so a library can attach data without it appearing in your output.
 - `Object.getOwnPropertySymbols` lists them, and the console shows them.
@@ -137,9 +137,7 @@ class Duration {
     return this.seconds;
   }
 }
-```
 
-```javascript title="to_primitive.mjs (continued)"
 const d = new Duration(90);
 console.log(`${d}`, String(d));
 console.log(+d, d * 2, d > 60);
@@ -192,6 +190,44 @@ Symbol.iterator function
 
 The method returns an iterator, an object with a `next()` method, which hands out one value at a time. The [next module](../iteration-protocol/) is about writing your own.
 
+Two more well-known symbols change how classes behave. `Symbol.hasInstance` is a static method that `instanceof` calls, so a class can decide for itself what counts as an instance:
+
+```javascript title="sym_has_instance.mjs"
+class Even {
+  static [Symbol.hasInstance](value) {
+    return Number.isInteger(value) && value % 2 === 0;
+  }
+}
+
+console.log(4 instanceof Even, 3 instanceof Even, "4" instanceof Even);
+```
+
+```text
+true false false
+```
+
+`Symbol.species` is a static getter that tells array methods such as `map` and `filter` which class to build their result with. A subclass of `Array` returns itself by default, as the [inheritance lesson](../inheritance-composition/) showed. Returning `Array` makes the results plain arrays:
+
+```javascript title="sym_species.mjs"
+class Stack extends Array {}
+
+class PlainStack extends Array {
+  static get [Symbol.species]() {
+    return Array;
+  }
+}
+
+const doubled = Stack.of(1, 2, 3).map((n) => n * 2);
+const plain = PlainStack.of(1, 2, 3).map((n) => n * 2);
+console.log(doubled instanceof Stack, plain instanceof PlainStack);
+console.log(plain instanceof Array, Array.isArray(plain));
+```
+
+```text
+true false
+true true
+```
+
 ## Symbols as WeakMap keys
 
 A symbol made with `Symbol()` can also be a key in a `WeakMap`, a collection that holds its keys weakly. Registered symbols from `Symbol.for` cannot, since the registry keeps them alive forever. This is an ES2023 feature and runs on Node 22. [Lesson 12](../weak-collections/) explains `WeakMap`.
@@ -228,11 +264,11 @@ TypeError
 
 <Exercise title="Money with Symbol.toPrimitive">
 
-Write a class `Money` whose constructor takes a number of cents. Give it a `[Symbol.toPrimitive](hint)` method that returns text like `"$12.50"` for the `"string"` hint, and the amount in dollars, as a number, for every other hint. Create `price = new Money(1250)` and `tip = new Money(300)`. Print `${price}`, `price + tip` and `price > tip` on one line. Then print `Total: ` followed by a new `Money` built from `price * 100 + tip * 100`, inside a template literal. The expected output is `$12.50 15.5 true` and then `Total: $15.50`.
+Write a class `Money` whose constructor takes a number of cents. Give it a `[Symbol.toPrimitive](hint)` method that returns text like `"$12.50"` for the `"string"` hint, and the amount in dollars, as a number, for every other hint. Create `price = new Money(1250)` and `tip = new Money(300)`. Print `${price}`, `price + tip` and `price > tip` on one line. Then print `Total: ` followed by a new `Money` built from `Math.round(price * 100 + tip * 100)`, inside a template literal. The expected output is `$12.50 15.5 true` and then `Total: $15.50`.
 
 <Solution>
 
-In a template literal the hint is `"string"`, so the method formats the text. In `+` and `>` the hint is `"default"` or `"number"`, so it returns dollars as a number, and the arithmetic happens on those numbers. Multiplying by 100 asks for a number too, which gets back to cents.
+In a template literal the hint is `"string"`, so the method formats the text. In `+` and `>` the hint is `"default"` or `"number"`, so it returns dollars as a number, and the arithmetic happens on those numbers. Multiplying by 100 asks for a number too, which gets back to cents. `Math.round` is needed because dollars held as a fraction are not always exact: `0.29 * 100` is `28.999999999999996`, and a stored amount of cents must be a whole number.
 
 ```javascript title="money_primitive.mjs"
 class Money {
@@ -247,13 +283,11 @@ class Money {
     return this.cents / 100;
   }
 }
-```
 
-```javascript title="money_primitive.mjs (continued)"
 const price = new Money(1250);
 const tip = new Money(300);
 console.log(`${price}`, price + tip, price > tip);
-console.log(`Total: ${new Money(price * 100 + tip * 100)}`);
+console.log(`Total: ${new Money(Math.round(price * 100 + tip * 100))}`);
 ```
 
 ```text
@@ -280,9 +314,7 @@ function tag(object, value) {
   object[id] = value;
   return object;
 }
-```
 
-```javascript title="hidden_ids.mjs (continued)"
 const order = tag({ item: "lamp" }, 7);
 const other = { item: "desk", [Symbol("id")]: 99 };
 
@@ -327,9 +359,7 @@ function describe(color) {
       return "unknown";
   }
 }
-```
 
-```javascript title="symbol_enum.mjs (continued)"
 console.log(describe(Color.RED), describe(Color.GREEN));
 console.log(describe("red"), describe(Symbol("red")));
 console.log(Color.RED.description, Color.RED.toString());

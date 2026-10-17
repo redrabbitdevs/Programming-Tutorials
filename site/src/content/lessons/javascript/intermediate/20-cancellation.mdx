@@ -95,24 +95,21 @@ A function you write supports cancellation when it takes a signal and stops when
 - `signal.throwIfAborted()` throws the signal's reason if it is already aborted. Call it at safe points, such as the start of each loop iteration.
 - Pass the same signal to the operations inside, so that they stop by themselves: a timer, a `fetch`, or another of your own functions.
 
-The example below does both. It fetches five pages, with 40 ms of fake work for each, and is cancelled after 100 ms.
+The example below does both. It fetches five pages, with 200 ms of fake work for each, and is cancelled after 500 ms.
 
 ```javascript title="ab_search.mjs"
 import { setTimeout as sleep } from "node:timers/promises";
 
 async function searchPages(query, { signal } = {}) {
-  const found = [];
   for (let page = 1; page <= 5; page++) {
     signal?.throwIfAborted();
-    await sleep(40, null, { signal });
-    found.push(`${query} page ${page}`);
-    console.log("finished page", page);
+    await sleep(200, null, { signal });
+    console.log(query, "finished page", page);
   }
-  return found;
 }
 
 const controller = new AbortController();
-setTimeout(() => controller.abort(), 100);
+setTimeout(() => controller.abort(), 500);
 
 try {
   await searchPages("cats", { signal: controller.signal });
@@ -122,12 +119,12 @@ try {
 ```
 
 ```text
-finished page 1
-finished page 2
+cats finished page 1
+cats finished page 2
 search stopped: AbortError
 ```
 
-Pages 1 and 2 were finished. At 100 ms the abort arrived while page 3 was being fetched, so the `sleep` inside rejected, the `for` loop ended with that error, and `searchPages` rejected with an `AbortError`. The caller decides what to do with that: it asked for the cancellation, so it can treat it as a normal outcome.
+Pages 1 and 2 were finished. Page 1 ended at 200 ms and page 2 at 400 ms. At 500 ms the abort arrived while page 3 was being fetched, so the `sleep` inside rejected, the `for` loop ended with that error, and `searchPages` rejected with an `AbortError`. The caller decides what to do with that: it asked for the cancellation, so it can treat it as a normal outcome.
 
 By convention, a cancelled operation rejects with the signal's reason, or with an `AbortError`. A `catch` block can check `error.name === "AbortError"` and move on; any other error is a real failure and should be rethrown.
 
@@ -153,7 +150,7 @@ sleep rejected with AbortError
 signal reason is TimeoutError
 ```
 
-Here is the detail to notice. Node's `sleep` rejects with an `AbortError` whatever the cause. The reason that explains the cancellation is on the signal: `signal.reason.name` is `TimeoutError`. If your code needs to know whether the user cancelled or the clock ran out, read the signal. MDN adds one caution: a timeout signal cannot be cancelled, and while it is pending it is kept alive if it has `abort` listeners. For long timeouts, remove your listeners when the work finishes, or use a controller with `setTimeout` and `clearTimeout` instead.
+Here is the detail to notice. Node's `sleep` rejects with an `AbortError` whatever the cause. The reason that explains the cancellation is on the signal: `signal.reason.name` is `TimeoutError`. If your code needs to know whether the user cancelled or the clock ran out, read the signal. A timeout signal has no `abort()` method, so you cannot cancel its clock early, but its timer does not keep the program running either. If you need a deadline that you can call off, use a controller with `setTimeout` and `clearTimeout` instead.
 
 ## Combining signals: AbortSignal.any
 
@@ -164,7 +161,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 async function firstReason(userCancelsAfter) {
   const user = new AbortController();
-  const signal = AbortSignal.any([user.signal, AbortSignal.timeout(30)]);
+  const signal = AbortSignal.any([user.signal, AbortSignal.timeout(200)]);
   if (userCancelsAfter !== null) {
     setTimeout(() => user.abort(), userCancelsAfter);
   }
@@ -181,11 +178,11 @@ AbortError
 TimeoutError
 ```
 
-In the first call the user cancelled after 5 ms, before the 30 ms deadline, so the reason is an `AbortError`. In the second call nobody cancelled, and the deadline won with a `TimeoutError`. The `sleep` of one second in the helper only keeps the program waiting. The abort of the combined signal ends it early.
+In the first call the user cancelled after 5 ms, before the 200 ms deadline, so the reason is an `AbortError`. In the second call nobody cancelled, and the deadline won with a `TimeoutError`. The `sleep` of one second in the helper only keeps the program waiting. The abort of the combined signal ends it early.
 
 ## Signals and fetch
 
-`fetch` takes a `signal` in its options. When the signal aborts, the request is abandoned and the promise rejects. MDN lists an `AbortError` for a call to `abort()`, and the output below shows that a timeout signal produces a `TimeoutError`. `fetch` has been stable in Node since version 21. The example starts a tiny local web server that answers after 150 ms, to show a request that is too slow and one that is not.
+`fetch` takes a `signal` in its options. When the signal aborts, the request is abandoned and the promise rejects. A call to `abort()` makes it reject with an `AbortError`, and the output below shows that a timeout signal produces a `TimeoutError`. `fetch` has been stable in Node since version 21. The example starts a tiny local web server that answers after 150 ms, to show a request that is too slow and one that is not.
 
 ```javascript title="ab_fetch.mjs"
 import { createServer } from "node:http";
@@ -229,7 +226,7 @@ The first request had a 30 ms deadline and rejected with a `TimeoutError`. The s
 
 <Exercise title="A crawler with a deadline">
 
-Write `crawl(signal)`, which visits five pages and waits 40 ms for each, using the `setTimeout` from `node:timers/promises` with the signal. Record the number of finished pages in a variable. Run it with `AbortSignal.timeout(100)`. When it fails, print the error name and the number of pages, then the name of the signal's reason.
+Write `crawl(signal)`, which visits five pages and waits 200 ms for each, using the `setTimeout` from `node:timers/promises` with the signal. Record the number of finished pages in a variable. Run it with `AbortSignal.timeout(500)`. When it fails, print the error name and the number of pages, then the name of the signal's reason.
 
 Expected output:
 
@@ -240,7 +237,7 @@ signal reason: TimeoutError
 
 <Solution>
 
-The third wait is interrupted at 100 ms, so only two pages were finished. The error comes from the timer, and the cause is on the signal.
+The third wait is interrupted at 500 ms, so only two pages were finished. The error comes from the timer, and the cause is on the signal.
 
 ```javascript title="ab_ex_deadline.mjs"
 import { setTimeout as sleep } from "node:timers/promises";
@@ -249,12 +246,12 @@ let pagesDone = 0;
 
 async function crawl(signal) {
   for (let page = 1; page <= 5; page++) {
-    await sleep(40, null, { signal });
+    await sleep(200, null, { signal });
     pagesDone = page;
   }
 }
 
-const signal = AbortSignal.timeout(100);
+const signal = AbortSignal.timeout(500);
 try {
   await crawl(signal);
 } catch (error) {
@@ -322,7 +319,7 @@ results for abc
 
 <Exercise title="Write an abortable sleep">
 
-Without using `node:timers/promises`, write `sleep(ms, signal)` that returns a promise. It fulfils after `ms` milliseconds. If the signal aborts first, it rejects with `signal.reason` and clears the timer. If the signal is already aborted, it rejects at once. Remove the event listener when the timer wins. Test it: a 5 ms sleep that finishes, a 1000 ms sleep that is aborted by a controller after 10 ms with a custom error, and a call on the already aborted signal.
+Without using `node:timers/promises`, write `sleep(ms, signal)` that returns a promise. It fulfils after `ms` milliseconds. If the signal aborts first, it rejects with `signal.reason` and clears the timer. If the signal is already aborted, it rejects at once. Remove the event listener when the timer wins. Test it: a 20 ms sleep that finishes, a 1000 ms sleep that is aborted by a controller after 200 ms with a custom error, and a call on the already aborted signal.
 
 Expected output:
 
@@ -351,13 +348,17 @@ function sleep(ms, signal) {
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
+```
 
+Test it with a sleep that finishes, one that is aborted with a custom error, and one that starts on a signal that is already aborted:
+
+```javascript title="ab_ex_sleep.mjs (continued)"
 const controller = new AbortController();
-setTimeout(() => controller.abort(new Error("changed my mind")), 10);
-await sleep(5, controller.signal);
+setTimeout(() => controller.abort(new Error("changed my mind")), 200);
+await sleep(20, controller.signal);
 console.log("short sleep finished");
 await sleep(1000, controller.signal).catch((e) => console.log(e.message));
-await sleep(5, controller.signal).catch((e) => console.log(e.message));
+await sleep(20, controller.signal).catch((e) => console.log(e.message));
 ```
 
 ```text
@@ -378,4 +379,4 @@ changed my mind
 - `AbortSignal.timeout(ms)` aborts with a `TimeoutError`. `AbortSignal.any([...])` combines signals.
 - Timers in `node:timers/promises` and `fetch` accept `{ signal }`. Read `signal.reason` to learn why.
 
-Next: consuming streams of values that arrive over time, with `for await...of`.
+Next: [async iteration](../async-iteration/), or consuming streams of values that arrive over time, with `for await...of`.

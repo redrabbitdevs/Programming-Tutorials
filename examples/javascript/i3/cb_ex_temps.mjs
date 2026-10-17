@@ -11,7 +11,6 @@ function getTemperature(city, callback) {
 }
 
 const getTemperatureAsync = promisify(getTemperature);
-
 console.log("Oslo:", await getTemperatureAsync("Oslo"));
 console.log("Cairo:", await getTemperatureAsync("Cairo"));
 try {

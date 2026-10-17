@@ -7,9 +7,7 @@ class ListNode {
 
 function fromArray(values) {
   let head = null;
-  for (const value of [...values].reverse()) {
-    head = new ListNode(value, head);
-  }
+  for (const value of [...values].reverse()) head = new ListNode(value, head);
   return head;
 }
 

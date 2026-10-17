@@ -74,9 +74,7 @@ function track(page) {
   visits.set(page, (visits.get(page) ?? 0) + 1);
   return visits.get(page);
 }
-```
 
-```javascript title="visit_counts.mjs (continued)"
 const home = { url: "/home" };
 const about = { url: "/about" };
 
@@ -108,9 +106,7 @@ function describe(shape) {
   cache.set(shape, text);
   return text;
 }
-```
 
-```javascript title="memo_weak.mjs (continued)"
 const box = { w: 3, h: 4 };
 console.log(describe(box), describe(box), calls);
 console.log(describe({ w: 3, h: 4 }), calls);
@@ -136,9 +132,7 @@ const c = { name: "c", next: [] };
 a.next.push(b);
 b.next.push(c);
 c.next.push(a);
-```
 
-```javascript title="weakset_visited.mjs (continued)"
 function walk(node, seen = new WeakSet()) {
   if (seen.has(node)) {
     return [];
@@ -146,9 +140,7 @@ function walk(node, seen = new WeakSet()) {
   seen.add(node);
   return [node.name, ...node.next.flatMap((n) => walk(n, seen))];
 }
-```
 
-```javascript title="weakset_visited.mjs (continued)"
 console.log(walk(a));
 ```
 
@@ -244,9 +236,7 @@ function idOf(object) {
   }
   return ids.get(object);
 }
-```
 
-```javascript title="object_ids.mjs (continued)"
 const first = {};
 const second = {};
 console.log(idOf(first), idOf(second), idOf(first));
@@ -278,16 +268,12 @@ function createCounter() {
   counts.set(counter, 0);
   return counter;
 }
-```
 
-```javascript title="weak_private.mjs (continued)"
 function increment(counter) {
   counts.set(counter, counts.get(counter) + 1);
   return counts.get(counter);
 }
-```
 
-```javascript title="weak_private.mjs (continued)"
 const a = createCounter();
 const b = createCounter();
 increment(a);
@@ -324,9 +310,7 @@ const keys = {
   symbol: Symbol("local"),
   registered: Symbol.for("shared"),
 };
-```
 
-```javascript title="key_rules.mjs (continued)"
 for (const [label, key] of Object.entries(keys)) {
   try {
     new WeakMap().set(key, true);

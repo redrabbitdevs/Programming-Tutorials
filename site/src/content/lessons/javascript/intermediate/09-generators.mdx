@@ -30,9 +30,7 @@ function* steps() {
   console.log("end");
   return 3;
 }
-```
 
-```javascript title="gen_basics.mjs (continued)"
 const gen = steps();
 console.log("created");
 console.log(gen.next());
@@ -72,9 +70,7 @@ function* letters() {
   yield "b";
   return "ignored";
 }
-```
 
-```javascript title="gen_iterable.mjs (continued)"
 const gen = letters();
 console.log(gen[Symbol.iterator]() === gen);
 console.log([...gen], [...gen]);
@@ -103,9 +99,7 @@ class Countdown {
     }
   }
 }
-```
 
-```javascript title="gen_iterable.mjs (continued)"
 console.log([...new Countdown(3)]);
 ```
 
@@ -127,9 +121,7 @@ function* ids(prefix) {
     n += 1;
   }
 }
-```
 
-```javascript title="ids_infinite.mjs (continued)"
 const orderIds = ids("order");
 console.log(orderIds.next().value, orderIds.next().value);
 ```
@@ -172,9 +164,7 @@ function* inner() {
   yield "b";
   return "inner finished";
 }
-```
 
-```javascript title="yield_star.mjs (continued)"
 function* outer() {
   yield 1;
   const result = yield* inner();
@@ -182,9 +172,7 @@ function* outer() {
   yield* [2, 3];
   yield* "xy";
 }
-```
 
-```javascript title="yield_star.mjs (continued)"
 console.log([...outer()]);
 ```
 
@@ -204,9 +192,7 @@ function* flatten(items) {
     }
   }
 }
-```
 
-```javascript title="flatten_gen.mjs (continued)"
 const nested = [1, [2, [3, 4]], 5, [[6]]];
 console.log([...flatten(nested)]);
 ```
@@ -242,9 +228,7 @@ function* runningTotal() {
     total += amount;
   }
 }
-```
 
-```javascript title="gen_two_way.mjs (continued)"
 const gen = runningTotal();
 console.log(gen.next());
 console.log(gen.next(5));
@@ -277,9 +261,7 @@ function* resilient() {
     }
   }
 }
-```
 
-```javascript title="gen_return_throw.mjs (continued)"
 const gen = resilient();
 console.log(gen.next());
 console.log(gen.next("a"));
@@ -316,9 +298,7 @@ function* reader() {
     console.log("closed");
   }
 }
-```
 
-```javascript title="gen_cleanup.mjs (continued)"
 for (const n of reader()) {
   console.log("read", n);
   if (n === 2) {
@@ -366,6 +346,8 @@ function* filter(iterable, test) {
 }
 ```
 
+`map` and `take` follow the same pattern:
+
 ```javascript title="lazy_pipeline.mjs (continued)"
 function* map(iterable, fn) {
   for (const item of iterable) {
@@ -386,6 +368,8 @@ function* take(iterable, count) {
   }
 }
 ```
+
+Connect the stages. Nothing runs until `take` asks for values:
 
 ```javascript title="lazy_pipeline.mjs (continued)"
 const odd = filter(naturals(), (n) => n % 2 === 1);
@@ -427,9 +411,7 @@ function* fibonacci() {
     [a, b] = [b, a + b];
   }
 }
-```
 
-```javascript title="fib_gen.mjs (continued)"
 const first = [];
 for (const value of fibonacci()) {
   if (first.length === 10) {
@@ -480,9 +462,7 @@ function* inOrder(tree) {
   yield tree.value;
   yield* inOrder(tree.right);
 }
-```
 
-```javascript title="tree_walk.mjs (continued)"
 const tree = node(4, node(2, node(1), node(3)), node(6, node(5), node(7)));
 console.log([...inOrder(tree)].join(" "));
 console.log(Math.max(...inOrder(tree)));
@@ -515,9 +495,7 @@ function* chunked(items, size) {
     yield items.slice(start, start + size);
   }
 }
-```
 
-```javascript title="chunked_gen.mjs (continued)"
 console.log([...chunked([1, 2, 3, 4, 5], 2)]);
 console.log([...chunked("abcdef", 3)]);
 console.log([...chunked([], 4)]);

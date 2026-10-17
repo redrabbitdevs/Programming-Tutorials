@@ -20,7 +20,7 @@ fundamentals: ["fundamentals/beginner/14-maps-and-sets", "fundamentals/beginner/
 
 ## Choosing keys
 
-A `Map` compares keys by identity for objects and arrays. That means two arrays with the same contents are two different keys, which surprises people who want a coordinate pair as a key.
+A `Map` compares keys by identity for objects and arrays. That means two arrays with the same contents are two different keys, which surprises people who want a coordinate pair as a key. Primitive keys are compared by value with the rule called SameValueZero: `NaN` equals `NaN`, and `+0` equals `-0`, so `map.set(NaN, 1)` can be read back with `map.get(NaN)`.
 
 ```javascript title="composite_keys.mjs"
 const visited = new Map();
@@ -266,9 +266,7 @@ const orders = [
   { id: 4, customer: "cyd" },
 ];
 const blocked = new Set(["bob", "cyd"]);
-```
 
-```javascript title="set_lookup.mjs (continued)"
 const allowed = orders.filter((order) => !blocked.has(order.customer));
 console.log(allowed.map((order) => order.id));
 ```
@@ -317,17 +315,13 @@ const lines = [
   "WARN slow query",
   "INFO idle",
 ];
-```
 
-```javascript title="group_log.mjs (continued)"
 const byLevel = new Map();
 for (const line of lines) {
   const [level, ...rest] = line.split(" ");
   byLevel.getOrInsert(level, []).push(rest.join(" "));
 }
-```
 
-```javascript title="group_log.mjs (continued)"
 for (const [level, messages] of byLevel) {
   console.log(`${level} (${messages.length}): ${messages.join("; ")}`);
 }
@@ -357,18 +351,14 @@ const docs = new Map([
   [2, "the lazy dog"],
   [3, "a quick dog and a fox"],
 ]);
-```
 
-```javascript title="inverted_index.mjs (continued)"
 const index = new Map();
 for (const [id, text] of docs) {
   for (const word of text.split(" ")) {
     index.getOrInsertComputed(word, () => new Set()).add(id);
   }
 }
-```
 
-```javascript title="inverted_index.mjs (continued)"
 console.log(index.get("quick"));
 const both = index.get("fox").intersection(index.get("dog"));
 console.log(both, index.get("cat")?.size ?? 0);
@@ -411,6 +401,8 @@ class LruCache {
   }
 ```
 
+`set` evicts the oldest key when the cache grows past its limit. A short test follows the class:
+
 ```javascript title="lru_cache.mjs (continued)"
   set(key, value) {
     this.#entries.delete(key);
@@ -425,9 +417,7 @@ class LruCache {
     return [...this.#entries.keys()];
   }
 }
-```
 
-```javascript title="lru_cache.mjs (continued)"
 const cache = new LruCache(2);
 cache.set("a", 1);
 cache.set("b", 2);

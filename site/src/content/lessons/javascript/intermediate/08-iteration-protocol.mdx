@@ -194,9 +194,7 @@ const naturals = {
     return { next: () => ({ value: n++, done: false }) };
   },
 };
-```
 
-```javascript title="infinite_iterable.mjs (continued)"
 for (const n of naturals) {
   if (n > 3) {
     break;
@@ -245,6 +243,8 @@ const source = {
   },
 };
 ```
+
+A `for...of` loop that breaks at 2 triggers the cleanup:
 
 ```javascript title="return_cleanup.mjs (continued)"
 for (const n of source) {
@@ -333,6 +333,8 @@ class Range {
 }
 ```
 
+Spread the range twice, convert another with a mapping function, and destructure two items from a long range:
+
 ```javascript title="range_class.mjs (continued)"
 const range = new Range(0, 10, 3);
 console.log([...range], [...range]);
@@ -373,9 +375,7 @@ function take(iterable, count) {
   }
   return result;
 }
-```
 
-```javascript title="take_function.mjs (continued)"
 const evens = {
   [Symbol.iterator]() {
     let n = 0;
@@ -383,6 +383,8 @@ const evens = {
   },
 };
 ```
+
+Take from an endless iterator, from a string, from a set that is too short, and with a count of zero:
 
 ```javascript title="take_function.mjs (continued)"
 console.log(take(evens, 4));
@@ -425,9 +427,7 @@ function zip(first, second) {
     pairs.push([left.value, right.value]);
   }
 }
-```
 
-```javascript title="zip_function.mjs (continued)"
 console.log(zip([1, 2, 3], "ab"));
 console.log(zip(new Set(["x"]), new Set(["y", "z"])));
 console.log(zip([], [1]));
