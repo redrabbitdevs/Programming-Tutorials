@@ -1,0 +1,3 @@
+direct:   [ 'string', 'string', 'string' ]
+indirect: [ 'undefined', 'undefined', 'string' ]
+optional: [ 'undefined', 'undefined', 'string' ]

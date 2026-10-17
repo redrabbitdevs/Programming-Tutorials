@@ -1,0 +1,4 @@
+false 1
+false
+TypeError
+[ 'a', Symbol(s) ]

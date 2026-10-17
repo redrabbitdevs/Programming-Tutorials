@@ -1,0 +1,438 @@
+---
+language: javascript
+level: advanced
+module: Metaprogramming and functional patterns
+order: 5
+title: eval, Function and code loading
+description: Know what eval and new Function do, how direct and indirect eval differ, why node:vm is not a sandbox, how to switch code generation off, and which safe alternatives replace dynamic code in everyday programs.
+minVersion: "22"
+objectives:
+  - Explain what eval returns and how direct and indirect eval see different scopes
+  - Create functions from strings with new Function and say what they can and cannot reach
+  - Show how evaluating untrusted text lets it run code, and replace it with JSON and lookups
+  - Explain why node:vm is not a security boundary, and what ShadowRealm is
+  - Disable code generation from strings with a Node flag or a browser CSP
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/28-clean-code-and-security-basics"]
+---
+
+Every lesson in this module so far has changed how existing code behaves. This one is about the most powerful metaprogramming tool of all: turning a string into code and running it. JavaScript has had it from the start, as `eval`, and it has caused a long list of security holes. The [fundamentals lesson on security basics](../../../fundamentals/beginner/clean-code-and-security-basics/) gave the rule: never run untrusted text as code. This lesson shows exactly why, what the JavaScript and Node tools do, and what to use instead. Everything here runs on Node 22.
+
+## eval
+
+`eval(source)` parses a string as a script, runs it, and returns the value of the last expression statement, called its **completion value**. A value that is not a string comes back unchanged.
+
+```javascript title="eval_basics.mjs"
+console.log(eval("2 + 2"));
+console.log(eval("let n = 5; n * n"));
+console.log(eval("if (true) { 'yes' } else { 'no' }"));
+console.log(eval(42), eval({ a: 1 }));
+
+try {
+  eval("let = = 1");
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+4
+25
+yes
+42 { a: 1 }
+SyntaxError
+```
+
+The source is parsed as a **script**, not a module, so `import` declarations are not allowed inside it even when `eval` is called from a module. Syntax errors in the string become a `SyntaxError` at the moment of the call, not when the file loads.
+
+## Direct and indirect eval
+
+How `eval` is called decides what it can see. A call written literally as `eval(...)` is a **direct** eval: the code runs in the caller's scope and can read and change its local variables. Any other way of calling it is **indirect**, and the code runs in the global scope. Two common indirect forms are `(0, eval)(source)`, where the comma operator evaluates to the bare `eval` function, and `eval?.(source)` with optional chaining.
+
+```javascript title="direct_indirect.mjs"
+const moduleLevel = "module";
+globalThis.shared = "global";
+
+function look() {
+  const local = "local";
+  const code = "[typeof local, typeof moduleLevel, typeof shared]";
+  console.log("direct:  ", eval(code));
+  console.log("indirect:", (0, eval)(code));
+  console.log("optional:", eval?.(code));
+}
+look();
+```
+
+```text
+direct:   [ 'string', 'string', 'string' ]
+indirect: [ 'undefined', 'undefined', 'string' ]
+optional: [ 'undefined', 'undefined', 'string' ]
+```
+
+The direct call sees the local variable, the module-level constant and the global. The indirect calls see only the global: a `const` at the top of a module belongs to that module, not to the global object.
+
+Strict mode differs too. A direct eval inherits the caller's strictness, and module code is always strict, so a `var` inside a direct eval stays inside the evaluated code. An indirect eval is strict only if the string itself starts with `"use strict"`, so a `var` there becomes a property of the global object, from anywhere in the program.
+
+```javascript title="eval_var_leak.mjs"
+eval("var fromDirect = 1");
+console.log(typeof fromDirect, "fromDirect" in globalThis);
+
+(0, eval)("var fromIndirect = 2");
+console.log(typeof fromIndirect, globalThis.fromIndirect);
+
+(0, eval)('"use strict"; var contained = 3');
+console.log("contained" in globalThis);
+```
+
+```text
+undefined false
+number 2
+false
+```
+
+## new Function
+
+The `Function` constructor builds a function from strings: zero or more parameter names, then the body. It is like an indirect eval that produces a function. The body runs in the global scope and cannot see the variables around the place where the function was created, so values must come in as arguments.
+
+```javascript title="new_function.mjs"
+const add = new Function("a", "b", "return a + b;");
+console.log(add(2, 3), add.name, add.length);
+
+function makeTaxer() {
+  const rate = 0.2;
+  const sees = new Function("return typeof rate;");
+  const takes = new Function("price", "rate", "return price * (1 + rate);");
+  return [sees(), takes(100, rate)];
+}
+console.log(makeTaxer());
+```
+
+```text
+5 anonymous 2
+[ 'undefined', 120 ]
+```
+
+The created function is named `anonymous` and has the declared number of parameters. It does not inherit strict mode from the module that creates it: its body is strict only if it starts with `"use strict"`. Because it cannot reach local variables, `new Function` is less dangerous than a direct `eval`, and MDN notes that engines can optimise code around it better than code around a direct `eval`. It still runs whatever the string says, with full access to globals such as `process`.
+
+## How evaluated text takes over
+
+The classic misuse is loading data with `eval`. A configuration file that looks like an object literal is easy to read with `eval`, and it works fine until the file contains something that is not just data:
+
+```javascript title="eval_config.mjs"
+function loadConfigUnsafe(text) {
+  return eval(`(${text})`);
+}
+
+const honest = '{ "port": 8080, "debug": false }';
+console.log(loadConfigUnsafe(honest));
+
+const hostile = '{ "port": (globalThis.owned = "yes", 8080) }';
+console.log(loadConfigUnsafe(hostile), globalThis.owned);
+```
+
+```text
+{ port: 8080, debug: false }
+{ port: 8080 } yes
+```
+
+The hostile text is still a valid object literal, and the expression in the middle ran as code with the full power of the program. Here it only set a global, but it could equally have read `process.env` or deleted files. The fix for data is to parse it as data:
+
+```javascript title="eval_config.mjs (continued)"
+console.log(JSON.parse(honest));
+try {
+  JSON.parse(hostile);
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+{ port: 8080, debug: false }
+SyntaxError
+```
+
+`JSON.parse` accepts only JSON values and never runs anything, so the hostile text is just a syntax error. [The JSON lesson](../../beginner/json-js/) covers revivers, which handle custom types such as dates without needing code in the data.
+
+## Safer replacements for common uses
+
+Most uses of `eval` in old code fall into a few patterns, and each has a plain replacement. Reading a property whose name is in a variable needs square brackets, not `eval("obj." + name)`. Reading a nested path such as `"db.host"` needs a loop over the parts. Choosing an operation by name needs a lookup table of functions.
+
+```javascript title="get_path.mjs"
+function getPath(object, path) {
+  let value = object;
+  for (const key of path.split(".")) {
+    if (value === null || typeof value !== "object") return undefined;
+    if (!Object.hasOwn(value, key)) return undefined;
+    value = value[key];
+  }
+  return value;
+}
+
+const config = { db: { host: "localhost", port: 5432 } };
+console.log(getPath(config, "db.host"), getPath(config, "db.user"));
+console.log(getPath(config, "db.constructor"), getPath(config, "__proto__"));
+```
+
+```text
+localhost undefined
+undefined undefined
+```
+
+The `Object.hasOwn` check matters. Without it, a path such as `db.constructor` or `__proto__` would walk off the data into the object's prototype, and the same mistake in a function that *sets* paths lets input change `Object.prototype` for the whole program, a bug class known as **prototype pollution**.
+
+```javascript title="dispatch_table.mjs"
+const operations = {
+  add: (a, b) => a + b,
+  sub: (a, b) => a - b,
+  max: Math.max,
+};
+
+function run(name, a, b) {
+  if (!Object.hasOwn(operations, name)) {
+    throw new Error(`unknown operation: ${name}`);
+  }
+  return operations[name](a, b);
+}
+
+console.log(run("add", 2, 3), run("max", 2, 3));
+try {
+  run("constructor", 1, 2);
+} catch (error) {
+  console.log(error.message);
+}
+```
+
+```text
+5 3
+unknown operation: constructor
+```
+
+The table lists exactly what is allowed, and anything else is an error. Again the own-property check keeps `"constructor"` and `"toString"`, which every object inherits, from slipping through.
+
+## Switching code generation off
+
+You can make the runtime refuse to turn strings into code. In Node, the flag `--disallow-code-generation-from-strings` makes `eval` and `new Function` throw. The example starts a second Node process with the flag, using `spawnSync` from [the command-line tools lesson](../../intermediate/cli-tools/), and runs a short script in it:
+
+```javascript title="no_codegen.mjs"
+import { spawnSync } from "node:child_process";
+
+const script = `
+  try { eval("1 + 1"); } catch (e) { console.log("eval:", e.name); }
+  try { new Function("return 1"); } catch (e) {
+    console.log("Function:", e.name);
+  }
+  console.log("JSON still works:", JSON.parse("[1]").length);
+`;
+const flags = ["--disallow-code-generation-from-strings", "-e", script];
+const child = spawnSync(process.execPath, flags, { encoding: "utf8" });
+console.log(child.stdout.trim());
+```
+
+```text
+eval: EvalError
+Function: EvalError
+JSON still works: 1
+```
+
+Both attempts throw an `EvalError`, while ordinary code runs normally. Node's documentation notes that the flag does not affect the `node:vm` module. If your program and its dependencies never need dynamic code, the flag is a cheap layer of defence, since an attacker who finds an injection bug cannot use it to reach `eval`.
+
+In browsers, the same protection comes from a **Content Security Policy**. When a page sends a CSP header whose `script-src` directive does not include `'unsafe-eval'`, `eval`, `new Function` and similar methods are blocked. A library that depends on `eval` therefore breaks on any page with such a policy.
+
+## node:vm is not a sandbox
+
+Node's `node:vm` module compiles and runs code in a separate **context**, with its own global object. That sounds like a sandbox, and the first test seems to confirm it: `process` is not defined inside.
+
+```javascript title="vm_not_sandbox.mjs"
+import vm from "node:vm";
+
+console.log(vm.runInNewContext("typeof process"));
+console.log(vm.runInNewContext("x * 2", { x: 21 }));
+
+const escape = 'this.constructor.constructor("return process")()';
+const reached = vm.runInNewContext(escape);
+console.log(reached === process, typeof reached.exit);
+```
+
+```text
+undefined
+42
+true function
+```
+
+The third call gets out in one line. The context's global object is backed by an ordinary object that `runInNewContext` created in the main program, so `this.constructor` inside the context is the main program's `Object`, and its `constructor` is the main program's `Function`. A function built with that `Function` runs in the main program, where `process` exists. The result is the real `process` object of the running program, with `exit`, `env` and everything else. Node's documentation says it plainly: "The `node:vm` module is not a security mechanism. Do not use it to run untrusted code." Use `vm` for what it is good at, such as running trusted scripts with a custom set of globals in a REPL or a test tool.
+
+Running code you do not trust needs a real boundary, such as a separate operating-system process with limited rights, or a container. For a separate Node process, Node's permission model (the `--permission` flag) can restrict file, network and child-process access. A later lesson in this course covers it.
+
+**ShadowRealm** is a TC39 proposal for a standard way to create a fresh global environment with its own built-ins, from inside JavaScript. It is at **Stage 2.7** (the tc39/proposals table and the proposal README, checked 2026-10-17), and `ShadowRealm` is not defined in Node 22, 24 or 26. It is not something you can use yet.
+
+## When code generation is justified
+
+Dynamic code is not always wrong. It has a place when the source is code that you or your users wrote on purpose, and when it is never mixed with untrusted data:
+
+- a REPL, a code playground or a test runner, which exist to run code;
+- a build tool or template engine that compiles templates written by the developer into functions once, for speed;
+- generated code in a build step, where the output is reviewed or tested like any other code.
+
+Outside those cases, the costs are high. Any path from input to `eval` is a code execution hole. MDN notes that direct `eval` is slower than the alternatives, forces the engine to keep variable lookups it would otherwise optimise away, and makes minifiers give up on the surrounding scope. Stack traces point into anonymous evaluated code, and linters and type checkers cannot see inside the string.
+
+If you think you need `eval`, check this list first: `JSON.parse` for data, square brackets and loops for property paths, lookup tables for names, closures and higher-order functions for behaviour chosen at run time, and dynamic `import()` for loading modules by path.
+
+## Common pitfalls
+
+- **Loading configuration or data with `eval`.** Use `JSON.parse`, or a proper parser for the format.
+- **Thinking indirect `eval` or `new Function` is safe.** They cannot see local variables, but they still run any code with full access to globals.
+- **Treating `node:vm` as a sandbox.** One line escapes it. Use a separate process or another real boundary.
+- **Walking or setting property paths without own-property checks.** `__proto__`, `constructor` and `prototype` lead into shared prototypes.
+- **Forgetting that indirect eval is sloppy mode.** A `var` in it creates a global variable.
+- **Building function names or code from input**, as in `eval(name + "()")`. Use a lookup table of allowed functions.
+
+## Exercises
+
+<Exercise title="Replace an eval config loader">
+
+An old program loads its settings with `eval("(" + text + ")")`. Write `loadConfig(text)` without `eval`: parse with `JSON.parse`, merge the result over the defaults `{ port: 3000, host: "localhost", debug: false }`, and throw an `Error` with the message `port must be an integer from 1 to 65535` when the merged port is not such an integer. Test it with `'{ "port": 8080 }'`, with `'{ "debug": true, "port": "80" }'`, and with the hostile text `'{ "port": (process.exitCode = 3, 1) }'`, printing the result or the error's name and message for each. The expected output is `{ port: 8080, host: 'localhost', debug: false }`, then `Error port must be an integer from 1 to 65535`, then a line that starts with `SyntaxError`. Finish by printing `process.exitCode`, which should still be `undefined`, to show that the hostile text did not run.
+
+<Solution>
+
+The hostile text never runs: `JSON.parse` rejects it as invalid JSON, and the program's exit code is untouched. Validating after parsing catches data that is valid JSON but wrong, such as a port given as a string. The exact wording of the `SyntaxError` message comes from the engine, so the solution prints only the first word of the message.
+
+```javascript title="config_loader.mjs"
+const defaults = { port: 3000, host: "localhost", debug: false };
+
+function loadConfig(text) {
+  const config = { ...defaults, ...JSON.parse(text) };
+  const { port } = config;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error("port must be an integer from 1 to 65535");
+  }
+  return config;
+}
+```
+
+```javascript title="config_loader.mjs (continued)"
+const inputs = [
+  '{ "port": 8080 }',
+  '{ "debug": true, "port": "80" }',
+  '{ "port": (process.exitCode = 3, 1) }',
+];
+for (const text of inputs) {
+  try {
+    console.log(loadConfig(text));
+  } catch (error) {
+    const message = error.name === "SyntaxError"
+      ? error.message.split(" ")[0]
+      : error.message;
+    console.log(error.name, message);
+  }
+}
+console.log("exit code:", process.exitCode);
+```
+
+```text
+{ port: 8080, host: 'localhost', debug: false }
+Error port must be an integer from 1 to 65535
+SyntaxError Unexpected
+exit code: undefined
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A calculator without eval">
+
+Write `calculate(expression)` for expressions of the form `number operator number`, with spaces around the operator, such as `"12 * 3"`. Split the text, convert both numbers with `Number`, and look the operator up in a table of `+`, `-`, `*` and `/`. Throw an `Error` with the message `cannot evaluate: TEXT` when the text does not have three parts, when either number is `NaN`, or when the operator is not in the table. Print the results for `"12 * 3"`, `"7 / 2"` and `"10 - 4.5"`, then the error message for `"2 + process.exit()"`. The expected output is `36 3.5 5.5` and then `cannot evaluate: 2 + process.exit()`.
+
+<Solution>
+
+The calculator understands exactly four operations on two numbers, and nothing else can get through, however the input is written. `Map` is used for the table, so inherited names such as `constructor` cannot match.
+
+```javascript title="safe_calculator.mjs"
+const operators = new Map([
+  ["+", (a, b) => a + b],
+  ["-", (a, b) => a - b],
+  ["*", (a, b) => a * b],
+  ["/", (a, b) => a / b],
+]);
+
+function calculate(expression) {
+  const parts = expression.trim().split(" ");
+  const [left, op, right] = parts;
+  const a = Number(left);
+  const b = Number(right);
+  if (parts.length !== 3 || Number.isNaN(a) || Number.isNaN(b)
+    || !operators.has(op)) {
+    throw new Error(`cannot evaluate: ${expression}`);
+  }
+  return operators.get(op)(a, b);
+}
+```
+
+```javascript title="safe_calculator.mjs (continued)"
+console.log(calculate("12 * 3"), calculate("7 / 2"), calculate("10 - 4.5"));
+try {
+  calculate("2 + process.exit()");
+} catch (error) {
+  console.log(error.message);
+}
+```
+
+```text
+36 3.5 5.5
+cannot evaluate: 2 + process.exit()
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Placeholders without code">
+
+Write `fill(template, data)` that replaces placeholders such as `{{user.name}}` in a string with values from `data`, following dotted paths. Use `replace` with the regular expression `/\{\{\s*([\w.]+)\s*\}\}/g` and a callback, and walk the path with own-property checks so that a placeholder can only reach the data itself. A placeholder whose path does not resolve to a string or a number becomes an empty string. Fill the template `"Hi {{ user.name }}, you have {{count}} new {{user.__proto__}}{{user.constructor}}messages."` with `{ user: { name: "Ada" }, count: 3 }` and print the result. The expected output is `Hi Ada, you have 3 new messages.`
+
+<Solution>
+
+A template engine that compiles templates into functions with `new Function` is dangerous if a template ever comes from a user. This version interprets the placeholders instead: it can only look up data, so `__proto__` and `constructor` resolve to nothing.
+
+```javascript title="fill_placeholders.mjs"
+function lookup(data, path) {
+  let value = data;
+  for (const key of path.split(".")) {
+    const ok = value !== null && typeof value === "object"
+      && Object.hasOwn(value, key);
+    if (!ok) return "";
+    value = value[key];
+  }
+  return typeof value === "string" || typeof value === "number" ? value : "";
+}
+
+function fill(template, data) {
+  return template.replace(/\{\{\s*([\w.]+)\s*\}\}/g,
+    (match, path) => lookup(data, path));
+}
+```
+
+```javascript title="fill_placeholders.mjs (continued)"
+const template = "Hi {{ user.name }}, you have {{count}} new "
+  + "{{user.__proto__}}{{user.constructor}}messages.";
+console.log(fill(template, { user: { name: "Ada" }, count: 3 }));
+```
+
+```text
+Hi Ada, you have 3 new messages.
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `eval` runs a string as a script and returns its completion value. A direct call sees the caller's scope and strictness. An indirect call, such as `(0, eval)(...)` or `eval?.(...)`, runs in the global scope in sloppy mode unless the string says `"use strict"`.
+- `new Function(params..., body)` builds a function whose body runs in the global scope and cannot see local variables. It still runs arbitrary code.
+- Evaluating untrusted text lets it run with your program's full power. Use `JSON.parse` for data, brackets and own-property checks for paths, and lookup tables for names.
+- `--disallow-code-generation-from-strings` in Node, and a CSP without `'unsafe-eval'` in browsers, make `eval` and `new Function` throw.
+- `node:vm` is not a security mechanism, and one line escapes it. ShadowRealm is a Stage 2.7 proposal and not available in Node.
+- Code generation is justified for tools that exist to run code you chose to run, never for data.
+
+That ends the Metaprogramming and functional patterns module. The next module, Resources and concurrency, starts with explicit resource management.

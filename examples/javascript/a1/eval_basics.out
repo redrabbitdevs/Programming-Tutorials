@@ -1,0 +1,5 @@
+4
+25
+yes
+42 { a: 1 }
+SyntaxError

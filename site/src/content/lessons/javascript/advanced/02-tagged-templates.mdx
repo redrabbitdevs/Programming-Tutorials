@@ -1,0 +1,378 @@
+---
+language: javascript
+level: advanced
+module: Metaprogramming and functional patterns
+order: 2
+title: Tagged templates
+description: Write tag functions that receive the pieces of a template literal, use raw strings and String.raw, escape interpolated values for HTML, and build small safe languages such as regular expressions and SQL queries.
+minVersion: "22"
+objectives:
+  - Explain what a tag function receives and write one that rebuilds the string
+  - Use strings.raw and String.raw, and say what happens to an invalid escape sequence
+  - Escape interpolated values for HTML with a tag, and allow trusted fragments through
+  - Cache work per call site using the identity of the strings array
+  - Judge when a tag clarifies code and when a plain function is better
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/28-clean-code-and-security-basics"]
+---
+
+A template literal such as `` `Hello, ${name}!` `` builds a string, as you saw in [the strings lesson](../../beginner/strings-js/). Put a function name in front of it, as in `` html`<p>${name}</p>` ``, and the language no longer builds the string. It calls the function, called a **tag**, with the fixed text and the interpolated values kept apart. The tag decides what the result is.
+
+That separation is the whole point. A tag knows which parts the programmer wrote and which parts came from variables, so it can treat the variable parts differently: escape them for HTML, turn them into query parameters, quote them in a regular expression. This is how libraries build small embedded languages that are safe by default. Tagged templates are ES2015, with one later change to escape sequences in ES2018, and everything here runs on Node 22.
+
+## What a tag receives
+
+A tag is an ordinary function. Its first argument is an array of the literal text pieces, and the remaining arguments are the values of the `${}` expressions, in order.
+
+```javascript title="tag_basics.mjs"
+function inspect(strings, ...values) {
+  console.log(strings, values);
+  return strings.length - values.length;
+}
+
+const item = "tea";
+const price = 3.5;
+
+console.log(inspect`${item} costs ${price} today`);
+console.log(inspect`no values at all`);
+```
+
+```text
+[ '', ' costs ', ' today' ] [ 'tea', 3.5 ]
+1
+[ 'no values at all' ] []
+1
+```
+
+- There is always one more string than there are values. When the template starts or ends with `${}`, the first or last string is empty, so the two lists can be zipped back together without special cases.
+- The values arrive as they are, not converted to text: `price` is still the number `3.5`.
+- The return value of the tag is the value of the whole expression. Here it is a number, and nothing requires a string.
+
+The tag expression is a function call, and it can be anything that evaluates to a function: a property such as `` lib.html`...` `` or a call that returns a function, such as `` format("en")`...` ``.
+
+## Rebuilding the string
+
+Many tags process the values and then stitch everything back together. A loop over the values does it:
+
+```javascript title="rebuild.mjs"
+function upperValues(strings, ...values) {
+  let out = strings[0];
+  for (let i = 0; i < values.length; i++) {
+    out += String(values[i]).toUpperCase() + strings[i + 1];
+  }
+  return out;
+}
+
+const city = "Lima";
+const days = 3;
+console.log(upperValues`Trip to ${city} for ${days} days`);
+```
+
+```text
+Trip to LIMA for 3 days
+```
+
+Start with the first string, then append each value followed by the string after it. Every tag in this lesson has this loop somewhere.
+
+## Cooked and raw strings
+
+Each text piece exists in two forms. The ordinary array holds the **cooked** strings, with escape sequences such as `\n` already turned into the characters they stand for. The array also has a `raw` property holding the text exactly as typed, backslashes included. The built-in tag `String.raw` rebuilds the string from the raw pieces.
+
+```javascript title="raw_strings.mjs"
+function both(strings) {
+  return [strings[0], strings.raw[0]];
+}
+console.log(both`one\ttwo`);
+
+console.log(String.raw`C:\Users\new\table.txt`);
+console.log("C:\\Users\\new\\table.txt");
+
+const folder = "temp";
+console.log(String.raw`C:\${folder}`);
+
+const digits = String.raw`\d+\.\d+`;
+console.log(digits, new RegExp(digits).test("3.14"));
+```
+
+```text
+[ 'one\ttwo', 'one\\ttwo' ]
+C:\Users\new\table.txt
+C:\Users\new\table.txt
+C:\${folder}
+\d+\.\d+ true
+```
+
+Inside an array, Node prints strings with their escapes, so the cooked tab shows as `\t` and the raw backslash as `\\`. `String.raw` is handy for text full of backslashes, such as Windows paths and regular expression source, where it saves doubling every backslash. The ordinary string literal needs `\\` for each backslash to get the same text. There is one trap: a backslash directly before `${` escapes the dollar sign, so `` String.raw`C:\${folder}` `` contains the literal text `${folder}` and inserts nothing.
+
+In an untagged template, a malformed escape such as `\unicode` (a `\u` not followed by hex digits) is a syntax error. Since ES2018, a tagged template accepts it: the cooked string becomes `undefined` and the raw string keeps the text. This lets a tag embed a language with its own escape rules, such as LaTeX.
+
+```javascript title="invalid_escape.mjs"
+function cookedAndRaw(strings) {
+  return { cooked: strings[0], raw: strings.raw[0] };
+}
+
+console.log(cookedAndRaw`\unicode and \xyz`);
+console.log(String.raw`\unicode`);
+```
+
+```text
+{ cooked: undefined, raw: '\\unicode and \\xyz' }
+\unicode
+```
+
+A tag that uses the cooked strings should check for `undefined` if it may receive such input.
+
+## Escaping HTML
+
+The classic use of a tag is to build HTML where every interpolated value is escaped, so that a user's name such as `<img onerror=...>` shows up as text instead of becoming markup. That attack is called cross-site scripting, and it is a form of the [injection problem](../../../fundamentals/beginner/clean-code-and-security-basics/) where data becomes code.
+
+```javascript title="html_tag.mjs"
+const entities = {
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+};
+const escapeHtml = (text) =>
+  String(text).replace(/[&<>"']/g, (c) => entities[c]);
+
+class SafeHtml {
+  constructor(text) {
+    this.text = text;
+  }
+  toString() {
+    return this.text;
+  }
+}
+```
+
+The regular expression matches the five characters that matter in HTML text and quoted attributes, and the callback looks each one up. `SafeHtml` marks text that has already been escaped, or that the programmer vouches for, so that it is not escaped a second time.
+
+```javascript title="html_tag.mjs (continued)"
+function render(value) {
+  if (value instanceof SafeHtml) return value.text;
+  if (Array.isArray(value)) return value.map(render).join("");
+  return escapeHtml(value);
+}
+
+function html(strings, ...values) {
+  let out = strings[0];
+  for (let i = 0; i < values.length; i++) {
+    out += render(values[i]) + strings[i + 1];
+  }
+  return new SafeHtml(out);
+}
+```
+
+The tag escapes each value unless it is already `SafeHtml`, flattens arrays so a list of fragments can be dropped in, and returns `SafeHtml` itself. That last step is what makes templates nest: the output of one `html` call passes through another unchanged, while plain strings are always escaped.
+
+```javascript title="html_tag.mjs (continued)"
+const name = '<img src=x onerror="alert(1)">';
+const tags = ["a&b", "c"];
+
+const page = html`<h1>Hello, ${name}</h1>
+<ul>${tags.map((t) => html`<li>${t}</li>`)}</ul>`;
+console.log(String(page));
+```
+
+```text
+<h1>Hello, &lt;img src=x onerror=&quot;alert(1)&quot;&gt;</h1>
+<ul><li>a&amp;b</li><li>c</li></ul>
+```
+
+The markup the programmer wrote survives. The name and the tag texts, which came from data, are inert text. Escaping is the default, and letting raw HTML through takes a deliberate `new SafeHtml(...)`, which is easy to search for in a code review.
+
+## Caching per call site
+
+The strings array is created once for each tagged template in the source code, its **call site**, and the same array is passed every time that line runs. It is frozen, along with its `raw` array, so no caller can change it. A tag can therefore use the array as a key to cache work it would otherwise repeat, such as parsing the template.
+
+```javascript title="call_site.mjs"
+let parses = 0;
+const cache = new WeakMap();
+
+function template(strings, ...values) {
+  if (!cache.has(strings)) {
+    parses += 1;
+    cache.set(strings, strings.join("{}"));
+  }
+  return `${cache.get(strings)} <- ${values.join(", ")}`;
+}
+
+const greet = (who) => template`Hello ${who}!`;
+console.log(greet("Ada"), "|", greet("Lin"));
+console.log(template`Hello ${"Bo"}!`);
+console.log("parses:", parses);
+
+const pieces = ((strings) => strings)`a${1}b`;
+console.log(Object.isFrozen(pieces), Object.isFrozen(pieces.raw));
+```
+
+```text
+Hello {}! <- Ada | Hello {}! <- Lin
+Hello {}! <- Bo
+parses: 2
+true true
+```
+
+The two calls through `greet` run the same line, so they share one strings array and the template is parsed once. The third template has the same text but is written on a different line, so it is a separate call site with its own array and a second parse. A [`WeakMap`](../../intermediate/weak-collections/) is the right cache, because it does not keep a strings array alive once the code that owns it is gone.
+
+## Tags that return objects
+
+Since a tag may return anything, it can build a value of another type from the template. A regular expression tag keeps the pattern text raw, so backslashes need no doubling, and escapes each value so that a dot in user input matches a dot and nothing else.
+
+```javascript title="regex_tag.mjs"
+const quote = (text) => String(text).replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&");
+
+function re(strings, ...values) {
+  let source = strings.raw[0];
+  for (let i = 0; i < values.length; i++) {
+    source += quote(values[i]) + strings.raw[i + 1];
+  }
+  return new RegExp(source);
+}
+
+const domain = "example.com";
+const pattern = re`^\w+@${domain}$`;
+console.log(pattern, pattern.test("ada@example.com"));
+console.log(pattern.test("ada@exampleXcom"));
+```
+
+```text
+/^\w+@example\.com$/ true
+false
+```
+
+Without the escaping, the `.` in `example.com` would match any character, and `exampleXcom` would pass. <Since v="24" /> Node 24 and later have the built-in `RegExp.escape` (ES2025), which escapes a string for exactly this purpose. The hand-written `quote` keeps the example working on Node 22. [The advanced regex lesson](../../intermediate/regex-advanced/) covers `RegExp.escape`.
+
+## When not to use a tag
+
+A tag is a function call in disguise, and the disguise has a price.
+
+- **It hides the call.** A reader who sees `` html`...` `` must know that `html` is a function with its own rules. A one-off formatting job is clearer as `format(name, price)`.
+- **Escaping depends on context.** The HTML tag above is right for element text and for attribute values in quotes. It does nothing for a value placed in an unquoted attribute, in a `href` (where `javascript:` URLs are a danger), inside a `<script>` element or in CSS. A real HTML template library tracks where in the document each value lands. In a browser, setting `textContent` on an element avoids the question entirely.
+- **For queries, do not escape at all.** A SQL tag should not try to quote values into the text. It should produce the text with placeholders and a separate list of values, so that the database library can send them apart, as a parameterised query. The exercises build one.
+- **Its rules are invisible to tools.** Editors, linters and type checkers see a template literal, not the language inside it, unless a plugin teaches them.
+
+Use a tag when the template really is a small language, when the safe treatment of values must be automatic, and when the tag is shared widely enough that readers learn it once.
+
+## Common pitfalls
+
+- **Forgetting the interleaving.** There is one more string than values. Start from `strings[0]` and append value-then-string.
+- **Expecting `String.raw` to process `\n`.** It keeps the backslash and the `n`. Use an ordinary template for escapes.
+- **Escaping twice.** Running escaped text through the escaper again turns `&amp;` into `&amp;amp;`. Mark escaped output with a type such as `SafeHtml`.
+- **Trusting one escaper for every context.** HTML text, URLs, scripts and SQL each have their own rules.
+- **Mutating the strings array.** It is frozen, so in a module an assignment to it throws a `TypeError`. Copy it first if you need to change it.
+- **Starting a line with a backtick after a line with no semicolon.** No semicolon is inserted before a template literal, so the expression on the previous line becomes the tag. End the previous statement with a semicolon.
+
+## Exercises
+
+<Exercise title="A SQL tag with placeholders">
+
+Write a tag `sql` that does not put values into the query text. It returns an object `{ text, values }` where each value is replaced by a numbered placeholder, `$1`, `$2` and so on, and `values` holds the values in order. Build a query for the user name `"x' OR '1'='1"` and the limit `10` with the template `` sql`SELECT * FROM users WHERE name = ${name} LIMIT ${limit}` `` and print the object. The expected output is an object whose `text` is `'SELECT * FROM users WHERE name = $1 LIMIT $2'` and whose `values` are `[ "x' OR '1'='1", 10 ]` (Node prints it over four lines).
+
+<Solution>
+
+The attacker's quotes never reach the query text, so they cannot change its structure. Handing `text` and `values` to a database library separately is what a parameterised query means.
+
+```javascript title="sql_tag.mjs"
+function sql(strings, ...values) {
+  let text = strings[0];
+  values.forEach((_, i) => {
+    text += `$${i + 1}` + strings[i + 1];
+  });
+  return { text, values };
+}
+
+const name = "x' OR '1'='1";
+const limit = 10;
+console.log(sql`SELECT * FROM users WHERE name = ${name} LIMIT ${limit}`);
+```
+
+```text
+{
+  text: 'SELECT * FROM users WHERE name = $1 LIMIT $2',
+  values: [ "x' OR '1'='1", 10 ]
+}
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Encode URL path segments">
+
+Write a tag `path` that applies `encodeURIComponent` to every value and leaves the literal text alone. Use it to build `` path`/users/${user}/files/${file}?v=${version}` `` with `user` set to `"ada lovelace"`, `file` set to `"notes/2026.txt"` and `version` set to `2`. Print the result. The expected output is `/users/ada%20lovelace/files/notes%2F2026.txt?v=2`.
+
+<Solution>
+
+The slash inside the file name is encoded as `%2F`, so it cannot add a level to the path, while the slashes the programmer wrote stay as they are. `reduce` over the strings is another way to write the interleaving loop: the index `i` of each string after the first points one past its value.
+
+```javascript title="path_tag.mjs"
+const path = (strings, ...values) =>
+  strings.reduce(
+    (out, text, i) => out + encodeURIComponent(values[i - 1]) + text,
+  );
+
+const user = "ada lovelace";
+const file = "notes/2026.txt";
+const version = 2;
+console.log(path`/users/${user}/files/${file}?v=${version}`);
+```
+
+```text
+/users/ada%20lovelace/files/notes%2F2026.txt?v=2
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A translation tag">
+
+Write a function `makeT(dictionary)` that returns a tag. The tag builds a lookup key from the strings by joining them with `{}` (so `` t`Hello, ${name}!` `` has the key `"Hello, {}!"`), finds the translation in the dictionary, and fills its `{}` slots with the values in order. When the key is missing, it falls back to the original text with the values filled in. Use the German dictionary `{ "Hello, {}!": "Hallo, {}!", "{} new messages": "{} neue Nachrichten" }`. Print the tag applied to `Hello, ${"Ada"}!`, `${3} new messages` and `Goodbye, ${"Ada"}`. The expected output is `Hallo, Ada!`, `3 neue Nachrichten` and `Goodbye, Ada`.
+
+<Solution>
+
+The key is built from the literal text only, so the same sentence with different values finds the same translation. Filling the slots splits the translation at `{}`, which gives the same shape as a strings array: one more piece than values.
+
+```javascript title="translate_tag.mjs"
+function makeT(dictionary) {
+  return (strings, ...values) => {
+    const key = strings.join("{}");
+    const pieces = (dictionary[key] ?? key).split("{}");
+    let out = pieces[0];
+    values.forEach((value, i) => {
+      out += value + pieces[i + 1];
+    });
+    return out;
+  };
+}
+```
+
+```javascript title="translate_tag.mjs (continued)"
+const t = makeT({
+  "Hello, {}!": "Hallo, {}!",
+  "{} new messages": "{} neue Nachrichten",
+});
+
+console.log(t`Hello, ${"Ada"}!`);
+console.log(t`${3} new messages`);
+console.log(t`Goodbye, ${"Ada"}`);
+```
+
+```text
+Hallo, Ada!
+3 neue Nachrichten
+Goodbye, Ada
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A tag is a function called with the array of literal text pieces and the interpolated values. There is always one more piece than values, and the tag's return value can be of any type.
+- The pieces come cooked (escapes processed) and raw (`strings.raw`, as typed). `String.raw` builds a string from the raw pieces. An invalid escape gives a cooked `undefined` in a tagged template.
+- An HTML tag escapes values by default and passes trusted fragments through a marker type, which makes templates nest safely. Escaping is specific to one context.
+- The strings array is frozen and the same object for every run of a call site, so a tag can cache per call site in a `WeakMap`.
+- Tags can build other values, such as regular expressions or `{ text, values }` query objects. Use one when the template is a real small language and safety must be automatic. Otherwise a plain function is clearer.
+
+Next: [functional patterns](../functional-patterns/), where functions that take and return functions become a style of their own.

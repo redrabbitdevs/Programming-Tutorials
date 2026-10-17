@@ -1,0 +1,3 @@
+[ 'test', 'ship', 'write', 'rest' ]
+[ 'rest', 'write', 'test', 'ship' ]
+[ 'write', 'test', 'ship', 'rest' ]

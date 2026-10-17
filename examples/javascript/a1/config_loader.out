@@ -1,0 +1,4 @@
+{ port: 8080, host: 'localhost', debug: false }
+Error port must be an integer from 1 to 65535
+SyntaxError Unexpected
+exit code: undefined
