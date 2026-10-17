@@ -1,0 +1,11 @@
+open db
+open cache
+db: SELECT 1
+close cache
+close db
+report done
+open db
+close db
+caught: query failed
+null is allowed: null
+TypeError

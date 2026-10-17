@@ -1,0 +1,10 @@
+produce 1
+  consume 1
+produce 2
+produce 3
+produce 4
+  consume 2
+produce 5
+  consume 3
+  consume 4
+  consume 5

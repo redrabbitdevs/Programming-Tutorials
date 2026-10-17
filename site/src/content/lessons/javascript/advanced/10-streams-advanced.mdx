@@ -1,0 +1,506 @@
+---
+language: javascript
+level: advanced
+module: Resources and concurrency
+order: 10
+title: Streams in depth
+description: See how backpressure travels through a stream pipeline, write transforms as async generators that survive chunk boundaries, implement your own Writable, handle errors and cancellation in pipeline, and use web streams with queuing strategies alongside Node streams.
+minVersion: "22"
+objectives:
+  - Explain how a pull-based Readable and highWaterMark keep a pipeline's memory bounded
+  - Write async generator transforms that handle lines and characters split across chunks
+  - Implement a Writable with write and final, and connect stages with stream/promises pipeline
+  - Predict what pipeline does on an error or an abort, and make sources clean up
+  - Use ReadableStream, WritableStream and TransformStream with queuing strategies, and convert between the two stream families
+estimatedMinutes: 55
+fundamentals: []
+---
+
+[The streams lesson](../../intermediate/streams-intro/) showed how to read and write files in chunks, honour `write()` returning `false`, and connect stages with `pipeline`. This lesson looks underneath: who decides when data is produced, how a transform must treat chunk boundaries, what a well-behaved `Writable` looks like, and what happens to every stage when something fails. Then it does the same for web streams, which Node also supports, and connects the two families.
+
+A reminder of terms: **object mode** streams carry any JavaScript values instead of bytes, and their `highWaterMark` counts items rather than bytes. The default is 16 items in object mode and 64 KiB for byte streams on Linux and macOS (16 KiB on Windows) ([stream docs](https://nodejs.org/api/stream.html#streamgetdefaulthighwatermarkobjectmode)).
+
+## Pull: production follows consumption
+
+A `Readable` built with a `read()` function is **pull-based**: Node calls `read()` when its internal buffer holds fewer than `highWaterMark` items, and the function supplies data with `push()`. `push(null)` ends the stream. The consumer below is slow, taking an extra event-loop turn per item:
+
+```javascript title="sa_pull.mjs"
+import { Readable } from "node:stream";
+
+let next = 1;
+const numbers = new Readable({
+  objectMode: true,
+  highWaterMark: 2,
+  read() {
+    if (next > 5) {
+      this.push(null);
+      return;
+    }
+    console.log("produce", next);
+    this.push(next++);
+  },
+});
+```
+
+The consumer reads with `for await` and logs each item:
+
+```javascript title="sa_pull.mjs (continued)"
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+for await (const n of numbers) {
+  console.log("  consume", n);
+  await settle();
+}
+```
+
+```text
+produce 1
+  consume 1
+produce 2
+produce 3
+produce 4
+  consume 2
+produce 5
+  consume 3
+  consume 4
+  consume 5
+```
+
+The source never produced all five at once. It ran a few items ahead to fill the buffer, then waited until the consumer took some. In a pipeline, every stage works this way: a slow destination stops calling for data, the buffers between stages fill to their high-water marks, and the source stops being read. That chain is **backpressure**, and it is why a pipeline from a 20 GB file uses a few kilobytes of memory. You get it for free from `pipeline` and `for await`. You lose it when you push data without looking at the return value of `push()` or `write()`.
+
+## Transforms and chunk boundaries
+
+An async generator function makes the simplest transform: it receives the previous stage as an async iterable and yields what goes on. The hard part is not the syntax but the data. A byte stream is cut into chunks wherever the buffer happened to fill, so a line can be split between two chunks, and so can a character: `é` is two bytes in UTF-8.
+
+```javascript title="sa_lines.mjs"
+import { Readable } from "node:stream";
+
+async function* splitLines(source) {
+  const decoder = new TextDecoder();
+  let rest = "";
+  for await (const chunk of source) {
+    rest += decoder.decode(chunk, { stream: true });
+    const lines = rest.split("\n");
+    rest = lines.pop();
+    yield* lines;
+  }
+  rest += decoder.decode();
+  if (rest) yield rest;
+}
+```
+
+Two techniques make it correct. `rest` keeps the unfinished last piece of each chunk until the next one arrives. `TextDecoder` with `{ stream: true }` holds back the first byte of a split character until its second byte comes, and the final `decode()` with no argument flushes it. The test cuts a short text in awkward places:
+
+```javascript title="sa_lines.mjs (continued)"
+const bytes = new TextEncoder().encode("café au lait\nthé\nmate");
+const chunks = [bytes.slice(0, 4), bytes.slice(4, 15), bytes.slice(15)];
+console.log(chunks.map((chunk) => new TextDecoder().decode(chunk)));
+
+for await (const line of splitLines(Readable.from(chunks))) {
+  console.log(JSON.stringify(line));
+}
+```
+
+```text
+[ 'caf�', '� au lait\nt', 'hé\nmate' ]
+"café au lait"
+"thé"
+"mate"
+```
+
+Decoding each chunk on its own breaks `é` into two replacement characters `�` and cuts `thé` in half. The generator gets every line right. For text files, `readline` and `setEncoding("utf8")` do the same job; you need to know the problem to recognise it in your own binary or custom formats.
+
+## A Writable of your own
+
+A `Writable` needs a `write(chunk, encoding, callback)` function that handles one chunk and calls `callback()` when it is done, or `callback(error)` if it failed. Chunks written before the callback runs are buffered, and once the buffer reaches `highWaterMark`, the producer's `write()` returns `false` ([stream docs](https://nodejs.org/api/stream.html#writable_writechunk-encoding-callback)). An optional `final(callback)` runs after the last chunk, before the `finish` event, which is the place to flush a batch or close a connection.
+
+```javascript title="sa_writable.mjs"
+import { Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+function tableWriter(table) {
+  return new Writable({
+    objectMode: true,
+    highWaterMark: 2,
+    write(row, encoding, callback) {
+      setImmediate(() => {
+        table.push(row);
+        callback();
+      });
+    },
+    final(callback) {
+      console.log(`saved ${table.length} rows`);
+      callback();
+    },
+  });
+}
+```
+
+`pipeline` accepts generator functions as the source and as middle stages, so most of a pipeline can be plain functions:
+
+```javascript title="sa_writable.mjs (continued)"
+async function* rows() {
+  for (let id = 1; id <= 5; id++) yield { id, name: `user${id}` };
+}
+
+async function* oddOnly(source) {
+  for await (const row of source) {
+    if (row.id % 2 === 1) yield row;
+  }
+}
+
+const table = [];
+await pipeline(rows, oddOnly, tableWriter(table));
+console.log(table.map((row) => row.name));
+```
+
+```text
+saved 3 rows
+[ 'user1', 'user3', 'user5' ]
+```
+
+## Errors and cancellation
+
+When any stage fails, `pipeline` destroys every stage and rejects with the first error. For a generator stage, "destroy" means its `finally` block runs, which is where a source releases what it holds. The source below never ends by itself; only the failure stops it:
+
+```javascript title="sa_errors.mjs"
+import { Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+async function* endlessRows() {
+  try {
+    for (let id = 1; ; id++) yield { id };
+  } finally {
+    console.log("source cleaned up");
+  }
+}
+
+const strict = new Writable({
+  objectMode: true,
+  write(row, encoding, callback) {
+    const bad = row.id === 3;
+    callback(bad ? new Error(`row ${row.id} rejected`) : null);
+  },
+});
+```
+
+The destination rejects the third row:
+
+```javascript title="sa_errors.mjs (continued)"
+try {
+  await pipeline(endlessRows, strict);
+} catch (error) {
+  console.log("pipeline failed:", error.message);
+}
+```
+
+```text
+source cleaned up
+pipeline failed: row 3 rejected
+```
+
+The `signal` option cancels a whole pipeline from outside, with the same cleanup. Here the sink itself aborts after the second row, standing in for a user pressing Cancel or a deadline from `AbortSignal.timeout()`:
+
+```javascript title="sa_errors.mjs (continued)"
+const controller = new AbortController();
+const sink = new Writable({
+  objectMode: true,
+  write(row, encoding, callback) {
+    if (row.id === 2) controller.abort();
+    callback();
+  },
+});
+
+try {
+  await pipeline(endlessRows, sink, { signal: controller.signal });
+} catch (error) {
+  console.log("pipeline failed:", error.name);
+}
+```
+
+```text
+source cleaned up
+pipeline failed: AbortError
+```
+
+Compare this with chaining stages with `.pipe()`, which does not forward errors or destroy the other stages, so a failure in the middle can leave a file handle open. Use `pipeline`.
+
+## Web streams in depth
+
+`ReadableStream`, `WritableStream` and `TransformStream` are the WHATWG standard streams, global and stable in Node since version 21 ([web streams docs](https://nodejs.org/api/webstreams.html)). Their backpressure is expressed with a **queuing strategy**. `CountQueuingStrategy({ highWaterMark })` counts chunks; `ByteLengthQueuingStrategy` counts bytes. A source's `pull(controller)` is called while the queue is below the mark, and `controller.desiredSize` says how much room is left.
+
+```javascript title="sa_web_pull.mjs"
+let next = 1;
+const numbers = new ReadableStream(
+  {
+    pull(controller) {
+      console.log(`pull, desiredSize ${controller.desiredSize}`);
+      controller.enqueue(next++);
+      if (next > 4) controller.close();
+    },
+  },
+  new CountQueuingStrategy({ highWaterMark: 2 }),
+);
+```
+
+The program waits one turn before reading anything, then reads with a **reader**, the low-level interface that `for await` uses for you:
+
+```javascript title="sa_web_pull.mjs (continued)"
+await new Promise((resolve) => setImmediate(resolve));
+console.log("nothing read yet");
+
+const reader = numbers.getReader();
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  console.log("  read", value);
+}
+```
+
+```text
+pull, desiredSize 2
+pull, desiredSize 1
+nothing read yet
+pull, desiredSize 1
+  read 1
+pull, desiredSize 1
+  read 2
+  read 3
+  read 4
+```
+
+Before anyone read, the stream pulled exactly twice, filling its queue to the high-water mark, and stopped. After that, each read made room for one more pull. This is the same pull model as `read()` in a Node `Readable`, with the numbers made visible. While a reader is active, the stream is **locked** to it; call `reader.releaseLock()` if other code must read the rest.
+
+### Converting between the families
+
+`Readable.toWeb()` and `Readable.fromWeb()` convert in each direction; both are stable from Node 24 and 22.17 ([stream docs](https://nodejs.org/api/stream.html#streamreadabletowebstreamreadable-options)). `pipeline` also accepts web streams as stages since Node 18.16, so the two families can be mixed in one call:
+
+```javascript title="sa_convert.mjs"
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+const upper = () => new TransformStream({
+  transform(chunk, controller) {
+    controller.enqueue(chunk.toUpperCase());
+  },
+});
+
+const web = Readable.toWeb(Readable.from(["node ", "to web"]));
+const back = Readable.fromWeb(web.pipeThrough(upper()), { objectMode: true });
+for await (const chunk of back) console.log(JSON.stringify(chunk));
+```
+
+```text
+"NODE "
+"TO WEB"
+```
+
+The second half passes a Node `Readable` through a web `TransformStream` into an async function that acts as the destination:
+
+```javascript title="sa_convert.mjs (continued)"
+const collected = [];
+await pipeline(Readable.from(["mixed ", "pipeline"]), upper(),
+  async function (source) {
+    for await (const chunk of source) collected.push(chunk);
+  });
+console.log(collected.join(""));
+```
+
+```text
+MIXED PIPELINE
+```
+
+## Which streams to use
+
+- **Node streams** for Node-only code that works with Node APIs: files, sockets, `zlib`, child processes. They are what those APIs return, and `pipeline` is the most complete tool for them.
+- **Web streams** for code that must also run in browsers, Deno or edge runtimes, and wherever an API hands you one, such as the body of a `fetch` response. `TextDecoderStream` and `CompressionStream` are built in.
+- **Neither** for data that fits comfortably in memory. `readFile` and `JSON.parse` are simpler and often faster for a configuration file or a small API response. Streams pay off when the data is large, unbounded, or arriving over time.
+
+## Common pitfalls
+
+- **Decoding chunks one by one.** Multi-byte characters and lines are split across chunks. Use a streaming `TextDecoder`, `setEncoding`, or `readline`.
+- **Ignoring `push()` or `write()` returning `false`.** Memory grows without limit. Prefer `pipeline` and `for await`, which handle it for you.
+- **Using `.pipe()` for anything that can fail.** It neither forwards errors nor cleans up. Use `pipeline`.
+- **Cleanup outside `finally` in a generator stage.** When the pipeline fails or is aborted, only `finally` runs.
+- **Forgetting the callback in `write` or `final`.** The stream stalls forever without an error.
+
+## Exercises
+
+<Exercise title="CSV to JSON lines">
+
+In a temporary directory, write a CSV file with the header `id,name,amount` and 10,000 rows such as `1,item1,1.25` (the amount is `id * 1.25` with two decimals), using `pipeline` from a generator. Then convert it to a JSON-lines file with a second pipeline: `readline` lines from a read stream, an async generator stage that turns each row into an object (with `id` and `amount` as numbers) and yields `JSON.stringify(row) + "\n"`, and a write stream. Print the first two output lines and the number of rows, and remove the directory at the end. The expected output is `{"id":1,"name":"item1","amount":1.25}`, `{"id":2,"name":"item2","amount":2.5}` and `10000 rows`.
+
+<Solution>
+
+Neither file is ever held in memory during the conversion, only a few lines at a time. The `readline` interface is an async iterable, so it can be the source of a pipeline. Reading the output back with `readFile` at the end is only for checking the result.
+
+```javascript title="sa_ex_csv.mjs"
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createInterface } from "node:readline";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+async function* csvRows(count) {
+  yield "id,name,amount\n";
+  for (let id = 1; id <= count; id++) {
+    yield `${id},item${id},${(id * 1.25).toFixed(2)}\n`;
+  }
+}
+```
+
+The conversion stage uses the first line as the header:
+
+```javascript title="sa_ex_csv.mjs (continued)"
+async function* csvToJsonLines(lines) {
+  let header;
+  for await (const line of lines) {
+    if (line === "") continue;
+    const cells = line.split(",");
+    if (!header) {
+      header = cells;
+      continue;
+    }
+    const row = Object.fromEntries(header.map((key, i) => [key, cells[i]]));
+    row.id = Number(row.id);
+    row.amount = Number(row.amount);
+    yield JSON.stringify(row) + "\n";
+  }
+}
+```
+
+Two pipelines, one to write the CSV and one to convert it:
+
+```javascript title="sa_ex_csv.mjs (continued)"
+const dir = await mkdtemp(join(tmpdir(), "csv-"));
+try {
+  const csv = join(dir, "items.csv");
+  const out = join(dir, "items.jsonl");
+  await pipeline(Readable.from(csvRows(10_000)), createWriteStream(csv));
+  const lines = createInterface({ input: createReadStream(csv) });
+  await pipeline(lines, csvToJsonLines, createWriteStream(out));
+
+  const result = (await readFile(out, "utf8")).trimEnd().split("\n");
+  console.log(result.slice(0, 2).join("\n"));
+  console.log(result.length, "rows");
+} finally {
+  await rm(dir, { recursive: true });
+}
+```
+
+```text
+{"id":1,"name":"item1","amount":1.25}
+{"id":2,"name":"item2","amount":2.5}
+10000 rows
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A batching stage">
+
+Write `batch(size)`, which returns an async generator function for use as a pipeline stage: it collects incoming items into arrays of `size` and yields each full array, then yields the remaining items, if any, when the input ends. Run the numbers 1 to 7 through `batch(3)` into an async function that collects the batches, and print them. The expected output is `[ [ 1, 2, 3 ], [ 4, 5, 6 ], [ 7 ] ]`.
+
+<Solution>
+
+The code after the loop runs when the source ends, which is the generator's equivalent of a `flush` step. Batching is common before writing to a database, where one insert of a hundred rows is much cheaper than a hundred inserts.
+
+```javascript title="sa_ex_batch.mjs"
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+function batch(size) {
+  return async function* (source) {
+    let current = [];
+    for await (const item of source) {
+      current.push(item);
+      if (current.length === size) {
+        yield current;
+        current = [];
+      }
+    }
+    if (current.length > 0) yield current;
+  };
+}
+```
+
+The test pipeline collects what comes out:
+
+```javascript title="sa_ex_batch.mjs (continued)"
+const batches = [];
+await pipeline(Readable.from([1, 2, 3, 4, 5, 6, 7]), batch(3),
+  async function (source) {
+    for await (const group of source) batches.push(group);
+  });
+console.log(batches);
+```
+
+```text
+[ [ 1, 2, 3 ], [ 4, 5, 6 ], [ 7 ] ]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Writing to a slow web stream">
+
+Create a `WritableStream` whose `write(chunk)` waits one `setImmediate` turn and then stores the chunk in an array, with a `CountQueuingStrategy` of high-water mark 2. Get a writer, and for the numbers 1 to 5: `await writer.ready`, print `write N, desiredSize D`, and call `writer.write(n)` without awaiting it. Close the writer and print the stored array. The expected output is `write 1, desiredSize 2`, then `write 2` to `write 5`, each with `desiredSize 1`, and `saved: [ 1, 2, 3, 4, 5 ]`.
+
+<Solution>
+
+`writer.ready` is the web-stream version of waiting for `drain`. The first write finds the queue empty; after that the producer always waits until there is room for one more chunk, so the queue never exceeds the high-water mark. `close()` resolves after every queued chunk has been written.
+
+```javascript title="sa_ex_web_write.mjs"
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+const saved = [];
+
+const slowSink = new WritableStream(
+  {
+    async write(chunk) {
+      await settle();
+      saved.push(chunk);
+    },
+  },
+  new CountQueuingStrategy({ highWaterMark: 2 }),
+);
+```
+
+The producer respects `ready`:
+
+```javascript title="sa_ex_web_write.mjs (continued)"
+const writer = slowSink.getWriter();
+for (let n = 1; n <= 5; n++) {
+  await writer.ready;
+  console.log(`write ${n}, desiredSize ${writer.desiredSize}`);
+  writer.write(n);
+}
+await writer.close();
+console.log("saved:", saved);
+```
+
+```text
+write 1, desiredSize 2
+write 2, desiredSize 1
+write 3, desiredSize 1
+write 4, desiredSize 1
+write 5, desiredSize 1
+saved: [ 1, 2, 3, 4, 5 ]
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Pull-based streams produce only when their buffer is below `highWaterMark`. Through a pipeline, a slow destination slows the source: backpressure.
+- Async generator functions make clear pipeline stages. Keep the unfinished end of each chunk, and decode text with a streaming `TextDecoder`.
+- A custom `Writable` handles one chunk per `write` call and signals completion with the callback; `final` runs after the last chunk.
+- `pipeline` destroys every stage and rejects on the first error or on abort. Put cleanup in generator `finally` blocks.
+- Web streams use queuing strategies, `pull` with `desiredSize`, readers and `writer.ready`. `Readable.toWeb`, `Readable.fromWeb` and `pipeline` connect them to Node streams.
+- Use streams for large, unbounded or incremental data, not for small files.
+
+The last lesson of this module drives other programs from Node, through their exit codes, signals and standard streams.

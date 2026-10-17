@@ -1,0 +1,9 @@
+pull, desiredSize 2
+pull, desiredSize 1
+nothing read yet
+pull, desiredSize 1
+  read 1
+pull, desiredSize 1
+  read 2
+  read 3
+  read 4

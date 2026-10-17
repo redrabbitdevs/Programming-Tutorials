@@ -1,0 +1,12 @@
+start a
+start b
+-- finishing b
+end b
+start c
+-- finishing a
+end a
+start d
+-- finishing c
+end c
+-- finishing d
+end d

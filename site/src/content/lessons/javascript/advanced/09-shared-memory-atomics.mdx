@@ -1,0 +1,387 @@
+---
+language: javascript
+level: advanced
+module: Resources and concurrency
+order: 9
+title: SharedArrayBuffer and Atomics
+description: Share memory between worker threads with SharedArrayBuffer, see a data race lose updates, fix it with Atomics, coordinate threads with Atomics.wait, notify and waitAsync, and know what browsers require before they allow shared memory.
+minVersion: "22"
+objectives:
+  - Share a SharedArrayBuffer between threads and explain how it differs from copying and transferring
+  - Recognise a data race and fix it with Atomics.add and other atomic operations
+  - Make threads wait for each other with Atomics.wait and Atomics.notify, and the main thread with Atomics.waitAsync
+  - Build a lock from compareExchange, and pass values safely through shared memory
+  - Know the cross-origin isolation headers that browsers require for SharedArrayBuffer
+estimatedMinutes: 50
+fundamentals: []
+---
+
+[The previous lesson](../worker-threads/) moved data between threads by copying it or by transferring it. In both cases only one thread can see a given piece of memory at a time, so threads cannot step on each other. A `SharedArrayBuffer` gives that up: it is a block of bytes that several threads see at once. That makes some things fast that would otherwise need constant messages, and it opens the door to a class of bugs that single-threaded JavaScript never has. This lesson shows both.
+
+Everything here runs on Node 22. Shared memory holds only raw bytes, viewed through typed arrays such as `Int32Array`. There is no way to share an object, a string or a `Map`.
+
+## Sharing, not copying
+
+The worker below doubles every number in the buffer it receives:
+
+```javascript title="sm_double_worker.mjs"
+import { workerData } from "node:worker_threads";
+
+const numbers = new Int32Array(workerData);
+for (let i = 0; i < numbers.length; i++) numbers[i] *= 2;
+```
+
+The main program runs it twice, once with an ordinary `ArrayBuffer` and once with a `SharedArrayBuffer`, and looks at its own array after the worker has exited:
+
+```javascript title="sm_share.mjs"
+import { Worker } from "node:worker_threads";
+import { once } from "node:events";
+
+const url = new URL("./sm_double_worker.mjs", import.meta.url);
+
+async function doubleInWorker(buffer) {
+  const numbers = new Int32Array(buffer);
+  numbers.set([1, 2, 3, 4]);
+  const worker = new Worker(url, { workerData: buffer });
+  await once(worker, "exit");
+  return numbers;
+}
+
+const copied = await doubleInWorker(new ArrayBuffer(16));
+const shared = await doubleInWorker(new SharedArrayBuffer(16));
+console.log("ArrayBuffer:      ", copied);
+console.log("SharedArrayBuffer:", shared);
+```
+
+```text
+ArrayBuffer:       Int32Array(4) [ 1, 2, 3, 4 ]
+SharedArrayBuffer: Int32Array(4) [ 2, 4, 6, 8 ]
+```
+
+The `ArrayBuffer` was cloned, so the worker doubled its own copy. The `SharedArrayBuffer` was not: structured clone passes a reference to the same memory, and the worker's writes appear in the main thread's array.
+
+## A data race
+
+Here only one thread wrote, and the main thread read after the worker had finished. Trouble starts when threads write the same place at the same time. `counter[0]++` looks like one step but is three: read the value, add one, write it back. If two threads read 41 at the same moment, both write 42, and one increment is lost. This is a **data race**.
+
+The next worker increments a shared counter a million times. It first waits for a start signal in slot 1, so that all workers start together; `Atomics.wait` is explained below. Its `atomic` flag chooses between a plain `++` and `Atomics.add`.
+
+```javascript title="sm_counter_worker.mjs"
+import { workerData } from "node:worker_threads";
+
+const { shared, atomic, times } = workerData;
+const counter = new Int32Array(shared);
+
+Atomics.wait(counter, 1, 0);
+for (let i = 0; i < times; i++) {
+  if (atomic) Atomics.add(counter, 0, 1);
+  else counter[0]++;
+}
+```
+
+The main program starts four such workers, gives the signal, and waits for all of them to exit:
+
+```javascript title="sm_race.mjs"
+import { Worker } from "node:worker_threads";
+import { once } from "node:events";
+
+const url = new URL("./sm_counter_worker.mjs", import.meta.url);
+const WORKERS = 4;
+const TIMES = 1_000_000;
+
+async function count(atomic) {
+  const shared = new SharedArrayBuffer(8);
+  const counter = new Int32Array(shared);
+  const workerData = { shared, atomic, times: TIMES };
+  const exits = Array.from({ length: WORKERS }, () =>
+    once(new Worker(url, { workerData }), "exit"));
+  Atomics.store(counter, 1, 1);
+  Atomics.notify(counter, 1);
+  await Promise.all(exits);
+  return counter[0];
+}
+```
+
+It runs the experiment once with plain increments and once with `Atomics.add`:
+
+```javascript title="sm_race.mjs (continued)"
+const plain = await count(false);
+const atomic = await count(true);
+console.log("expected:", WORKERS * TIMES);
+console.log("Atomics.add:", atomic);
+console.log("plain ++ never more:", plain <= WORKERS * TIMES);
+```
+
+```text
+expected: 4000000
+Atomics.add: 4000000
+plain ++ never more: true
+```
+
+`Atomics.add` gives exactly four million every time. The plain `++` result changes from run to run, which is why the program prints only a fact that is always true about it: lost updates can make it smaller, never larger. On my machine, with four cores, five runs of the plain version gave between 2,675,162 and 3,580,066. On a single core it might even come out right, which is what makes races dangerous: code that passes every test on your laptop can fail on a server.
+
+## Atomic operations
+
+The `Atomics` object has static functions that work on integer typed arrays over shared memory. Each one completes as a single step that no other thread can interrupt ([MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Atomics)):
+
+- `Atomics.load(view, i)` and `Atomics.store(view, i, value)` read and write.
+- `Atomics.add`, `sub`, `and`, `or` and `xor` change a value and return the **old** one.
+- `Atomics.exchange(view, i, value)` writes and returns the old value.
+- `Atomics.compareExchange(view, i, expected, value)` writes only if the current value equals `expected`, and returns the old value either way. Locks are built from it, as the first exercise shows.
+
+Atomic operations also order memory. Plain writes that a thread makes before an `Atomics.store` are visible to another thread once it has seen the stored value with `Atomics.load`. So the safe way to hand over data is: write the data, then publish a flag atomically; read the flag atomically, then read the data. The mailbox below follows that rule.
+
+## Waiting and waking
+
+A thread that needs another thread to finish something could loop, re-reading a flag until it changes. That burns a CPU core doing nothing. `Atomics.wait(view, i, expected)` puts the thread to sleep instead, if `view[i]` still equals `expected`, until another thread calls `Atomics.notify(view, i)`. It returns `"ok"` when woken, `"not-equal"` at once if the value had already changed, and `"timed-out"` if an optional timeout expired ([MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Atomics/wait)). The check and the sleep happen as one step, so a notify cannot slip in between and be lost. That is why the race example's start signal is reliable: a worker that reaches `Atomics.wait` after the signal gets `"not-equal"` and goes straight on.
+
+`Atomics.wait` blocks the whole thread. Browsers do not allow it on a page's main thread. Node allows it on the main thread, but it freezes the event loop while it waits. The non-blocking version, `Atomics.waitAsync` (ES2024), returns an object whose `async` property says whether its `value` is a promise to await or an immediate result string ([MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Atomics/waitAsync)).
+
+### A one-slot mailbox
+
+A worker sends five values to the main thread through two shared integers: a state (empty or full) and a value. The worker sleeps with `Atomics.wait` while the box is full; the main thread waits with `waitAsync` while it is empty. Each side wakes the other after changing the state.
+
+```javascript title="sm_mailbox_worker.mjs"
+import { workerData } from "node:worker_threads";
+
+const STATE = 0;
+const VALUE = 1;
+const FULL = 1;
+const box = new Int32Array(workerData);
+
+for (let n = 1; n <= 5; n++) {
+  while (Atomics.load(box, STATE) === FULL) {
+    Atomics.wait(box, STATE, FULL);
+  }
+  box[VALUE] = n * n;
+  Atomics.store(box, STATE, FULL);
+  Atomics.notify(box, STATE);
+}
+```
+
+The `while` loop rechecks the state after waking, the same habit as in [the channel from the async patterns lesson](../async-patterns/). `"ok"` means only that someone called `notify`, not that the value is what you need.
+
+```javascript title="sm_mailbox.mjs"
+import { Worker } from "node:worker_threads";
+import { once } from "node:events";
+
+const STATE = 0;
+const VALUE = 1;
+const EMPTY = 0;
+
+async function waitWhile(view, index, value) {
+  while (Atomics.load(view, index) === value) {
+    const result = Atomics.waitAsync(view, index, value);
+    if (result.async) await result.value;
+  }
+}
+```
+
+The main side reads five values, emptying the box after each:
+
+```javascript title="sm_mailbox.mjs (continued)"
+const shared = new SharedArrayBuffer(8);
+const box = new Int32Array(shared);
+const url = new URL("./sm_mailbox_worker.mjs", import.meta.url);
+const worker = new Worker(url, { workerData: shared });
+const exited = once(worker, "exit");
+
+const received = [];
+for (let i = 0; i < 5; i++) {
+  await waitWhile(box, STATE, EMPTY);
+  received.push(box[VALUE]);
+  Atomics.store(box, STATE, EMPTY);
+  Atomics.notify(box, STATE);
+}
+await exited;
+console.log("received:", received.join(" "));
+```
+
+```text
+received: 1 4 9 16 25
+```
+
+Every value arrives once and in order, on every run, because each step waits for the state that the other thread publishes. Nothing depends on how the operating system schedules the threads. All the printing happens in the main thread. A worker's `console.log` output is piped through a stream into the main thread's `process.stdout` ([worker docs](https://nodejs.org/api/worker_threads.html#workerstdout)), so its order relative to the main thread's own output is not guaranteed.
+
+<Since v="24" /> `Atomics.pause()` (Stage 4 in May 2026, expected in ES2027) hints to the CPU that a thread is spinning in a short busy-wait loop before it falls back to `Atomics.wait`. It has no effect other than timing ([MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Atomics/pause)). It belongs in hand-tuned locks and is rarely needed in application code.
+
+## Shared memory in browsers
+
+After the Spectre attacks in 2018, browsers restricted shared memory. Today a page may create and post a `SharedArrayBuffer` only if it is in a secure context and **cross-origin isolated**, which it opts into with two response headers ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/Window/crossOriginIsolated)):
+
+```text
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+`credentialless` is also accepted for the second header. With `require-corp`, every cross-origin resource the page loads, such as images and scripts from a CDN, must allow itself to be embedded, or it is blocked. Check the global `crossOriginIsolated` before using shared memory, and fall back to messages when it is `false`. Node has no such restriction.
+
+## When not to share memory
+
+- **Most of the time.** Messages are simpler, and a program built on them cannot have data races. Reach for shared memory when profiling shows that copying or message overhead is the bottleneck, or when threads must coordinate faster than messages allow.
+- **For structured data.** Only integers and floats in typed arrays can be shared. Encoding objects into bytes and back usually costs more than the copy you were trying to avoid.
+- **When a lock would be held for long.** Threads waiting on a lock do nothing, so heavily locked shared state can be slower than one thread.
+
+## Common pitfalls
+
+- **Plain `++` or `+=` on shared memory from several threads.** Use `Atomics.add`, or protect the code with a lock.
+- **Reading data before checking the flag atomically.** Publish with `Atomics.store` after writing; check with `Atomics.load` before reading.
+- **Treating `"ok"` as "the condition is now true".** Recheck in a loop.
+- **Blocking the main thread with `Atomics.wait`.** Use `waitAsync` there.
+- **Testing a race once and calling it fixed.** A race may appear only under load or on other hardware.
+- **Expecting worker `console.log` output to be in order with the main thread's.** Send results to the main thread and print there.
+
+## Exercises
+
+<Exercise title="A lock from compareExchange">
+
+Write `lock(view)` and `unlock(view)` for a lock stored in `view[0]` (0 free, 1 held). `lock` tries `Atomics.compareExchange(view, 0, 0, 1)` and, while that fails, sleeps with `Atomics.wait` on the value 1. `unlock` stores 0 and notifies one waiter. In one file that is both main program and worker, run four workers that each do 100,000 plain increments of `view[1]`, each inside `lock` and `unlock`. The expected output is `with a lock: 400000`.
+
+<Solution>
+
+`compareExchange` returns the old value, so a result of 0 means this thread changed the lock from free to held. Plain `++` is safe here because only the thread holding the lock touches `view[1]`, and the atomic operations in `lock` and `unlock` order its writes for the next holder.
+
+```javascript title="sm_ex_lock.mjs"
+import { isMainThread, Worker, workerData } from "node:worker_threads";
+import { once } from "node:events";
+
+const LOCK = 0;
+const COUNT = 1;
+
+function lock(view) {
+  while (Atomics.compareExchange(view, LOCK, 0, 1) !== 0) {
+    Atomics.wait(view, LOCK, 1);
+  }
+}
+
+function unlock(view) {
+  Atomics.store(view, LOCK, 0);
+  Atomics.notify(view, LOCK, 1);
+}
+```
+
+The two roles of the file:
+
+```javascript title="sm_ex_lock.mjs (continued)"
+if (!isMainThread) {
+  const view = new Int32Array(workerData);
+  for (let i = 0; i < 100_000; i++) {
+    lock(view);
+    view[COUNT]++;
+    unlock(view);
+  }
+} else {
+  const shared = new SharedArrayBuffer(8);
+  const url = new URL(import.meta.url);
+  const exits = Array.from({ length: 4 }, () =>
+    once(new Worker(url, { workerData: shared }), "exit"));
+  await Promise.all(exits);
+  console.log("with a lock:", new Int32Array(shared)[COUNT]);
+}
+```
+
+```text
+with a lock: 400000
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Wait for every worker">
+
+Start three workers with ids 1, 2 and 3 that share one `Int32Array` of four slots. Each worker stores `id * 10` in slot `id`, then adds 1 to slot 0 with `Atomics.add` and notifies slot 0. The main thread waits with `Atomics.waitAsync`, without a message or an `exit` event, until slot 0 reaches 3, then prints slots 1 to 3. The expected output is `all done: [ 10, 20, 30 ]`.
+
+<Solution>
+
+The main thread waits on the count it last saw. Any change wakes it, and the loop decides whether to wait again. This kind of counter is often called a **latch**.
+
+```javascript title="sm_ex_latch.mjs"
+import { isMainThread, Worker, workerData } from "node:worker_threads";
+
+const DONE = 0;
+
+if (!isMainThread) {
+  const { shared, id } = workerData;
+  const view = new Int32Array(shared);
+  Atomics.store(view, id, id * 10);
+  Atomics.add(view, DONE, 1);
+  Atomics.notify(view, DONE);
+} else {
+  const shared = new SharedArrayBuffer(4 * Int32Array.BYTES_PER_ELEMENT);
+  const view = new Int32Array(shared);
+  const url = new URL(import.meta.url);
+  for (const id of [1, 2, 3]) new Worker(url, { workerData: { shared, id } });
+```
+
+The waiting loop closes the main branch:
+
+```javascript title="sm_ex_latch.mjs (continued)"
+  let done;
+  while ((done = Atomics.load(view, DONE)) < 3) {
+    const result = Atomics.waitAsync(view, DONE, done);
+    if (result.async) await result.value;
+  }
+  console.log("all done:", [...view.slice(1)]);
+}
+```
+
+```text
+all done: [ 10, 20, 30 ]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="The three answers of wait">
+
+In Node's main thread, produce each result that waiting can give. Call `Atomics.wait` on a slot holding 0 while expecting 7, then while expecting 0 with a 10 ms timeout. Then call `Atomics.waitAsync` expecting 0, print its `async` property, start a worker (from a string with `eval: true`) that stores 1 in the slot and notifies it, and print what the promise resolves to. The expected output is `value differs: not-equal`, `nobody wakes us: timed-out`, `waitAsync gave a promise: true` and `worker notified us: ok`.
+
+<Solution>
+
+The first two calls block the main thread, which is acceptable in a short script and wrong in a server. A `SharedArrayBuffer` can be passed as `workerData` like any other value; it arrives shared.
+
+```javascript title="sm_ex_results.mjs"
+import { Worker } from "node:worker_threads";
+
+const view = new Int32Array(new SharedArrayBuffer(4));
+
+console.log("value differs:", Atomics.wait(view, 0, 7));
+console.log("nobody wakes us:", Atomics.wait(view, 0, 0, 10));
+
+const pending = Atomics.waitAsync(view, 0, 0);
+console.log("waitAsync gave a promise:", pending.async);
+
+const notifier = `
+  const { workerData } = require("node:worker_threads");
+  const view = new Int32Array(workerData);
+  Atomics.store(view, 0, 1);
+  Atomics.notify(view, 0);
+`;
+new Worker(notifier, { eval: true, workerData: view.buffer });
+console.log("worker notified us:", await pending.value);
+```
+
+```text
+value differs: not-equal
+nobody wakes us: timed-out
+waitAsync gave a promise: true
+worker notified us: ok
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A `SharedArrayBuffer` is shared, not copied, when posted to a worker. Threads see each other's writes through typed-array views.
+- Plain read-modify-write such as `++` on shared memory is a data race and loses updates. `Atomics.add` and the other atomic operations cannot be interrupted.
+- Write data, then publish a flag with `Atomics.store`; read the flag with `Atomics.load`, then the data.
+- `Atomics.wait` sleeps until `Atomics.notify`, returning `"ok"`, `"not-equal"` or `"timed-out"`. Recheck the condition in a loop. On the main thread use `Atomics.waitAsync`.
+- `compareExchange` is the building block for locks. <Since v="24" /> `Atomics.pause` helps short spin loops.
+- Browsers allow shared memory only on cross-origin isolated pages (COOP `same-origin`, COEP `require-corp` or `credentialless`).
+- Prefer messages. Share memory when measurements show you need to.
+
+The next lesson returns to data flowing through a single thread, with streams in depth.

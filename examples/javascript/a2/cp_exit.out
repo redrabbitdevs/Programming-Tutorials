@@ -1,0 +1,2 @@
+exits with 3 -> { code: 3, signal: null, killed: false }
+runs forever -> { code: null, signal: 'SIGTERM', killed: true }
