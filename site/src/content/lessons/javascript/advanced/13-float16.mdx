@@ -1,0 +1,269 @@
+---
+language: javascript
+level: advanced
+module: Binary data and encoding
+order: 13
+title: Float16Array and half precision
+description: Store numbers as 16-bit floats with Float16Array, round with Math.f16round, read and write half floats with DataView, and know exactly how much range and precision half precision gives up.
+minVersion: "24"
+objectives:
+  - Describe the layout, range and precision of a 16-bit float
+  - Store and round values with Float16Array and Math.f16round
+  - Read and write half floats in binary data with DataView getFloat16 and setFloat16
+  - Avoid accumulating results in half precision
+  - Detect support and fall back on older runtimes
+estimatedMinutes: 35
+fundamentals: ["fundamentals/beginner/05-expressions-and-operators"]
+---
+
+A JavaScript number is a 64-bit float. [The previous lesson](../arraybuffer-typedarrays/) showed `Float32Array`, which stores 32-bit floats in half the space. ES2025 adds a third size: `Float16Array`, two bytes per element, with `Math.f16round` and two new `DataView` methods to go with it ([MDN: Float16Array](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Float16Array)). They arrived in Node 24, and Float16 is Baseline newly available in browsers since April 2025. Machine-learning weights, GPU textures and some sensor formats are stored this way, because halving the size of a large array matters more there than the digits lost.
+
+How many digits are lost is the subject of this lesson. The [fundamentals lesson on operators](../../../fundamentals/beginner/expressions-and-operators/) explains why floats are approximate at all; half precision makes the approximation large enough to see.
+
+## The layout
+
+A 16-bit float has 1 sign bit, 5 exponent bits and 10 fraction bits. The 10 fraction bits give about three significant decimal digits. The 5 exponent bits limit the range: the largest finite value is 65,504, and the smallest positive normal value is 2<sup>−14</sup>, about 0.000061. Below that, **subnormal** values continue down to 2<sup>−24</sup>, about 0.00000006, with less precision.
+
+`DataView` gets `setFloat16` and `getFloat16`, so you can look at the bits directly:
+
+```javascript title="f16_bits.mjs"
+function bits(x) {
+  const view = new DataView(new ArrayBuffer(2));
+  view.setFloat16(0, x);
+  const b = view.getUint16(0).toString(2).padStart(16, "0");
+  return `${b[0]} ${b.slice(1, 6)} ${b.slice(6)}`;
+}
+
+for (const x of [1, -2, 0.5, 65504, Infinity]) {
+  console.log(String(x).padStart(8), bits(x));
+}
+```
+
+```text
+       1 0 01111 0000000000
+      -2 1 10000 0000000000
+     0.5 0 01110 0000000000
+   65504 0 11110 1111111111
+Infinity 0 11111 0000000000
+```
+
+The exponent is stored with a bias of 15, so `01111` means 2<sup>0</sup>. 65,504 uses the largest ordinary exponent and every fraction bit; the all-ones exponent is reserved for `Infinity` and `NaN`. Like the other `DataView` methods, `setFloat16` is big-endian unless the last argument is `true`.
+
+## Rounding to half precision
+
+`Math.f16round(x)` returns the number you get by storing `x` as a 16-bit float and reading it back, just as `Math.fround` does for 32 bits. Compare the three precisions:
+
+```javascript title="f16_round.mjs"
+for (const x of [0.1, 1 / 3, 1000.3, 2049]) {
+  const f32 = Math.fround(x);
+  const f16 = Math.f16round(x);
+  console.log(`${x} | ${f32} | ${f16}`);
+}
+```
+
+```text
+0.1 | 0.10000000149011612 | 0.0999755859375
+0.3333333333333333 | 0.3333333432674408 | 0.333251953125
+1000.3 | 1000.2999877929688 | 1000.5
+2049 | 2049 | 2048
+```
+
+32 bits keep 0.1 correct to eight digits; 16 bits only to three or four. At 1000 the gap between neighbouring half floats is already 0.5, so 1000.3 becomes 1000.5. Above 2048 the gap is 2, and integers stop being exact: 2049 is stored as 2048.
+
+The edges of the range behave like this:
+
+```javascript title="f16_range.mjs"
+console.log(Math.f16round(65504), Math.f16round(65519));
+console.log(Math.f16round(65520), Math.f16round(-1e6));
+console.log(Math.f16round(0.00006), Math.f16round(1e-8));
+```
+
+```text
+65504 65504
+Infinity -Infinity
+0.00006002187728881836 0
+```
+
+Values up to 65,519 round down to the largest finite value; from 65,520 they overflow to `Infinity`. At the small end, 0.00006 is a subnormal and keeps only a couple of digits, and 10<sup>−8</sup> underflows to zero. No error is raised in any of these cases.
+
+## Float16Array
+
+`Float16Array` works like the other typed arrays: every store is rounded with the rules above.
+
+```javascript title="f16_array.mjs"
+const weights = [0.12345, -1.5, 3.14159, 70000];
+const wide = new Float64Array(weights);
+const half = new Float16Array(weights);
+
+console.log(wide.byteLength, half.byteLength);
+console.log(half);
+console.log(Array.from(half, (w) => w.toFixed(3)));
+```
+
+```text
+32 8
+Float16Array(4) [ 0.12347412109375, -1.5, 3.140625, Infinity ]
+[ '0.123', '-1.500', '3.141', 'Infinity' ]
+```
+
+A quarter of the memory, three good digits, and a silent `Infinity` for the value that was out of range. Reading an element gives an ordinary 64-bit number, so arithmetic on it happens at full precision.
+
+## Store in half, compute in double
+
+That last point suggests the main rule: use `Float16Array` to **store** values, never to **accumulate** them. Each store rounds, and once a running total is large, adding a small value rounds straight back to the old total:
+
+```javascript title="f16_sum.mjs"
+const readings = new Float16Array(4000).fill(1);
+
+const total16 = new Float16Array(1);
+for (const r of readings) total16[0] += r;
+
+let total64 = 0;
+for (const r of readings) total64 += r;
+
+console.log(total16[0], total64);
+```
+
+```text
+2048 4000
+```
+
+The half-precision total stuck at 2048, where the gap between half floats became 2 and `2048 + 1` rounded back down. The same 4,000 values summed in an ordinary variable give the right answer. Read half floats out, compute with normal numbers, and round only when you store the result.
+
+## Running on older Node
+
+Node 22 has no `Float16Array`, and using it there throws `ReferenceError`. If your code must also run there, test for the global and fall back to 32 bits, which costs memory but never loses more precision:
+
+```javascript title="f16_detect.mjs"
+const Half = globalThis.Float16Array ?? Float32Array;
+const store = new Half([0.1, 0.2]);
+console.log(Half.name, store.BYTES_PER_ELEMENT);
+```
+
+```text frame="terminal"
+$ node f16_detect.mjs
+Float16Array 2
+$ ~/node22/bin/node f16_detect.mjs
+Float32Array 4
+```
+
+The first run used Node 26 and the second Node 22. Data written to a file is a different matter: a format that says "16-bit float" needs real half floats, and a fallback that writes 4 bytes per value produces a broken file. There, require Node 24 in your `engines` field instead.
+
+## When not to use half precision
+
+- **Money, counts, identifiers or anything exact.** Integers above 2048 are not even representable.
+- **Running totals, averages and other accumulations.** Accumulate in a normal number.
+- **Small arrays.** The saving is two bytes per value. It matters for millions of values, not for a hundred.
+- **Values that need more than three significant digits**, such as coordinates on a map. Use `Float32Array` or `Float64Array`.
+
+## Common pitfalls
+
+- **Silent overflow.** Anything from 65,520 up becomes `Infinity`. Check or scale values before storing them.
+- **Silent underflow.** Very small values become zero, which can turn a later division into `Infinity`.
+- **Comparing with the original.** `half[0] === 0.1` is false. Compare with `Math.f16round(0.1)`, or within a tolerance.
+- **Wrong byte order.** `getFloat16` and `setFloat16` default to big-endian; most GPU and ML file formats are little-endian.
+
+## Exercises
+
+<Exercise title="Does 0.1 + 0.2 equal 0.3?">
+
+For each precision (64, 32 and 16 bits), round 0.1 and 0.2 to that precision, add them, round the sum to the same precision, and compare it with 0.3 rounded the same way. Print one line per precision with the rounded sum and the result of the comparison. Expected output: `f64 0.30000000000000004 false`, `f32 0.30000001192092896 true`, `f16 0.2998046875 false`.
+
+<Solution>
+
+An identity function stands in for "round to 64 bits", since every number already is one. The famous `0.1 + 0.2 !== 0.3` is an accident of where the rounding falls. In 32 bits the errors happen to cancel; in 16 bits they do not, and the sum lands one step below 0.3.
+
+```javascript title="f16_ex_point3.mjs"
+const precisions = {
+  f64: (x) => x,
+  f32: Math.fround,
+  f16: Math.f16round,
+};
+
+for (const [name, round] of Object.entries(precisions)) {
+  const sum = round(round(0.1) + round(0.2));
+  console.log(name, sum, sum === round(0.3));
+}
+```
+
+```text
+f64 0.30000000000000004 false
+f32 0.30000001192092896 true
+f16 0.2998046875 false
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Quantize sensor readings">
+
+Store the temperatures `[21.37, 21.41, 22.08, 19.96, 20.5, 23.14]` in a `Float16Array`. Print the bytes used by the half-precision array and by a `Float64Array` of the same values, then the largest absolute error between a stored value and its original, rounded to 4 decimals with `toFixed(4)`. Expected output: `bytes: 12 instead of 48` and `max error: 0.0069`.
+
+<Solution>
+
+The error is computed in normal numbers, from values read back out of the half-precision array. Around 20 the gap between half floats is 1/64, so no value can be off by more than half of that, about 0.0078. The worst of these six is a little better.
+
+```javascript title="f16_ex_quantize.mjs"
+const temps = [21.37, 21.41, 22.08, 19.96, 20.5, 23.14];
+const stored = new Float16Array(temps);
+const wide = new Float64Array(temps);
+
+let maxError = 0;
+stored.forEach((value, i) => {
+  maxError = Math.max(maxError, Math.abs(value - temps[i]));
+});
+
+console.log(`bytes: ${stored.byteLength} instead of ${wide.byteLength}`);
+console.log(`max error: ${maxError.toFixed(4)}`);
+```
+
+```text
+bytes: 12 instead of 48
+max error: 0.0069
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="The gap to the next half float">
+
+Write `nextUp(x)` for positive finite half floats: write `x` with `setFloat16`, read the 16 bits as an integer, add 1, write the integer back and read it as a float. Print the gap `nextUp(x) - x` for 1, 1000 and 60000. Expected output: `1 0.0009765625`, `1000 0.5` and `60000 32`.
+
+<Solution>
+
+For positive floats, consecutive bit patterns are consecutive values, so adding 1 to the integer moves to the next representable number. The gap doubles each time the exponent goes up by one, which is why precision is relative, not absolute.
+
+```javascript title="f16_ex_gap.mjs"
+function nextUp(x) {
+  const view = new DataView(new ArrayBuffer(2));
+  view.setFloat16(0, x);
+  view.setUint16(0, view.getUint16(0) + 1);
+  return view.getFloat16(0);
+}
+
+for (const x of [1, 1000, 60000]) {
+  console.log(x, nextUp(x) - x);
+}
+```
+
+```text
+1 0.0009765625
+1000 0.5
+60000 32
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `Float16Array`, `Math.f16round` and `DataView` `getFloat16`/`setFloat16` are ES2025, in Node 24 and later.
+- A half float has about three significant digits, a largest finite value of 65,504, and exact integers only up to 2048.
+- Overflow gives `Infinity` and underflow gives zero, silently.
+- Store in half precision; compute and accumulate in normal numbers.
+- On Node 22, detect the global and fall back to `Float32Array` for in-memory data; formats that need half floats need Node 24.
+
+Next, bytes become text again: base64 and hex, and the new built-in methods for both.

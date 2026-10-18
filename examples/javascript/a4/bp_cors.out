@@ -1,0 +1,3 @@
+GET https://shop.example 200 https://shop.example
+GET https://evil.example 200 null
+OPTIONS https://shop.example 204 https://shop.example

@@ -1,0 +1,6 @@
+target Node 22:
+  a.mjs:1 Float16Array needs Node 24
+  b.mjs:1 .toHex( needs Node 26
+  b.mjs:2 using needs Node 24
+target Node 24:
+  b.mjs:1 .toHex( needs Node 26
