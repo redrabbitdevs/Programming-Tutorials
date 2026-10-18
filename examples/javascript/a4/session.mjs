@@ -15,7 +15,8 @@ export function session(cwd, commands, extraEnv = {}) {
       console.log(status);
       continue;
     }
-    const env = { ...process.env, PATH, ...extraEnv };
+    // npm picks emoji or plain labels from the locale; pin plain so CI matches.
+    const env = { ...process.env, PATH, npm_config_unicode: "false", ...extraEnv };
     const run = spawnSync("sh", ["-c", `exec 2>&1; ${command}`], {
       cwd,
       env,
