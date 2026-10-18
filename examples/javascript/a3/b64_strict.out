@@ -1,0 +1,5 @@
+"aGk=" Uint8Array(2) [ 104, 105 ]
+"aGk" SyntaxError
+"aG k=" Uint8Array(2) [ 104, 105 ]
+"a@k=" SyntaxError
+"-_-_AQ" SyntaxError

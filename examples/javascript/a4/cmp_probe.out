@@ -1,0 +1,6 @@
+Float16Array       yes
+Promise.try        yes
+Uint8Array toHex   yes
+Iterator.concat    yes
+Temporal           yes
+Math.sumPrecise    no

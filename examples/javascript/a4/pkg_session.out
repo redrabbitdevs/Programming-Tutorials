@@ -1,0 +1,41 @@
+$ node app.mjs
+creme-brulee-a-history
+@example/slug@1.0.0
+$ node legacy.cjs
+hello-from-commonjs
+$ npm test 2>&1 | grep -E '^ℹ (pass|fail)'
+ℹ pass 2
+ℹ fail 0
+$ npm pack --dry-run
+npm notice
+npm notice package: @example/slug@1.0.0
+npm notice Tarball Contents
+npm notice 1.1kB LICENSE
+npm notice 164B README.md
+npm notice 321B package.json
+npm notice 181B src/index.js
+npm notice Tarball Details
+npm notice name: @example/slug
+npm notice version: 1.0.0
+npm notice filename: example-slug-1.0.0.tgz
+npm notice package size: 1.2 kB
+npm notice unpacked size: 1.7 kB
+npm notice shasum: 988da761cc3ce8c1694cb2358de857bd1dc9e265
+npm notice integrity: sha512-ZR2FFIh8wnlWP[...]ZVTaSQ1WolInQ==
+npm notice total files: 4
+npm notice
+example-slug-1.0.0.tgz
+$ node hazard.mjs
+false
+false
+$ node check.mjs
+title.normalize is not a function
+$ node -C development check.mjs
+slugify expects a string
+$ node use.cjs
+ERR_REQUIRE_ASYNC_MODULE
+dark
+$ npm pack --dry-run 2>&1 | grep -E 'B src/|total files'
+npm notice 87B src/cli.js
+npm notice 181B src/index.js
+npm notice total files: 5

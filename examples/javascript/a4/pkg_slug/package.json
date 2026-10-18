@@ -1,0 +1,14 @@
+{
+  "name": "@example/slug",
+  "version": "1.0.0",
+  "description": "Turn titles into URL slugs",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["src"],
+  "engines": { "node": ">=22.12" },
+  "scripts": { "test": "node --test" }
+}

@@ -1,0 +1,386 @@
+---
+language: javascript
+level: advanced
+module: Building and shipping
+order: 19
+title: The browser platform in depth (optional strand)
+description: Use the platform under your bundles - fetch and CORS from both the browser's and the server's side, the storage options and their limits, the dialog element, workers and service workers for offline use - and read Baseline status to decide what you can rely on.
+minVersion: "22"
+objectives:
+  - Explain the same-origin policy and answer CORS requests correctly from a Node server
+  - Choose between localStorage, sessionStorage, IndexedDB, the Cache API and cookies
+  - Build a modal confirmation with the dialog element and read its result
+  - Make a page work offline with a service worker
+  - Read a Baseline status and know what newly and widely available promise
+estimatedMinutes: 50
+fundamentals: []
+---
+
+*This lesson belongs to the optional browser strand. The CORS example runs in Node; the browser examples need a server, such as `serve.mjs` from [JavaScript in a web page](../../beginner/script-tags-modules/), and a current browser.*
+
+The browser strand of the beginner level covered the DOM, events and forms. This lesson covers four platform features that come up as soon as a page talks to a server or should keep working without one: cross-origin requests, storage, dialogs and offline support. It ends with how to read Baseline, which the [compatibility lesson](../compatibility-baseline/) builds on.
+
+## fetch and the same-origin policy
+
+`fetch` works the same in browsers and Node, as in [the HTTP lesson](../../intermediate/http-and-fetch/), with one big difference. A page's **origin** is its scheme, host and port, such as `https://shop.example`. By the **same-origin policy**, a script may send a request to another origin, but the browser hides the response from the script unless the server says, with **CORS** headers, that this origin may read it ([MDN: CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS)).
+
+- For a simple `GET`, the browser sends an `Origin` header. If the response has `Access-Control-Allow-Origin` with that origin (or `*`), the script gets the response; otherwise `fetch` rejects with a `TypeError`.
+- For requests that could change data in ways an old HTML form could not, such as a `PUT` or a JSON `POST`, the browser first sends a **preflight** `OPTIONS` request asking which methods and headers are allowed.
+
+CORS is enforced by the **browser**, to protect its user. The server still receives the request, and tools such as `curl` or Node's `fetch` ignore CORS completely. That makes Node a good place to see the server's side. The server below allows one origin:
+
+```javascript title="bp_cors.mjs"
+import { createServer } from "node:http";
+
+const allowed = new Set(["https://shop.example"]);
+
+const server = createServer((request, response) => {
+  const origin = request.headers.origin;
+  if (allowed.has(origin)) {
+    response.setHeader("Access-Control-Allow-Origin", origin);
+    response.setHeader("Vary", "Origin");
+  }
+  if (request.method === "OPTIONS") {
+    response.setHeader("Access-Control-Allow-Methods", "GET, POST");
+    response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    response.writeHead(204).end();
+    return;
+  }
+  response.setHeader("Content-Type", "application/json");
+  response.end(JSON.stringify({ stock: 3 }));
+});
+```
+
+`Vary: Origin` tells caches that the response differs by origin, so a cached answer for one site is not served to another. Now the requests a browser would send, made with Node's `fetch`, which lets us set `Origin` by hand:
+
+```javascript title="bp_cors.mjs (continued)"
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const url = `http://127.0.0.1:${server.address().port}/stock`;
+
+async function ask(origin, method = "GET", headers = {}) {
+  const response = await fetch(url, {
+    method,
+    headers: { Origin: origin, ...headers },
+  });
+  const allow = response.headers.get("access-control-allow-origin");
+  console.log(method, origin, response.status, allow);
+}
+```
+
+A request from the allowed site, one from another site, and a preflight:
+
+```javascript title="bp_cors.mjs (continued)"
+await ask("https://shop.example");
+await ask("https://evil.example");
+await ask("https://shop.example", "OPTIONS", {
+  "Access-Control-Request-Method": "POST",
+});
+server.close();
+```
+
+```text
+GET https://shop.example 200 https://shop.example
+GET https://evil.example 200 null
+OPTIONS https://shop.example 204 https://shop.example
+```
+
+The second request got a `200` and a body, but no permission header. In a browser, the script on `evil.example` would see only a failed `fetch`. That is also why CORS is not a security check for your server: anything that is not a browser can call the API. Authentication and authorization still have to happen on the server.
+
+Two details for the browser side. `fetch(url, { credentials: "include" })` sends cookies to another origin, and then the server must name the origin exactly (not `*`) and add `Access-Control-Allow-Credentials: true`. And if the API lives on your own origin, behind the same host as the page, none of this applies.
+
+## Storage options
+
+| Option | Holds | Lifetime | Access |
+|---|---|---|---|
+| `localStorage` | strings | until cleared | synchronous |
+| `sessionStorage` | strings | one tab's session | synchronous |
+| IndexedDB | structured values, large data | until cleared or evicted | asynchronous |
+| Cache API | `Request`/`Response` pairs | until cleared or evicted | asynchronous |
+| Cookies | small strings | set by expiry | sent with every request |
+
+All of them are per origin. `localStorage` and `sessionStorage` allow up to 5 MiB each per origin, and a write beyond that throws `QuotaExceededError` ([MDN: storage quotas](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria)). Store objects as JSON, and expect both failures:
+
+```javascript title="browser/bp_storage.js"
+export function load(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key)) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function save(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (error) {
+    if (error.name === "QuotaExceededError") return false;
+    throw error;
+  }
+}
+```
+
+`getItem` returns `null` for a missing key, and `JSON.parse(null)` is `null`, so `??` supplies the fallback. The `catch` around `parse` handles a value that some other code stored as plain text. Use `localStorage` for small settings and drafts, IndexedDB for real data (it is asynchronous, so it does not block the page), and the Cache API for offline copies of files. Do not keep secrets such as tokens in `localStorage`: any script on the page, including an injected one, can read it.
+
+## The dialog element
+
+`<dialog>` is a built-in modal window, Baseline widely available since 2022 ([MDN: dialog](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog)). `showModal()` opens it above the page, makes everything behind it inert, moves focus into it and closes it on Esc. A `<form method="dialog">` inside closes the dialog when submitted, and sets the dialog's `returnValue` to the `value` of the button that submitted it:
+
+```html title="browser/bp_dialog.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Delete note</title>
+    <script type="module" src="./bp_dialog.js"></script>
+  </head>
+  <body>
+    <button id="delete">Delete note</button>
+    <p id="status"></p>
+    <dialog id="confirm">
+      <form method="dialog">
+        <p>Delete this note?</p>
+        <button value="cancel" autofocus>Cancel</button>
+        <button value="delete">Delete</button>
+      </form>
+    </dialog>
+  </body>
+</html>
+```
+
+The script opens the dialog and waits for its `close` event:
+
+```javascript title="browser/bp_dialog.js"
+const dialog = document.querySelector("#confirm");
+const status = document.querySelector("#status");
+
+document.querySelector("#delete").addEventListener("click", () => {
+  dialog.returnValue = "";
+  dialog.showModal();
+});
+
+dialog.addEventListener("close", () => {
+  status.textContent =
+    dialog.returnValue === "delete" ? "Deleted." : "Kept.";
+});
+```
+
+Pressing Esc closes the dialog without setting `returnValue`, which is why the click handler resets it first; otherwise a previous "delete" would be reused. Compared with a home-made modal, `<dialog>` gets focus handling and keyboard behaviour right, which is most of the work.
+
+## Workers and service workers
+
+[The worker lesson](../worker-threads/) showed **Web Workers**, which run CPU-heavy code off the main thread. A **service worker** is a different kind of worker: a script the browser installs for your origin, which sits between your pages and the network. It can answer `fetch` requests from a cache, which makes a site work offline. Service workers require a secure context: HTTPS, or `http://localhost` during development ([MDN: Service Worker API](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API)).
+
+The life cycle has three events. `install` runs once for a new version, the usual place to fill a cache with the files the page needs. `activate` runs when the new version takes over, the place to delete old caches. `fetch` runs for every request from the pages it controls. The first exercise builds a complete offline page with these three handlers.
+
+## Reading Baseline
+
+MDN pages and many tools show a **Baseline** badge for web features. A feature is Baseline **newly available** when it works in the current versions of the core browsers: Chrome and Edge, Firefox, and Safari, on desktop and on mobile. It becomes **widely available** 30 months later, when the older browsers that lacked it have mostly been replaced. Features in neither group have **limited availability**.
+
+The badge carries a date. `<dialog>` and import maps are widely available; `Float16Array`, from [the half-precision lesson](../float16/), is newly available since April 2025; Temporal has limited availability, because Safari does not ship it. Baseline is a summary of browser support, not a guarantee: it says nothing about old browsers your users might still run, or about non-core browsers.
+
+## When not to use these features
+
+- **CORS with `*` for a private API.** Allow the origins you serve, and never combine `*` with credentials.
+- **`localStorage` as a database.** It blocks the page and holds only strings. Use IndexedDB for data that matters.
+- **A service worker for a page that changes on every visit.** A wrong caching strategy serves stale pages that users cannot get rid of. Add one when offline use or speed justifies the care it needs.
+- **A home-made modal.** `<dialog>` handles focus, Esc and the backdrop.
+
+## Common pitfalls
+
+- **Fixing CORS errors in the client.** The fix is a header on the server, or a proxy on your own origin.
+- **Forgetting `Vary: Origin`** when the allowed origin depends on the request. Caches then serve one site's permission to another.
+- **Storing tokens in `localStorage`.** Any script on the page can read them.
+- **Not versioning service-worker caches.** Old files stay forever. Put a version in the cache name and delete old caches in `activate`.
+- **Reusing a stale `returnValue`.** Esc does not reset it.
+
+## Exercises
+
+<Exercise title="An offline notes page">
+
+Build `bp_notes.html` with a textarea and a list, and `bp_notes.js`, which saves notes in `localStorage` (through `load` and `save` from this lesson) and shows them. Then add `bp_sw.js`, a service worker that caches the page, its script and the storage module on install, deletes caches with other names on activate, and answers requests cache-first. Register it from `bp_notes.js`. Expected result: after one visit, stop the server and reload; the page still loads, shows the saved notes, and accepts new ones.
+
+<Solution>
+
+The page and its script:
+
+```html title="browser/bp_notes.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Notes</title>
+    <script type="module" src="./bp_notes.js"></script>
+  </head>
+  <body>
+    <form id="add">
+      <textarea name="text" required></textarea>
+      <button>Add note</button>
+    </form>
+    <ul id="notes"></ul>
+  </body>
+</html>
+```
+
+```javascript title="browser/bp_notes.js"
+import { load, save } from "./bp_storage.js";
+
+const list = document.querySelector("#notes");
+let notes = load("notes", []);
+
+function render() {
+  list.replaceChildren(...notes.map((text) => {
+    const item = document.createElement("li");
+    item.textContent = text;
+    return item;
+  }));
+}
+
+document.querySelector("#add").addEventListener("submit", (event) => {
+  event.preventDefault();
+  notes = [...notes, event.target.elements.text.value];
+  save("notes", notes);
+  event.target.reset();
+  render();
+});
+
+render();
+navigator.serviceWorker?.register("./bp_sw.js");
+```
+
+The service worker. Its file name defines its scope, so it controls the pages in its folder. The cache name carries a version; changing it on the next release makes `activate` remove the old cache.
+
+```javascript title="browser/bp_sw.js"
+const CACHE = "notes-v1";
+const FILES = ["./bp_notes.html", "./bp_notes.js", "./bp_storage.js"];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(FILES)));
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(caches.keys().then((names) => Promise.all(
+    names.filter((name) => name !== CACHE).map((name) => caches.delete(name)),
+  )));
+});
+
+self.addEventListener("fetch", (event) => {
+  event.respondWith(
+    caches.match(event.request).then((hit) => hit ?? fetch(event.request)),
+  );
+});
+```
+
+`event.waitUntil` keeps the worker alive until the promise settles, so installation fails if a file cannot be cached. Cache-first is right for files that change only with a new version; for API data you would try the network first and fall back to the cache.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Credentials and CORS">
+
+Change the server from `bp_cors.mjs` so that it supports cookies from the allowed origin: add `Access-Control-Allow-Credentials: true` for allowed origins, and in the preflight response also allow the header `Authorization`. Make three requests and print the method, status, `access-control-allow-credentials` and `access-control-allow-headers`. Expected output: `GET 200 true null`, then `GET 200 null null` for `https://evil.example`, then `OPTIONS 204 true Content-Type, Authorization`.
+
+<Solution>
+
+Credentials are allowed only together with an exact origin, which the server already sends. The preflight answer lists what the real request may use.
+
+```javascript title="bp_ex_credentials.mjs"
+import { createServer } from "node:http";
+
+const allowed = new Set(["https://shop.example"]);
+
+const server = createServer((request, response) => {
+  const origin = request.headers.origin;
+  if (allowed.has(origin)) {
+    response.setHeader("Access-Control-Allow-Origin", origin);
+    response.setHeader("Access-Control-Allow-Credentials", "true");
+    response.setHeader("Vary", "Origin");
+  }
+  if (request.method === "OPTIONS") {
+    response.setHeader("Access-Control-Allow-Methods", "GET, POST");
+    response.setHeader(
+      "Access-Control-Allow-Headers", "Content-Type, Authorization");
+    response.writeHead(204).end();
+    return;
+  }
+  response.end("ok");
+});
+```
+
+The three requests:
+
+```javascript title="bp_ex_credentials.mjs (continued)"
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const url = `http://127.0.0.1:${server.address().port}/`;
+
+const requests = [
+  ["GET", "https://shop.example"],
+  ["GET", "https://evil.example"],
+  ["OPTIONS", "https://shop.example"],
+];
+for (const [method, origin] of requests) {
+  const response = await fetch(url, { method, headers: { Origin: origin } });
+  const credentials = response.headers.get("access-control-allow-credentials");
+  const allowHeaders = response.headers.get("access-control-allow-headers");
+  console.log(method, response.status, credentials, allowHeaders);
+}
+server.close();
+```
+
+```text
+GET 200 true null
+GET 200 null null
+OPTIONS 204 true Content-Type, Authorization
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A reusable confirm">
+
+Write `confirmDialog(message)` in `bp_confirm.js`. It creates a `<dialog>` with the message and two buttons in a `<form method="dialog">`, adds it to the page, opens it with `showModal()`, and returns a promise that resolves to `true` if the user chose OK and `false` for Cancel or Esc, removing the dialog afterwards. Expected result: `await confirmDialog("Discard changes?")` shows a modal; OK gives `true`, Cancel or Esc gives `false`, and no `<dialog>` element is left in the page.
+
+<Solution>
+
+The text is set with `textContent`, never `innerHTML`, so a message with markup in it cannot inject HTML. Listening with `{ once: true }` removes the listener after the first `close`.
+
+```javascript title="browser/bp_confirm.js"
+export function confirmDialog(message) {
+  const dialog = document.createElement("dialog");
+  const form = document.createElement("form");
+  form.method = "dialog";
+  const text = document.createElement("p");
+  text.textContent = message;
+  const cancel = Object.assign(document.createElement("button"),
+    { value: "cancel", textContent: "Cancel", autofocus: true });
+  const ok = Object.assign(document.createElement("button"),
+    { value: "ok", textContent: "OK" });
+  form.append(text, cancel, ok);
+  dialog.append(form);
+  document.body.append(dialog);
+
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", () => {
+      resolve(dialog.returnValue === "ok");
+      dialog.remove();
+    }, { once: true });
+    dialog.showModal();
+  });
+}
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- The browser enforces the same-origin policy; servers grant cross-origin reads with CORS headers, and preflight `OPTIONS` requests ask before risky requests. CORS protects users, not servers.
+- `localStorage` and `sessionStorage` are small, synchronous and string-only; IndexedDB holds real data; the Cache API stores responses for offline use.
+- `<dialog>` with `showModal()` and `<form method="dialog">` gives an accessible modal and a `returnValue`.
+- A service worker caches files on `install`, cleans up on `activate` and answers `fetch` events, which makes a site work offline.
+- Baseline newly available means all core browsers support a feature; widely available means 30 months have passed since.
+
+The next lesson turns Baseline and Node versions into decisions: which syntax and APIs you can ship, and what to do about the rest.

@@ -1,0 +1,378 @@
+---
+language: javascript
+level: advanced
+module: Building and shipping
+order: 20
+title: "Compatibility: Baseline, polyfills and transpiling"
+description: Decide which syntax and APIs you can ship by checking Baseline for browsers and versions for Node, detect features at run time, write a correct polyfill or ponyfill, and transpile syntax with esbuild targets when an older runtime must be supported.
+minVersion: "22"
+objectives:
+  - Set compatibility targets for browsers with Baseline and for Node with engines
+  - Tell syntax features from API features, and explain why only APIs can be detected at run time
+  - Write a polyfill that behaves like the built-in, and prefer a ponyfill in libraries
+  - Transpile newer syntax with esbuild targets and see what transpiling cannot do
+  - Audit a codebase for features newer than its targets
+estimatedMinutes: 50
+fundamentals: []
+---
+
+Every lesson in this course marks features with the Node version that introduced them, and the browser lessons mention Baseline. This lesson is about making the decision for a whole project: which runtimes you support, how to find out whether your code fits them, and what to do when it does not. The [previous lesson](../browser-platform/#reading-baseline) defined Baseline; [the npm lesson](../../intermediate/npm-in-depth/) and [the package lesson](../package-authoring/) introduced `engines`.
+
+## Choose your targets first
+
+A compatibility decision starts with a list of runtimes, not with a list of features.
+
+- **Browsers.** A common policy for a public site is "Baseline widely available": features that have worked in all core browsers for at least 30 months. An internal tool used only on current Chrome can use more. Write the policy down, for example in a `browserslist` field, which tools such as Babel and autoprefixer read. The query `baseline widely available` is supported by browserslist (4.29.3 when checked on 2026-10-18).
+- **Node.** List the release lines you support, normally the ones still maintained: 22, 24 and 26 in October 2026. Put the oldest in `engines`, such as `"node": ">=22.12"`, and run your tests on each line in CI, as the [testing lesson](../testing-at-scale/) shows.
+
+## Syntax and APIs are different problems
+
+An **API feature** is a function, class or property, such as `Uint8Array.prototype.toHex` or `Promise.try`. Code can test whether it exists before using it. A **syntax feature** is new grammar, such as `using` declarations or the `??=` operator. An engine that does not know the grammar cannot parse the file, and a file that does not parse does not run at all, not even the lines before the new syntax:
+
+```javascript title="cmp_syntax.mjs"
+console.log("start");
+
+function open(name) {
+  return { name, [Symbol.dispose]: () => console.log("closed", name) };
+}
+
+{
+  using file = open("a.txt");
+  console.log("using", file.name);
+}
+```
+
+```text frame="terminal"
+$ node cmp_syntax.mjs
+start
+using a.txt
+closed a.txt
+$ ~/node22/bin/node cmp_syntax.mjs
+file:///…/cmp_syntax.mjs:8
+  using file = open("a.txt");
+        ^^^^
+
+SyntaxError: Unexpected identifier 'file'
+```
+
+Node 26 runs it; Node 22 refuses the whole file (the path is shortened and the stack trace cut here), and `start` is never printed. So syntax cannot be feature-detected inside the file that uses it. The options are to avoid the syntax, to transpile it, or to put it in a separate module that is loaded with `import()` only where it is supported.
+
+## Detecting APIs
+
+For APIs, check before use. A short probe shows what a runtime offers:
+
+```javascript title="cmp_probe.mjs"
+const features = {
+  "Float16Array": () => typeof Float16Array === "function",
+  "Promise.try": () => typeof Promise.try === "function",
+  "Uint8Array toHex": () => typeof Uint8Array.prototype.toHex === "function",
+  "Iterator.concat": () => typeof Iterator.concat === "function",
+  "Temporal": () => typeof Temporal === "object",
+  "Math.sumPrecise": () => typeof Math.sumPrecise === "function",
+};
+
+for (const [name, available] of Object.entries(features)) {
+  console.log(name.padEnd(18), available() ? "yes" : "no");
+}
+```
+
+```text frame="terminal"
+$ node cmp_probe.mjs
+Float16Array       yes
+Promise.try        yes
+Uint8Array toHex   yes
+Iterator.concat    yes
+Temporal           yes
+Math.sumPrecise    no
+$ ~/node22/bin/node cmp_probe.mjs
+Float16Array       no
+Promise.try        no
+Uint8Array toHex   no
+Iterator.concat    no
+Temporal           no
+Math.sumPrecise    no
+```
+
+The first run is Node 26.11.1, the second Node 22.22.0. Check for the exact thing you call (`typeof Promise.try === "function"`), not for something you think arrived at the same time, and not for the runtime's version number, which is wrong in other runtimes and in browsers.
+
+## Polyfills and ponyfills
+
+A **polyfill** adds a missing API to the global environment, so the rest of the code can use it as if it were built in. A correct polyfill installs itself only when the feature is missing and matches the built-in as closely as it can, including details such as the property being non-enumerable, so that `for...in` and `Object.keys` do not suddenly list it:
+
+```javascript title="cmp_polyfill.mjs"
+if (typeof Uint8Array.prototype.toHex !== "function") {
+  Object.defineProperty(Uint8Array.prototype, "toHex", {
+    value: function toHex() {
+      return Array.from(this, (b) => b.toString(16).padStart(2, "0")).join("");
+    },
+    writable: true,
+    configurable: true,
+    enumerable: false,
+  });
+}
+
+console.log(Uint8Array.of(1, 171, 255).toHex());
+console.log(Object.keys(Uint8Array.prototype).length);
+```
+
+```text
+01abff
+0
+```
+
+The output is the same on Node 22, which uses the polyfill, and on Node 26, which keeps its built-in method. This polyfill skips one rule of the real method (it should throw a `TypeError` when called on something that is not a `Uint8Array`); complete, tested polyfills are what packages such as core-js provide.
+
+Polyfills change shared global objects, which is the application's decision. A **library** should not do it: two libraries that polyfill the same method differently break each other. A library uses a **ponyfill** instead: a function that uses the built-in when it exists and its own code otherwise, without touching globals:
+
+```javascript title="cmp_ponyfill.mjs"
+export function toHex(bytes) {
+  if (typeof bytes.toHex === "function") return bytes.toHex();
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+console.log(toHex(Uint8Array.of(1, 171, 255)));
+```
+
+```text
+01abff
+```
+
+## Transpiling syntax
+
+A **transpiler** rewrites newer syntax into older syntax with the same meaning. The [bundlers lesson](../bundlers/) used esbuild; its `--target` option says which syntax the output may use:
+
+```text frame="terminal"
+$ cat modern.js
+const settings = {};
+settings.theme ??= "light";
+const last = [1, 2, 3].at(-1);
+console.log(settings, last);
+$ npx esbuild modern.js --target=es2019
+var _a;
+const settings = {};
+(_a = settings.theme) != null ? _a : settings.theme = "light";
+const last = [1, 2, 3].at(-1);
+console.log(settings, last);
+```
+
+`??=` (ES2021) became a conditional expression. The `.at(-1)` call was left alone, because `Array.prototype.at` is an API, not syntax: transpiling never adds missing methods. An ES2019 browser would still fail on `.at`, unless a polyfill provides it. That division of labour is the rule: **transpile syntax, polyfill APIs.**
+
+Transpiling has a cost, which `using` shows. Lowering `cmp_syntax.mjs` for Node 22 works, but the helper code it needs makes the output much larger:
+
+```text frame="terminal"
+$ npx esbuild cmp_syntax.mjs --target=es2022 --outfile=dist/cmp_syntax.mjs
+
+  dist/cmp_syntax.mjs  1.9kb
+
+⚡ Done in 3ms
+$ ~/node22/bin/node dist/cmp_syntax.mjs
+start
+using a.txt
+closed a.txt
+$ wc -c cmp_syntax.mjs dist/cmp_syntax.mjs
+ 189 cmp_syntax.mjs
+1900 dist/cmp_syntax.mjs
+2089 total
+```
+
+Esbuild's `--target` also accepts runtime versions, such as `--target=node22` or `--target=chrome120,safari17`.
+
+## Baseline data in your own tools
+
+Baseline statuses come from the `web-features` package, which MDN and other tools use. You can query it yourself (version 3.43.0 when checked on 2026-10-18, installed with `npm install web-features`):
+
+```javascript title="cmp_baseline.mjs"
+import { features } from "web-features";
+
+const ids = ["import-maps", "dialog", "float16array", "temporal"];
+for (const id of ids) {
+  const { baseline, baseline_low_date } = features[id].status;
+  const status = baseline === "high" ? "widely"
+    : baseline === "low" ? "newly" : "limited";
+  console.log(id.padEnd(14), status, baseline_low_date ?? "");
+}
+```
+
+```text frame="terminal"
+$ node cmp_baseline.mjs
+import-maps    widely 2023-03-27
+dialog         widely 2022-03-14
+float16array   newly 2025-04-04
+temporal       limited
+```
+
+`baseline_low_date` is the day a feature became newly available; widely available follows 30 months later. The exercise below builds the same kind of check for Node versions.
+
+## When not to add compatibility layers
+
+- **Node services you deploy yourself.** You choose the Node version. Upgrade it instead of transpiling or polyfilling.
+- **Polyfilling everything "to be safe".** Each polyfill is code your users download and run, often for features every target already has. Polyfill what your targets lack.
+- **Transpiling for targets you do not support.** Lowering to ES5 for a browser nobody uses costs size and speed for everyone.
+- **Polyfills inside libraries.** Use ponyfills, or document the requirement and let the application decide.
+
+## Common pitfalls
+
+- **Detecting by version number.** `process.versions.node` says nothing in browsers or other runtimes; test for the feature.
+- **Expecting a transpiler to add APIs.** It only rewrites syntax.
+- **Feature-detecting syntax in the same file.** The file fails to parse before your check runs.
+- **Enumerable polyfills.** A method added with plain assignment shows up in `for...in` loops over objects and arrays.
+- **Trusting Baseline for old devices.** It describes current browsers; check your real users' browsers if you have the data.
+
+## Exercises
+
+<Exercise title="Audit a codebase">
+
+Write `audit(dir, target)` which reads every `.js` and `.mjs` file in a folder and reports each line that uses a feature newer than the target Node major version, using this table: `Float16Array` and `Promise.try` need 24; `.toHex(`, `.toBase64(`, `Uint8Array.fromBase64` and `Iterator.concat` need 26; a line starting with `using ` (after spaces) needs 24. Use the folder `cmp_audit_src` with `a.mjs` (containing `const f = new Float16Array(4);`) and `b.mjs` (containing `const hex = bytes.toHex();` and `using res = open();`), and audit for target 22 and then 24. Expected output for 22: three findings, `a.mjs:1 Float16Array needs Node 24`, `b.mjs:1 .toHex( needs Node 26` and `b.mjs:2 using needs Node 24`; for 24: only `b.mjs:1 .toHex( needs Node 26`.
+
+<Solution>
+
+A text search is a rough audit: it can be fooled by comments and strings, and real tools parse the code. It is still useful in CI as a cheap guard. Sorting the file names keeps the report deterministic.
+
+```javascript title="cmp_ex_audit.mjs"
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+
+const rules = [
+  { name: "Float16Array", node: 24, test: (l) => l.includes("Float16Array") },
+  { name: "Promise.try", node: 24, test: (l) => l.includes("Promise.try") },
+  { name: ".toHex(", node: 26, test: (l) => l.includes(".toHex(") },
+  { name: ".toBase64(", node: 26, test: (l) => l.includes(".toBase64(") },
+  { name: "Uint8Array.fromBase64", node: 26,
+    test: (l) => l.includes("Uint8Array.fromBase64") },
+  { name: "Iterator.concat", node: 26, test: (l) => l.includes("Iterator.concat") },
+  { name: "using", node: 24, test: (l) => /^\s*using\s/.test(l) },
+];
+```
+
+The audit itself:
+
+```javascript title="cmp_ex_audit.mjs (continued)"
+async function audit(dir, target) {
+  const findings = [];
+  const names = (await readdir(dir)).filter((n) => /\.m?js$/.test(n)).sort();
+  for (const name of names) {
+    const lines = (await readFile(join(dir, name), "utf8")).split("\n");
+    lines.forEach((line, i) => {
+      for (const rule of rules) {
+        if (rule.node > target && rule.test(line)) {
+          findings.push(`${name}:${i + 1} ${rule.name} needs Node ${rule.node}`);
+        }
+      }
+    });
+  }
+  return findings;
+}
+
+const dir = join(import.meta.dirname, "cmp_audit_src");
+for (const target of [22, 24]) {
+  console.log(`target Node ${target}:`);
+  for (const finding of await audit(dir, target)) console.log(" ", finding);
+}
+```
+
+```text
+target Node 22:
+  a.mjs:1 Float16Array needs Node 24
+  b.mjs:1 .toHex( needs Node 26
+  b.mjs:2 using needs Node 24
+target Node 24:
+  b.mjs:1 .toHex( needs Node 26
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A ponyfill for Iterator.concat">
+
+`Iterator.concat(...iterables)` (ES2026, Node 26) returns an iterator over the values of each iterable in turn. It accepts only iterable **objects**: a string argument throws `TypeError` at once, when `concat` is called. Write a ponyfill `concat(...iterables)` that uses the built-in when it exists and otherwise checks its arguments the same way and returns a generator. Print `[...concat([1, 2], new Set([3]), ["a", "b"])]`, then call `concat("ab")` inside `try` and print the error's name. Expected output, on Node 22 and on Node 26: `[ 1, 2, 3, 'a', 'b' ]` and `TypeError`.
+
+<Solution>
+
+The arguments are checked before the generator is created, because a generator function's body does not run until the first `next()`: a check inside it would throw later than the built-in does. `yield*` then delegates to each iterable in turn. The generator object also has helper methods such as `.map` on Node 22, because generators inherit from `Iterator.prototype`.
+
+```javascript title="cmp_ex_concat.mjs"
+function* chain(iterables) {
+  for (const iterable of iterables) yield* iterable;
+}
+
+export function concat(...iterables) {
+  if (typeof Iterator.concat === "function") {
+    return Iterator.concat(...iterables);
+  }
+  for (const iterable of iterables) {
+    if (typeof iterable !== "object" || iterable === null) {
+      throw new TypeError("Iterator.concat expects iterable objects");
+    }
+  }
+  return chain(iterables);
+}
+```
+
+The test:
+
+```javascript title="cmp_ex_concat.mjs (continued)"
+console.log([...concat([1, 2], new Set([3]), ["a", "b"])]);
+try {
+  concat("ab");
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+[ 1, 2, 3, 'a', 'b' ]
+TypeError
+```
+
+The fallback checks only that each argument is an object; the built-in also checks that it has a `Symbol.iterator` method. A ponyfill is as faithful as the cases you take the trouble to copy.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Check engines at start-up">
+
+Write `meetsMinimum(version, minimum)`, which takes two version strings such as `"22.11.0"` and `"22.12.0"` and returns whether the first is at least the second, comparing major, minor and patch numbers. Test it with `22.11.0`, `22.12.0`, `24.1.0` and `26.11.1` against `22.12.0`, then print whether the running Node meets `22.12.0` using `process.versions.node`. Expected output: `22.11.0 false`, `22.12.0 true`, `24.1.0 true`, `26.11.1 true`, and `this Node: true` on any supported version.
+
+<Solution>
+
+Comparing the strings directly would get `"9.0.0" > "22.0.0"` wrong, so the parts are compared as numbers. A start-up check like this gives users a clear message instead of a `SyntaxError` deep in a dependency; it complements `engines`, which only warns at install time.
+
+```javascript title="cmp_ex_engines.mjs"
+function meetsMinimum(version, minimum) {
+  const a = version.split(".").map(Number);
+  const b = minimum.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] > b[i];
+  }
+  return true;
+}
+
+for (const version of ["22.11.0", "22.12.0", "24.1.0", "26.11.1"]) {
+  console.log(version, meetsMinimum(version, "22.12.0"));
+}
+console.log("this Node:", meetsMinimum(process.versions.node, "22.12.0"));
+```
+
+```text
+22.11.0 false
+22.12.0 true
+24.1.0 true
+26.11.1 true
+this Node: true
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Decide targets first: a Baseline policy for browsers, maintained release lines and `engines` for Node.
+- APIs can be detected at run time; syntax cannot, because a file that does not parse never runs.
+- A polyfill fills a gap in the global environment and must behave like the built-in; libraries use ponyfills instead.
+- Transpile syntax and polyfill APIs. esbuild's `--target` lowers syntax such as `??=` and `using`, at a cost in size.
+- `web-features` holds the Baseline data, and a simple audit in CI catches features newer than your targets.
+
+The next lesson keeps a growing codebase correct across all those targets: coverage, isolation, integration tests, property-based tests and CI.

@@ -1,0 +1,471 @@
+---
+language: javascript
+level: advanced
+module: Binary data and encoding
+order: 12
+title: ArrayBuffer and typed arrays
+description: Work with raw bytes through ArrayBuffer, typed array views and DataView, control endianness when reading and writing binary formats, and use resizable and transferable buffers from ES2024.
+minVersion: "22"
+objectives:
+  - Create an ArrayBuffer and read and write it through typed array views
+  - Predict overflow, clamping and sharing between views, subarray and slice
+  - Read and write multi-byte values in a chosen byte order with DataView
+  - Parse and produce a real binary file header
+  - Grow a resizable ArrayBuffer and hand a buffer over with transfer
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/18-memory-and-references"]
+---
+
+You have carried bytes around for a while without looking at them. [The Unicode lesson](../../intermediate/unicode-js/) turned text into a `Uint8Array` with `TextEncoder`, [streams](../streams-advanced/) delivered chunks of bytes, and [shared memory](../shared-memory-atomics/) put an `Int32Array` over a `SharedArrayBuffer`. This lesson is about those objects themselves: how JavaScript represents a block of memory, how the same bytes can be read as different kinds of numbers, and how to read a binary file format field by field.
+
+## A buffer and its views
+
+An **`ArrayBuffer`** is a fixed-length block of bytes, all zero when created. It has no methods to read or write them. To touch the bytes you put a **view** over the buffer. A **typed array** is a view that reads the memory as a sequence of numbers of one type:
+
+| Type | Bytes per element | Values |
+|---|---|---|
+| `Int8Array`, `Uint8Array`, `Uint8ClampedArray` | 1 | −128 to 127, 0 to 255 |
+| `Int16Array`, `Uint16Array` | 2 | 16-bit integers |
+| `Int32Array`, `Uint32Array` | 4 | 32-bit integers |
+| `Float32Array`, `Float64Array` | 4, 8 | floating point |
+| `BigInt64Array`, `BigUint64Array` | 8 | 64-bit integers as `bigint` |
+
+Two views over the same buffer see the same memory:
+
+```javascript title="bd_views.mjs"
+const buffer = new ArrayBuffer(8);
+const bytes = new Uint8Array(buffer);
+const words = new Uint16Array(buffer);
+
+bytes[0] = 0x34;
+bytes[1] = 0x12;
+console.log(buffer.byteLength, bytes.length, words.length);
+console.log(words[0].toString(16));
+```
+
+```text
+8 8 4
+1234
+```
+
+Eight bytes make eight `Uint8` elements or four `Uint16` elements. Writing two bytes changed the first 16-bit word, and the word reads as `0x1234` although `0x34` was written first. That is **little-endian** byte order: the least significant byte comes first in memory. Typed arrays use the byte order of the machine, which is little-endian on x86 and ARM, the processors you are likely to meet. More on that below.
+
+A typed array never grows and never holds a value its type cannot represent. A store converts the value instead of failing:
+
+```javascript title="bd_views.mjs (continued)"
+bytes[2] = 300;
+bytes[3] = -1;
+console.log(bytes[2], bytes[3]);
+
+const clamped = new Uint8ClampedArray(2);
+clamped[0] = 300;
+clamped[1] = -1;
+console.log(clamped[0], clamped[1]);
+console.log(new Float32Array([0.1])[0]);
+```
+
+```text
+44 255
+255 0
+0.10000000149011612
+```
+
+`Uint8Array` keeps the low 8 bits, so 300 wraps to 44 and −1 becomes 255. `Uint8ClampedArray` clamps to the range instead, which is what image pixels want. A `Float32Array` stores the nearest 32-bit float, and reading it back shows the rounding.
+
+## Sharing and copying: subarray and slice
+
+Typed arrays have most array methods, plus two that look alike and behave very differently. `subarray(start, end)` makes a new view over the **same** memory. `slice(start, end)` copies the bytes into a new buffer.
+
+```javascript title="bd_subarray.mjs"
+const data = Uint8Array.of(10, 20, 30, 40, 50);
+const view = data.subarray(1, 3);
+const copy = data.slice(1, 3);
+
+view[0] = 99;
+copy[1] = 77;
+console.log(data);
+console.log(view, view.byteOffset);
+console.log(copy, copy.byteOffset);
+```
+
+```text
+Uint8Array(5) [ 10, 99, 30, 40, 50 ]
+Uint8Array(2) [ 99, 30 ] 1
+Uint8Array(2) [ 20, 77 ] 0
+```
+
+The change through `view` shows up in `data`; the change to `copy` does not. Every view also records where it starts: `byteOffset` is its position inside the buffer, and `view.buffer` is the whole buffer, not just the part the view covers. Code that hands `bytes.buffer` to another API without `byteOffset` and `byteLength` passes along bytes it never meant to. The [memory and references](../../../fundamentals/beginner/memory-and-references/) lesson covers the general idea of two names for one object.
+
+## DataView and byte order
+
+A file format or network protocol fixes its byte order, whatever machine reads it. PNG and most network protocols are **big-endian** (most significant byte first); BMP, WAV and ZIP are little-endian. A **`DataView`** reads and writes single values of any type at any byte offset, with the byte order as an argument. Without the argument it uses big-endian.
+
+```javascript title="bd_endian.mjs"
+const view = new DataView(new ArrayBuffer(4));
+
+view.setUint32(0, 0x12345678);
+console.log(new Uint8Array(view.buffer));
+
+view.setUint32(0, 0x12345678, true);
+console.log(new Uint8Array(view.buffer));
+console.log(view.getUint32(0, true).toString(16));
+console.log(view.getUint32(0).toString(16));
+```
+
+```text
+Uint8Array(4) [ 18, 52, 86, 120 ]
+Uint8Array(4) [ 120, 86, 52, 18 ]
+12345678
+78563412
+```
+
+The last argument, `true`, means little-endian. Reading little-endian bytes as big-endian gives a different number, `0x78563412`, without any error. Use typed arrays for bulk data in machine order, such as audio samples you produce and consume yourself, and `DataView` for every field whose byte order is set by a format.
+
+## Writing and reading a BMP file
+
+A BMP image starts with a 54-byte header in little-endian order: the letters `BM`, the file size at offset 2, the offset of the pixel data at 10, then a second header from offset 14 with the width at 18, the height at 22 and the bits per pixel at 28 ([BMP layout](https://en.wikipedia.org/wiki/BMP_file_format#Bitmap_file_header)). Each row of pixels is padded to a multiple of 4 bytes.
+
+```javascript title="bd_bmp.mjs"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+function bmpHeader(width, height) {
+  const rowSize = Math.ceil((width * 3) / 4) * 4;
+  const imageSize = rowSize * height;
+  const view = new DataView(new ArrayBuffer(54));
+  view.setUint8(0, 0x42); // "B"
+  view.setUint8(1, 0x4d); // "M"
+  view.setUint32(2, 54 + imageSize, true);
+  view.setUint32(10, 54, true);
+  view.setUint32(14, 40, true);
+  view.setInt32(18, width, true);
+  view.setInt32(22, height, true);
+  view.setUint16(26, 1, true);
+  view.setUint16(28, 24, true);
+  return { header: new Uint8Array(view.buffer), imageSize };
+}
+```
+
+The fields left out stay zero, which BMP readers accept. The pixels are stored bottom row first, three bytes each in blue, green, red order. `set(source, offset)` copies one array into another at a position:
+
+```javascript title="bd_bmp.mjs (continued)"
+const { header, imageSize } = bmpHeader(2, 2);
+const file = new Uint8Array(54 + imageSize);
+file.set(header);
+file.set([0, 0, 255, 0, 255, 0], 54); // bottom row: red, green
+file.set([255, 0, 0, 255, 255, 255], 62); // top row: blue, white
+
+const dir = await mkdtemp(join(tmpdir(), "bmp-"));
+const path = join(dir, "tiny.bmp");
+await writeFile(path, file);
+```
+
+Reading the file back gives a Node `Buffer`, which is a subclass of `Uint8Array`. The `DataView` is built with the buffer's offset and length, for the reason in the previous section:
+
+```javascript title="bd_bmp.mjs (continued)"
+const bytes = await readFile(path);
+const info = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+console.log({
+  magic: String.fromCharCode(bytes[0], bytes[1]),
+  fileSize: info.getUint32(2, true),
+  width: info.getInt32(18, true),
+  height: info.getInt32(22, true),
+  bitsPerPixel: info.getUint16(28, true),
+});
+await rm(dir, { recursive: true });
+```
+
+```text
+{ magic: 'BM', fileSize: 70, width: 2, height: 2, bitsPerPixel: 24 }
+```
+
+Remove the last line, and any image viewer opens `tiny.bmp` as a two-by-two picture.
+
+## Resizable buffers
+
+ES2024 added **resizable** buffers. Pass `maxByteLength` and the buffer can later `resize()` anywhere up to that limit. A typed array created without a length **tracks** the buffer and changes length with it; one created with a fixed length keeps it, and reads as empty when the buffer shrinks under it.
+
+```javascript title="bd_resize.mjs"
+const buffer = new ArrayBuffer(4, { maxByteLength: 16 });
+const tracking = new Uint8Array(buffer);
+const fixed = new Uint8Array(buffer, 0, 4);
+console.log(buffer.resizable, buffer.maxByteLength);
+
+buffer.resize(8);
+console.log(tracking.length, fixed.length);
+buffer.resize(2);
+console.log(tracking.length, fixed.length);
+
+try {
+  buffer.resize(32);
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+true 16
+8 4
+2 0
+RangeError
+```
+
+The engine may reserve `maxByteLength` up front, so choose a real upper bound, not a huge number "to be safe". `SharedArrayBuffer` has the same option, with `grow()` instead of `resize()` and no shrinking.
+
+## Transferring ownership
+
+`transfer()` moves the bytes to a new `ArrayBuffer` and **detaches** the old one: its length becomes zero and every view over it reads as empty. Nothing is copied when the engine can avoid it, and no other code can keep changing bytes you now own. `transfer(newLength)` moves and resizes in one step.
+
+```javascript title="bd_transfer.mjs"
+const original = new Uint8Array([1, 2, 3, 4]);
+const moved = original.buffer.transfer();
+console.log(original.buffer.detached, original.length);
+console.log(new Uint8Array(moved));
+
+const longer = moved.transfer(6);
+console.log(moved.detached, new Uint8Array(longer));
+```
+
+```text
+true 0
+Uint8Array(4) [ 1, 2, 3, 4 ]
+true Uint8Array(6) [ 1, 2, 3, 4, 0, 0 ]
+```
+
+The same move happens when you list a buffer in the `transfer` option of `structuredClone` or `postMessage`, as in [the worker lesson](../worker-threads/). `transferToFixedLength()` does the same but always returns a non-resizable buffer.
+
+## When not to use typed arrays
+
+- **A short list of numbers in ordinary code.** A plain array is simpler, holds any value and grows. Typed arrays pay off for large numeric data, binary formats and APIs that require them.
+- **Text.** Keep text as strings and convert at the edges with `TextEncoder` and `TextDecoder`.
+- **Node APIs that give you a `Buffer`.** Use it as it is. `Buffer` is a `Uint8Array` with extra methods, so every technique here applies to it.
+
+## Common pitfalls
+
+- **Silent wrap-around.** Storing 256 in a `Uint8Array` gives 0. Check ranges yourself where it matters.
+- **Unaligned views.** `new Uint32Array(buffer, 1)` throws `RangeError`: the offset must be a multiple of the element size. Use `DataView` for fields at odd offsets.
+- **Assuming the byte order.** Typed arrays use the machine's order. Read format fields with `DataView` and an explicit endianness.
+- **Using `view.buffer` without `byteOffset`.** Small Node `Buffer` objects are carved out of a shared memory pool, so `Buffer.from("hi").buffer` is much larger than two bytes.
+- **Expecting `slice` to share memory.** It copies; `subarray` shares.
+
+## Exercises
+
+<Exercise title="Parse a WAV header">
+
+A WAV file starts with a 44-byte little-endian header: the tag `RIFF`, a 32-bit size (file size minus 8), the tag `WAVE`, the tag `fmt `, the number 16, then at offset 20 the format (1 for PCM, 16 bits), channels (16 bits), sample rate (32), byte rate (32), block align (16) and bits per sample (16), and finally the tag `data` and the number of data bytes (32). Write `wavHeader({ sampleRate, channels, bitsPerSample, samples })`, which returns the header as a `Uint8Array`, and `parseWav(bytes)`, which reads it back. For one second of 8000 Hz mono 16-bit audio, print the two outer tags, the parsed fields and the duration. Expected output: `RIFF WAVE`, then `{ format: 1, channels: 1, sampleRate: 8000, byteRate: 16000, bitsPerSample: 16, dataBytes: 16000 }`, then `duration: 1 s`.
+
+<Solution>
+
+Tags are four ASCII characters, written and read one byte at a time. The byte rate is the sample rate times the bytes per frame, and the duration is the data size divided by the byte rate.
+
+```javascript title="bd_ex_wav.mjs"
+function writeTag(view, offset, tag) {
+  for (let i = 0; i < 4; i++) view.setUint8(offset + i, tag.charCodeAt(i));
+}
+
+function readTag(view, offset) {
+  let tag = "";
+  for (let i = 0; i < 4; i++) {
+    tag += String.fromCharCode(view.getUint8(offset + i));
+  }
+  return tag;
+}
+```
+
+The writer fills each field at its offset:
+
+```javascript title="bd_ex_wav.mjs (continued)"
+function wavHeader({ sampleRate, channels, bitsPerSample, samples }) {
+  const blockAlign = channels * (bitsPerSample / 8);
+  const dataBytes = samples * blockAlign;
+  const view = new DataView(new ArrayBuffer(44));
+  writeTag(view, 0, "RIFF");
+  view.setUint32(4, 36 + dataBytes, true);
+  writeTag(view, 8, "WAVE");
+  writeTag(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeTag(view, 36, "data");
+  view.setUint32(40, dataBytes, true);
+  return new Uint8Array(view.buffer);
+}
+```
+
+The parser takes any `Uint8Array`, so it respects the view's offset:
+
+```javascript title="bd_ex_wav.mjs (continued)"
+function parseWav(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return {
+    tags: `${readTag(view, 0)} ${readTag(view, 8)}`,
+    fields: {
+      format: view.getUint16(20, true),
+      channels: view.getUint16(22, true),
+      sampleRate: view.getUint32(24, true),
+      byteRate: view.getUint32(28, true),
+      bitsPerSample: view.getUint16(34, true),
+      dataBytes: view.getUint32(40, true),
+    },
+  };
+}
+
+const header = wavHeader({
+  sampleRate: 8000, channels: 1, bitsPerSample: 16, samples: 8000,
+});
+const { tags, fields } = parseWav(header);
+console.log(tags);
+console.log(fields);
+console.log(`duration: ${fields.dataBytes / fields.byteRate} s`);
+```
+
+```text
+RIFF WAVE
+{
+  format: 1,
+  channels: 1,
+  sampleRate: 8000,
+  byteRate: 16000,
+  bitsPerSample: 16,
+  dataBytes: 16000
+}
+duration: 1 s
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A growing byte writer">
+
+Write a class `ByteWriter` that keeps its bytes in a resizable `ArrayBuffer` starting at 4 bytes with a maximum of 1024, doubling the size whenever a write does not fit. Give it `uint8(n)`, `uint16(n)` (big-endian), `text(s)` (UTF-8 via `TextEncoder`) and `bytes()`, which returns a copy of the written part. Write `uint8(1)`, `uint16(0xbeef)`, `text("hé")` and `uint8(255)`, then print the bytes and the buffer's `byteLength`. Expected output: the seven bytes `1, 190, 239, 104, 195, 169, 255` and `buffer: 8 bytes`.
+
+<Solution>
+
+`ensure` grows the buffer before each write. The `DataView` is created once and tracks the resizable buffer, so it never needs to be rebuilt. `bytes()` uses `slice`, because handing out a view would let the caller see later writes.
+
+```javascript title="bd_ex_writer.mjs"
+class ByteWriter {
+  #buffer = new ArrayBuffer(4, { maxByteLength: 1024 });
+  #view = new DataView(this.#buffer);
+  #length = 0;
+
+  #ensure(extra) {
+    let size = this.#buffer.byteLength;
+    while (this.#length + extra > size) size *= 2;
+    if (size !== this.#buffer.byteLength) this.#buffer.resize(size);
+  }
+
+  uint8(n) {
+    this.#ensure(1);
+    this.#view.setUint8(this.#length, n);
+    this.#length += 1;
+  }
+```
+
+The other writers follow the same pattern:
+
+```javascript title="bd_ex_writer.mjs (continued)"
+  uint16(n) {
+    this.#ensure(2);
+    this.#view.setUint16(this.#length, n);
+    this.#length += 2;
+  }
+
+  text(s) {
+    const encoded = new TextEncoder().encode(s);
+    this.#ensure(encoded.length);
+    new Uint8Array(this.#buffer).set(encoded, this.#length);
+    this.#length += encoded.length;
+  }
+
+  bytes() {
+    return new Uint8Array(this.#buffer).slice(0, this.#length);
+  }
+
+  get capacity() {
+    return this.#buffer.byteLength;
+  }
+}
+```
+
+The test writes seven bytes, so the buffer doubles once, from 4 to 8:
+
+```javascript title="bd_ex_writer.mjs (continued)"
+const writer = new ByteWriter();
+writer.uint8(1);
+writer.uint16(0xbeef);
+writer.text("hé");
+writer.uint8(255);
+console.log(writer.bytes());
+console.log(`buffer: ${writer.capacity} bytes`);
+```
+
+```text
+Uint8Array(7) [
+    1, 190, 239,
+  104, 195, 169,
+  255
+]
+buffer: 8 bytes
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A hex dump">
+
+Write `hexdump(bytes)`, which returns lines in the classic format: an 8-digit hex offset, two spaces, up to 16 bytes as two-digit hex separated by spaces (padded so the last column lines up), two spaces, and the bytes as characters between `|` bars, with anything outside printable ASCII (32 to 126) shown as `.`. Dump the UTF-8 bytes of `"Typed arrays share memory.\n"`. Expected output:
+
+```text
+00000000  54 79 70 65 64 20 61 72 72 61 79 73 20 73 68 61  |Typed arrays sha|
+00000010  72 65 20 6d 65 6d 6f 72 79 2e 0a                 |re memory..|
+```
+
+<Solution>
+
+`subarray` takes each line of 16 bytes without copying. `padStart` produces the fixed-width hex, and `padEnd` keeps the character column aligned on the short last line.
+
+```javascript title="bd_ex_hexdump.mjs"
+function hexdump(bytes) {
+  const lines = [];
+  for (let offset = 0; offset < bytes.length; offset += 16) {
+    const row = bytes.subarray(offset, offset + 16);
+    const hex = [...row].map((b) => b.toString(16).padStart(2, "0"));
+    const text = [...row]
+      .map((b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : "."))
+      .join("");
+    const position = offset.toString(16).padStart(8, "0");
+    lines.push(`${position}  ${hex.join(" ").padEnd(47)}  |${text}|`);
+  }
+  return lines.join("\n");
+}
+
+const bytes = new TextEncoder().encode("Typed arrays share memory.\n");
+console.log(hexdump(bytes));
+```
+
+```text
+00000000  54 79 70 65 64 20 61 72 72 61 79 73 20 73 68 61  |Typed arrays sha|
+00000010  72 65 20 6d 65 6d 6f 72 79 2e 0a                 |re memory..|
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- An `ArrayBuffer` holds bytes; typed arrays and `DataView` are views that read and write them. Several views can share one buffer.
+- Typed arrays convert out-of-range stores silently: wrap for integer types, clamp for `Uint8ClampedArray`, round for floats.
+- `subarray` shares memory and `slice` copies. Always pair `view.buffer` with `byteOffset` and `byteLength`.
+- Typed arrays use the machine's byte order. `DataView` takes the order as an argument and is the tool for file and network formats.
+- Resizable buffers grow up to `maxByteLength`, and length-tracking views follow them. `transfer()` moves the bytes and detaches the original.
+
+The next lesson adds a newer element type, the 16-bit float, and shows exactly how much precision it trades for half the memory.

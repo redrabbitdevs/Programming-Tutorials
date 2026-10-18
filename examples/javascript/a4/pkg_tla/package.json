@@ -1,0 +1,5 @@
+{
+  "name": "@example/config",
+  "type": "module",
+  "exports": "./index.js"
+}

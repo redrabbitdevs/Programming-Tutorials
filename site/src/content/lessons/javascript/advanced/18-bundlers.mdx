@@ -1,0 +1,349 @@
+---
+language: javascript
+level: advanced
+module: Building and shipping
+order: 18
+title: Bundlers and dev servers
+description: Decide whether a browser app needs a bundler, ship native modules with an import map when it does not, and use esbuild and Vite when it does - bundling, tree shaking and the sideEffects field, minification, and source maps in the browser and in Node.
+minVersion: "22"
+objectives:
+  - List what a bundler does and which of those jobs browsers now do themselves
+  - Serve native ES modules with an import map for bare specifiers
+  - Bundle and minify an app with esbuild, and read the output
+  - Explain tree shaking and how the sideEffects field affects it
+  - Use source maps to debug bundled code in the browser and in Node
+  - Start a Vite dev server and make a production build
+estimatedMinutes: 50
+fundamentals: []
+---
+
+*Tool versions in this lesson: esbuild 0.28.2 and Vite 8.3.4, the latest on the npm registry when checked on 2026-10-18. Install them as development dependencies with `npm install --save-dev esbuild vite`.*
+
+[The browser strand](../../beginner/script-tags-modules/) loaded ES modules straight from files, with no build step. That works, and for many pages it is all you need. A **bundler** is a tool that reads your entry module, follows every `import`, and writes one or a few files for the browser. This lesson shows both routes on the same small app, so you can see what the tool adds.
+
+## What a bundler does
+
+- **Resolves bare specifiers.** `import { x } from "some-package"` means nothing to a browser, which only understands URLs. A bundler finds the package in `node_modules`.
+- **Combines modules.** One request instead of dozens, which mattered more before HTTP/2 than it does now.
+- **Removes unused code** (tree shaking) and **minifies** what remains.
+- **Transforms** TypeScript, JSX and newer syntax for older browsers (the [compatibility lesson](../compatibility-baseline/) covers when that is needed).
+- **Adds content hashes to file names**, so browsers can cache files forever and still get new versions.
+
+A **dev server** serves your source during development, transforms it on the fly, and reloads the page, or swaps only the changed module, when you save.
+
+## The app
+
+A cart summary in three modules. `cart.js` imports a formatting module through `#format`, a name defined in the `imports` field of `package.json`, so the same code runs in Node, in the browser and through a bundler:
+
+```javascript title="bnd_app/src/format.js"
+export function formatPrice(cents, currency = "EUR") {
+  const fmt = new Intl.NumberFormat("en-GB", { style: "currency", currency });
+  return fmt.format(cents / 100);
+}
+
+export function formatDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+```
+
+```javascript title="bnd_app/src/cart.js"
+import { formatPrice } from "#format";
+
+export function cartSummary(items) {
+  const count = items.reduce((sum, item) => sum + item.qty, 0);
+  const total = items.reduce((sum, item) => sum + item.cents * item.qty, 0);
+  return `${count} items, ${formatPrice(total)}`;
+}
+```
+
+```javascript title="bnd_app/src/main.js"
+import { cartSummary } from "./cart.js";
+
+const items = [
+  { name: "Tea", cents: 450, qty: 2 },
+  { name: "Cake", cents: 325, qty: 1 },
+];
+document.querySelector("#summary").textContent = cartSummary(items);
+```
+
+`package.json` holds `"type": "module"` and `"imports": { "#format": "./src/format.js" }`. A Node script with the same items checks the logic:
+
+```javascript title="bnd_app/check.mjs"
+import { cartSummary } from "./src/cart.js";
+
+const items = [
+  { name: "Tea", cents: 450, qty: 2 },
+  { name: "Cake", cents: 325, qty: 1 },
+];
+console.log(cartSummary(items));
+```
+
+```text
+3 items, €12.25
+```
+
+## Without a bundler: an import map
+
+A browser does not read `package.json`. An **import map** tells it what bare specifiers mean. It is a JSON object in a `<script type="importmap">` element, which must come before the first module script ([MDN: importmap](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script/type/importmap)). Import maps are Baseline widely available.
+
+```html title="bnd_app/index.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cart</title>
+    <script type="importmap">
+      { "imports": { "#format": "./src/format.js" } }
+    </script>
+    <script type="module" src="./src/main.js"></script>
+  </head>
+  <body>
+    <p id="summary">Loading…</p>
+  </body>
+</html>
+```
+
+Serve the folder with the `serve.mjs` server from [the browser strand](../../beginner/script-tags-modules/#serving-the-page) and the page shows "3 items, €12.25". The Network panel of DevTools shows three module requests: `main.js`, `cart.js` and `format.js`. That is the whole build system. An import map can also point a name at a full URL, such as a package on a CDN.
+
+## esbuild
+
+esbuild is a bundler distributed as a single native binary, with a command-line interface that covers most needs. Without `--outfile` it prints the bundle, which is the best way to see what bundling means:
+
+```text frame="terminal"
+$ npx esbuild src/main.js --bundle
+(() => {
+  // src/format.js
+  function formatPrice(cents, currency = "EUR") {
+    const fmt = new Intl.NumberFormat("en-GB", { style: "currency", currency });
+    return fmt.format(cents / 100);
+  }
+
+  // src/cart.js
+  function cartSummary(items2) {
+    const count = items2.reduce((sum, item) => sum + item.qty, 0);
+    const total = items2.reduce((sum, item) => sum + item.cents * item.qty, 0);
+    return `${count} items, ${formatPrice(total)}`;
+  }
+
+  // src/main.js
+  var items = [
+    { name: "Tea", cents: 450, qty: 2 },
+    { name: "Cake", cents: 325, qty: 1 }
+  ];
+  document.querySelector("#summary").textContent = cartSummary(items);
+})();
+```
+
+Three things happened. The modules were concatenated in dependency order inside one function, so their top-level names cannot clash with other scripts; `items` in `cart.js` was renamed `items2` because `main.js` also has an `items`. `#format` was resolved through `package.json`. And `formatDate` is missing: nothing imports it, so it was **tree-shaken** away. Tree shaking works because `import` and `export` are static: the bundler can see which names are used without running the code.
+
+For production, add `--minify`, `--sourcemap` and an output file:
+
+```text frame="terminal"
+$ npx esbuild src/main.js --bundle --minify --sourcemap --outfile=dist/app.js
+
+  dist/app.js      379b
+  dist/app.js.map  1.5kb
+
+⚡ Done in 4ms
+```
+
+A `dist/index.html` then loads `app.js` with a plain `<script src>`; no import map is needed, because no imports are left.
+
+## Side effects and tree shaking
+
+A module can do something when it is imported, such as registering a global or logging. Code like that is a **side effect**, and a bundler must keep it even when no export of the module is used:
+
+```javascript title="bnd_side/src/analytics.js"
+export const VERSION = "1.0";
+console.log("analytics loaded");
+```
+
+```javascript title="bnd_side/src/main.js"
+import { VERSION } from "./analytics.js";
+console.log("app");
+```
+
+`VERSION` is never used, yet esbuild keeps the `console.log` of `analytics.js`. Adding `"sideEffects": false` to `package.json` promises that importing any file of the package has no effect except defining its exports, and the bundler can drop unused modules entirely:
+
+```text frame="terminal"
+$ npx esbuild src/main.js --bundle
+(() => {
+  // src/analytics.js
+  console.log("analytics loaded");
+
+  // src/main.js
+  console.log("app");
+})();
+$ npx esbuild src/main.js --bundle
+(() => {
+  // src/main.js
+  console.log("app");
+})();
+```
+
+The second run is after adding the field. Library authors set `"sideEffects": false` so that users' bundles stay small. Set it only if it is true: a CSS import or a polyfill is a side effect, and marking it as free of them makes it vanish from the bundle.
+
+## Source maps
+
+Minified code is unreadable, and errors in it point at line 1, column 3000. A **source map** (`app.js.map`) records which position in the output came from which position in which source file. Browser DevTools load it automatically, through the `//# sourceMappingURL=app.js.map` comment esbuild adds, and show your original files in the Sources panel, with breakpoints and stack traces in them. Node uses source maps when you run it with `--enable-source-maps`, which an exercise below tries.
+
+Source maps contain your source code. Publishing them is fine for open code; for private code, keep them off the public server or upload them only to your error-reporting service.
+
+## Vite
+
+Vite is a dev server and build tool for whole applications. It takes `index.html` as the entry point, so the same project works with no configuration. Start the dev server:
+
+```text frame="terminal"
+$ npx vite
+
+  VITE v8.3.4  ready in 178 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+```
+
+In development Vite serves your modules almost unchanged, rewriting `#format` into a URL the browser can load, and updates the page when you save a file. For production, `vite build` bundles everything into `dist/`, with hashed file names:
+
+```text frame="terminal"
+$ npx vite build
+vite v8.3.4 building client environment for production...
+transforming...
+✓ 6 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                0.34 kB │ gzip: 0.24 kB
+dist/assets/index-Dd_5w15Q.js  0.99 kB │ gzip: 0.56 kB
+
+✓ built in 129ms
+```
+
+`npx vite preview` serves the built `dist/` folder to check it. The JavaScript file is larger than esbuild's because Vite adds a small polyfill for `<link rel="modulepreload">`. Vite 8 does its production bundling with Rolldown, a separate project listed among its dependencies; you do not need to install or configure it. For frameworks such as React or Vue, `npm create vite@latest` sets up a project from a template.
+
+## When not to bundle
+
+- **Small sites and internal tools.** Native modules plus an import map have no build step to maintain, and HTTP/2 makes a handful of module requests cheap.
+- **Node servers.** Node resolves packages itself. Bundling a server makes stack traces harder to read and gains little, except for single executables and some serverless platforms where start-up time matters.
+- **Libraries you publish to npm.** Ship your modules as they are and let the application's bundler do its job; a pre-bundled library defeats tree shaking and duplicates shared dependencies.
+- **When you would add a framework's toolchain for one widget.** Start with a module script; adopt Vite when the app's size makes the dev server and build worth it.
+
+## Common pitfalls
+
+- **Wrong `sideEffects`.** Claiming `false` for a package with CSS imports or polyfills removes them silently.
+- **Import map after a module script.** The map must come first, or bare imports fail.
+- **Opening `index.html` from the file system.** Module scripts need a server; `file://` pages cannot load them.
+- **Shipping development builds.** The dev server output is unminified and fetches many files. Deploy what `vite build` or `esbuild --minify` produces.
+- **Leaking source maps of private code.** Decide where `.map` files go before the first deploy.
+
+## Exercises
+
+<Exercise title="Bundle for Node">
+
+Bundle `check.mjs` from `bnd_app` for Node with esbuild: `--bundle --platform=node --format=esm --outfile=dist/check.mjs`. Run the bundle, then count the lines of the bundle that start with `import`. Expected output: `3 items, €12.25`, and a count of `0`.
+
+<Solution>
+
+`--platform=node` keeps built-in modules such as `node:fs` as imports and targets Node instead of a browser. Here the bundle has no imports at all, because all three source modules were inlined, `#format` included.
+
+```text frame="terminal"
+$ npx esbuild check.mjs --bundle --platform=node --format=esm --outfile=dist/check.mjs
+
+  dist/check.mjs  564b
+
+⚡ Done in 3ms
+$ node dist/check.mjs
+3 items, €12.25
+$ grep -c '^import' dist/check.mjs
+0
+```
+
+The source being bundled is `bnd_app/check.mjs` from the lesson.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Keep one side effect">
+
+In `bnd_side`, change `sideEffects` from `false` to an array that names only `./src/analytics.js`, and build with `--bundle --minify`. Expected output: `(()=>{console.log("analytics loaded");console.log("app");})();`.
+
+<Solution>
+
+The array form lists the files that do have side effects; every other file may be dropped when unused. This is how packages that ship CSS mark only their stylesheets.
+
+```json title="bnd_side_ex/package.json"
+{
+  "name": "bnd-side",
+  "type": "module",
+  "sideEffects": ["./src/analytics.js"]
+}
+```
+
+```text frame="terminal"
+$ npx esbuild src/main.js --bundle --minify
+(()=>{console.log("analytics loaded");console.log("app");})();
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Source maps in Node">
+
+In a folder `bnd_node`, write `src/qty.js` with a function `parseQty(text)` that converts the text to a number and throws `RangeError("bad quantity: TEXT")` if it is not an integer, and `src/cli.js`, which prints `parseQty("2")` and then `parseQty("two")`. Bundle `src/cli.js` with `--bundle --platform=node --format=esm --minify --sourcemap --outfile=dist/cli.js`. Run `node dist/cli.js`, then `node --enable-source-maps dist/cli.js`. Expected result: both print `2` and then crash; the first stack trace points at `dist/cli.js:1` in a function named `o`, the second at `src/qty.js:3` in `parseQty`, called from `src/cli.js:4`.
+
+<Solution>
+
+```javascript title="bnd_node/src/qty.js"
+export function parseQty(text) {
+  const qty = Number(text);
+  if (!Number.isInteger(qty)) throw new RangeError(`bad quantity: ${text}`);
+  return qty;
+}
+```
+
+```javascript title="bnd_node/src/cli.js"
+import { parseQty } from "./qty.js";
+
+console.log(parseQty("2"));
+console.log(parseQty("two"));
+```
+
+The two runs, with the folder path shortened to `…` and Node's internal frames left out:
+
+```text frame="terminal"
+$ node dist/cli.js
+2
+…/dist/cli.js:1
+function o(r){let e=Number(r);if(!Number.isInteger(e))throw new RangeError(`bad quantity: ${r}`);return e}console.log(o("2"));console.log(o("two"));
+                                                            ^
+
+RangeError: bad quantity: two
+    at o (file://…/dist/cli.js:1:61)
+    at file://…/dist/cli.js:1:139
+$ node --enable-source-maps dist/cli.js
+2
+…/src/qty.js:3
+  if (!Number.isInteger(qty)) throw new RangeError(`bad quantity: ${text}`);
+                                    ^
+
+RangeError: bad quantity: two
+    at parseQty (…/src/qty.js:3:37)
+    at <anonymous> (…/src/cli.js:4:13)
+```
+
+With the source map, Node shows the original line, the original function name and the original files. Turn the flag on wherever you run bundled or transpiled code, or set `NODE_OPTIONS=--enable-source-maps`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Bundlers resolve packages, combine modules, tree-shake, minify, transform syntax and hash file names. Browsers now handle modules natively, so the bundler is optional for small apps.
+- An import map gives the browser the meaning of bare specifiers, with no build step.
+- `esbuild src/main.js --bundle --minify --sourcemap --outfile=dist/app.js` is a complete production build for many apps. Print a bundle without `--outfile` to understand it.
+- Tree shaking relies on static imports; `"sideEffects"` tells the bundler which files it may drop.
+- Source maps lead DevTools and `node --enable-source-maps` back to your original code.
+- Vite adds a dev server with instant updates and a production build from `index.html`.
+
+The next lesson, part of the optional browser strand, looks at the platform these bundles run on: `fetch` and CORS, storage, dialogs and workers.

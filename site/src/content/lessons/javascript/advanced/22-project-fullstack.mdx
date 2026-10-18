@@ -1,0 +1,576 @@
+---
+language: javascript
+level: advanced
+module: Building and shipping
+order: 22
+title: "Project: a small full-stack app"
+description: Build a link shortener with a node:http JSON API, a browser client, validation code shared between them, a request size limit, integration tests and lint checks - then review what the advanced level covered and where the expert level goes next.
+minVersion: "22"
+objectives:
+  - Structure a small full-stack project into shared, server and browser code
+  - Build a JSON API with node:http, including validation, size limits and error handling
+  - Serve a browser client that reuses the server's validation module
+  - Test the whole app with integration tests through real HTTP requests
+  - Review the techniques of the advanced level and how they fit together
+estimatedMinutes: 70
+fundamentals: ["fundamentals/beginner/28-clean-code-and-security-basics"]
+---
+
+This project builds a **link shortener**: paste a long URL, get a short one such as `http://localhost:3000/g8`, and visiting the short link redirects to the original. It is small enough to read in one sitting and uses most of this module: one ES module shared by Node and the browser, an HTTP API with no framework, integration tests with `node:test`, and a project layout ready for linting and CI. It needs no packages from npm.
+
+The finished app is in `lnk/`:
+
+```text
+lnk/
+  package.json
+  shared/links.mjs     validation and short codes, used on both sides
+  server/store.mjs     the link store
+  server/app.mjs       HTTP API and static files
+  server/main.mjs      starts the server
+  public/index.html    the page
+  public/client.js     the browser code
+  test/app.test.mjs    integration tests
+```
+
+## Shared code
+
+Code that must give the same answer in the browser and on the server belongs in one module that uses only standard JavaScript: no `node:` imports and no DOM. URL validation is the obvious candidate. The browser uses it for instant feedback, and the server uses it again, because a client can always be bypassed.
+
+```javascript title="lnk/shared/links.mjs"
+const ALPHABET =
+  "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+export function encodeId(n) {
+  let code = "";
+  do {
+    code = ALPHABET[n % 62] + code;
+    n = Math.floor(n / 62);
+  } while (n > 0);
+  return code;
+}
+
+export function checkUrl(text) {
+  if (!URL.canParse(text)) return "not a valid URL";
+  const { protocol } = new URL(text);
+  if (protocol !== "http:" && protocol !== "https:") {
+    return "only http and https links";
+  }
+  return null;
+}
+```
+
+`encodeId` writes a number in base 62, so short codes stay short: id 1000 is `g8`. `checkUrl` returns an error message or `null`. Allowing only `http:` and `https:` matters: a short link to a `javascript:` URL would run code in the visitor's browser. `URL.canParse` is in every supported Node line and Baseline widely available.
+
+## The store
+
+The store keeps links in a `Map`, keyed by code. It is an object with three methods, so it can later be replaced by one backed by a file or a database without touching the HTTP code:
+
+```javascript title="lnk/server/store.mjs"
+import { encodeId } from "../shared/links.mjs";
+
+export function createStore({ firstId = 1000 } = {}) {
+  const links = new Map();
+  let nextId = firstId;
+  return {
+    add(url) {
+      const link = { code: encodeId(nextId++), url, visits: 0 };
+      links.set(link.code, link);
+      return { ...link };
+    },
+    get: (code) => (links.has(code) ? { ...links.get(code) } : null),
+    visit(code) {
+      const link = links.get(code);
+      if (link) link.visits++;
+      return link?.url ?? null;
+    },
+  };
+}
+```
+
+`add` and `get` return copies, so callers cannot change the stored objects by accident.
+
+## The HTTP layer
+
+The server answers three kinds of request: static files for the page, the JSON API under `/api/`, and short codes. Static files come from a fixed table, never from a path built out of the request, so a request for `/../server/app.mjs` cannot read your source code:
+
+```javascript title="lnk/server/app.mjs"
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { checkUrl } from "../shared/links.mjs";
+
+const root = join(import.meta.dirname, "..");
+const js = "text/javascript; charset=utf-8";
+const files = {
+  "/": ["public/index.html", "text/html; charset=utf-8"],
+  "/client.js": ["public/client.js", js],
+  "/links.mjs": ["shared/links.mjs", js],
+};
+
+function sendJson(response, status, body) {
+  response.writeHead(status, { "Content-Type": "application/json" });
+  response.end(JSON.stringify(body));
+}
+```
+
+The body reader stops at a size limit, so nobody can make the server buffer a gigabyte. `serveFile` sends one entry of the table:
+
+```javascript title="lnk/server/app.mjs (continued)"
+async function readJson(request, limit = 10_000) {
+  let text = "";
+  for await (const chunk of request) {
+    text += chunk;
+    if (text.length > limit) throw new RangeError("body too large");
+  }
+  return JSON.parse(text);
+}
+
+async function serveFile(response, [path, type]) {
+  response.writeHead(200, { "Content-Type": type });
+  response.end(await readFile(join(root, path)));
+}
+```
+
+The API has two routes. Creating a link validates with the shared `checkUrl`:
+
+```javascript title="lnk/server/app.mjs (continued)"
+async function api(store, method, path, request, response) {
+  if (method === "POST" && path === "/api/links") {
+    const body = await readJson(request).catch(() => null);
+    const url = body?.url;
+    const problem = typeof url === "string" ? checkUrl(url) : "url required";
+    if (problem) return sendJson(response, 400, { error: problem });
+    return sendJson(response, 201, store.add(url));
+  }
+  const match = /^\/api\/links\/(\w+)$/.exec(path);
+  const link = method === "GET" && match ? store.get(match[1]) : null;
+  if (link) return sendJson(response, 200, link);
+  sendJson(response, 404, { error: "not found" });
+}
+```
+
+The router puts the pieces together. A short code answers with status `302` and a `Location` header, which makes the browser go there:
+
+```javascript title="lnk/server/app.mjs (continued)"
+async function route(store, request, response) {
+  const path = new URL(request.url, "http://localhost").pathname;
+  const { method } = request;
+  if (method === "GET" && files[path]) {
+    return serveFile(response, files[path]);
+  }
+  if (path.startsWith("/api/")) {
+    return api(store, method, path, request, response);
+  }
+  const target = method === "GET" ? store.visit(path.slice(1)) : null;
+  if (target) return response.writeHead(302, { Location: target }).end();
+  sendJson(response, 404, { error: "not found" });
+}
+```
+
+The exported function creates the server. Every request runs inside `try`, so an unexpected error becomes a `500` response instead of a crashed server:
+
+```javascript title="lnk/server/app.mjs (continued)"
+export function createApp(store) {
+  return createServer(async (request, response) => {
+    try {
+      await route(store, request, response);
+    } catch (error) {
+      console.error(error);
+      sendJson(response, 500, { error: "internal error" });
+    }
+  });
+}
+```
+
+`createApp` takes the store as an argument and does not call `listen`. That is what makes it testable: tests create an app with a fresh store and listen on port 0. The entry point is the only file that knows about the environment:
+
+```javascript title="lnk/server/main.mjs"
+import { createApp } from "./app.mjs";
+import { createStore } from "./store.mjs";
+
+const port = Number(process.env.PORT ?? 3000);
+createApp(createStore()).listen(port, () => {
+  console.log(`Link shortener on http://localhost:${port}/`);
+});
+```
+
+## The browser client
+
+The page is a form and a place for the result:
+
+```html title="lnk/public/index.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Link shortener</title>
+    <script type="module" src="/client.js"></script>
+  </head>
+  <body>
+    <h1>Shorten a link</h1>
+    <form id="shorten">
+      <input name="url" type="url" required placeholder="https://…" />
+      <button>Shorten</button>
+    </form>
+    <p id="result" aria-live="polite"></p>
+  </body>
+</html>
+```
+
+The client imports the same `checkUrl` the server uses, served at `/links.mjs`, and sends the URL to the API:
+
+```javascript title="lnk/public/client.js"
+import { checkUrl } from "/links.mjs";
+
+const form = document.querySelector("#shorten");
+const result = document.querySelector("#result");
+
+function showLink(href) {
+  const link = Object.assign(document.createElement("a"),
+    { href, textContent: href });
+  result.replaceChildren(link);
+}
+```
+
+The submit handler checks the URL locally, then asks the server:
+
+```javascript title="lnk/public/client.js (continued)"
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const url = form.elements.url.value.trim();
+  const problem = checkUrl(url);
+  if (problem) return void (result.textContent = problem);
+  const response = await fetch("/api/links", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  const body = await response.json();
+  if (!response.ok) return void (result.textContent = body.error);
+  showLink(new URL(`/${body.code}`, location.href).href);
+});
+```
+
+`void (...)` evaluates the assignment and returns `undefined`, a compact way to stop the handler after showing a message. `showLink` builds the link with `createElement` and `textContent`, never `innerHTML`, so a URL cannot inject markup. Because the page and the API share an origin, no CORS headers are needed ([the browser platform lesson](../browser-platform/) explains why).
+
+Start the server with `npm start`, which runs `node server/main.mjs`, and open the address it prints.
+
+## Integration tests
+
+The tests drive the app through HTTP, as the browser does, with a fresh store per test file:
+
+```javascript title="lnk/test/app.test.mjs"
+import { after, before, describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { createApp } from "../server/app.mjs";
+import { createStore } from "../server/store.mjs";
+
+describe("link shortener", () => {
+  let server;
+  let base;
+  before(async () => {
+    server = createApp(createStore());
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    base = `http://127.0.0.1:${server.address().port}`;
+  });
+  after(() => server.close());
+
+  const shorten = (body) => fetch(`${base}/api/links`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+```
+
+`fetch` normally follows redirects; `redirect: "manual"` returns the `302` itself so the test can inspect it:
+
+```javascript title="lnk/test/app.test.mjs (continued)"
+  it("shortens a link and redirects to it", async () => {
+    const created = await shorten({ url: "https://example.com/a/long/path" });
+    assert.equal(created.status, 201);
+    const { code } = await created.json();
+    assert.equal(code, "g8");
+
+    const visit = await fetch(`${base}/${code}`, { redirect: "manual" });
+    assert.equal(visit.status, 302);
+    const location = visit.headers.get("location");
+    assert.equal(location, "https://example.com/a/long/path");
+
+    const stats = await (await fetch(`${base}/api/links/${code}`)).json();
+    assert.equal(stats.visits, 1);
+  });
+```
+
+Then the cases that must fail safely:
+
+```javascript title="lnk/test/app.test.mjs (continued)"
+  it("rejects links that are not http or https", async () => {
+    for (const url of ["javascript:alert(1)", "not a url"]) {
+      const response = await shorten({ url });
+      assert.equal(response.status, 400);
+    }
+  });
+
+  it("rejects bodies over the size limit", async () => {
+    const url = `https://example.com/${"x".repeat(20_000)}`;
+    const response = await shorten({ url });
+    assert.equal(response.status, 400);
+  });
+
+  it("serves the page and 404s unknown codes", async () => {
+    const page = await fetch(base);
+    assert.match(page.headers.get("content-type"), /^text\/html/);
+    assert.equal((await fetch(`${base}/nope`)).status, 404);
+  });
+});
+```
+
+```text
+▶ link shortener
+  ✔ shortens a link and redirects to it
+  ✔ rejects links that are not http or https
+  ✔ rejects bodies over the size limit
+  ✔ serves the page and 404s unknown codes
+✔ link shortener
+ℹ tests 4
+ℹ suites 1
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+## Scripts, linting and CI
+
+`package.json` gives every task a name, so people and CI run the same commands:
+
+```json title="lnk/package.json"
+{
+  "name": "lnk",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server/main.mjs",
+    "test": "node --test",
+    "check": "node --check server/app.mjs && node --check public/client.js"
+  }
+}
+```
+
+`node --test` finds `test/app.test.mjs` by itself. For linting, add ESLint with the flat configuration from [the lint lesson](../../intermediate/lint-format/) and a `lint` script; the browser files need the browser globals in their part of the configuration, the server files the Node globals. The CI workflow from [the testing lesson](../testing-at-scale/) runs `npm ci`, `npm run lint` and `npm test` on Node 22, 24 and 26.
+
+## When not to build it this way
+
+- **A larger API.** Routing by hand is fine for five routes. With dozens, a framework's router, body parsing and validation save code and mistakes.
+- **Data that must survive a restart.** The in-memory store loses everything. Use a database, or at least the atomic file writes of the second exercise.
+- **Public deployment as it stands.** The app has no rate limiting, no authentication and no abuse protection, and a link shortener attracts spam and phishing. The third exercise adds rate limiting; the expert security module reviews this app in full.
+
+## Exercises
+
+<Exercise title="Custom codes">
+
+Let `POST /api/links` accept an optional `code`: 3 to 20 characters from `a-z`, `A-Z`, `0-9` and `-`. A valid custom code is used instead of a generated one; an invalid one gets 400 with the error `invalid code`; a code that is taken gets 409 with `code already taken`. Add a `store.addWithCode(code, url)` that returns `null` when the code exists. Write a test file for the three cases. Expected result: `tests 3`, `pass 3`.
+
+<Solution>
+
+The store method, added inside the object that `createStore` returns (shown here as a separate store for the test):
+
+```javascript title="lnk_ex/custom-store.mjs"
+import { createStore } from "../lnk/server/store.mjs";
+
+export function createCustomStore() {
+  const store = createStore();
+  const custom = new Map();
+  return {
+    ...store,
+    addWithCode(code, url) {
+      if (custom.has(code) || store.get(code)) return null;
+      custom.set(code, { code, url, visits: 0 });
+      return { ...custom.get(code) };
+    },
+    get: (code) => (custom.has(code) ? { ...custom.get(code) } : store.get(code)),
+  };
+}
+```
+
+The validation, as a function the API calls before `store.add`:
+
+```javascript title="lnk_ex/custom-code.mjs"
+export function chooseCode(store, body) {
+  if (body.code === undefined) return { status: 201, link: store.add(body.url) };
+  if (!/^[a-zA-Z0-9-]{3,20}$/.test(body.code)) {
+    return { status: 400, error: "invalid code" };
+  }
+  const link = store.addWithCode(body.code, body.url);
+  return link ? { status: 201, link } : { status: 409, error: "code already taken" };
+}
+```
+
+In `api`, the line `return sendJson(response, 201, store.add(url));` becomes:
+
+```javascript
+const result = chooseCode(store, body);
+return sendJson(response, result.status, result.link ?? { error: result.error });
+```
+
+A generated code could still collide with a custom code registered earlier, such as a custom `g8`; a real store keeps one map and makes `add` skip codes that are taken. The tests call `chooseCode` directly, which covers the rules without a server:
+
+```javascript title="lnk_ex/custom-code.test.mjs"
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createCustomStore } from "./custom-store.mjs";
+import { chooseCode } from "./custom-code.mjs";
+
+const url = "https://example.com/";
+
+test("uses a valid custom code", () => {
+  const result = chooseCode(createCustomStore(), { url, code: "my-link" });
+  assert.deepEqual(result, { status: 201, link: { code: "my-link", url, visits: 0 } });
+});
+
+test("rejects an invalid code", () => {
+  const result = chooseCode(createCustomStore(), { url, code: "no spaces" });
+  assert.deepEqual(result, { status: 400, error: "invalid code" });
+});
+
+test("refuses a taken code", () => {
+  const store = createCustomStore();
+  chooseCode(store, { url, code: "taken" });
+  assert.equal(chooseCode(store, { url, code: "taken" }).status, 409);
+});
+```
+
+```text
+✔ uses a valid custom code
+✔ rejects an invalid code
+✔ refuses a taken code
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Save links to a file">
+
+Write `saveLinks(path, links)` and `loadLinks(path)`. `saveLinks` writes the array as JSON **atomically**: to a temporary file in the same folder, then `rename` over the target, so a crash mid-write never leaves a half-written file. `loadLinks` returns `[]` when the file does not exist. In a temporary directory, load (getting `[]`), save two links, load again and print the codes, and print the directory listing to show no temporary file is left. Expected output: `[]`, `[ 'g8', 'g9' ]`, `[ 'links.json' ]`.
+
+<Solution>
+
+`rename` within one file system replaces the target in a single step: readers see either the old file or the new one. The temporary name includes the process id, so two processes do not collide. Only `ENOENT` means "no file yet"; any other error is real and is rethrown.
+
+```javascript title="lnk_ex/persist.mjs"
+import { mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+export async function saveLinks(path, links) {
+  const temporary = `${path}.${process.pid}.tmp`;
+  await writeFile(temporary, JSON.stringify(links, null, 2));
+  await rename(temporary, path);
+}
+
+export async function loadLinks(path) {
+  try {
+    return JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+```
+
+The check:
+
+```javascript title="lnk_ex/persist.mjs (continued)"
+const dir = await mkdtemp(join(tmpdir(), "lnk-"));
+const path = join(dir, "links.json");
+try {
+  console.log(await loadLinks(path));
+  await saveLinks(path, [
+    { code: "g8", url: "https://example.com/", visits: 0 },
+    { code: "g9", url: "https://example.org/", visits: 2 },
+  ]);
+  console.log((await loadLinks(path)).map((link) => link.code));
+  console.log(await readdir(dir));
+} finally {
+  await rm(dir, { recursive: true });
+}
+```
+
+```text
+[]
+[ 'g8', 'g9' ]
+[ 'links.json' ]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Rate limiting">
+
+Write `createRateLimiter({ limit, windowMs, now })`, which returns a function `allow(key)` that returns `true` for the first `limit` calls per key in each fixed time window of `windowMs` milliseconds and `false` after that, using `now()` for the time so tests can control it. With a limit of 3 per 60,000 ms and a fake clock, call `allow("1.2.3.4")` four times, then once for `"5.6.7.8"`, then advance the clock by 60,000 and call `allow("1.2.3.4")` again. Expected output: `true true true false`, `true`, `true`. In the app, a `false` would become status 429.
+
+<Solution>
+
+Each key remembers the start of its current window and a count. A **fixed window** is the simplest limiter: it allows bursts at the edge of two windows, which the token bucket from [the async patterns lesson](../async-patterns/) smooths out. Passing `now` in, instead of calling `Date.now()` inside, is what makes the behaviour testable without waiting a minute.
+
+```javascript title="lnk_ex/rate-limit.mjs"
+export function createRateLimiter({ limit, windowMs, now = Date.now }) {
+  const windows = new Map();
+  return function allow(key) {
+    const time = now();
+    let entry = windows.get(key);
+    if (!entry || time - entry.start >= windowMs) {
+      entry = { start: time, count: 0 };
+      windows.set(key, entry);
+    }
+    entry.count++;
+    return entry.count <= limit;
+  };
+}
+```
+
+The check with a fake clock:
+
+```javascript title="lnk_ex/rate-limit.mjs (continued)"
+let clock = 0;
+const allow = createRateLimiter({ limit: 3, windowMs: 60_000, now: () => clock });
+
+const ip = "1.2.3.4";
+console.log([1, 2, 3, 4].map(() => allow(ip)).join(" "));
+console.log(allow("5.6.7.8"));
+clock += 60_000;
+console.log(allow(ip));
+```
+
+```text
+true true true false
+true
+true
+```
+
+In `createApp`, the key would be `request.socket.remoteAddress`; behind a proxy it comes from a header the proxy sets, which you must then trust only from that proxy. Old entries should also be deleted from time to time, or the map grows with every client ever seen.
+
+</Solution>
+
+</Exercise>
+
+## The advanced level in review
+
+This project closes the advanced level. Looking back over its four modules:
+
+- **Metaprogramming and functional patterns.** `Proxy` and `Reflect` intercept operations on objects; tagged templates turn template literals into safe builders; immutable data and composition keep logic predictable. Decorators are still a proposal, and `eval` is almost never the answer.
+- **Resources and concurrency.** `using` declarations release resources on every path; semaphores, queues, retries and rate limits keep async work bounded; worker threads and shared memory with `Atomics` use more than one core; streams move data with backpressure; child processes run other programs safely.
+- **Binary data and encoding.** `ArrayBuffer`, typed arrays and `DataView` read and write bytes in any layout; `Float16Array` halves storage at a known cost; base64 and hex move bytes through text; JSON keeps large numbers exact with `context.source` and `JSON.rawJSON`; money and measurements each get the right kind of arithmetic.
+- **Building and shipping.** Packages with a precise `exports` map, ESM-only now that `require(esm)` works; bundles when they pay for themselves; compatibility decided by Baseline and maintained Node lines; tests that run in isolation, in random order, against real servers and generated inputs; and, here, all of it in one application.
+
+The expert level goes underneath and around this code. Its first module looks inside V8: how your code is parsed, compiled and optimised, how garbage collection works, and how to find memory leaks. The second measures and improves performance, from benchmarking without fooling yourself to profiling and start-up time. The third is about security: JavaScript-specific vulnerabilities, Node's permission model, the npm supply chain, cryptography, and a full security review of this link shortener.
