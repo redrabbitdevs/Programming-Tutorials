@@ -1,0 +1,4 @@
+inside: true
+second acquire: already locked
+after block: false
+task crashed - held: false

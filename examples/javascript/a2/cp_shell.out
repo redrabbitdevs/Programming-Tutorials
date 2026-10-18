@@ -1,0 +1,2 @@
+exec:     "notes.txt\nINJECTED\n"
+execFile: "notes.txt; echo INJECTED\n"

@@ -1,0 +1,3 @@
+sent, length here is now 0
+got back Uint8Array(4) [ 255, 254, 1, 0 ]
+worker exit code: 0

@@ -1,0 +1,503 @@
+---
+language: javascript
+level: advanced
+module: Resources and concurrency
+order: 8
+title: Worker threads and Web Workers
+description: Run CPU-heavy JavaScript in parallel with node:worker_threads - start workers, exchange messages, know what structured clone copies and what transferring moves, build a small worker pool, handle crashes and timeouts - and see the same model in browser Web Workers.
+minVersion: "22"
+objectives:
+  - Explain why CPU-bound work blocks the event loop and why async code cannot help
+  - Start a worker, pass it data with workerData and postMessage, and wait for its result and exit
+  - Predict what structured clone copies, what it drops, and what it refuses
+  - Transfer an ArrayBuffer instead of copying it
+  - Build a fixed-size worker pool, and decide when workers cost more than they save
+estimatedMinutes: 55
+fundamentals: []
+---
+
+Everything in [the event loop lesson](../../intermediate/event-loop/) rested on one fact: your JavaScript runs on one thread, one callback at a time. Waiting is cheap, because a thousand pending network requests cost almost nothing while they wait. Computing is different. While a loop is busy with a calculation, nothing else runs: no timer, no request handler, no promise reaction.
+
+```javascript title="primes.mjs"
+export function isPrime(n) {
+  if (n < 2) return false;
+  for (let d = 2; d * d <= n; d++) {
+    if (n % d === 0) return false;
+  }
+  return true;
+}
+
+export function countPrimes(from, to) {
+  let count = 0;
+  for (let n = from; n < to; n++) {
+    if (isPrime(n)) count++;
+  }
+  return count;
+}
+```
+
+This deliberately slow prime counter is the CPU work for the whole lesson. Watch what it does to a timer that is due immediately:
+
+```javascript title="wt_block.mjs"
+import { countPrimes } from "./primes.mjs";
+
+setTimeout(() => console.log("timer fired"), 0);
+console.log("primes below 2,000,000:", countPrimes(0, 2_000_000));
+console.log("counting finished");
+```
+
+```text
+primes below 2,000,000: 148933
+counting finished
+timer fired
+```
+
+The timer was due at once but fired only after the count. In a web server, every request that arrived during the count would have waited too. Making `countPrimes` an `async` function changes nothing, since `async` code still runs on the same thread. To compute in parallel you need a second thread.
+
+## Your first worker
+
+The `node:worker_threads` module starts **worker threads**: each runs its own JavaScript file, in parallel with the main thread, with its own event loop. A worker shares no variables with the main thread. The two talk by sending messages ([worker_threads docs](https://nodejs.org/api/worker_threads.html)).
+
+The worker file reads its input from `workerData`, computes, and sends the result to its parent through `parentPort`:
+
+```javascript title="wt_count_worker.mjs"
+import { parentPort, workerData } from "node:worker_threads";
+import { countPrimes } from "./primes.mjs";
+
+const { from, to } = workerData;
+parentPort.postMessage({ from, to, count: countPrimes(from, to) });
+```
+
+The main file creates a `Worker` from the file's URL. A `Worker` is an `EventEmitter`, so `once` from `node:events` ([the Node runtime lesson](../../intermediate/node-runtime/)) turns its `message` and `exit` events into promises. Create the `exit` promise before awaiting anything else, so that the event cannot fire while nobody is listening.
+
+```javascript title="wt_first.mjs"
+import { Worker } from "node:worker_threads";
+import { once } from "node:events";
+
+const url = new URL("./wt_count_worker.mjs", import.meta.url);
+const worker = new Worker(url, { workerData: { from: 0, to: 2_000_000 } });
+const exited = once(worker, "exit");
+
+const [result] = await once(worker, "message");
+console.log("worker says:", result);
+const [code] = await exited;
+console.log("exit code:", code);
+```
+
+```text
+worker says: { from: 0, to: 2000000, count: 148933 }
+exit code: 0
+```
+
+While the worker counted, the main thread's event loop was free to run timers and handle requests. The worker exited by itself with code 0 when it had nothing left to do, exactly as a Node program does. `new URL("./file.mjs", import.meta.url)` builds the path relative to the current module, not to the directory the program was started from.
+
+`once` has one more useful property: if the emitter emits `error` while you wait, the promise rejects ([events docs](https://nodejs.org/api/events.html#eventsonceemitter-name-options)). A worker that crashes therefore turns into a rejected `await`.
+
+## What a message can carry
+
+Messages are copied with the **structured clone** algorithm, which `postMessage` uses in Node and in browsers. The global `structuredClone()` function runs the same algorithm, so it shows the rules without needing a worker:
+
+```javascript title="wt_clone.mjs"
+class Point {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+  get sum() {
+    return this.x + this.y;
+  }
+}
+
+const value = {
+  when: new Date(0),
+  tags: new Map([["a", 1]]),
+  point: new Point(1, 2),
+};
+value.self = value;
+```
+
+The object holds a date, a map, a class instance and a reference to itself. Clone it and inspect the copy:
+
+```javascript title="wt_clone.mjs (continued)"
+const copy = structuredClone(value);
+console.log(copy.when instanceof Date, copy.tags.get("a"));
+console.log(copy.self === copy, copy === value);
+console.log(copy.point, copy.point instanceof Point, copy.point.sum);
+
+try {
+  structuredClone({ greet() {} });
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+true 1
+true false
+{ x: 1, y: 2 } false undefined
+DataCloneError
+```
+
+Unlike JSON, structured clone keeps `Date`, `Map`, `Set`, `RegExp`, `BigInt` and typed arrays, and it handles the circular `self` reference. But it does not walk the prototype chain: a class instance arrives as a plain object with its own data properties, and getters and methods are gone. Functions cannot be cloned at all and throw a `DataCloneError` ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm)). Send plain data, and rebuild class instances on the other side if you need them.
+
+### Transferring instead of copying
+
+Copying a 100 MB buffer to a worker costs time and doubles the memory. `postMessage(value, transferList)` can **transfer** an `ArrayBuffer` instead: the memory moves to the receiver, and the sender's buffer becomes detached, with a length of 0. A `MessageChannel` gives two connected ports in the same thread, which is enough to see this:
+
+```javascript title="wt_transfer.mjs"
+import { MessageChannel } from "node:worker_threads";
+
+const { port1, port2 } = new MessageChannel();
+const received = [];
+port2.on("message", (bytes) => {
+  received.push(bytes.byteLength);
+  if (received.length === 2) {
+    console.log("received:", received);
+    port2.close();
+  }
+});
+
+const bytes = new Uint8Array(1024 * 1024);
+port1.postMessage(bytes);
+console.log("after a copy:", bytes.byteLength);
+port1.postMessage(bytes, [bytes.buffer]);
+console.log("after a transfer:", bytes.byteLength);
+```
+
+```text
+after a copy: 1048576
+after a transfer: 0
+received: [ 1048576, 1048576 ]
+```
+
+The receiver got a megabyte both times, but the second time the sender lost its copy. Every view on a transferred buffer becomes unusable. Node `Buffer`s need care: those made by `Buffer.from()` or `Buffer.allocUnsafe()` live in a shared internal pool, cannot be transferred, and are cloned together with the whole pool ([worker_threads docs](https://nodejs.org/api/worker_threads.html#considerations-when-transferring-typedarrays-and-buffers)). To share memory rather than hand it over, use a `SharedArrayBuffer`, the subject of the next lesson.
+
+## A worker pool
+
+Starting a worker means starting a new JavaScript environment that loads its own copy of every module it imports. Doing that for each small task wastes most of the gain, and the Node documentation advises a pool of workers instead ([worker_threads docs](https://nodejs.org/api/worker_threads.html)). A pool starts a fixed number of workers once, then feeds them tasks from a queue:
+
+```javascript title="worker_pool.mjs"
+import { Worker } from "node:worker_threads";
+
+export class WorkerPool {
+  #workers = [];
+  #idle = [];
+  #queue = [];
+  constructor(url, size) {
+    for (let i = 0; i < size; i++) {
+      const worker = new Worker(url);
+      this.#workers.push(worker);
+      this.#idle.push(worker);
+    }
+  }
+  run(data) {
+    const { promise, resolve } = Promise.withResolvers();
+    this.#queue.push({ data, resolve });
+    this.#next();
+    return promise;
+  }
+```
+
+`run` queues a task and returns a promise for its result, the same `Promise.withResolvers` pattern as the semaphore in [the previous lesson](../async-patterns/). `#next` pairs an idle worker with the oldest task. When the answer comes back, the worker becomes idle again and takes the next task.
+
+```javascript title="worker_pool.mjs (continued)"
+  #next() {
+    if (this.#queue.length === 0 || this.#idle.length === 0) return;
+    const worker = this.#idle.pop();
+    const { data, resolve } = this.#queue.shift();
+    worker.once("message", (result) => {
+      this.#idle.push(worker);
+      resolve(result);
+      this.#next();
+    });
+    worker.postMessage(data);
+  }
+  async close() {
+    await Promise.all(this.#workers.map((worker) => worker.terminate()));
+  }
+}
+```
+
+The pool's workers do not exit by themselves, because a worker that listens on `parentPort` stays alive waiting for messages. `close` stops them with `terminate()`. Each pool worker answers one message per task:
+
+```javascript title="wt_pool_worker.mjs"
+import { parentPort } from "node:worker_threads";
+import { countPrimes } from "./primes.mjs";
+
+parentPort.on("message", ({ from, to }) => {
+  parentPort.postMessage(countPrimes(from, to));
+});
+```
+
+The main program splits the range into eight chunks for a pool of at most four workers. `os.availableParallelism()` estimates how many threads the machine can usefully run at once.
+
+```javascript title="wt_pool.mjs"
+import { availableParallelism } from "node:os";
+import { WorkerPool } from "./worker_pool.mjs";
+
+const size = Math.min(4, availableParallelism());
+const url = new URL("./wt_pool_worker.mjs", import.meta.url);
+const pool = new WorkerPool(url, size);
+
+const limit = 2_000_000;
+const step = limit / 8;
+const ranges = Array.from({ length: 8 }, (_, i) => ({
+  from: i * step,
+  to: (i + 1) * step,
+}));
+const counts = await Promise.all(ranges.map((range) => pool.run(range)));
+await pool.close();
+
+console.log("per chunk:", counts.join(" "));
+console.log("total:", counts.reduce((a, b) => a + b, 0));
+```
+
+```text
+per chunk: 22044 19494 18700 18260 17971 17686 17453 17325
+total: 148933
+```
+
+The chunks finish in whatever order the threads get through them, but `Promise.all` keeps the results in input order, so the output is the same on every run and on every machine. Chunks later in the range hold fewer primes but cost more per number, so equal-sized chunks do not take equal time. Using more chunks than workers keeps every worker busy until the end.
+
+This pool is deliberately small. A production pool also replaces a worker that crashes, rejects the task it was running, and reports to diagnostic tools through `AsyncResource`, as the Node documentation describes.
+
+## When a worker crashes
+
+An uncaught exception in a worker ends that worker, not the program. The main thread receives an `error` event with the error, then an `exit` event with code 1:
+
+```javascript title="wt_crash_worker.mjs"
+throw new RangeError("limit must be positive");
+```
+
+The main thread listens for both events with plain listeners:
+
+```javascript title="wt_crash.mjs"
+import { Worker } from "node:worker_threads";
+
+const worker = new Worker(new URL("./wt_crash_worker.mjs", import.meta.url));
+worker.on("error", (error) => {
+  console.log("error event:", error.name, error.message);
+});
+worker.on("exit", (code) => {
+  console.log("exit code:", code);
+});
+```
+
+```text
+error event: RangeError limit must be positive
+exit code: 1
+```
+
+The error was cloned across the thread boundary and keeps its class and message. A worker stopped with `terminate()` also exits with code 1.
+
+## Web Workers in the browser
+
+Browsers have the same model under the name **Web Workers**, with a slightly different API. The page creates a `Worker`, passing `{ type: "module" }` so that the worker file can use `import`, and listens for `message` events whose payload is in `event.data`:
+
+```javascript title="wt_page.mjs"
+const url = new URL("./wt_page_worker.mjs", import.meta.url);
+const worker = new Worker(url, { type: "module" });
+
+worker.addEventListener("message", (event) => {
+  document.querySelector("#result").textContent = `${event.data} primes`;
+});
+worker.postMessage({ from: 0, to: 2_000_000 });
+```
+
+Inside the worker, the global object is called `self`, and there is no `workerData`, so the input arrives as a message. The worker has no access to the page's DOM.
+
+```javascript title="wt_page_worker.mjs"
+import { countPrimes } from "./primes.mjs";
+
+self.addEventListener("message", (event) => {
+  const { from, to } = event.data;
+  self.postMessage(countPrimes(from, to));
+});
+```
+
+Serve both files and `primes.mjs` from the same origin; a worker script must be same-origin with the page ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/Worker/Worker)). The point in a browser is the same as in Node: a long computation in the page's main thread freezes scrolling, clicks and rendering, and in a worker it does not.
+
+## When workers cost more than they save
+
+- **I/O-bound work.** Reading files, querying databases and calling APIs is already concurrent on the main thread. The Node documentation says workers "do not help much with I/O-intensive work". Use the patterns from the previous lesson instead.
+- **Small tasks.** Starting a worker and cloning data to it and back has a fixed cost. If the task is quicker than that, the worker makes the program slower. Measure with your real workload before and after.
+- **Large inputs that must be copied.** Cloning a big object graph can cost more than the computation on it. Transfer buffers, or send only what the worker needs.
+- **More workers than cores.** Threads beyond `availableParallelism()` compete for the same cores and add memory, since every worker has its own heap and module copies.
+
+## Common pitfalls
+
+- **Making CPU work `async` and expecting parallelism.** It still runs on the main thread.
+- **Expecting class instances to survive a message.** They arrive as plain objects, without methods or getters.
+- **Using a buffer after transferring it.** Its length is 0 on the sending side.
+- **Forgetting to stop long-lived workers.** A worker that listens for messages keeps the process alive. Call `terminate()`, or `unref()` it.
+- **Paths relative to the working directory.** Build worker URLs with `new URL("./file.mjs", import.meta.url)`.
+
+## Exercises
+
+<Exercise title="Word counts in two workers">
+
+Write one file that is both the main program and the worker, using `isMainThread`. The main thread splits four lines of text into two halves, sends each half to a worker created from `new URL(import.meta.url)` as `workerData`, and merges the two `Map`s of word counts that come back. Words are runs of lowercase letters after `toLowerCase()`. Print the three most frequent words as `[word, count]` pairs, ties in alphabetical order, for the lines `The cat sat on the mat.`, `The dog sat on the log.`, `A cat and a dog.` and `The end.` The expected output is `[ [ 'the', 5 ], [ 'a', 2 ], [ 'cat', 2 ] ]`.
+
+<Solution>
+
+A `Map` survives structured cloning, so each worker can return one directly. The file checks `isMainThread` to decide which role it is playing.
+
+```javascript title="wt_ex_words.mjs"
+import { isMainThread, parentPort, Worker, workerData }
+  from "node:worker_threads";
+import { once } from "node:events";
+
+function countWords(lines) {
+  const counts = new Map();
+  for (const line of lines) {
+    for (const word of line.toLowerCase().match(/[a-z']+/g) ?? []) {
+      counts.set(word, (counts.get(word) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+```
+
+A helper runs one worker and waits for its answer:
+
+```javascript title="wt_ex_words.mjs (continued)"
+async function countInWorker(lines) {
+  const worker = new Worker(new URL(import.meta.url), { workerData: lines });
+  const [counts] = await once(worker, "message");
+  return counts;
+}
+```
+
+The two roles:
+
+```javascript title="wt_ex_words.mjs (continued)"
+if (!isMainThread) {
+  parentPort.postMessage(countWords(workerData));
+} else {
+  const text = ["The cat sat on the mat.", "The dog sat on the log.",
+    "A cat and a dog.", "The end."];
+  const parts = [text.slice(0, 2), text.slice(2)];
+  const results = await Promise.all(parts.map(countInWorker));
+  const total = new Map();
+  for (const counts of results) {
+    for (const [word, n] of counts) total.set(word, (total.get(word) ?? 0) + n);
+  }
+  const byCount = (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]);
+  console.log([...total].sort(byCount).slice(0, 3));
+}
+```
+
+```text
+[ [ 'the', 5 ], [ 'a', 2 ], [ 'cat', 2 ] ]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A worker with a deadline">
+
+Write `runWithTimeout(code, ms)` that starts a worker from a string of code with `{ eval: true }` and returns a promise for the worker's first message. If no message arrives within `ms` milliseconds, terminate the worker and reject with `Error("timed out after MS ms, exit code CODE")`, using the exit code that `terminate()` resolves to. Test it with a worker that posts `6 * 7` (a 5000 ms limit) and with `for (;;) {}` (a 100 ms limit). Code run with `eval: true` is a script, not a module, so the quick worker loads `parentPort` with `require`. The expected output is `quick: 42` and `endless: timed out after 100 ms, exit code 1`.
+
+<Solution>
+
+An endless loop never returns to its event loop, so it can never notice a message asking it to stop. `terminate()` is the only way out, and it works because it stops the thread from outside.
+
+```javascript title="wt_ex_timeout.mjs"
+import { Worker } from "node:worker_threads";
+
+function runWithTimeout(code, ms) {
+  const worker = new Worker(code, { eval: true });
+  const { promise, resolve, reject } = Promise.withResolvers();
+  const timer = setTimeout(async () => {
+    const exitCode = await worker.terminate();
+    reject(new Error(`timed out after ${ms} ms, exit code ${exitCode}`));
+  }, ms);
+  worker.once("message", (value) => {
+    clearTimeout(timer);
+    resolve(value);
+  });
+  worker.once("error", (error) => {
+    clearTimeout(timer);
+    reject(error);
+  });
+  return promise;
+}
+```
+
+The two test workers:
+
+```javascript title="wt_ex_timeout.mjs (continued)"
+const quick = `
+  const { parentPort } = require("node:worker_threads");
+  parentPort.postMessage(6 * 7);
+`;
+console.log("quick:", await runWithTimeout(quick, 5000));
+
+try {
+  await runWithTimeout("for (;;) {}", 100);
+} catch (error) {
+  console.log("endless:", error.message);
+}
+```
+
+```text
+quick: 42
+endless: timed out after 100 ms, exit code 1
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Round trip by transfer">
+
+In one file, send the bytes `[0, 1, 254, 255]` to a worker by transfer, print the length the main thread's array has afterwards, and have the worker replace each byte `b` with `255 - b` and transfer the array back. Print what comes back and the worker's exit code. The worker should exit by itself. The expected output is `sent, length here is now 0`, `got back Uint8Array(4) [ 255, 254, 1, 0 ]` and `worker exit code: 0`.
+
+<Solution>
+
+The worker listens with `parentPort.once`, so after the one message it has nothing left to wait for and exits with code 0, without `terminate()`. No byte was copied in either direction.
+
+```javascript title="wt_ex_invert.mjs"
+import { isMainThread, parentPort, Worker } from "node:worker_threads";
+import { once } from "node:events";
+
+if (isMainThread) {
+  const worker = new Worker(new URL(import.meta.url));
+  const exited = once(worker, "exit");
+  const bytes = Uint8Array.from([0, 1, 254, 255]);
+  worker.postMessage(bytes, [bytes.buffer]);
+  console.log("sent, length here is now", bytes.length);
+  const [inverted] = await once(worker, "message");
+  console.log("got back", inverted);
+  const [code] = await exited;
+  console.log("worker exit code:", code);
+} else {
+  parentPort.once("message", (bytes) => {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = 255 - bytes[i];
+    parentPort.postMessage(bytes, [bytes.buffer]);
+  });
+}
+```
+
+```text
+sent, length here is now 0
+got back Uint8Array(4) [ 255, 254, 1, 0 ]
+worker exit code: 0
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- CPU-bound work blocks the event loop; `async` does not help. Worker threads run JavaScript in parallel.
+- A worker gets input from `workerData` or messages and replies with `parentPort.postMessage`. The main thread listens for `message`, `error` and `exit`.
+- Messages are copied by structured clone: `Date`, `Map`, typed arrays and cycles survive; prototypes, getters and methods do not; functions throw `DataCloneError`.
+- A transfer list moves an `ArrayBuffer` instead of copying it, and detaches it on the sending side.
+- A pool reuses a fixed number of workers. Use more chunks than workers, and `terminate()` the pool when done.
+- In browsers, Web Workers follow the same model with `self`, `event.data` and `{ type: "module" }`.
+- Workers help CPU-bound work on large enough tasks. They do not help I/O-bound work.
+
+The next lesson lets threads share memory instead of copying messages, and shows what can go wrong when they do.

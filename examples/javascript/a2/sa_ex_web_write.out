@@ -1,0 +1,6 @@
+write 1, desiredSize 2
+write 2, desiredSize 1
+write 3, desiredSize 1
+write 4, desiredSize 1
+write 5, desiredSize 1
+saved: [ 1, 2, 3, 4, 5 ]

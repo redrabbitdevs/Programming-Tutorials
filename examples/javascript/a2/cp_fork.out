@@ -1,0 +1,3 @@
+{ id: 1, words: 4 }
+{ id: 2, words: 2 }
+child exit code: 0

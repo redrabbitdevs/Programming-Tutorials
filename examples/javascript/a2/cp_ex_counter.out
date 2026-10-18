@@ -1,0 +1,4 @@
+after add 5: 5
+after add 7: 12
+get: 12
+child exit code: 0

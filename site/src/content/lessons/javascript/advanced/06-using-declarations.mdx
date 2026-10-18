@@ -1,0 +1,483 @@
+---
+language: javascript
+level: advanced
+module: Resources and concurrency
+order: 6
+title: using and explicit resource management
+description: Release files, locks and connections at a known moment with using and await using, write your own disposable objects, handle errors raised during cleanup, and manage groups of resources with DisposableStack.
+minVersion: "24"
+objectives:
+  - Declare resources with using and await using, and predict when and in which order they are disposed
+  - Make your own objects disposable with Symbol.dispose and Symbol.asyncDispose
+  - Read a SuppressedError when both the work and the cleanup fail
+  - Use Node's disposable file handles and temporary directories
+  - Collect, transfer and adopt resources with DisposableStack
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/10-scope-and-lifetime", "fundamentals/beginner/12-errors-and-exceptions"]
+---
+
+Memory is cleaned up for you, but many other things are not. An open file, a database connection, a lock or a temporary directory must be released by your code, at the right moment, even when something throws. Until now the tool for that was `try...finally`, which works but grows awkward: three resources need three nested blocks, and it is easy to close them in the wrong order or forget one on an early `return`.
+
+**Explicit resource management** adds two declarations, `using` and `await using`, that tie a resource to a scope. When the scope ends, for any reason, the resource is released. The proposal reached Stage 4 in May 2026 and is expected in ES2027 ([finished proposals](https://github.com/tc39/proposals/blob/HEAD/finished-proposals.md)). Node 24 and 26 support it. Node 22 does not parse `using` at all: the file fails with `SyntaxError: Unexpected identifier`. In browsers it is not Baseline yet: Chrome and Edge 134 and Firefox 141 have it, Safari does not ([MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/using)). This whole lesson needs Node 24 or later.
+
+## The disposable protocol
+
+An object is **disposable** when it has a method under the well-known symbol `Symbol.dispose` (symbols as keys were covered in [the symbols lesson](../../intermediate/symbols/)). That method releases whatever the object holds. Here is a pretend connection that logs what happens:
+
+```javascript title="ur_basic.mjs"
+class Connection {
+  constructor(name) {
+    this.name = name;
+    console.log(`open ${name}`);
+  }
+  query(sql) {
+    return `${this.name}: ${sql}`;
+  }
+  [Symbol.dispose]() {
+    console.log(`close ${this.name}`);
+  }
+}
+```
+
+A `using` declaration looks like `const`: it must be initialised and cannot be reassigned. The difference is what happens at the end of the enclosing block or function.
+
+```javascript title="ur_basic.mjs (continued)"
+function report() {
+  using db = new Connection("db");
+  using cache = new Connection("cache");
+  console.log(db.query("SELECT 1"));
+  return "report done";
+}
+console.log(report());
+```
+
+```text
+open db
+open cache
+db: SELECT 1
+close cache
+close db
+report done
+```
+
+Both connections were closed when `report` returned, after the `return` value was computed and before the caller saw it. They were closed in **reverse** order of declaration. That order matters: a resource declared later may depend on an earlier one, so it must go first.
+
+Disposal also happens when the scope is left by an exception. A value of `null` or `undefined` is allowed and simply skipped, which is handy for optional resources. Anything else without a `Symbol.dispose` method is a `TypeError`, thrown at the declaration line.
+
+```javascript title="ur_basic.mjs (continued)"
+function failing() {
+  using db = new Connection("db");
+  throw new Error("query failed");
+}
+try {
+  failing();
+} catch (error) {
+  console.log("caught:", error.message);
+}
+
+{
+  using maybe = null;
+  console.log("null is allowed:", maybe);
+}
+try {
+  using plain = { name: "not disposable" };
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+open db
+close db
+caught: query failed
+null is allowed: null
+TypeError
+```
+
+The dispose method is looked up once, when the variable is declared. Replacing it afterwards has no effect on that declaration.
+
+### Where using is allowed
+
+`using` works inside any block, in function bodies, at the top level of a module, and in the head of a `for`, `for...of` or `for await...of` loop, where each iteration's value is disposed at the end of that iteration. It is a `SyntaxError` at the top level of a classic script, directly in a `switch` case (wrap the case body in braces), in a `for...in` head, and with destructuring: `using { a } = obj` is not allowed. Outside these declarations `using` is still an ordinary identifier, so old code that has a variable called `using` keeps working.
+
+## Errors during cleanup
+
+What if the work throws and then the cleanup throws too? Neither error may be lost. JavaScript wraps them in a `SuppressedError`, a new `Error` subclass with two properties: `error` is the newer error, from disposal, and `suppressed` is the earlier one that it replaced.
+
+```javascript title="ur_suppressed.mjs"
+const flaky = {
+  [Symbol.dispose]() {
+    throw new Error("close failed");
+  },
+};
+
+try {
+  using resource = flaky;
+  throw new Error("work failed");
+} catch (error) {
+  console.log(error.name);
+  console.log("error:", error.error.message);
+  console.log("suppressed:", error.suppressed.message);
+}
+```
+
+```text
+SuppressedError
+error: close failed
+suppressed: work failed
+```
+
+When only the cleanup fails, there is nothing to suppress, and you get the disposal error itself:
+
+```javascript title="ur_suppressed.mjs (continued)"
+try {
+  using resource = flaky;
+  console.log("work succeeded");
+} catch (error) {
+  console.log(error.name, error.message);
+}
+```
+
+```text
+work succeeded
+Error close failed
+```
+
+Every disposer runs even if an earlier one threw, just like a `finally` block. With several failures the errors form a chain, which the third exercise unpicks.
+
+## await using
+
+Some cleanup is asynchronous: flushing a buffer to disk, sending a goodbye message on a socket. An object is **async disposable** when it has a `Symbol.asyncDispose` method that returns a promise. `await using` waits for that promise when the scope ends, so it is allowed only where `await` is: in async functions and at the top level of a module.
+
+```javascript title="ur_async.mjs"
+import { setTimeout as sleep } from "node:timers/promises";
+
+class BufferedLog {
+  #lines = [];
+  write(line) {
+    this.#lines.push(line);
+  }
+  async [Symbol.asyncDispose]() {
+    await sleep(10);
+    console.log(`flushed ${this.#lines.length} lines`);
+  }
+}
+```
+
+A function that declares the log with `await using` waits for the flush before it returns:
+
+```javascript title="ur_async.mjs (continued)"
+async function job() {
+  await using log = new BufferedLog();
+  log.write("start");
+  log.write("end");
+  console.log("job body done");
+}
+
+await job();
+console.log("after job");
+```
+
+```text
+job body done
+flushed 2 lines
+after job
+```
+
+`job` did not finish until the flush did. The `await` is not where the variable is declared but where the scope ends. An `await using` declaration also accepts an object that has only `Symbol.dispose`, and calls it.
+
+## Node's disposable resources
+
+Node gives many of its own objects these methods. A `FileHandle` from `fs/promises` closes itself with `Symbol.asyncDispose`, and <Since v="24.4" /> `fsPromises.mkdtempDisposable(prefix)` creates a temporary directory that is deleted, with its contents, on disposal ([fs docs](https://nodejs.org/api/fs.html#fspromisesmkdtempdisposableprefix-options)). Compare this with the `withTempDir` helper from [the files lesson](../../intermediate/files-and-paths/), which needed a callback:
+
+```javascript title="ur_files.mjs"
+import { mkdtempDisposable, open, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+let dirPath;
+{
+  await using dir = await mkdtempDisposable(join(tmpdir(), "ur-"));
+  dirPath = dir.path;
+  const notes = join(dir.path, "notes.txt");
+  {
+    await using file = await open(notes, "w");
+    await file.write("written through a FileHandle\n");
+  }
+  process.stdout.write(await readFile(notes, "utf8"));
+  console.log("exists inside:", existsSync(dirPath));
+}
+console.log("exists after:", existsSync(dirPath));
+```
+
+```text
+written through a FileHandle
+exists inside: true
+exists after: false
+```
+
+Notice the two `await`s on the declaration line: the first waits for the disposal at the end of the block, the second waits for `mkdtempDisposable` to create the directory. The inner block closes the file before it is read back.
+
+Other Node objects with dispose methods include `Worker` (terminates the thread), `ChildProcess` (sends `SIGTERM`), timers, readable streams and directory handles from `opendir`. The Node documentation now prefers `using` over an `AbortSignal` for tearing down long-lived resources such as servers and child processes, and keeps signals for cancelling operations and timeouts ([DEP0209](https://nodejs.org/api/deprecations.html#dep0209-using-abortsignal-to-dispose-of-resources), a documentation-only deprecation since Node 26.8.2).
+
+## DisposableStack
+
+`using` binds one resource to one scope. Sometimes you need more control: a function that opens several resources and hands them to its caller, but closes the ones already opened if a later one fails. A `DisposableStack` holds any number of resources and disposes them all, in reverse order, when it is itself disposed.
+
+- `stack.use(value)` adds a disposable and returns it.
+- `stack.defer(fn)` adds a plain cleanup callback.
+- `stack.adopt(value, fn)` adds a value that is not disposable, with the function that releases it.
+- `stack.move()` returns a new stack holding everything, and leaves the old one empty and disposed.
+
+```javascript title="ur_stack.mjs"
+class Conn {
+  constructor(name) {
+    if (name === "bad") throw new Error(`cannot open ${name}`);
+    this.name = name;
+    console.log("open", name);
+  }
+  [Symbol.dispose]() {
+    console.log("close", this.name);
+  }
+}
+
+function openPool(names) {
+  using stack = new DisposableStack();
+  const conns = names.map((name) => stack.use(new Conn(name)));
+  stack.defer(() => console.log("pool closed"));
+  return { conns, cleanup: stack.move() };
+}
+```
+
+If every connection opens, `move()` transfers them to the caller, and the `using stack` at the end of `openPool` disposes an empty stack. If one throws, `move()` is never reached, so the stack closes what was already opened.
+
+```javascript title="ur_stack.mjs (continued)"
+{
+  const pool = openPool(["a", "b"]);
+  using cleanup = pool.cleanup;
+  console.log(pool.conns.length, "connections in use");
+}
+
+try {
+  openPool(["c", "bad"]);
+} catch (error) {
+  console.log(error.message);
+}
+```
+
+```text
+open a
+open b
+2 connections in use
+pool closed
+close b
+close a
+open c
+close c
+cannot open bad
+```
+
+`adopt` brings older APIs into the scheme. A numeric file descriptor from `openSync` has no dispose method, but it can be adopted together with `closeSync`:
+
+```javascript title="ur_adopt.mjs"
+import { closeSync, openSync, readFileSync, writeSync } from "node:fs";
+import { mkdtempDisposable } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+await using dir = await mkdtempDisposable(join(tmpdir(), "ur-"));
+const path = join(dir.path, "log.txt");
+{
+  using stack = new DisposableStack();
+  const fd = stack.adopt(openSync(path, "w"), (fd) => {
+    closeSync(fd);
+    console.log("closed descriptor");
+  });
+  writeSync(fd, "hello from a raw descriptor\n");
+}
+process.stdout.write(readFileSync(path, "utf8"));
+```
+
+```text
+closed descriptor
+hello from a raw descriptor
+```
+
+`AsyncDisposableStack` is the same with async cleanup functions, and is used with `await using`.
+
+## When not to use using
+
+- **When the resource must outlive the scope.** A resource returned from a function, stored on an object or captured by a closure is disposed when the declaring scope ends, and later code holds a closed resource. Use `const` and hand over ownership, or a `DisposableStack` with `move()`.
+- **When the code must run on Node 22 or in Safari.** Use `try...finally` there. On Node 22, `Symbol.dispose` exists and Node's own objects already have the methods, so `finally { await file[Symbol.asyncDispose](); }` works and makes later migration easy.
+- **For memory.** Garbage collection handles memory. `using` is for things the collector does not know how to release, or not soon enough.
+
+## Common pitfalls
+
+- **Forgetting `await` in `await using`.** `using file = await open(...)` throws a `TypeError`, because a `FileHandle` has only an async disposer.
+- **Expecting cleanup in the order of declaration.** It is the reverse order.
+- **Destructuring.** `using { path } = dir` is a syntax error. Declare the object, then read its properties.
+- **Putting `using` straight into a `switch` case.** Wrap the case body in a block.
+- **Swallowing a `SuppressedError`.** Log both `error` and `suppressed`, or the original failure is hidden behind the cleanup failure.
+
+## Exercises
+
+<Exercise title="A temporary workspace">
+
+Create a temporary directory with `mkdtempDisposable` and write two files into it, `b.txt` and then `a.txt`, through a helper `writeText(path, text)` that opens a `FileHandle` with `await using`. Inside the block, print the sorted names from `readdir`. After the block, print whether the directory still exists. The expected output is `[ 'a.txt', 'b.txt' ]` and then `exists after: false`.
+
+<Solution>
+
+The helper closes each file before it returns, and the directory goes away with both files in it when the outer block ends.
+
+```javascript title="ur_ex_workspace.mjs"
+import { mkdtempDisposable, open, readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+async function writeText(path, text) {
+  await using file = await open(path, "w");
+  await file.write(text);
+}
+```
+
+The workspace block uses the helper twice and lists the result:
+
+```javascript title="ur_ex_workspace.mjs (continued)"
+let workspace;
+{
+  await using dir = await mkdtempDisposable(join(tmpdir(), "ws-"));
+  workspace = dir.path;
+  await writeText(join(dir.path, "b.txt"), "second\n");
+  await writeText(join(dir.path, "a.txt"), "first\n");
+  console.log((await readdir(dir.path)).sort());
+}
+console.log("exists after:", existsSync(workspace));
+```
+
+```text
+[ 'a.txt', 'b.txt' ]
+exists after: false
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A lock guard">
+
+Write a class `Lock` with a `held` getter and an `acquire()` method. `acquire` throws `Error("already locked")` if the lock is held; otherwise it marks it held and returns a disposable object that releases it. Show four things: `held` is `true` inside a `using guard = lock.acquire()` block; a second `acquire` there fails; `held` is `false` after the block; and it is also `false` after a block that throws. The expected output is `inside: true`, `second acquire: already locked`, `after block: false`, `task crashed - held: false`.
+
+<Solution>
+
+The disposable is a small object whose arrow function closes over the lock. Arrow functions keep `this` from the method that created them.
+
+```javascript title="ur_ex_lock.mjs"
+class Lock {
+  #held = false;
+  get held() {
+    return this.#held;
+  }
+  acquire() {
+    if (this.#held) throw new Error("already locked");
+    this.#held = true;
+    return {
+      [Symbol.dispose]: () => {
+        this.#held = false;
+      },
+    };
+  }
+}
+```
+
+The test covers the normal exit and the exit by an exception:
+
+```javascript title="ur_ex_lock.mjs (continued)"
+const lock = new Lock();
+{
+  using guard = lock.acquire();
+  console.log("inside:", lock.held);
+  try {
+    lock.acquire();
+  } catch (error) {
+    console.log("second acquire:", error.message);
+  }
+}
+console.log("after block:", lock.held);
+
+try {
+  using guard = lock.acquire();
+  throw new Error("task crashed");
+} catch (error) {
+  console.log(error.message, "- held:", lock.held);
+}
+```
+
+```text
+inside: true
+second acquire: already locked
+after block: false
+task crashed - held: false
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Unpick a chain of failures">
+
+Declare two resources, `a` and then `b`, whose dispose methods throw `close a failed` and `close b failed`, and throw `work failed` in the block. Write `history(error)` that returns the messages of every error in the chain in the order they happened, and print it. The expected output is `[ 'work failed', 'close b failed', 'close a failed' ]`.
+
+<Solution>
+
+`b` is disposed first. Its error suppresses the work error, and then `a`'s error suppresses that `SuppressedError`. Following `suppressed` walks backwards in time, so the recursion puts the older errors first.
+
+```javascript title="ur_ex_chain.mjs"
+function failingClose(name) {
+  return {
+    [Symbol.dispose]() {
+      throw new Error(`close ${name} failed`);
+    },
+  };
+}
+
+function history(error) {
+  if (error instanceof SuppressedError) {
+    return [...history(error.suppressed), error.error.message];
+  }
+  return [error.message];
+}
+```
+
+The block that produces the chain:
+
+```javascript title="ur_ex_chain.mjs (continued)"
+try {
+  using a = failingClose("a");
+  using b = failingClose("b");
+  throw new Error("work failed");
+} catch (error) {
+  console.log(history(error));
+}
+```
+
+```text
+[ 'work failed', 'close b failed', 'close a failed' ]
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `using x = value` disposes `value` with `value[Symbol.dispose]()` when the scope ends, normally or by an exception. `null` and `undefined` are skipped; any other value without the method is a `TypeError`.
+- Resources are disposed in reverse order of declaration, and every disposer runs.
+- `await using` calls and awaits `Symbol.asyncDispose` and is allowed only where `await` is.
+- When the work and the cleanup both fail, a `SuppressedError` holds both: `error` from the cleanup, `suppressed` from before.
+- Node's `FileHandle`, `mkdtempDisposable` <Since v="24.4" />, `Worker`, `ChildProcess`, timers and streams are disposable.
+- `DisposableStack` collects resources with `use`, `defer` and `adopt`, and `move()` transfers them out of a scope.
+- Stage 4 since May 2026, expected in ES2027; Node 24 and later; not in Safari.
+
+The next lesson stays in one thread and controls how much asynchronous work runs at once.

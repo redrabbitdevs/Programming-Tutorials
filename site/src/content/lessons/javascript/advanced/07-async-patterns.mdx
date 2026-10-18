@@ -1,0 +1,531 @@
+---
+language: javascript
+level: advanced
+module: Resources and concurrency
+order: 7
+title: Advanced async patterns
+description: Build the small concurrency tools that real programs need, with plain promises - a semaphore, a bounded queue with backpressure, retries with exponential backoff, and a token-bucket rate limiter - and test them without depending on timing.
+minVersion: "22"
+objectives:
+  - Explain why an unbounded Promise.all over a large input is a bug, and bound it
+  - Build a semaphore with Promise.withResolvers and use it to cap concurrent work
+  - Build a bounded queue in which a fast producer waits for a slow consumer
+  - Retry failed operations with exponential backoff and jitter, and stop on cancellation
+  - Limit a rate with a token bucket, and make time-based code testable
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/16-stacks-queues-linked"]
+---
+
+JavaScript runs your code on one thread, yet a Node program can have thousands of operations in flight at once: every pending `fetch`, file read or timer is one. That is a strength, and it is also how programs fall over. This lesson builds four small tools that keep concurrency under control. None needs a library; each is a few lines of promises, and each is a pattern you will recognise inside libraries you use.
+
+You already know the parts. [The promise combinators lesson](../../intermediate/promise-combinators/) built `mapLimit`, a fixed pool of async workers, and [the promises lesson](../../intermediate/promises/) introduced `Promise.withResolvers()`, which returns a promise together with its `resolve` and `reject` functions. That pairing is the key to everything below: it lets one piece of code create a promise and a different piece of code settle it later.
+
+## Why unbounded Promise.all is a bug
+
+`await Promise.all(urls.map(fetch))` starts every request in the same instant. With ten URLs that is fine. With fifty thousand, the program opens fifty thousand sockets, the server you are calling sees a flood, and memory fills with responses that arrive faster than you can handle them. Nothing in the language stops you, because a promise is not a task waiting to run: by the time you hold it, the work has already started. The only place to apply a limit is **before** the work starts, which is what every tool here does.
+
+## A semaphore
+
+`mapLimit` is ideal when you have the whole list up front. When requests arrive from many places, such as several request handlers sharing one database, you need a shared counter of free slots instead. That is a **semaphore**: `acquire()` takes a slot, or waits in a queue until one is free, and `release()` hands the slot to the next waiter.
+
+```javascript title="semaphore.mjs"
+export class Semaphore {
+  #free;
+  #waiting = [];
+  constructor(count) {
+    this.#free = count;
+  }
+  async acquire() {
+    if (this.#free > 0) {
+      this.#free--;
+      return;
+    }
+    const { promise, resolve } = Promise.withResolvers();
+    this.#waiting.push(resolve);
+    await promise;
+  }
+  release() {
+    if (this.#waiting.length > 0) this.#waiting.shift()();
+    else this.#free++;
+  }
+}
+```
+
+`release` does not increase the count when someone is waiting: it passes the slot straight to the first waiter, so a newcomer cannot jump the queue. No lock is needed, because nothing else can run between reading and changing `#free`; there is no `await` in between.
+
+To see the order of events without relying on timers, the next program makes tasks that finish only when the script says so. Each task stores its own `resolve`, and the script calls them in a chosen order. `settle` waits for one turn of the event loop with `setImmediate`, so every pending promise reaction has run before the next line.
+
+```javascript title="ap_semaphore.mjs"
+import { Semaphore } from "./semaphore.mjs";
+
+const semaphore = new Semaphore(2);
+const finish = new Map();
+
+async function task(name) {
+  await semaphore.acquire();
+  try {
+    console.log("start", name);
+    const { promise, resolve } = Promise.withResolvers();
+    finish.set(name, resolve);
+    await promise;
+    console.log("end", name);
+  } finally {
+    semaphore.release();
+  }
+}
+```
+
+The script starts four tasks, then finishes them one at a time, in the order `b`, `a`, `c`, `d`:
+
+```javascript title="ap_semaphore.mjs (continued)"
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+const all = Promise.all(["a", "b", "c", "d"].map(task));
+await settle();
+for (const name of ["b", "a", "c", "d"]) {
+  console.log(`-- finishing ${name}`);
+  finish.get(name)();
+  await settle();
+}
+await all;
+```
+
+```text
+start a
+start b
+-- finishing b
+end b
+start c
+-- finishing a
+end a
+start d
+-- finishing c
+end c
+-- finishing d
+end d
+```
+
+Only two tasks ever run. `c` starts the moment `b` ends, and `d` the moment `a` ends. The `finally` block matters: a task that throws must still release its slot, or the semaphore slowly leaks slots until everything waits forever. <Since v="24" /> With [`using`](../using-declarations/), `acquire` could return a disposable guard instead, which makes forgetting the release impossible.
+
+The same trick, settling promises by hand, is how you test concurrency code. Tests built on real delays are slow and fail at random on a busy machine; tests that decide the order themselves give the same result every time.
+
+## A bounded queue and backpressure
+
+A semaphore limits how many things run. A **bounded queue**, often called a channel, limits how far a producer can get ahead of a consumer. `put` waits while the queue is full, and `take` waits while it is empty. A waiting producer is **backpressure**, the same idea you met with [streams](../../intermediate/streams-intro/), built here from scratch.
+
+```javascript title="ap_channel.mjs"
+class Channel {
+  #items = [];
+  #takers = [];
+  #putters = [];
+  constructor(capacity) {
+    this.capacity = capacity;
+  }
+  #wait(queue) {
+    const { promise, resolve } = Promise.withResolvers();
+    queue.push(resolve);
+    return promise;
+  }
+```
+
+Two queues of resolve functions hold whoever is waiting. Each side wakes one waiter on the other side when it changes the queue. The `while` loops recheck the condition after waking, which is a good habit: by the time a waiter runs, someone else may have taken the space.
+
+```javascript title="ap_channel.mjs (continued)"
+  async put(item) {
+    while (this.#items.length >= this.capacity) {
+      await this.#wait(this.#putters);
+    }
+    this.#items.push(item);
+    this.#takers.shift()?.();
+  }
+  async take() {
+    while (this.#items.length === 0) {
+      await this.#wait(this.#takers);
+    }
+    const item = this.#items.shift();
+    this.#putters.shift()?.();
+    return item;
+  }
+}
+```
+
+A fast producer and a slower consumer, which takes one extra event-loop turn per item, show the effect with a capacity of 2:
+
+```javascript title="ap_channel.mjs (continued)"
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+const channel = new Channel(2);
+
+async function producer() {
+  for (let n = 1; n <= 5; n++) {
+    await channel.put(n);
+    console.log("put", n);
+  }
+}
+
+async function consumer() {
+  for (let i = 0; i < 5; i++) {
+    const n = await channel.take();
+    await settle();
+    console.log("  processed", n);
+  }
+}
+
+await Promise.all([producer(), consumer()]);
+```
+
+```text
+put 1
+put 2
+put 3
+  processed 1
+put 4
+  processed 2
+put 5
+  processed 3
+  processed 4
+  processed 5
+```
+
+The consumer took item 1 at once, leaving room for 2 and 3. Then the queue was full and the producer stopped. From then on, every `put` waits for a `take`. However fast the producer is, at most two items sit in memory.
+
+## Retries with backoff
+
+Networks fail in passing: a timeout, a `503 Service Unavailable`. Trying again often works, but trying again **at once**, from many clients, hits a struggling server just when it is weakest. The usual answer is **exponential backoff**: wait longer after each failure, for example 10, 20, 40 ms. **Jitter** adds a random part, so clients that failed together do not all retry together. Here the delay is a random value between half and all of the current ceiling:
+
+```javascript title="ap_retry.mjs"
+import { setTimeout as sleep } from "node:timers/promises";
+
+async function retry(fn, options = {}) {
+  const { attempts = 3, base = 10, random = Math.random, signal } = options;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (error) {
+      if (attempt >= attempts || signal?.aborted) throw error;
+      const ceiling = base * 2 ** (attempt - 1);
+      const delay = Math.round(ceiling / 2 + random() * (ceiling / 2));
+      console.log(`attempt ${attempt}: ${error.message}, wait ${delay} ms`);
+      await sleep(delay, undefined, { signal });
+    }
+  }
+}
+```
+
+Passing the `signal` to `sleep` from `node:timers/promises` means that [cancelling](../../intermediate/cancellation/) interrupts the wait at once. The random source is a parameter, so the demonstration can fix it and print the same delays on every run:
+
+```javascript title="ap_retry.mjs (continued)"
+async function flaky(attempt) {
+  if (attempt < 3) throw new Error("503 busy");
+  return `ok on attempt ${attempt}`;
+}
+
+const fixed = { random: () => 1 };
+console.log(await retry(flaky, fixed));
+
+try {
+  await retry(flaky, { ...fixed, attempts: 2 });
+} catch (error) {
+  console.log("gave up:", error.message);
+}
+```
+
+```text
+attempt 1: 503 busy, wait 10 ms
+attempt 2: 503 busy, wait 20 ms
+ok on attempt 3
+attempt 1: 503 busy, wait 10 ms
+gave up: 503 busy
+```
+
+In real code, retry only errors that can succeed later. A `404 Not Found` or a validation error will fail the same way every time, and an operation that is not safe to repeat, such as a payment, needs an idempotency key from the server's API before it may be retried at all.
+
+## Rate limiting with a token bucket
+
+Some limits are per time rather than per moment: "at most 2 requests per second, with bursts of 3". A **token bucket** models this. The bucket holds up to `capacity` tokens and gains `perSecond` tokens each second; each request spends one, and a request that finds no whole token is refused or must wait.
+
+```javascript title="ap_bucket.mjs"
+class TokenBucket {
+  #tokens;
+  #last;
+  constructor({ capacity, perSecond, now }) {
+    this.capacity = capacity;
+    this.perSecond = perSecond;
+    this.#tokens = capacity;
+    this.#last = now;
+  }
+  tryTake(now) {
+    const refill = ((now - this.#last) / 1000) * this.perSecond;
+    this.#tokens = Math.min(this.capacity, this.#tokens + refill);
+    this.#last = now;
+    if (this.#tokens < 1) return false;
+    this.#tokens -= 1;
+    return true;
+  }
+}
+```
+
+The class never reads the clock itself; the caller passes the current time in milliseconds. In production that is `performance.now()`. In a test it is whatever times you choose:
+
+```javascript title="ap_bucket.mjs (continued)"
+const bucket = new TokenBucket({ capacity: 3, perSecond: 2, now: 0 });
+const times = [0, 0, 0, 0, 100, 500, 600, 2000, 2000, 2000, 2000];
+for (const t of times) {
+  console.log(String(t).padStart(4), bucket.tryTake(t) ? "allowed" : "refused");
+}
+```
+
+```text
+   0 allowed
+   0 allowed
+   0 allowed
+   0 refused
+ 100 refused
+ 500 allowed
+ 600 refused
+2000 allowed
+2000 allowed
+2000 allowed
+2000 refused
+```
+
+The burst of three passes and the fourth is refused. At 500 ms one whole token has refilled. After a long pause the bucket is full again, but never fuller than its capacity. Passing time in, instead of reading it inside, is the same move as passing `random` into `retry`: it makes the code deterministic under test. [Fake timers](../../intermediate/mocks-and-fake-timers/) are the other way to get there.
+
+## When not to build your own
+
+These tools are short enough to write and understand, which is why they are worth learning. In a larger program, check first whether the platform already does the job. Node streams and `pipeline` give backpressure for data flowing through stages. HTTP clients and database drivers usually have their own connection pools, which already cap concurrency; wrapping them in a second limit only makes behaviour harder to predict. And when the work is CPU-bound rather than waiting on I/O, no amount of async scheduling helps, because one thread can only compute one thing at a time. That is the subject of the next lesson.
+
+## Common pitfalls
+
+- **Limiting after starting.** `Promise.all(items.map(fn))` with a limit applied inside `.then` is too late; the work has started. Acquire the slot before calling `fn`.
+- **Forgetting to release on error.** Put `release()` in `finally`.
+- **Waking a waiter without rechecking.** Use `while`, not `if`, around the wait.
+- **Retrying everything.** Retry only transient errors, cap the attempts, add jitter, and honour cancellation.
+- **Reading the clock inside the logic.** Pass time in, so tests do not need real delays.
+
+## Exercises
+
+<Exercise title="A download queue with retries">
+
+Use the `Semaphore` from `semaphore.mjs` to download seven paths, `/a` to `/g`, at most three at a time, retrying each up to 3 attempts. Simulate `download(url)` with one `setImmediate` turn; it fails with `URL timed out` on the first attempt for `/b` and `/e`, and otherwise returns a string such as `/a=1KB` (the letter's position in the alphabet). Track the highest number of downloads active at once, and the total number of attempts. Print the results joined by spaces, in input order, and then the peak and the attempt count. The expected output is `/a=1KB /b=2KB /c=3KB /d=4KB /e=5KB /f=6KB /g=7KB` and `peak: 3 attempts: 9`.
+
+<Solution>
+
+The slot is held for the whole retry loop, so a retry does not have to queue again. `Promise.all` keeps the results in input order whatever order the downloads finish in.
+
+```javascript title="ap_ex_downloads.mjs"
+import { Semaphore } from "./semaphore.mjs";
+
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+const failsOnce = new Set(["/b", "/e"]);
+const tries = new Map();
+let active = 0;
+let peak = 0;
+```
+
+The simulated download counts how many run at once and fails where the exercise says:
+
+```javascript title="ap_ex_downloads.mjs (continued)"
+async function download(url) {
+  active++;
+  peak = Math.max(peak, active);
+  try {
+    await settle();
+    tries.set(url, (tries.get(url) ?? 0) + 1);
+    if (failsOnce.has(url) && tries.get(url) === 1) {
+      throw new Error(`${url} timed out`);
+    }
+    return `${url}=${url.charCodeAt(1) - 96}KB`;
+  } finally {
+    active--;
+  }
+}
+```
+
+The retry helper is the lesson's `retry` without the delays:
+
+```javascript title="ap_ex_downloads.mjs (continued)"
+async function withRetry(fn, attempts) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt >= attempts) throw error;
+    }
+  }
+}
+```
+
+Each path takes a slot, then runs its retries inside it:
+
+```javascript title="ap_ex_downloads.mjs (continued)"
+const semaphore = new Semaphore(3);
+async function fetchOne(url) {
+  await semaphore.acquire();
+  try {
+    return await withRetry(() => download(url), 3);
+  } finally {
+    semaphore.release();
+  }
+}
+
+const urls = ["/a", "/b", "/c", "/d", "/e", "/f", "/g"];
+const results = await Promise.all(urls.map(fetchOne));
+console.log(results.join(" "));
+const total = [...tries.values()].reduce((a, b) => a + b, 0);
+console.log("peak:", peak, "attempts:", total);
+```
+
+```text
+/a=1KB /b=2KB /c=3KB /d=4KB /e=5KB /f=6KB /g=7KB
+peak: 3 attempts: 9
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Single flight">
+
+When several callers ask for the same thing at the same moment, only one request should go out. Write `singleFlight(key, fn)` that returns the promise already in flight for `key` if there is one, and otherwise calls `fn()`, remembers its promise until it settles, and returns it. Test it with a `loadUser(id)` that counts its calls and waits one `setImmediate` turn: load users `1, 1, 2, 1` at once, then user 1 again after they finish. The expected output is `user1 user1 user2 user1 - calls: 2` and then `user1 - calls: 3`.
+
+<Solution>
+
+The entry is removed in `finally`, so a later call starts a fresh request. This is deduplication, not caching: nothing is kept after the promise settles.
+
+```javascript title="ap_ex_singleflight.mjs"
+const inFlight = new Map();
+
+function singleFlight(key, fn) {
+  if (inFlight.has(key)) return inFlight.get(key);
+  const promise = fn().finally(() => inFlight.delete(key));
+  inFlight.set(key, promise);
+  return promise;
+}
+```
+
+The test loader counts how often it really runs:
+
+```javascript title="ap_ex_singleflight.mjs (continued)"
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+let calls = 0;
+async function loadUser(id) {
+  calls++;
+  await settle();
+  return { id, name: `user${id}` };
+}
+
+const load = (id) => singleFlight(`user:${id}`, () => loadUser(id));
+const users = await Promise.all([1, 1, 2, 1].map(load));
+console.log(users.map((user) => user.name).join(" "), "- calls:", calls);
+const later = await load(1);
+console.log(later.name, "- calls:", calls);
+```
+
+```text
+user1 user1 user2 user1 - calls: 2
+user1 - calls: 3
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A channel you can close and iterate">
+
+Extend the lesson's `Channel` with `close()` and an async iterator, so that a consumer can write `for await (const n of channel)` and the loop ends once the channel is closed and empty. After closing, `put` throws `Error("channel is closed")`. Produce the numbers 1 to 6 into a channel of capacity 2, close it, sum them in the consumer, and print the sum; then try one more `put`. The expected output is `sum: 21` and `channel is closed`.
+
+<Solution>
+
+`close` wakes every waiting consumer so it can notice the closed flag. The iterator is an async generator method (from [the async iteration lesson](../../intermediate/async-iteration/)) that wakes a producer before it yields each item.
+
+```javascript title="ap_ex_close.mjs"
+class Channel {
+  #items = [];
+  #takers = [];
+  #putters = [];
+  #closed = false;
+  constructor(capacity) {
+    this.capacity = capacity;
+  }
+  #wait(queue) {
+    const { promise, resolve } = Promise.withResolvers();
+    queue.push(resolve);
+    return promise;
+  }
+```
+
+`put` refuses new items once the channel is closed, and `close` wakes every waiting consumer:
+
+```javascript title="ap_ex_close.mjs (continued)"
+  async put(item) {
+    if (this.#closed) throw new Error("channel is closed");
+    while (this.#items.length >= this.capacity) {
+      await this.#wait(this.#putters);
+    }
+    this.#items.push(item);
+    this.#takers.shift()?.();
+  }
+  close() {
+    this.#closed = true;
+    for (const wake of this.#takers.splice(0)) wake();
+  }
+```
+
+The iterator finishes the class:
+
+```javascript title="ap_ex_close.mjs (continued)"
+  async *[Symbol.asyncIterator]() {
+    while (true) {
+      while (this.#items.length === 0) {
+        if (this.#closed) return;
+        await this.#wait(this.#takers);
+      }
+      const item = this.#items.shift();
+      this.#putters.shift()?.();
+      yield item;
+    }
+  }
+}
+```
+
+With that, the consumer is a plain `for await` loop:
+
+```javascript title="ap_ex_close.mjs (continued)"
+const channel = new Channel(2);
+async function produce() {
+  for (let n = 1; n <= 6; n++) await channel.put(n);
+  channel.close();
+}
+async function consume() {
+  let sum = 0;
+  for await (const n of channel) sum += n;
+  return sum;
+}
+const [, sum] = await Promise.all([produce(), consume()]);
+console.log("sum:", sum);
+try {
+  await channel.put(7);
+} catch (error) {
+  console.log(error.message);
+}
+```
+
+```text
+sum: 21
+channel is closed
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A promise is work already started. Limit concurrency **before** starting it.
+- `Promise.withResolvers()` lets one place create a promise and another settle it; queues of `resolve` functions are the basis of semaphores and channels.
+- A semaphore caps how many tasks run at once; release in `finally`.
+- A bounded channel makes a fast producer wait for a slow consumer: backpressure.
+- Retry transient failures with exponential backoff and jitter, cap the attempts, and pass the `AbortSignal` into the waits.
+- A token bucket limits a rate while allowing short bursts. Pass time and randomness in, so the code can be tested without real delays.
+- Settling promises by hand in a chosen order gives concurrency tests that never flake.
+
+The next lesson leaves the single thread behind: worker threads run JavaScript in parallel.

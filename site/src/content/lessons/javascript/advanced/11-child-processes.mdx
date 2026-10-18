@@ -1,0 +1,432 @@
+---
+language: javascript
+level: advanced
+module: Resources and concurrency
+order: 11
+title: Child processes
+description: Choose between execFile, spawn, exec and fork, keep user input away from the shell (and know why Node deprecates args with shell true), read exit codes, signals and timeouts, stream data into and out of a child, talk to a forked Node process over IPC, and clean children up with using.
+minVersion: "22"
+objectives:
+  - Choose execFile, spawn, exec or fork for a task, and explain what each costs
+  - Show how shell interpolation turns input into commands, and why DEP0190 deprecates args with shell true
+  - Tell a normal exit, an exit code and a signal apart, and stop runaway children with timeout
+  - Stream data into a child's stdin and out of its stdout with pipeline and readline
+  - Exchange messages with a forked Node process, and compare it with a worker thread
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/28-clean-code-and-security-basics"]
+---
+
+[The command-line tools lesson](../../intermediate/cli-tools/) ran another program with `spawnSync`, read its exit status and output, and named the non-blocking alternatives. This lesson uses those alternatives and goes further: how the functions differ, what the shell does to your arguments, how a child can end, how to stream data through a child, and how two Node processes can talk. It is the last piece of this module, and it ends where the first lesson began, with `using`.
+
+## Choosing a function
+
+All the functions in `node:child_process` start a new operating-system process. They differ in how you give the command and how you get results back ([child_process docs](https://nodejs.org/api/child_process.html)):
+
+| Function | Shell | Output | Use it for |
+|---|---|---|---|
+| `execFile(file, args)` | no | buffered, given at the end | short commands with modest output |
+| `spawn(file, args)` | no | streams | long-running children, large output, input while running |
+| `exec(command)` | yes | buffered | trusted, fixed command lines that need shell features |
+| `fork(module)` | no | streams plus an IPC channel | another Node program that you exchange messages with |
+
+Each has a `Sync` twin except `fork`. The sync versions block the event loop until the child ends, which is fine in a build script and wrong in a server. The buffered functions keep all output in memory, up to `maxBuffer`, 1 MiB by default; if a child prints more, Node terminates it and the call fails.
+
+## Keep input away from the shell
+
+A **shell** such as `/bin/sh` reads a command line and gives meaning to characters like `;`, `|`, `$` and spaces. That is useful when you type commands, and dangerous when part of the line comes from a user, a file name or a web request. The example compares `exec` with `execFile`. Both take a callback, and `util.promisify` (from [the callbacks lesson](../../intermediate/callbacks/)) turns each into a function that returns a promise for `{ stdout, stderr }`, rejected if the child fails:
+
+```javascript title="cp_shell.mjs"
+import { exec, execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const runInShell = promisify(exec);
+const runFile = promisify(execFile);
+
+const fileName = "notes.txt; echo INJECTED";
+
+const viaShell = await runInShell(`echo ${fileName}`);
+console.log("exec:    ", JSON.stringify(viaShell.stdout));
+
+const direct = await runFile("echo", [fileName]);
+console.log("execFile:", JSON.stringify(direct.stdout));
+```
+
+```text
+exec:     "notes.txt\nINJECTED\n"
+execFile: "notes.txt; echo INJECTED\n"
+```
+
+Through the shell, the `;` ended the first command and started a second one, chosen by whoever named the file. Here it only printed a word; it could have deleted files. `execFile` passed the whole string to `echo` as one argument, and nothing interpreted it. The example uses the `echo` program of Linux and macOS; on Windows, `echo` is a shell built-in, not a program.
+
+The `shell` option brings the shell back to `execFile` and `spawn`. Combining it with an argument array is a trap, because Node does not escape the arguments: it joins them with spaces and hands the result to the shell. <Since v="24" /> Since Node 24 this combination prints deprecation warning DEP0190; in Node 22.15 and later it is a documentation-only deprecation ([deprecations](https://nodejs.org/api/deprecations.html#dep0190-passing-args-to-nodechild_process-execfilespawn-with-shell-option)).
+
+```javascript title="cp_dep0190.mjs"
+import { execFileSync } from "node:child_process";
+
+process.on("warning", (warning) => {
+  console.log("warning:", warning.code);
+});
+
+const options = { shell: true, encoding: "utf8" };
+const output = execFileSync("echo", ["two  spaces", "$HOME"], options);
+const expanded = `two spaces ${process.env.HOME}`;
+console.log("joined and expanded by the shell:", output.trim() === expanded);
+```
+
+```text
+joined and expanded by the shell: true
+warning: DEP0190
+```
+
+The two spaces collapsed into one and `$HOME` was replaced by a directory path, which shows that the shell, not `echo`, saw the arguments. The `warning` event lets the program see the deprecation even when warnings are not printed. The rule is short: pass an argument array without `shell`, and if you truly need shell features such as pipes, write the whole command yourself as a fixed string, with no outside text in it. The [security basics lesson](../../../fundamentals/beginner/clean-code-and-security-basics/) explains the general principle of never mixing data into code.
+
+## How a child ends
+
+A process ends either by exiting with a code, where 0 means success, or by being killed by a **signal** such as `SIGTERM` or `SIGKILL`, in which case there is no exit code. The `timeout` option sends `killSignal` (default `SIGTERM`) to a child that runs too long. On failure, the promisified `execFile` rejects with an error that holds all three facts:
+
+```javascript title="cp_exit.mjs"
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+const node = process.execPath;
+
+async function report(label, args, options) {
+  try {
+    await run(node, args, options);
+    console.log(label, "-> exit code 0");
+  } catch (error) {
+    const { code, signal, killed } = error;
+    console.log(label, "->", { code, signal, killed });
+  }
+}
+```
+
+`process.execPath` is the running `node` binary, so these examples need no other program. One child exits with 3; the other would run forever but gets a 200 ms limit:
+
+```javascript title="cp_exit.mjs (continued)"
+await report("exits with 3", ["-e", "process.exit(3)"]);
+await report("runs forever", ["-e", "setInterval(() => {}, 1000)"],
+  { timeout: 200 });
+```
+
+```text
+exits with 3 -> { code: 3, signal: null, killed: false }
+runs forever -> { code: null, signal: 'SIGTERM', killed: true }
+```
+
+`killed: true` means Node sent the signal. With `spawn`, the same information arrives as the arguments of the `exit` event, `(code, signal)`. Always check both: a child killed by a signal has a `null` code, and `code === 0` is the only real success.
+
+## Streaming through a child
+
+`spawn` gives the child's standard streams to you as Node streams: `child.stdin` is a `Writable`, `child.stdout` and `child.stderr` are `Readable`s. So everything from [the previous lesson](../streams-advanced/) applies, backpressure included. The child below is a filter that prints only the lines containing `ERROR`, upper-cased:
+
+```javascript title="cp_stream.mjs"
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { createInterface } from "node:readline";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
+const filter = `
+  const rl = require("node:readline").createInterface({ input: process.stdin });
+  rl.on("line", (line) => {
+    if (line.includes("ERROR")) console.log(line.toUpperCase());
+  });
+`;
+const child = spawn(process.execPath, ["-e", filter]);
+const exited = once(child, "exit");
+```
+
+The parent feeds a log into the child with `pipeline`, which also closes `stdin` at the end, and reads the answers line by line at the same time:
+
+```javascript title="cp_stream.mjs (continued)"
+const log = ["ok start", "ERROR disk full", "ok retry", "ERROR again"];
+const feeding = pipeline(Readable.from(log.map((l) => l + "\n")), child.stdin);
+
+const found = [];
+for await (const line of createInterface({ input: child.stdout })) {
+  found.push(line);
+}
+await feeding;
+const [code] = await exited;
+console.log(found, "exit code:", code);
+```
+
+```text
+[ 'ERROR DISK FULL', 'ERROR AGAIN' ] exit code: 0
+```
+
+Writing and reading must run concurrently. A parent that writes everything first and reads afterwards can deadlock with a large input: the child blocks because its full output pipe is not being read, so it stops reading its input, so the parent's writes stop too. Starting the feeding `pipeline` without awaiting it, then reading, avoids that.
+
+## fork and IPC
+
+`fork(modulePath)` starts another Node process running a module, with an extra **IPC channel**: the parent calls `child.send(value)` and listens for `message` events, and the child does the same with `process.send` and `process.on("message")`. Messages are serialized as JSON by default; the option `serialization: "advanced"` uses structured clone instead, as worker messages do.
+
+```javascript title="cp_fork_child.mjs"
+process.on("message", (job) => {
+  const words = job.text.split(/\s+/).filter(Boolean);
+  process.send({ id: job.id, words: words.length });
+});
+```
+
+The parent sends two jobs, waiting for each reply, then disconnects the channel. With no channel and no other work, the child exits by itself:
+
+```javascript title="cp_fork.mjs"
+import { fork } from "node:child_process";
+import { once } from "node:events";
+
+const child = fork(new URL("./cp_fork_child.mjs", import.meta.url));
+const exited = once(child, "exit");
+
+const jobs = [
+  { id: 1, text: "the quick brown fox" },
+  { id: 2, text: "jumps over" },
+];
+for (const job of jobs) {
+  child.send(job);
+  const [reply] = await once(child, "message");
+  console.log(reply);
+}
+
+child.disconnect();
+const [code] = await exited;
+console.log("child exit code:", code);
+```
+
+```text
+{ id: 1, words: 4 }
+{ id: 2, words: 2 }
+child exit code: 0
+```
+
+This looks like a worker thread, and the choice between them matters. A forked process has its own memory and its own copy of Node, so it costs more to start and cannot share a `SharedArrayBuffer`. In return it is isolated: a crash, a memory leak or a native module that misbehaves takes down only the child, and it can run with different flags, a different working directory or, with the permission model, fewer rights. The Node documentation warns against spawning large numbers of forked processes because of that cost. For parallel computation inside one program, prefer workers; for isolation, prefer processes.
+
+## Cleaning up with using
+
+A long-running child, such as a test server, must be stopped even when the code that uses it throws. <Since v="24" /> `ChildProcess` has a `Symbol.dispose` method that sends `SIGTERM` ([child_process docs](https://nodejs.org/api/child_process.html#subprocesssymboldispose)), so [`using`](../using-declarations/) ties the child's life to a block:
+
+```javascript title="cp_using.mjs"
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+
+const server = ["-e", "setInterval(() => {}, 1000)"];
+let exited;
+{
+  using child = spawn(process.execPath, server);
+  exited = once(child, "exit");
+  console.log("child running:", child.exitCode === null);
+}
+const [code, signal] = await exited;
+console.log("after the block:", { code, signal });
+```
+
+```text
+child running: true
+after the block: { code: null, signal: 'SIGTERM' }
+```
+
+Node's documentation now recommends `using` over passing an `AbortSignal` to `spawn` when the goal is cleanup, and keeps the `signal` option for cancellation and timeouts (DEP0209, documentation-only since Node 26.8.2).
+
+## When not to start a process
+
+- **When a library or a Node API does the job.** Copying files, hashing, compressing and HTTP requests are all built in. A child process adds a dependency on an installed program, differences between operating systems, and parsing of text output.
+- **For many small tasks.** Each process costs a start-up and its own memory. Batch the work into one child, or use a worker pool.
+- **With untrusted input and a shell.** Never. Use an argument array.
+
+## Common pitfalls
+
+- **Building a command string from input**, for `exec` or with `shell: true`. Use `execFile` or `spawn` with an argument array.
+- **Treating a `null` exit code as success.** It means the child was killed by a signal.
+- **Writing all input before reading any output.** Large data can deadlock. Feed and read concurrently.
+- **Forgetting `maxBuffer`.** A buffered call fails when a child prints more than 1 MiB. Use `spawn` for large output.
+- **Leaving children running.** Kill them with `using`, `child.kill()` or a `timeout`, and wait for `exit`.
+
+## Exercises
+
+<Exercise title="Parse git log">
+
+In a temporary directory, create a git repository with two commits: `Add a` by Ada on 2026-01-02 and `Add b` by Grace on 2026-01-03. Run every git command through `execFile` with an `env` that sets `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_AUTHOR_DATE` and the matching `GIT_COMMITTER_*` variables, and that points `GIT_CONFIG_GLOBAL` at `/dev/null` so your own git settings cannot change the result. Run `git log --format=%an%x09%ad%x09%s --date=short` (`%x09` is a tab) and parse each line into `{ author, date, subject }`. Print the array and remove the directory. The expected output is an array with Grace's commit first, `{ author: 'Grace', date: '2026-01-03', subject: 'Add b' }`, then Ada's.
+
+<Solution>
+
+Choosing a separator that cannot appear in the fields, here a tab, makes the output easy to split. Fixing every date and name in the environment makes the history reproducible on any machine with git installed.
+
+```javascript title="cp_ex_gitlog.mjs"
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+const dir = await mkdtemp(join(tmpdir(), "gitlog-"));
+const baseEnv = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1", GIT_COMMITTER_NAME: "CI",
+  GIT_COMMITTER_EMAIL: "ci@example.com" };
+```
+
+`git` runs one command in the repository with a chosen author and date:
+
+```javascript title="cp_ex_gitlog.mjs (continued)"
+function git(args, author = "Ada", date = "2026-01-01T12:00:00Z") {
+  const env = { ...baseEnv, GIT_AUTHOR_NAME: author,
+    GIT_AUTHOR_EMAIL: `${author.toLowerCase()}@example.com`,
+    GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date };
+  return run("git", args, { cwd: dir, env });
+}
+
+async function commit(file, message, author, date) {
+  await writeFile(join(dir, file), `${message}\n`);
+  await git(["add", file]);
+  await git(["commit", "--quiet", "-m", message], author, date);
+}
+
+function parseLog(stdout) {
+  return stdout.trim().split("\n").map((line) => {
+    const [author, date, subject] = line.split("\t");
+    return { author, date, subject };
+  });
+}
+```
+
+The script builds the history, reads it back, and always removes the directory:
+
+```javascript title="cp_ex_gitlog.mjs (continued)"
+try {
+  await git(["init", "--quiet"]);
+  await commit("a.txt", "Add a", "Ada", "2026-01-02T10:00:00Z");
+  await commit("b.txt", "Add b", "Grace", "2026-01-03T10:00:00Z");
+  const format = "--format=%an%x09%ad%x09%s";
+  const { stdout } = await git(["log", format, "--date=short"]);
+  console.log(parseLog(stdout));
+} catch (error) {
+  console.log("git failed:", error.code);
+} finally {
+  await rm(dir, { recursive: true, force: true });
+}
+```
+
+```text
+[
+  { author: 'Grace', date: '2026-01-03', subject: 'Add b' },
+  { author: 'Ada', date: '2026-01-02', subject: 'Add a' }
+]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Limit concurrent children">
+
+Use the `Semaphore` from `semaphore.mjs` in [the async patterns lesson](../async-patterns/) to compute the squares of 1 to 5, each in its own child process (`node -p "N * N"` through `execFile`), with at most two children alive at a time. Track the peak number running. Print the results in input order and the peak. The expected output is `1 4 9 16 25 - peak: 2`.
+
+<Solution>
+
+The same tool that limits network requests limits processes. Without the limit, a list of a thousand files would start a thousand processes at once.
+
+```javascript title="cp_ex_parallel.mjs"
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { Semaphore } from "./semaphore.mjs";
+
+const run = promisify(execFile);
+const semaphore = new Semaphore(2);
+let running = 0;
+let peak = 0;
+```
+
+Each task holds a slot for the whole life of its child:
+
+```javascript title="cp_ex_parallel.mjs (continued)"
+async function square(n) {
+  await semaphore.acquire();
+  running++;
+  peak = Math.max(peak, running);
+  try {
+    const { stdout } = await run(process.execPath, ["-p", `${n} * ${n}`]);
+    return Number(stdout);
+  } finally {
+    running--;
+    semaphore.release();
+  }
+}
+
+const results = await Promise.all([1, 2, 3, 4, 5].map(square));
+console.log(results.join(" "), "- peak:", peak);
+```
+
+```text
+1 4 9 16 25 - peak: 2
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A stateful child">
+
+Fork a child that keeps a running total. It answers every message with `{ total }`: `{ op: "add", n }` adds `n` first, `{ op: "get" }` only reports. On `{ op: "quit" }` it disconnects its IPC channel without replying, so it exits. In the parent, write `request(command)` that sends a command and resolves with the total from the reply. Add 5, add 7, get, quit, and print the results and the child's exit code. The expected output is `after add 5: 5`, `after add 7: 12`, `get: 12` and `child exit code: 0`.
+
+<Solution>
+
+The state lives in the child's memory, which the parent cannot touch; the messages are the only way in. `process.disconnect()` closes the channel from the child's side.
+
+```javascript title="cp_ex_counter_child.mjs"
+let total = 0;
+
+process.on("message", (command) => {
+  if (command.op === "add") total += command.n;
+  if (command.op === "quit") {
+    process.disconnect();
+    return;
+  }
+  process.send({ total });
+});
+```
+
+The parent waits for one reply per request:
+
+```javascript title="cp_ex_counter.mjs"
+import { fork } from "node:child_process";
+import { once } from "node:events";
+
+const child = fork(new URL("./cp_ex_counter_child.mjs", import.meta.url));
+const exited = once(child, "exit");
+
+async function request(command) {
+  child.send(command);
+  const [reply] = await once(child, "message");
+  return reply.total;
+}
+
+console.log("after add 5:", await request({ op: "add", n: 5 }));
+console.log("after add 7:", await request({ op: "add", n: 7 }));
+console.log("get:", await request({ op: "get" }));
+child.send({ op: "quit" });
+const [code] = await exited;
+console.log("child exit code:", code);
+```
+
+```text
+after add 5: 5
+after add 7: 12
+get: 12
+child exit code: 0
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `execFile` and `spawn` take an argument array and use no shell. `exec` and `shell: true` hand a command line to a shell.
+- Never put outside text into a shell command. Args with `shell: true` are only space-joined, not escaped: DEP0190, a runtime warning <Since v="24" /> since Node 24.
+- A child exits with a code or is killed by a signal; check both. `timeout` and `maxBuffer` stop runaway children.
+- `spawn`'s `stdin`, `stdout` and `stderr` are streams. Feed and read them concurrently, with `pipeline` and `readline`.
+- `fork` adds an IPC channel to another Node process. Use processes for isolation and workers for parallel computation.
+- <Since v="24" /> `using child = spawn(...)` sends `SIGTERM` when the block ends.
+
+This ends the Resources and concurrency module. The next module, Binary data and encoding, works with the raw bytes that buffers, streams and shared memory have been carrying all along.

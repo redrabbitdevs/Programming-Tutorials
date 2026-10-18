@@ -1,0 +1,3 @@
+expected: 4000000
+Atomics.add: 4000000
+plain ++ never more: true

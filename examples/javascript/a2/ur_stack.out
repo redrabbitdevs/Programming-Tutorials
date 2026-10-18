@@ -1,0 +1,9 @@
+open a
+open b
+2 connections in use
+pool closed
+close b
+close a
+open c
+close c
+cannot open bad

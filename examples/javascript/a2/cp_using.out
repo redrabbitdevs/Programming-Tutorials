@@ -1,0 +1,2 @@
+child running: true
+after the block: { code: null, signal: 'SIGTERM' }
