@@ -1,6 +1,6 @@
 {
  "updated": "2026-10-17",
- "pr_counter": 91,
+ "pr_counter": 99,
  "phase": "content",
  "decisions": {
   "stack": "Astro + MDX, custom design (no stock docs theme), deployed to GitHub Pages",
@@ -127,7 +127,7 @@
    "status": "complete"
   }
  ],
- "in_progress": "W4 audit of JavaScript intermediate level (Gap Finder + Improver)",
+ "in_progress": "JavaScript advanced A2 (resources and concurrency)",
  "open_prs": [],
  "merged_prs": [
   {
@@ -473,12 +473,44 @@
   {
    "n": 90,
    "title": "Add JavaScript intermediate modules I5 and I6: Node essentials, testing and tooling (lessons 28-38)"
+  },
+  {
+   "n": 91,
+   "title": "Record PRs 79-90 in state: JS beginner audit fixed, JS intermediate written"
+  },
+  {
+   "n": 92,
+   "title": "Add Improver review of the JavaScript intermediate level (W4)"
+  },
+  {
+   "n": 93,
+   "title": "Quote frontmatter values that YAML truncates at ' #', and check for it"
+  },
+  {
+   "n": 94,
+   "title": "Add JavaScript intermediate gap audit (W4)"
+  },
+  {
+   "n": 95,
+   "title": "Write the lesson standards into the Writer role and ratchet code-block size"
+  },
+  {
+   "n": 96,
+   "title": "Add JavaScript advanced module A1: metaprogramming and functional patterns (lessons 01-05)"
+  },
+  {
+   "n": 97,
+   "title": "Fix JS intermediate audit findings for lessons 01-27"
+  },
+  {
+   "n": 98,
+   "title": "Fix JS intermediate audit findings for lessons 28-38 (I5, I6)"
   }
  ],
  "next_actions": [
-  "Triage the JS intermediate audit into fix PRs",
-  "JavaScript advanced A1-A4 (22 lessons, Writer on Opus)",
-  "Then JavaScript expert E1-E3 (15 lessons), then next tier-1 language (TypeScript)",
+  "JavaScript advanced A3 (binary data) and A4 (building and shipping)",
+  "W4 audit of JS advanced, then JS expert E1-E3 (15 lessons)",
+  "Next tier-1 language: TypeScript (W1 research)",
   "Retry W5 batch 3 when Wikipedia allows"
  ],
  "escalations": [],
@@ -777,7 +809,7 @@
   }
  },
  "lessons": {
-  "written": 231,
+  "written": 236,
   "planned": 268
  },
  "language_status": {
@@ -1102,6 +1134,12 @@
    "from": "advisor",
    "to": "github",
    "msg": "PRs 79-90 merged: JS beginner audit (gaps + review) and fixes (fundamentals-id check, language page, runtime-named badges, lessons 01-40 reworked); JavaScript intermediate level written (38 lessons, I1-I6)."
+  },
+  {
+   "t": "16:25",
+   "from": "advisor",
+   "to": "github",
+   "msg": "PRs 91-98 merged: JS intermediate audit (review + gaps) and fixes (stable timers, EventEmitter, real tools, capstone 38); frontmatter and lesson-style checks; Writer standards written down; JS advanced A1."
   }
  ],
  "model_review": [
@@ -1197,7 +1235,8 @@
    "I3",
    "I4",
    "I5",
-   "I6"
+   "I6",
+   "A1"
   ]
  },
  "catalog_fixes_needed": [],
