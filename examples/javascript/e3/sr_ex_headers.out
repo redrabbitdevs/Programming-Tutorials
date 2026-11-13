@@ -1,0 +1,6 @@
+../a4/lnk missing: [
+  'content-security-policy',
+  'x-content-type-options',
+  'referrer-policy'
+]
+sr_lnk missing: []

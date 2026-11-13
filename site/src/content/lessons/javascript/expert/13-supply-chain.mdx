@@ -1,0 +1,390 @@
+---
+language: javascript
+level: expert
+module: Security and the supply chain
+order: 13
+title: The npm supply chain
+description: Reduce the risk that comes with dependencies - see what install scripts can do and turn them off or allow them one by one, install exactly what was reviewed with npm ci, read npm audit, check signatures and provenance, spot typosquatting, and update without letting a just-published compromise in.
+minVersion: "22"
+objectives:
+  - Explain what an install script can do, and run installs with --ignore-scripts or an allowScripts policy
+  - Install exactly the reviewed tree with npm ci, and read the lockfile for risky entries
+  - Read npm audit output and use it in CI without trusting it blindly
+  - Explain registry signatures and provenance, and what npm audit signatures checks
+  - Recognise typosquatting and risky version specifiers, and update dependencies safely
+estimatedMinutes: 45
+fundamentals: []
+---
+
+A new project with a web framework, a test runner and a linter easily installs several hundred packages, written by people you will never meet. Each one runs with all the rights of your user account: on your laptop, in CI where the deployment keys are, and in production. Attackers know this. Publishing a look-alike package, taking over a maintainer's account, or slipping code into a popular package reaches thousands of machines at once.
+
+[npm, semver and lock files](../../intermediate/npm-in-depth/) covered ranges, `package-lock.json` and `npm ci`. This lesson looks at the same tools from the attacker's side. The transcripts use Node 26.11.1 with its bundled npm 11.20.0, offline, with two small local packages, so you can repeat them without touching the registry.
+
+## Install scripts run before you look
+
+A package can declare `preinstall`, `install` and `postinstall` scripts in its `package.json`. npm runs them during the install, before you have imported, read or tested anything. This harmless package leaves a note:
+
+```json title="sc_greet/package.json"
+{
+  "name": "greet",
+  "version": "1.0.0",
+  "description": "A tiny package whose install script leaves a note behind.",
+  "type": "module",
+  "exports": "./index.js",
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  }
+}
+```
+
+```javascript title="sc_greet/postinstall.js"
+// Runs with your user's rights during `npm install`. This one only writes a
+// file into the project that installed it; a malicious one could do anything.
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const project = process.env.INIT_CWD ?? process.cwd();
+writeFileSync(join(project, "postinstall-ran.txt"), "greet postinstall ran\n");
+```
+
+`INIT_CWD` is set by npm to the folder the install was started from. The project `sc_app` depends on a tarball of `greet` and has a committed lockfile. `npm pack` builds the tarball, and `npm ci` installs:
+
+```text frame="terminal"
+$ npm pack --silent ../sc_greet
+greet-1.0.0.tgz
+$ npm ci --silent
+$ cat postinstall-ran.txt
+greet postinstall ran
+$ node app.mjs
+Hello, supply chain!
+```
+
+Without `--silent`, npm 11.20 says what it just did (from a run on my machine; the time varies):
+
+```text frame="terminal"
+$ npm ci
+
+added 1 package in 256ms
+npm warn install-scripts 1 package has install scripts not yet covered by allowScripts:
+npm warn install-scripts   greet@1.0.0 (postinstall: node postinstall.js)
+npm warn install-scripts
+npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+```
+
+It warns, but the script has already run. A malicious script could just as easily read the tokens in your environment variables or in `~/.npmrc` and send them away. The [permission model](../node-permission-model/) does not help here: it applies to `node` processes you start with `--permission`, and npm starts the script itself.
+
+### Turning scripts off
+
+`--ignore-scripts` tells npm not to run any script from a `package.json` during the install ([npm config](https://github.com/npm/cli/blob/latest/workspaces/config/lib/definitions/definitions.js)). Most packages do not need their scripts; the usual exceptions compile native code or download a binary.
+
+```text frame="terminal"
+$ npm install-scripts ls
+1 package has install scripts not yet covered by allowScripts:
+  greet@1.0.0 (postinstall: node postinstall.js)
+
+Run `npm install-scripts approve <pkg>` to allow, or `npm install-scripts deny <pkg>` to deny.
+$ rm -r node_modules postinstall-ran.txt
+$ npm ci --ignore-scripts --silent
+$ ls
+app.mjs
+greet-1.0.0.tgz
+node_modules
+package-lock.json
+package.json
+$ node app.mjs
+Hello, supply chain!
+```
+
+No `postinstall-ran.txt` this time, and the package still works. Put `ignore-scripts=true` in the project's `.npmrc` so that every install, on every machine, behaves the same way, and run `npm rebuild <name>` for a package you have decided to trust.
+
+The npm CLI is moving to this as a default. Since npm 11.16 the root `package.json` can hold an `allowScripts` policy, which `npm install-scripts approve` and `deny` maintain, and `--strict-allow-scripts` turns the warning above into an error. npm 12.0.0 (July 2026) blocks dependency install scripts unless `allowScripts` allows them ([npm changelog](https://github.com/npm/cli/blob/latest/CHANGELOG.md)). Node 26.11.1 still bundles npm 11.20.0 and Node 22.23.4 bundles npm 10.9.9, which has neither the field nor the warning, so set `ignore-scripts` yourself until your Node ships npm 12.
+
+## Install what was reviewed
+
+The lockfile records, for every package, where it came from and a hash of the tarball:
+
+```json title="sc_app/package-lock.json"
+{
+  "name": "sc-app",
+  "version": "1.0.0",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "sc-app",
+      "version": "1.0.0",
+      "dependencies": {
+        "greet": "file:greet-1.0.0.tgz"
+      }
+    },
+    "node_modules/greet": {
+      "version": "1.0.0",
+      "resolved": "file:greet-1.0.0.tgz",
+      "integrity": "sha512-0I4v1famgBEEgNDqiFvvYRf8q3o0ucozhSqnuGmGlSrwkuGkNp/F/RK0ah4OwGIyBZIw4U6Wqs5up4v6NQGIAA==",
+      "hasInstallScript": true
+    }
+  }
+}
+```
+
+`integrity` is a Subresource Integrity string, a hash of the artifact that was unpacked ([package-lock.json](https://github.com/npm/cli/blob/latest/docs/lib/content/configuring-npm/package-lock-json.md)). `hasInstallScript` flags the packages that would run scripts. Review lockfile changes in pull requests like code: a new `resolved` host, a git URL or a new `hasInstallScript` deserves a question. The first exercise automates that review.
+
+`npm ci` installs exactly this tree and fails if `package.json` and the lockfile disagree, so CI and production get what was reviewed, not what was newest that minute.
+
+## Known vulnerabilities: npm audit
+
+`npm audit` sends your dependency tree to the registry and lists published advisories that affect it. Here is a real run, on 2026-11-13, against a project that pins `minimist` 1.2.5:
+
+```text frame="terminal"
+$ npm audit
+# npm audit report
+
+minimist  1.0.0 - 1.2.5
+Severity: critical
+Prototype Pollution in minimist - https://github.com/advisories/GHSA-xvch-5gv4-984h
+fix available via `npm audit fix --force`
+Will install minimist@1.2.8, which is outside the stated dependency range
+node_modules/minimist
+
+1 critical severity vulnerability
+
+To address all issues, run:
+  npm audit fix --force
+```
+
+The bug is the [prototype pollution](../js-security-bugs/#prototype-pollution) of two lessons ago, in a popular command-line argument parser. `npm audit fix` applies updates that stay inside your ranges; `--force` also installs major versions, which can break your code, so read the changelog first. In CI, `npm audit --audit-level=high` exits non-zero only for high and critical findings; the level changes the exit code, not the report ([npm audit](https://github.com/npm/cli/blob/latest/docs/lib/content/commands/npm-audit.md)).
+
+Audit has limits. It knows only vulnerabilities that someone has reported, and it says nothing about a package that was malicious from its first release. Some findings are in development tools whose vulnerable code never sees untrusted input. Treat it as a smoke alarm, not a guarantee.
+
+## Signatures and provenance
+
+The registry signs the packages it serves, and `npm audit signatures` checks those signatures for the installed tree. A package published from a supported CI system with `npm publish --provenance` also carries a **provenance attestation**: a signed statement linking the tarball to the source repository and build that produced it. `npm audit signatures` verifies those attestations as well ([npm audit](https://github.com/npm/cli/blob/latest/docs/lib/content/commands/npm-audit.md)). When you publish packages, publish them with provenance from CI, never from a laptop. Both commands need the registry and the signing infrastructure, so they are not run here.
+
+## Choosing and updating dependencies
+
+- **Fewer packages.** Node now has `fetch`, `node:test`, `parseArgs`, `--env-file`, `crypto.randomUUID` and the [iterator helpers](../../intermediate/iterator-helpers/); every one of them replaces a dependency. A ten-line function you own is often cheaper than a package, its dependencies and their maintainers.
+- **Check the name.** **Typosquatting** publishes `expres` or `lodahs` and waits for a typo. Copy names from the project's own documentation, and check the weekly downloads and repository link on the registry page before the first install. The second exercise flags names one edit away from a popular package.
+- **Pin what you install.** A specifier such as `*`, `latest` or a git branch accepts whatever is published next, unreviewed. The third exercise finds them.
+- **Let new releases age.** A compromised release is often noticed soon after it is published, and waiting gives others the time to notice. `npm install --min-release-age=7`, available since npm 11.10, only considers versions published more than seven days ago ([npm config](https://github.com/npm/cli/blob/latest/workspaces/config/lib/definitions/definitions.js)).
+- **Update deliberately.** Update in small, reviewed pull requests, read the lockfile diff, and run the tests. A bot that opens those pull requests is fine; one that merges them unreviewed is not.
+
+## Common pitfalls
+
+- **Running `npm install` in CI.** It can change the tree; use `npm ci`.
+- **Trusting a warning to stop a script.** npm 11 warns after the script ran. Use `--ignore-scripts` or `strict-allow-scripts`.
+- **Reading a clean audit as "safe".** Audit knows only reported vulnerabilities.
+- **Ignoring the lockfile in review.** New hosts, git sources and install scripts appear there first.
+- **Secrets in the environment of every install.** Give CI install steps only the tokens they need.
+
+## Exercises
+
+<Exercise title="Review a lockfile">
+
+Write `sc_ex_lockscan.mjs`, which reads a version 3 lockfile (default `sc_ex_lock.json`, a made-up example whose hashes are fake) and prints, for every package, one line per finding: an install script, a `resolved` URL that is not on `https://registry.npmjs.org/`, or a missing `integrity`. Mark dev dependencies. The expected output is five findings: `fast-image@3.0.1: install script`, `colour-utils@0.9.0` not from the registry (a git URL), `tiny-date@2.1.0` not from the registry and with no integrity hash, and `prebuild@5.0.0 (dev): install script`, then `5 findings`.
+
+<Solution>
+
+```json title="sc_ex_lock.json"
+{
+  "name": "shop",
+  "version": "2.3.0",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "shop",
+      "version": "2.3.0"
+    },
+    "node_modules/left-trim": {
+      "version": "1.4.0",
+      "resolved": "https://registry.npmjs.org/left-trim/-/left-trim-1.4.0.tgz",
+      "integrity": "sha512-AAAAexampleonlyAAAA=="
+    },
+    "node_modules/fast-image": {
+      "version": "3.0.1",
+      "resolved": "https://registry.npmjs.org/fast-image/-/fast-image-3.0.1.tgz",
+      "integrity": "sha512-BBBBexampleonlyBBBB==",
+      "hasInstallScript": true
+    },
+    "node_modules/colour-utils": {
+      "version": "0.9.0",
+      "resolved": "git+ssh://git@example.com/someone/colour-utils.git#4f2c1e9",
+      "integrity": "sha512-CCCCexampleonlyCCCC=="
+    },
+    "node_modules/tiny-date": {
+      "version": "2.1.0",
+      "resolved": "https://downloads.example.net/tiny-date-2.1.0.tgz"
+    },
+    "node_modules/fast-image/node_modules/prebuild": {
+      "version": "5.0.0",
+      "resolved": "https://registry.npmjs.org/prebuild/-/prebuild-5.0.0.tgz",
+      "integrity": "sha512-DDDDexampleonlyDDDD==",
+      "hasInstallScript": true,
+      "dev": true
+    }
+  }
+}
+```
+
+```javascript title="sc_ex_lockscan.mjs"
+import { readFileSync } from "node:fs";
+
+const REGISTRY = "https://registry.npmjs.org/";
+const file = process.argv[2] ?? "sc_ex_lock.json";
+const lock = JSON.parse(readFileSync(file, "utf8"));
+
+// Everything a reviewer should look at in a lockfile (version 2 or 3).
+function review(packages) {
+  const findings = [];
+  for (const [path, entry] of Object.entries(packages)) {
+    if (path === "") continue; // the project itself
+    const name = path.slice(path.lastIndexOf("node_modules/") + 13);
+    const where = `${name}@${entry.version}${entry.dev ? " (dev)" : ""}`;
+    if (entry.hasInstallScript) findings.push(`${where}: install script`);
+    if (!entry.resolved?.startsWith(REGISTRY)) {
+      findings.push(`${where}: not from the registry: ${entry.resolved}`);
+    }
+    if (!entry.integrity) findings.push(`${where}: no integrity hash`);
+  }
+  return findings;
+}
+
+const findings = review(lock.packages);
+for (const finding of findings) console.log(finding);
+console.log(`${findings.length} findings`);
+```
+
+```text
+fast-image@3.0.1: install script
+colour-utils@0.9.0: not from the registry: git+ssh://git@example.com/someone/colour-utils.git#4f2c1e9
+tiny-date@2.1.0: not from the registry: https://downloads.example.net/tiny-date-2.1.0.tgz
+tiny-date@2.1.0: no integrity hash
+prebuild@5.0.0 (dev): install script
+5 findings
+```
+
+Run it on a real project's lockfile with `node sc_ex_lockscan.mjs package-lock.json`. A project that uses a private registry should change `REGISTRY`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Spot a typosquat">
+
+Write `imitates(name)`, which returns the popular package that `name` imitates, or `null`. A name imitates one of `express`, `lodash`, `react`, `chalk`, `commander` and `axios` if it is one edit away (insert, delete, replace, or swap two neighbouring characters), or if it is equal after removing `-`, `_` and `.`. Expected: `expres`, `lodahs`, `c-halk`, `axois` and `commanders` are flagged; `react`, `react-dom` and `vite` are not.
+
+<Solution>
+
+```javascript title="sc_ex_typo.mjs"
+// Edits (insert, delete, replace, swap two neighbours) that turn a into b.
+function distance(a, b) {
+  const d = [];
+  for (let i = 0; i <= a.length; i++) {
+    d.push([i]);
+    for (let j = 1; j <= b.length; j++) d[i][j] = i === 0 ? j : 0;
+  }
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1,
+        d[i - 1][j - 1] + cost);
+      const swapped = a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1];
+      if (i > 1 && j > 1 && swapped) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return d[a.length][b.length];
+}
+
+const popular = ["express", "lodash", "react", "chalk", "commander", "axios"];
+const normalise = (name) => name.replace(/[-_.]/g, "").toLowerCase();
+
+// The popular package a name imitates, or null.
+function imitates(name) {
+  if (popular.includes(name)) return null;
+  return popular.find((p) => normalise(p) === normalise(name) ||
+    distance(name, p) === 1) ?? null;
+}
+
+const names = ["expres", "lodahs", "react", "react-dom", "c-halk", "axois",
+  "commanders", "vite"];
+for (const name of names) console.log(name.padEnd(11), imitates(name) ?? "-");
+```
+
+```text
+expres      express
+lodahs      lodash
+react       -
+react-dom   -
+c-halk      chalk
+axois       axios
+commanders  commander
+vite        -
+```
+
+`react-dom` is four edits from `react` and is a real, legitimate package: a checker like this produces candidates for a human, not verdicts.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Find unpinned specifiers">
+
+Write `risk(spec)`, which explains why a dependency specifier lets unreviewed code in: `*`, an empty string or `latest` accept any version, `>=` has no upper bound, git and `github:` specifiers follow a branch, and an `http(s)` URL can change under you. Check a manifest with one of each plus an exact version and a caret range. Expected: five lines for `colour-utils`, `tiny-date`, `logger`, `http-client` and the dev dependency `test-kit`, and nothing for `left-trim` and `fast-image`.
+
+<Solution>
+
+```javascript title="sc_ex_ranges.mjs"
+const manifest = {
+  dependencies: {
+    "left-trim": "1.4.0",
+    "fast-image": "^3.0.1",
+    "colour-utils": "github:someone/colour-utils",
+    "tiny-date": "https://downloads.example.net/tiny-date-2.1.0.tgz",
+    "logger": "*",
+    "http-client": "latest",
+  },
+  devDependencies: { "test-kit": ">=2" },
+};
+
+// Why a version specifier lets unreviewed code in, or null if it is fine.
+function risk(spec) {
+  if (spec === "*" || spec === "" || spec === "latest") return "any version";
+  if (/^>=?\s*\d/.test(spec)) return "no upper bound";
+  if (/^(git|github:|git\+|ssh:)/.test(spec)) return "git source";
+  if (/^https?:/.test(spec)) return "tarball URL";
+  return null;
+}
+
+for (const field of ["dependencies", "devDependencies"]) {
+  for (const [name, spec] of Object.entries(manifest[field])) {
+    const why = risk(spec);
+    if (why) console.log(`${field}.${name}: ${spec} (${why})`);
+  }
+}
+```
+
+```text
+dependencies.colour-utils: github:someone/colour-utils (git source)
+dependencies.tiny-date: https://downloads.example.net/tiny-date-2.1.0.tgz (tarball URL)
+dependencies.logger: * (any version)
+dependencies.http-client: latest (any version)
+devDependencies.test-kit: >=2 (no upper bound)
+```
+
+A caret range such as `^3.0.1` is fine here because the lockfile pins the exact version; it only moves when you run `npm install` or `npm update` and review the result.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Install scripts run with your rights before any review. Use `--ignore-scripts` (or `ignore-scripts=true` in `.npmrc`) and allow the few packages that need them; npm 12 blocks them by default.
+- `npm ci` installs exactly the lockfile. Review lockfile diffs for new hosts, git sources and `hasInstallScript`.
+- `npm audit` lists reported vulnerabilities; `--audit-level` sets what fails CI. It cannot see malware that nobody has reported yet.
+- `npm audit signatures` checks registry signatures and provenance; publish your own packages with `--provenance` from CI.
+- Prefer fewer dependencies, check names for typosquats, avoid unpinned specifiers, and let new releases age with `min-release-age`.
+
+The next lesson moves from other people's code to your own secrets: using the platform's cryptography correctly, and keeping keys out of the code.

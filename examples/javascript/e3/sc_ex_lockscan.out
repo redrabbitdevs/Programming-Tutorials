@@ -1,0 +1,6 @@
+fast-image@3.0.1: install script
+colour-utils@0.9.0: not from the registry: git+ssh://git@example.com/someone/colour-utils.git#4f2c1e9
+tiny-date@2.1.0: not from the registry: https://downloads.example.net/tiny-date-2.1.0.tgz
+tiny-date@2.1.0: no integrity hash
+prebuild@5.0.0 (dev): install script
+5 findings

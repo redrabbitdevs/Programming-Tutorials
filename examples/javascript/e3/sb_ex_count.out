@@ -1,0 +1,5 @@
+buggy constructor: function Object() { [native code] }1
+buggy __proto__: [Object: null prototype] {}
+buggy keys: 4
+fixed: { the: 3, constructor: 1, of: 2, ['__proto__']: 1, toString: 1 }
+fixed keys: 5

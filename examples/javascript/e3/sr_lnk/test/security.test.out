@@ -1,0 +1,13 @@
+▶ security review fixes
+  ✔ sends a strict CSP and nosniff on every response
+  ✔ rejects links with line breaks or credentials
+  ✔ treats prototype names as unknown codes
+  ✔ limits how long a request may take
+✔ security review fixes
+ℹ tests 4
+ℹ suites 1
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0

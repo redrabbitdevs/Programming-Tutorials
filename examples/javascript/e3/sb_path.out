@@ -1,0 +1,9 @@
+/index.html
+  join:   /srv/site/public/index.html
+  inside: /srv/site/public/index.html
+/../../../etc/passwd
+  join:   /etc/passwd
+  inside: null
+/css/../app.js
+  join:   /srv/site/public/app.js
+  inside: /srv/site/public/app.js

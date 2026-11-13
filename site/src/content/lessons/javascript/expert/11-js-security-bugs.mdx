@@ -1,0 +1,464 @@
+---
+language: javascript
+level: expert
+module: Security and the supply chain
+order: 11
+title: Security bugs specific to JavaScript
+description: Recognise and fix the injection bugs that JavaScript makes easy - DOM XSS through innerHTML, prototype pollution through merged objects and lookups, path traversal in file servers, and catastrophic regular expressions - and know which platform defences catch them.
+minVersion: "22"
+objectives:
+  - Keep untrusted text out of HTML sinks with textContent, and know what Trusted Types enforce
+  - Explain prototype pollution, reproduce it with a recursive merge, and prevent it
+  - Use Map, Object.create(null) and Object.hasOwn for lookups keyed by user input
+  - Confine a requested path to a directory and reject traversal tricks
+  - Spot a regular expression that can take exponential time, and defuse it
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/28-clean-code-and-security-basics"]
+---
+
+[Security basics](../../../fundamentals/beginner/clean-code-and-security-basics/) gave the one rule behind most vulnerabilities: data from outside must never be treated as code or as an instruction. Every language breaks that rule in its own ways. This lesson is about the ways JavaScript makes easy: a string that becomes HTML, a JSON key that reaches `Object.prototype`, a path that climbs out of its folder, and a pattern that takes longer than the age of the universe.
+
+Command injection through a shell is just as real in Node. It is covered in [child processes](../../advanced/child-processes/#keep-input-away-from-the-shell): pass arguments as an array to `execFile` or `spawn`, never interpolate them into a command string.
+
+Everything here runs on Node 22, 24 and 26 with the same output, except where a section says otherwise.
+
+## Untrusted text in the page
+
+Cross-site scripting (XSS) happens when text from a user ends up parsed as HTML. In the browser, the dangerous properties and methods are called **sinks**: `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, and a few others. Text in a sink can carry a `<script>` or an `onerror` attribute, and that code runs with the page's rights, including its cookies and its access to your API.
+
+```javascript title="sb_xss.mjs"
+const comment = new URLSearchParams(location.search).get("c") ?? "";
+const box = document.querySelector("#comment");
+
+// Dangerous: the browser parses the text as HTML.
+// ?c=<img src=x onerror=alert(document.cookie)> runs the attacker's code.
+// box.innerHTML = comment;
+
+// Safe: the text stays text, whatever it contains.
+box.textContent = comment;
+
+// Safe for structure too: build elements, set text on them.
+const quote = document.createElement("blockquote");
+quote.textContent = comment;
+box.after(quote);
+```
+
+The habit is simple: put text in with `textContent`, and build structure with `createElement`, `append` and `replaceChildren`. When you really must produce HTML from a template, escape every value, as the [tagged template lesson](../../advanced/tagged-templates/) did.
+
+<Since v="" label="Baseline 2026" /> **Trusted Types** let the browser enforce that habit. A page served with the header `Content-Security-Policy: require-trusted-types-for 'script'` makes every sink throw a `TypeError` when it is given a plain string. Only `TrustedHTML` objects made by a named policy are accepted, so all HTML in the page has to pass through code you wrote and can review:
+
+```javascript title="sb_trusted.mjs"
+// Served with the header:
+// Content-Security-Policy: require-trusted-types-for 'script';
+//   trusted-types escape
+const escaper = trustedTypes.createPolicy("escape", {
+  createHTML: (text) => text
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;").replaceAll('"', "&quot;"),
+});
+
+const box = document.querySelector("#comment");
+try {
+  box.innerHTML = "<b>raw</b>"; // a plain string: blocked
+} catch (error) {
+  console.log(error.name); // TypeError
+}
+box.innerHTML = escaper.createHTML("<b>shown as text</b>");
+```
+
+The `trusted-types` directive lists the policy names a page may create. Trusted Types became Baseline in February 2026 ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/Trusted_Types_API)), so older browsers ignore the header: treat it as a second line of defence, not the first. Both examples are browser code, checked here only for syntax.
+
+## Prototype pollution
+
+Every ordinary object inherits from `Object.prototype`. If an attacker can write a property **onto `Object.prototype`**, every object in the process appears to have it. The usual way in is a function that copies keys from parsed JSON into another object, such as a config merge:
+
+```javascript title="sb_pollute.mjs"
+// Copy every key of `source` into `target`, recursing into objects.
+function merge(target, source) {
+  for (const key of Object.keys(source)) {
+    const value = source[key];
+    if (typeof value === "object" && value !== null) {
+      target[key] ??= {};
+      merge(target[key], value);
+    } else {
+      target[key] = value;
+    }
+  }
+  return target;
+}
+```
+
+`JSON.parse` turns a `"__proto__"` key into an ordinary own property, so `Object.keys` lists it. The merge then reads `target["__proto__"]`, which is the `__proto__` accessor inherited from `Object.prototype`: it returns `Object.prototype` itself, and the recursion writes into it.
+
+```javascript title="sb_pollute.mjs (continued)"
+const body = '{"theme": "dark", "__proto__": {"isAdmin": true}}';
+const input = JSON.parse(body);
+console.log("own __proto__ key:", Object.hasOwn(input, "__proto__"));
+
+const settings = merge({}, input);
+const visitor = {};
+console.log("settings.theme:", settings.theme);
+console.log("visitor.isAdmin:", visitor.isAdmin);
+```
+
+```text
+own __proto__ key: true
+settings.theme: dark
+visitor.isAdmin: true
+```
+
+A brand-new, empty object now claims to be an admin. The same trick switches on any option that code reads from an ordinary object without checking that the object owns it, such as `options.debug`, and a polluted `toString` can crash the process. The keys `constructor` and `prototype` reach the same place in two steps: `{}.constructor.prototype` is `Object.prototype`.
+
+The fix has two parts: refuse the three dangerous keys, and create the nested objects without a prototype at all, so there is nothing to climb to.
+
+```javascript title="sb_safe_merge.mjs"
+const FORBIDDEN = new Set(["__proto__", "constructor", "prototype"]);
+
+// Like merge, but refuses keys that reach a prototype, and builds
+// objects without one.
+function safeMerge(target, source) {
+  for (const key of Object.keys(source)) {
+    if (FORBIDDEN.has(key)) continue;
+    const value = source[key];
+    if (typeof value === "object" && value !== null) {
+      target[key] ??= Object.create(null);
+      safeMerge(target[key], value);
+    } else {
+      target[key] = value;
+    }
+  }
+  return target;
+}
+```
+
+Running it on the same input:
+
+```javascript title="sb_safe_merge.mjs (continued)"
+const input = JSON.parse('{"theme": "dark", "__proto__": {"isAdmin": true}}');
+const settings = safeMerge(Object.create(null), input);
+console.log("settings:", settings);
+console.log("visitor.isAdmin:", {}.isAdmin);
+```
+
+```text
+settings: [Object: null prototype] { theme: 'dark' }
+visitor.isAdmin: undefined
+```
+
+Better still, do not copy unknown keys at all: validate the input against the keys you expect, as the first exercise does. A schema validator does this for you; a hand-written allowlist is enough for small inputs.
+
+### Lookups keyed by user input
+
+The opposite mistake is reading, not writing. A plain object used as a dictionary answers for names it inherited:
+
+```javascript title="sb_lookup.mjs"
+const prices = { apple: 120, pear: 95 };
+const priceOf = (name) => prices[name] ?? "unknown";
+
+console.log("apple:", priceOf("apple"));
+console.log("constructor:", priceOf("constructor"));
+console.log("toString is a price:", "toString" in prices);
+```
+
+A `Map`, or an object made with `Object.create(null)`, holds only what you put in it, and `Object.hasOwn` ignores inherited properties:
+
+```javascript title="sb_lookup.mjs (continued)"
+// A Map holds only what you put in it.
+const priceMap = new Map(Object.entries(prices));
+const safePriceOf = (name) => priceMap.get(name) ?? "unknown";
+console.log("Map, constructor:", safePriceOf("constructor"));
+
+// So does an object with no prototype.
+const bare = Object.assign(Object.create(null), prices);
+console.log("bare, constructor:", bare.constructor ?? "unknown");
+console.log("Object.hasOwn(prices, 'toString'):",
+  Object.hasOwn(prices, "toString"));
+```
+
+```text
+apple: 120
+constructor: [Function: Object]
+toString is a price: true
+Map, constructor: unknown
+bare, constructor: unknown
+Object.hasOwn(prices, 'toString'): false
+```
+
+### Defences in the runtime
+
+Node can remove the `__proto__` accessor for the whole process with `--disable-proto`. With `delete` the property is gone; with `throw` any use of it throws `ERR_PROTO_ACCESS` ([CLI docs](https://nodejs.org/api/cli.html#--disable-protomode)). This script assigns `__proto__` the way the merge did:
+
+```javascript title="sb_proto.mjs"
+const input = JSON.parse('{"__proto__": {"isAdmin": true}}');
+try {
+  const target = {};
+  target.__proto__ = input.__proto__;
+  console.log("target.isAdmin:", target.isAdmin);
+  console.log("'__proto__' in {}:", "__proto__" in {});
+} catch (error) {
+  console.log(error.code);
+}
+```
+
+```text frame="terminal"
+$ node sb_proto.mjs
+target.isAdmin: true
+'__proto__' in {}: true
+$ node --disable-proto=delete sb_proto.mjs
+target.isAdmin: undefined
+'__proto__' in {}: false
+$ node --disable-proto=throw sb_proto.mjs
+ERR_PROTO_ACCESS
+```
+
+The flag does not stop the `constructor.prototype` route, and old packages that use `__proto__` break under `throw`, so run your test suite with it before you rely on it. `Object.freeze(Object.prototype)` at startup blocks every route, at the price of breaking any code that adds to built-in prototypes; `--frozen-intrinsics` does the same to all built-ins but is still experimental.
+
+## Paths that leave their folder
+
+A static file server joins a folder with the requested path. `join` normalises `..` segments, which is exactly the problem: the result can point anywhere.
+
+```javascript title="sb_path.mjs"
+import { join, resolve, sep } from "node:path";
+
+const root = resolve("/srv/site/public");
+
+const naive = (urlPath) => join(root, urlPath);
+
+// Resolve the path, then check it is still inside the root.
+function inside(urlPath) {
+  const full = resolve(root, "." + sep + urlPath);
+  return full === root || full.startsWith(root + sep) ? full : null;
+}
+
+for (const p of ["/index.html", "/../../../etc/passwd", "/css/../app.js"]) {
+  console.log(p);
+  console.log("  join:  ", naive(p));
+  console.log("  inside:", inside(p));
+}
+```
+
+```text
+/index.html
+  join:   /srv/site/public/index.html
+  inside: /srv/site/public/index.html
+/../../../etc/passwd
+  join:   /etc/passwd
+  inside: null
+/css/../app.js
+  join:   /srv/site/public/app.js
+  inside: /srv/site/public/app.js
+```
+
+Check **after** resolving, and compare with `root + sep`, not `root`: otherwise `/srv/site/public-backup` passes as "inside" `/srv/site/public`. The second exercise adds URL decoding, where `%2f` hides a slash. Better still, serve from a fixed table of files, as the [advanced project](../../advanced/project-fullstack/) does, so no request path ever reaches the file system.
+
+## Patterns that never finish
+
+A regular expression with a repeated group inside another repetition, such as `(a+)+`, can try exponentially many ways to match before it fails. V8's regex engine backtracks, and it runs on the main thread, so one request with a crafted string stops a whole server. This is called ReDoS, regular expression denial of service.
+
+```javascript title="sb_redos.mjs"
+// Milliseconds one regex test takes on `text`.
+function timeTest(regex, text) {
+  const start = performance.now();
+  regex.test(text);
+  return performance.now() - start;
+}
+
+const nested = /^(a+)+$/;
+const short = timeTest(nested, "a".repeat(18) + "!");
+const long = timeTest(nested, "a".repeat(26) + "!");
+console.log("8 more characters, over 20x slower:", long > 20 * short);
+
+const flat = /^a+$/;
+const flatTime = timeTest(flat, "a".repeat(100_000) + "!");
+console.log("flat regex, 100,000 characters, under 50 ms:", flatTime < 50);
+```
+
+```text
+8 more characters, over 20x slower: true
+flat regex, 100,000 characters, under 50 ms: true
+```
+
+On my machine the 27-character string took about half a second with Node 26.11.1, and each extra `a` doubles it. The flat pattern matches the same strings and handled 100,000 characters in well under a millisecond. Look for nested quantifiers and for alternatives that can match the same text, such as `(a|a)*` or `(\w+\s?)+`. Rewrite them flat, limit the input length before matching, and never build a pattern from user text without [`RegExp.escape`](../../intermediate/regex-advanced/#regexpescape).
+
+## Common pitfalls
+
+- **Escaping in the wrong place.** HTML escaping does not make text safe inside a `<script>`, a URL or a CSS value. Use `textContent`, or the right encoder for the context.
+- **Blocking only `__proto__`.** `constructor.prototype` reaches the same object. Use an allowlist of expected keys, or null-prototype objects.
+- **`in` and `obj[key]` on dictionaries.** Both see inherited members. Use `Map`, `Object.hasOwn`, or `Object.create(null)`.
+- **Checking a path before normalising it.** Decode and resolve first, then check that it is inside the root.
+- **Running untrusted patterns.** A regex supplied by a user can take forever; so can your own pattern on hostile input.
+
+## Exercises
+
+<Exercise title="Allowlist the preferences">
+
+`parsePreferences(body)` receives a JSON request body. Return a new null-prototype object with only `theme` (a string), `fontSize` (a number) and `notifications` (a boolean), skipping values of the wrong type, or `null` if the body is not a JSON object. Test it with a normal body, one with `__proto__`, one with `constructor.prototype`, a wrong type and an array. The expected output is five lines, `[Object: null prototype] { theme: 'dark', fontSize: 14 }`, `[Object: null prototype] { theme: 'dark' }`, `[Object: null prototype] { notifications: false }`, `[Object: null prototype] {}` and `null`, and then `isAdmin anywhere: undefined`.
+
+<Solution>
+
+```javascript title="sb_ex_settings.mjs"
+// Allowed preference keys and the type each value must have.
+const SCHEMA = new Map([
+  ["theme", "string"],
+  ["fontSize", "number"],
+  ["notifications", "boolean"],
+]);
+
+// Parse a JSON body into a fresh preferences object, keeping only known
+// keys with the right type. Returns null when the body is not an object.
+function parsePreferences(body) {
+  let input;
+  try {
+    input = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return null;
+  }
+  const prefs = Object.create(null);
+  for (const [key, type] of SCHEMA) {
+    if (Object.hasOwn(input, key) && typeof input[key] === type) {
+      prefs[key] = input[key];
+    }
+  }
+  return prefs;
+}
+
+const bodies = [
+  '{"theme": "dark", "fontSize": 14}',
+  '{"theme": "dark", "__proto__": {"isAdmin": true}}',
+  '{"constructor": {"prototype": {"isAdmin": true}}, "notifications": false}',
+  '{"fontSize": "14px"}',
+  '[1, 2, 3]',
+];
+for (const body of bodies) console.log(parsePreferences(body));
+console.log("isAdmin anywhere:", {}.isAdmin);
+```
+
+```text
+[Object: null prototype] { theme: 'dark', fontSize: 14 }
+[Object: null prototype] { theme: 'dark' }
+[Object: null prototype] { notifications: false }
+[Object: null prototype] {}
+null
+isAdmin anywhere: undefined
+```
+
+The loop walks the schema, not the input, so unknown keys are never even read.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A traversal-proof static path">
+
+Write `fileFor(requestUrl)` for a server rooted at `/srv/site/public`. Take the path from the URL, decode it with `decodeURIComponent`, and return the absolute file path, `index.html` for `/`, or `null` for a malformed escape, a NUL byte, or a path outside the root. Try `/`, `/css/site.css`, `/..%2f..%2fetc/passwd`, `/%2e%2e/%2e%2e/etc/passwd`, `/report.pdf%00.html`, `/%E0%A4%A` and `/..%2fpublic-backup/key.txt`. Expected: the first two map into the root, the fourth maps to `/srv/site/public/etc/passwd` (the URL parser treats `%2e%2e` as `..` and stops at the root), and the rest are `null`.
+
+<Solution>
+
+```javascript title="sb_ex_static.mjs"
+import { resolve, sep } from "node:path";
+
+const root = resolve("/srv/site/public");
+
+// Map a request URL to a file under `root`, or null if it would escape,
+// is malformed, or contains a NUL byte.
+function fileFor(requestUrl) {
+  let path;
+  try {
+    path = decodeURIComponent(new URL(requestUrl, "http://x").pathname);
+  } catch {
+    return null;
+  }
+  if (path.includes("\0")) return null;
+  const full = resolve(root, "." + sep + path);
+  if (full !== root && !full.startsWith(root + sep)) return null;
+  return full === root ? resolve(root, "index.html") : full;
+}
+
+const requests = [
+  "/",
+  "/css/site.css",
+  "/..%2f..%2fetc/passwd",
+  "/%2e%2e/%2e%2e/etc/passwd",
+  "/report.pdf%00.html",
+  "/%E0%A4%A",
+  "/..%2fpublic-backup/key.txt",
+];
+for (const url of requests) console.log(url.padEnd(28), fileFor(url));
+```
+
+```text
+/                            /srv/site/public/index.html
+/css/site.css                /srv/site/public/css/site.css
+/..%2f..%2fetc/passwd        null
+/%2e%2e/%2e%2e/etc/passwd    /srv/site/public/etc/passwd
+/report.pdf%00.html          null
+/%E0%A4%A                    null
+/..%2fpublic-backup/key.txt  null
+```
+
+The last case resolves to `/srv/site/public-backup/key.txt`, which starts with the root's name. Only the `root + sep` comparison rejects it.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Count words without a prototype">
+
+`countBuggy(words)` counts words in a plain object with `counts[word] = (counts[word] || 0) + 1`. Run it on `"the constructor of the __proto__ of the toString"` and print `counts.constructor`, `counts.__proto__` and the number of keys, then fix it with a `Map`. Expected: the buggy version prints `function Object() { [native code] }1`, `[Object: null prototype] {}` and 4 keys (the `__proto__` word is lost); the fixed version prints `{ the: 3, constructor: 1, of: 2, ['__proto__']: 1, toString: 1 }` and 5 keys.
+
+<Solution>
+
+```javascript title="sb_ex_count.mjs"
+const text = "the constructor of the __proto__ of the toString";
+
+// Buggy: a plain object already "has" every name on Object.prototype.
+function countBuggy(words) {
+  const counts = {};
+  for (const word of words) counts[word] = (counts[word] || 0) + 1;
+  return counts;
+}
+
+// Fixed: a Map starts empty and accepts any string as a key.
+function countWords(words) {
+  const counts = new Map();
+  for (const word of words) counts.set(word, (counts.get(word) ?? 0) + 1);
+  return counts;
+}
+
+const words = text.split(" ");
+const buggy = countBuggy(words);
+console.log("buggy constructor:", buggy.constructor);
+console.log("buggy __proto__:", buggy.__proto__);
+console.log("buggy keys:", Object.keys(buggy).length);
+
+const counts = countWords(words);
+console.log("fixed:", Object.fromEntries(counts));
+console.log("fixed keys:", counts.size);
+```
+
+```text
+buggy constructor: function Object() { [native code] }1
+buggy __proto__: [Object: null prototype] {}
+buggy keys: 4
+fixed: { the: 3, constructor: 1, of: 2, ['__proto__']: 1, toString: 1 }
+fixed keys: 5
+```
+
+`counts.constructor` started as the `Object` function, so `+ 1` turned it into a string. Assigning a string to `__proto__` is silently ignored, so that word vanished; printing `counts.__proto__` shows `Object.prototype` itself.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Put untrusted text into pages with `textContent` and DOM methods. <Since v="" label="Baseline 2026" /> Trusted Types make HTML sinks refuse plain strings.
+- Prototype pollution writes through `__proto__` or `constructor.prototype` into every object. Allowlist keys, use null-prototype objects, and consider `--disable-proto`.
+- Look up user-supplied keys in a `Map` or with `Object.hasOwn`, never with `in` or bare indexing on a plain object.
+- Resolve and decode a path first, then check that it is inside the root with `root + sep`.
+- Nested quantifiers can make a regex exponential. Flatten the pattern and limit the input length.
+
+The next lesson limits the damage when a bug slips through anyway: Node's permission model, which can stop a process from touching files, the network or other programs it has no business with.

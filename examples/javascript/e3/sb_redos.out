@@ -1,0 +1,2 @@
+8 more characters, over 20x slower: true
+flat regex, 100,000 characters, under 50 ms: true
