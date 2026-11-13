@@ -1,0 +1,4 @@
+chunk 1: total 900000, 200000 yields
+chunk 1000: total 900000, 200 yields
+chunk 200000: total 900000, 1 yields
+chunk 1 over 10x slower than 1000: true

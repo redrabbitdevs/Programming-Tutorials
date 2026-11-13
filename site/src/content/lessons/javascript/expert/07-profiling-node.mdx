@@ -1,0 +1,309 @@
+---
+language: javascript
+level: expert
+module: Performance
+order: 7
+title: Profiling Node.js
+description: Find where a Node program spends its time with --cpu-prof and DevTools, read self and total time in a profile and a flame graph, compare with V8's --prof tick profiler, and measure event-loop delay and utilisation in a running server.
+minVersion: "22"
+objectives:
+  - Record a CPU profile with --cpu-prof and open it in DevTools
+  - Tell self time from total time, and read a flame graph
+  - Read a .cpuprofile file from a script to check a profile in CI
+  - Profile a running process with --inspect
+  - Watch a server's event loop with monitorEventLoopDelay and eventLoopUtilization
+estimatedMinutes: 45
+fundamentals: []
+---
+
+[Measuring](../measuring-performance/) tells you how long something takes. A **profiler** tells you where the time goes, which is the question to answer first: the slow part of a program is rarely the part you would have guessed. Node has V8's sampling CPU profiler built in, and it writes files that Chrome DevTools reads.
+
+Runs are on Node 26.11.1. Timings are from my machine and labelled; the checked transcripts print only conclusions that hold on any machine.
+
+## A slow endpoint
+
+This program imitates a server endpoint that returns 2,000 orders, each with its customer's name:
+
+```javascript title="pr_slow.mjs"
+const users = Array.from({ length: 20_000 }, (_, i) => ({
+  id: `u${i}`,
+  name: `User ${i}`,
+}));
+const orders = Array.from({ length: 2_000 }, (_, i) => ({
+  id: i,
+  userId: `u${(i * 7919) % 20_000}`,
+  total: (i % 50) + 0.5,
+}));
+
+function findUser(id) {
+  return users.find((user) => user.id === id);
+}
+```
+
+The handler adds the user's name to every order and serialises the result. The script calls it ten times, as if ten requests had arrived:
+
+```javascript title="pr_slow.mjs (continued)"
+function handleOrdersRequest() {
+  const rows = orders.map((o) => ({ ...o, user: findUser(o.userId).name }));
+  return JSON.stringify(rows);
+}
+
+let bytes = 0;
+for (let i = 0; i < 10; i++) bytes += handleOrdersRequest().length;
+console.log("served 10 requests,", bytes, "bytes");
+```
+
+On my machine it takes about 1.7 seconds. You might suspect `JSON.stringify`, the spread, or the template strings. Instead of guessing, profile it.
+
+## --cpu-prof
+
+`--cpu-prof` starts the profiler when Node starts and writes a `.cpuprofile` file when the process exits ([CLI docs](https://nodejs.org/api/cli.html#--cpu-prof)). It has been stable since Node 22.4. By default the file goes to the current directory with a name like `CPU.20261113.042430.25615.0.001.cpuprofile` (date, time, process id, thread id, sequence number); `--cpu-prof-dir` picks a folder:
+
+```text frame="terminal"
+$ node --cpu-prof --cpu-prof-dir=prof pr_slow.mjs
+served 10 requests, 1222670 bytes
+```
+
+The profiler interrupts the program every 1,000 µs by default (`--cpu-prof-interval`) and records which function is running and the stack that led to it. It is a **sampling** profiler: it does not instrument every call, so the overhead is small and the program runs at nearly its normal speed, but very short functions can be missed.
+
+### Reading it in DevTools
+
+Open Chrome DevTools on any page, go to the **Performance** panel, and load the `.cpuprofile` file (drag it onto the panel, or use the load button). DevTools offers three views:
+
+- **Bottom-Up** lists functions by **self time**, the time spent in the function's own code, not in what it calls. This is where hot spots show up.
+- **Call Tree** starts from the top of the stack and shows **total time**, a function's self time plus everything it called.
+- The **flame chart** draws time along the horizontal axis and the call stack downwards. A wide bar is a function that was on the stack for a long time. In a **flame graph**, as other tools draw it, identical stacks are merged and sorted, so the width of a bar is its total time.
+
+For `pr_slow.mjs`, Bottom-Up puts `findUser` at the top with about two thirds of the self time on my machine, and the arrow function on line 12 next with about a third. `JSON.stringify` barely appears.
+
+### Reading it from a script
+
+The file is JSON: a `nodes` array of call-tree nodes, each with a `callFrame` and `children`, plus parallel arrays `samples` (the node running at each sample) and `timeDeltas` (microseconds since the previous sample). That is enough to compute self time per function. `pr_top.mjs` in the examples folder does it and prints every function above 10%:
+
+```text frame="terminal"
+$ node pr_top.mjs prof/*.cpuprofile
+over 10% self time: findUser pr_slow.mjs:11
+over 10% self time: (anonymous) pr_slow.mjs:12
+```
+
+A check like this can run in CI to catch a regression that moves the hot spot. Names in parentheses, such as `(garbage collector)`, `(program)` and `(idle)`, are V8's own categories rather than functions.
+
+## The fix
+
+`findUser` scans 20,000 users for each of 2,000 orders on each request: about 20 million comparisons per request. The profile pointed at the line; the cure is an algorithm change, not a micro-optimisation. The first exercise builds a `Map` from id to user once, so each lookup is O(1). On my machine the whole run then takes about 50 ms instead of 1.7 seconds, most of it Node starting up, and a new profile shows the remaining time spread across building the data, the `map` callback and garbage collection.
+
+## The tick profiler
+
+V8 also has an older profiler. `node --prof` writes a log of samples called **ticks**, and `node --prof-process` summarises it. Its first table for `pr_slow.mjs`, on my machine, starts:
+
+```text title="node --prof-process isolate-*.log (excerpt)"
+ [JavaScript]:
+   ticks  total  nonlib   name
+    518   36.0%   36.5%  Builtin: ArrayPrototypeFind
+    419   29.2%   29.5%  JS: *<anonymous> file:///…/pr_slow.mjs:12:21
+    191   13.3%   13.5%  Builtin: CallFunction_ReceiverIsAny
+    183   12.7%   12.9%  Builtin: StringEqual
+```
+
+It splits out V8's **builtins**, such as the implementation of `Array.prototype.find` and string comparison, which `--cpu-prof` folds into the JavaScript function that called them, and the `*` marks optimised code. Reach for it when you need that level of detail; for everyday work the DevTools views are easier to read.
+
+## Profiling a running process
+
+`--cpu-prof` profiles a whole run. For a server, start it with `--inspect`, which opens a debugging port on 127.0.0.1:9229, then open `chrome://inspect` in Chrome and choose **inspect** under the Node target. The **Performance** panel of that window (**Profiler** in older Chrome versions) records a profile while you send it traffic, and **Memory** takes heap snapshots of the same process ([CLI docs](https://nodejs.org/api/cli.html#--inspecthostport)). The port allows anyone who can reach it to run code in your process, so never expose it beyond localhost.
+
+## The event loop
+
+A CPU profile shows what was busy. A server also needs to know whether it was **responsive**: a request that arrives while JavaScript is busy waits until the current task ends. `monitorEventLoopDelay` measures that wait by sampling how late a timer fires, in nanoseconds, into a histogram ([perf_hooks docs](https://nodejs.org/api/perf_hooks.html#perf_hooksmonitoreventloopdelayoptions)):
+
+```javascript title="pr_delay.mjs"
+import { monitorEventLoopDelay } from "node:perf_hooks";
+import { setTimeout as sleep } from "node:timers/promises";
+
+function blockFor(ms) {
+  const end = performance.now() + ms;
+  while (performance.now() < end);
+}
+```
+
+The program records 300 quiet milliseconds, then resets the histogram and blocks the loop three times for 150 ms:
+
+```javascript title="pr_delay.mjs (continued)"
+const delay = monitorEventLoopDelay({ resolution: 10 });
+delay.enable();
+await sleep(300);
+const quiet = delay.max / 1e6;
+
+delay.reset();
+for (let i = 0; i < 3; i++) {
+  blockFor(150);
+  await sleep(50);
+}
+delay.disable();
+
+console.log("quiet: max delay under 50 ms:", quiet < 50);
+console.log("busy: max delay over 100 ms:", delay.max / 1e6 > 100);
+```
+
+```text
+quiet: max delay under 50 ms: true
+busy: max delay over 100 ms: true
+```
+
+Each 150 ms block made every timer, every incoming request and every promise callback wait up to 150 ms. In production, export `delay.percentile(99)` to your metrics every few seconds and alert on it. `performance.eventLoopUtilization()` complements it: the fraction of time the loop spent running code rather than waiting, which the second exercise uses. [The next lesson](../event-loop-performance/) is about keeping both low.
+
+## When to profile, and when not
+
+- **Profile before optimising, every time.** In `pr_slow.mjs` the expensive line was a one-line `find`, not the serialisation that looked heavy.
+- **Profile realistic work.** A profile of start-up or of one request is dominated by module loading and compilation; run the program long enough, with realistic input, for the steady state to dominate.
+- **Prefer algorithm changes** to micro-tuning when the profile points at a loop inside a loop.
+- **Do not chase a flat profile.** When no function has more than a few percent, the gains left are small, and the remaining cost is spread across the design: data layout, allocation, I/O.
+
+## Common pitfalls
+
+- **Profiling a run that is too short**, so the profile shows mostly start-up.
+- **Reading total time as self time.** `handleOrdersRequest` has a large total time and almost no self time; the cost is in what it calls.
+- **Being misled by inlining.** Optimised code can attribute time to the caller of an inlined function, as [the memory leaks lesson](../memory-leaks/) showed for allocations.
+- **Leaving `--inspect` open on a public interface.**
+
+## Exercises
+
+<Exercise title="Fix the endpoint">
+
+Change `pr_slow.mjs` so that it builds a `Map` from user id to user once and uses it in the handler. The output must stay exactly the same, `served 10 requests, 1222670 bytes`, which proves the response did not change. Then time both versions with `time node ...` or `performance.now()`.
+
+<Solution>
+
+```javascript title="pr_ex_fixed.mjs"
+const users = Array.from({ length: 20_000 }, (_, i) => ({
+  id: `u${i}`,
+  name: `User ${i}`,
+}));
+const orders = Array.from({ length: 2_000 }, (_, i) => ({
+  id: i,
+  userId: `u${(i * 7919) % 20_000}`,
+  total: (i % 50) + 0.5,
+}));
+
+const usersById = new Map(users.map((user) => [user.id, user]));
+
+function handleOrdersRequest() {
+  const rows = orders.map((o) =>
+    ({ ...o, user: usersById.get(o.userId).name }));
+  return JSON.stringify(rows);
+}
+
+let bytes = 0;
+for (let i = 0; i < 10; i++) bytes += handleOrdersRequest().length;
+console.log("served 10 requests,", bytes, "bytes");
+```
+
+```text frame="terminal"
+$ node pr_ex_fixed.mjs
+served 10 requests, 1222670 bytes
+```
+
+On my machine `time` reported about 1.7 s for the original and 0.05 s for this version, most of which is Node starting up. The map costs one pass over the users and some memory, paid once.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Busy or idle">
+
+Write `utilization(work)`, which takes `performance.eventLoopUtilization()` before awaiting `work()` and passes that first reading back in afterwards to get the difference. Measure 200 ms of `await sleep(200)`, then four rounds of 50 ms of `JSON.parse` in a loop with `await sleep(1)` between them. The expected output is `idle loop under 20% busy: true` and `busy loop over 80% busy: true`.
+
+<Solution>
+
+```javascript title="pr_ex_elu.mjs"
+import { performance } from "node:perf_hooks";
+import { setTimeout as sleep } from "node:timers/promises";
+
+function busyFor(ms) {
+  const end = performance.now() + ms;
+  while (performance.now() < end) JSON.parse('{"a": [1, 2, 3]}');
+}
+
+async function utilization(work) {
+  const start = performance.eventLoopUtilization();
+  await work();
+  return performance.eventLoopUtilization(start).utilization;
+}
+
+const idle = await utilization(() => sleep(200));
+const busy = await utilization(async () => {
+  for (let i = 0; i < 4; i++) {
+    busyFor(50);
+    await sleep(1);
+  }
+});
+console.log("idle loop under 20% busy:", idle < 0.2);
+console.log("busy loop over 80% busy:", busy > 0.8);
+```
+
+```text
+idle loop under 20% busy: true
+busy loop over 80% busy: true
+```
+
+A server whose utilisation stays near 100% has no spare capacity: more traffic only makes the queue, and the event-loop delay, longer. That is the moment to add processes or workers, or to make the work cheaper.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Total time from the profile">
+
+Write a script that takes a `.cpuprofile` and a function name, computes each node's total time (its own samples plus all its descendants'), adds the totals of every node with that name, and prints whether they exceed 90% of the profile. Run it on the `pr_slow.mjs` profile for `handleOrdersRequest` and for `findUser`. The expected output is `true` for both.
+
+<Solution>
+
+```javascript title="pr_ex_total.mjs"
+import { readFileSync } from "node:fs";
+
+const [file, wanted] = process.argv.slice(2);
+const profile = JSON.parse(readFileSync(file, "utf8"));
+const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+
+const selfTime = new Map();
+profile.samples.forEach((id, i) => {
+  selfTime.set(id, (selfTime.get(id) ?? 0) + profile.timeDeltas[i]);
+});
+
+// Total time of a node: its own samples plus all of its descendants'.
+function totalTime(node) {
+  let time = selfTime.get(node.id) ?? 0;
+  for (const child of node.children ?? []) time += totalTime(byId.get(child));
+  return time;
+}
+
+// A function can appear at several places in the tree; add them up.
+// (This double-counts recursive functions, which this program has none of.)
+const all = profile.timeDeltas.reduce((a, b) => a + b, 0);
+const mine = profile.nodes
+  .filter((node) => node.callFrame.functionName === wanted)
+  .reduce((sum, node) => sum + totalTime(node), 0);
+console.log(`${wanted} total time over 90%:`, mine / all > 0.9);
+```
+
+```text frame="terminal"
+$ node pr_ex_total.mjs prof/*.cpuprofile handleOrdersRequest
+handleOrdersRequest total time over 90%: true
+$ node pr_ex_total.mjs prof/*.cpuprofile findUser
+findUser total time over 90%: true
+```
+
+Both are over 90% because `findUser` runs inside `handleOrdersRequest`. Total time tells you which branch of the tree to look in; self time tells you which function in it to fix.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `node --cpu-prof` writes a sampling CPU profile on exit; `--cpu-prof-dir` and `--cpu-prof-interval` control where and how often.
+- DevTools' Performance panel reads the file. Bottom-Up shows self time, Call Tree shows total time, and the flame chart shows stacks over time.
+- A `.cpuprofile` is JSON, so a script can check the hot spots in CI.
+- `--prof` and `--prof-process` split out V8 builtins; `--inspect` with `chrome://inspect` profiles a live process.
+- `monitorEventLoopDelay` and `eventLoopUtilization` show whether a server stays responsive and how much capacity it has left.
+
+Next: what to do when the profile shows the event loop busy for too long at a time.

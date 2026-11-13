@@ -1,0 +1,327 @@
+---
+language: javascript
+level: expert
+module: Engine internals (V8)
+order: 3
+title: Garbage collection in V8
+description: Learn how V8's generational garbage collector splits the heap into a young and an old generation, watch scavenges and mark-compacts with --trace-gc, set and hit the heap limit, and see what weak references can and cannot promise.
+minVersion: "22"
+objectives:
+  - Explain reachability and why V8 splits the heap into generations
+  - Tell a scavenge from a mark-compact in --trace-gc output
+  - Set the heap limit with --max-old-space-size and recognise the out-of-memory crash
+  - Observe garbage collections from code with PerformanceObserver
+  - Use WeakRef and FinalizationRegistry without depending on when they run
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/18-memory-and-references"]
+---
+
+JavaScript has no `free`. You create objects and the engine reclaims them when they can no longer be reached, as [the memory and references lesson](../../../fundamentals/beginner/memory-and-references/) explained in general terms. This lesson is about how V8 does it, because the way it reclaims memory explains two things you will meet in production: short pauses that grow with how much data survives, and the crash when the heap is full.
+
+Runs are on Node 26.11.1 (V8 14.6). Collection counts and timings depend on the machine, so the checked transcripts keep only the kinds of collection.
+
+## Reachable or not
+
+An object is **live** if a chain of references leads to it from a **root**: a global variable, a local variable of a running function, a pending callback, and so on. Everything else is garbage, however recently it was used. Collection is a question of reachability, never of "still needed": an object that is reachable but never used again stays in memory. That is what a memory leak is in JavaScript, and it is [the next lesson's](../memory-leaks/) subject.
+
+## Two generations
+
+Most objects die young: temporary strings, intermediate arrays, the object a function returns and its caller immediately takes apart. V8 relies on that pattern and divides its heap into spaces, which `v8.getHeapSpaceStatistics()` lists:
+
+```javascript title="gc_spaces.mjs"
+import { getHeapSpaceStatistics, getHeapStatistics } from "node:v8";
+
+const names = getHeapSpaceStatistics().map((space) => space.space_name);
+for (const name of ["new_space", "old_space", "code_space",
+  "large_object_space"]) {
+  console.log(name, names.includes(name) ? "present" : "missing");
+}
+
+const limit = getHeapStatistics().heap_size_limit / 2 ** 20;
+console.log("heap limit:", limit, "MB");
+```
+
+- **`new_space`**, the **young generation**, is where new objects go. It consists of semi-spaces ([`--min-semi-space-size`](https://github.com/v8/v8/blob/14.6.202/src/flags/flag-definitions.h)). It is collected by the **scavenger**, "a semi-space copying garbage collector" ([`scavenger.h`](https://github.com/v8/v8/blob/14.6.202/src/heap/scavenger.h)): it copies the live objects out and reuses the whole area. Its cost depends on how much survives, not on how much garbage there was.
+- **`old_space`**, the **old generation**, holds objects that survived the young generation, which are **promoted**. It is collected by **mark-compact**: mark everything reachable, sweep the rest, and move objects together to reduce fragmentation. V8 does much of this incrementally and on background threads (`--incremental-marking`, `--concurrent-marking`, `--concurrent-sweeping` are all on in V8 14.6), so the pause on the main thread is shorter than the whole job.
+- `code_space` holds compiled code, and `large_object_space` holds objects too big to move cheaply.
+
+`--max-old-space-size` sets the old generation's limit in MiB ([Node CLI docs](https://nodejs.org/api/cli.html#--max-old-space-sizesize-in-mib)). The total limit adds the young generation on top (Node 26.11.1, V8 14.6):
+
+```text frame="terminal"
+$ node --max-old-space-size=64 gc_spaces.mjs
+new_space present
+old_space present
+code_space present
+large_object_space present
+heap limit: 160 MB
+```
+
+Without the flag the default depends on the machine's memory: 2,144 MB on my machine, which has 16 GB.
+
+## Watching collections
+
+`--trace-gc` prints one line per collection. This program creates a million short-lived objects and keeps one in a thousand:
+
+```javascript title="gc_churn.mjs"
+const kept = [];
+for (let i = 0; i < 1_000_000; i++) {
+  const temp = { id: i, label: "item " + i };
+  if (i % 1000 === 0) kept.push(temp);
+}
+console.log("kept", kept.length, "objects");
+```
+
+The first lines on my machine, Node 26.11.1:
+
+```text title="node --trace-gc gc_churn.mjs (first two lines)"
+[22767:0xd559000]       28 ms: Scavenge 4.8 (5.4) -> 4.1 (5.9) MB, pooled: 0.0 MB, 3.43 / 0.00 ms (average mu = 1.000, current mu = 1.000) allocation failure;
+[22767:0xd559000]       30 ms: Scavenge 4.8 (6.4) -> 4.1 (6.9) MB, pooled: 0.0 MB, 0.46 / 0.00 ms (average mu = 1.000, current mu = 1.000) allocation failure;
+```
+
+Each line gives the process and isolate, the time since start, the kind of collection, heap use before and after (committed size in brackets), and the pause. "Allocation failure" is the normal trigger: the young generation was full. Here every collection was a scavenge, and each took under 4 ms, because almost nothing survived:
+
+```text frame="terminal"
+$ node --trace-gc gc_churn.mjs | grep -o -E 'Scavenge|Mark-Compact' | sort -u
+Scavenge
+```
+
+Now keep every object:
+
+```javascript title="gc_grow.mjs"
+const kept = [];
+for (let i = 0; i < 2_000_000; i++) {
+  kept.push({ id: i, label: "item " + i });
+}
+console.log("kept", kept.length, "objects");
+```
+
+```text frame="terminal"
+$ node --trace-gc gc_grow.mjs | grep -o -E 'Scavenge|Mark-Compact' | sort -u
+Mark-Compact
+Scavenge
+```
+
+The survivors are copied by each scavenge, promoted, and fill the old generation until a mark-compact runs. On my machine it was an "Incremental Mark-Compact" with a main-thread pause of about 30 ms, ten times the scavenges'. Pause times grow with the live data, which is why a server holding a large cache in memory has longer GC pauses than one holding little.
+
+## Hitting the limit
+
+When the old generation is full and a mark-compact cannot free enough, V8 tries a few last-resort collections and then aborts the process. Lower the limit and the same program crashes:
+
+```text frame="terminal"
+$ node --max-old-space-size=32 gc_grow.mjs > oom.log 2>&1
+$ echo $?
+134
+$ grep -o 'JavaScript heap out of memory' oom.log
+JavaScript heap out of memory
+```
+
+Exit code 134 means the process was killed by `SIGABRT`; the log ends in `FATAL ERROR: ... JavaScript heap out of memory` and a native stack trace. There is no exception to catch. Raising the limit (on my 16 GB machine the default is already about 2 GB) helps a program that genuinely needs the memory. For a program that leaks, it only postpones the crash.
+
+## Weak references
+
+[Weak collections](../../intermediate/weak-collections/) hold keys without keeping them alive. `WeakRef` (ES2021) does the same for one object, and `FinalizationRegistry` asks for a callback some time after an object is collected. `--expose-gc` adds a `gc()` function, so that a demonstration does not have to wait for the collector:
+
+```javascript title="gc_weakref.mjs"
+import { setTimeout as sleep } from "node:timers/promises";
+
+let big = { data: new Array(100_000).fill(1) };
+const ref = new WeakRef(big);
+const registry = new FinalizationRegistry((label) => {
+  console.log("finalized:", label);
+});
+registry.register(big, "big object");
+
+console.log("alive before:", ref.deref() !== undefined);
+big = null;
+
+await sleep(0);
+globalThis.gc();
+console.log("alive after gc:", ref.deref() !== undefined);
+await sleep(10);
+```
+
+```text frame="terminal"
+$ node --expose-gc gc_weakref.mjs
+alive before: true
+alive after gc: false
+finalized: big object
+```
+
+The `await sleep(0)` matters. An object that has been `deref()`ed stays alive until the end of the current job, so collecting it in the same synchronous run would not work ([`WeakRef` on MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WeakRef)). Without `--expose-gc` nothing guarantees when, or whether, collection and finalization happen. Use them for caches that may forget, and never for cleanup that must happen; that is what [`using` declarations](../../advanced/using-declarations/) are for.
+
+## When to think about the collector
+
+- **Allocation rate in hot code.** Every short-lived object costs a little, and millions per second cost scavenges. When a profile shows GC time in a hot path, reuse objects or switch to typed arrays ([Allocation-aware code](../data-oriented-js/)).
+- **Live heap size in long-running processes.** Mark-compact pauses grow with what survives. Keep large data sets out of the JavaScript heap (in a database, a file, or a `Buffer`, whose bytes live outside it) when latency matters.
+- **The limit in containers.** Set `--max-old-space-size` below the container's memory, leaving room for the young generation, buffers and native memory.
+- **Not otherwise.** Most programs never need a GC flag. Do not call `gc()` in production code; it is a test hook, and the collector's own scheduling is better than yours.
+
+## Common pitfalls
+
+- **Thinking "unused" means "collected".** Only "unreachable" counts.
+- **Raising `--max-old-space-size` to fix a leak.** The crash comes later and the pauses get longer.
+- **Relying on `FinalizationRegistry` callbacks** to close files or release locks. They may run late or never.
+- **Reading `--trace-gc` numbers from one run as typical.** Sizes and pauses depend on the machine and the default limits.
+
+## Exercises
+
+<Exercise title="Fresh objects or reused ones">
+
+Write `countMinorGCs(work)`, which observes `"gc"` performance entries while `work()` runs and returns the number of young-generation collections (`constants.NODE_PERFORMANCE_GC_MINOR` from `node:perf_hooks`). Entries arrive asynchronously, so wait 50 ms before you disconnect. Compare a loop that stores a new `{ id, score }` object a million times in a 100-slot ring with one that reuses the 100 objects. The expected output is `more than 10` collections for the first and `fewer than 3` for the second.
+
+<Solution>
+
+```javascript title="gc_ex_reuse.mjs"
+import { PerformanceObserver, constants } from "node:perf_hooks";
+import { setTimeout as sleep } from "node:timers/promises";
+
+const MINOR = constants.NODE_PERFORMANCE_GC_MINOR;
+
+async function countMinorGCs(work) {
+  let minor = 0;
+  const observer = new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) {
+      if (entry.detail.kind === MINOR) minor++;
+    }
+  });
+  observer.observe({ entryTypes: ["gc"] });
+  work();
+  await sleep(50);
+  observer.disconnect();
+  return minor;
+}
+```
+
+The two workloads differ only in whether they allocate:
+
+```javascript title="gc_ex_reuse.mjs (continued)"
+const recent = new Array(100);
+
+function fresh() {
+  for (let i = 0; i < 1_000_000; i++) {
+    recent[i % 100] = { id: i, score: i * 2 };
+  }
+}
+
+function reuse() {
+  for (let i = 0; i < 1_000_000; i++) {
+    const slot = (recent[i % 100] ??= { id: 0, score: 0 });
+    slot.id = i;
+    slot.score = i * 2;
+  }
+}
+
+const a = await countMinorGCs(fresh);
+recent.fill(undefined);
+const b = await countMinorGCs(reuse);
+console.log("fresh objects, minor GCs:", a > 10 ? "more than 10" : a);
+console.log("reused objects, minor GCs:", b < 3 ? "fewer than 3" : b);
+```
+
+```text frame="terminal"
+$ node gc_ex_reuse.mjs
+fresh objects, minor GCs: more than 10
+reused objects, minor GCs: fewer than 3
+```
+
+On my machine the fresh version caused 39 scavenges. Reuse is not automatically better code: the reused objects now outlive many collections and end up in the old generation, and sharing mutable objects invites bugs. It pays off only in a loop that a profile shows is hot.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="What the limit covers">
+
+Start two child Node processes with `spawnSync`, one with `--max-old-space-size=64` and one with `256`, and have each print `v8.getHeapStatistics().heap_size_limit`. Print how much the limit grows and how much of the smaller limit is not old generation. On Node 26.11.1 the expected output is `limit grows by 192 MB` and `rest of the limit: 96 MB in both`.
+
+<Solution>
+
+`node -e` code can use `v8` without importing it, because the built-in modules are available as globals there.
+
+```javascript title="gc_ex_limit.mjs"
+import { spawnSync } from "node:child_process";
+
+function limitWith(megabytes) {
+  const script = "console.log(v8.getHeapStatistics().heap_size_limit)";
+  const flags = [`--max-old-space-size=${megabytes}`, "-e", script];
+  const child = spawnSync(process.execPath, flags, { encoding: "utf8" });
+  return Number(child.stdout) / 2 ** 20;
+}
+
+const small = limitWith(64);
+const large = limitWith(256);
+console.log("limit grows by", large - small, "MB");
+console.log("rest of the limit:", small - 64, "MB in both");
+```
+
+```text frame="terminal"
+$ node gc_ex_limit.mjs
+limit grows by 192 MB
+rest of the limit: 96 MB in both
+```
+
+The flag moves the old generation exactly. The remaining 96 MB is mostly the young generation, which Node's docs describe as three times the semi-space size ([`--max-semi-space-size`](https://nodejs.org/api/cli.html#--max-semi-space-sizesize-in-mib)). Node 22.23 prints 48 MB there, because its default semi-space is smaller.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A cache that forgets">
+
+Build a `Map` from keys to `WeakRef`s, with a `FinalizationRegistry` that deletes a key once its object is gone. Store two objects, drop the only strong reference to one, wait a tick, call `gc()`, and wait 10 ms. Run it with `--expose-gc`. The expected output is `entries before: 2` and `entries after gc: 1 [ 'chart' ]`.
+
+<Solution>
+
+The callback checks `deref()` before deleting, in case the key was reused for a new object in the meantime.
+
+```javascript title="gc_ex_registry.mjs"
+import { setTimeout as sleep } from "node:timers/promises";
+
+const cache = new Map();
+const cleanup = new FinalizationRegistry((key) => {
+  if (cache.get(key)?.deref() === undefined) cache.delete(key);
+});
+
+function remember(key, value) {
+  cache.set(key, new WeakRef(value));
+  cleanup.register(value, key);
+}
+```
+
+The test drops one object and forces a collection:
+
+```javascript title="gc_ex_registry.mjs (continued)"
+let report = { title: "Q1", rows: new Array(10_000).fill(0) };
+const chart = { title: "Q2", points: new Array(10_000).fill(0) };
+remember("report", report);
+remember("chart", chart);
+console.log("entries before:", cache.size);
+
+report = null;
+await sleep(0);
+globalThis.gc();
+await sleep(10);
+console.log("entries after gc:", cache.size, [...cache.keys()]);
+```
+
+```text frame="terminal"
+$ node --expose-gc gc_ex_registry.mjs
+entries before: 2
+entries after gc: 1 [ 'chart' ]
+```
+
+Without `--expose-gc` the entry would disappear at some unknown later time, possibly never in a short program. Code that uses this cache must treat a missing entry as normal.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- V8 reclaims objects that are unreachable from the roots. Reachable but unused objects stay.
+- New objects go to the young generation, collected by the scavenger, a copying collector whose cost follows what survives. Survivors are promoted to the old generation, collected by an incremental and concurrent mark-compact.
+- `--trace-gc` shows each collection; `PerformanceObserver` with `"gc"` entries shows them from code.
+- `--max-old-space-size` sets the old generation's limit. Running out aborts the process with exit code 134 and "JavaScript heap out of memory".
+- `WeakRef` and `FinalizationRegistry` make no promises about timing. Use them for optional caching, never for required cleanup.
+
+The next lesson finds the objects that should have been collected and were not.

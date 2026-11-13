@@ -1,0 +1,278 @@
+---
+language: javascript
+level: expert
+module: Performance
+order: 9
+title: "Startup: compile cache and snapshots"
+description: Find out what a Node command-line tool spends its first hundred milliseconds on, cache compiled code on disk with NODE_COMPILE_CACHE or module.enableCompileCache, skip expensive initialisation with a startup snapshot, and ship a single executable.
+minVersion: "22"
+objectives:
+  - Measure a program's startup time and compare it with Node's own
+  - Enable the module compile cache with NODE_COMPILE_CACHE or module.enableCompileCache
+  - Build a startup snapshot with --build-snapshot and run from it with --snapshot-blob
+  - Use v8.startupSnapshot callbacks to separate build-time from run-time work
+  - Package a script as a single executable application
+estimatedMinutes: 40
+fundamentals: []
+---
+
+For a server that runs for weeks, startup hardly matters. For a command-line tool it is most of the user's experience: a linter, a formatter or a Git hook runs for a fraction of a second, again and again, and a tool that takes 300 ms to start feels sluggish however fast its real work is. This lesson covers what Node offers for that first fraction of a second.
+
+All timings are from my machine (Node 26.11.1), as the mean of five runs of the shell's `time` command. `node -e 0`, which starts Node and does nothing, took 26 ms there. Startup times below that floor are Node's, not yours.
+
+## Where startup time goes
+
+Before your first line runs, Node itself starts. Then every module your program imports is read, parsed, compiled to bytecode and run, top to bottom. A large dependency tree can mean megabytes of JavaScript to process before `main` is reached. Finally, your own initialisation runs: reading configuration, building lookup tables, compiling regular expressions.
+
+The two techniques here attack the last two costs. The **compile cache** saves V8's compiled bytecode on disk, so later runs skip most of the parsing and compiling. A **startup snapshot** saves the whole initialised heap, so later runs skip the initialisation too.
+
+To have something to measure, `ss_make.mjs` writes `cli/rules.mjs`, a 1.6 MB module with 20,000 small exported functions, standing in for a big dependency tree. A tiny linter, `cli/lint.mjs`, imports it and calls every rule:
+
+```javascript title="cli/lint.mjs"
+import * as rules from "./rules.mjs";
+
+const text = process.argv[2] ?? "w7 and w19999";
+const hits = Object.values(rules)
+  .filter((rule) => typeof rule === "function")
+  .map((rule) => rule(text))
+  .filter((n) => n >= 0);
+console.log(`checked ${rules.count} rules, matched: ${hits.join(", ")}`);
+```
+
+```text frame="terminal"
+$ node ss_make.mjs
+wrote cli/rules.mjs with 20000 functions
+$ node cli/lint.mjs
+checked 20000 rules, matched: 1, 19, 199, 1999, 19999, 7
+```
+
+The matches come out in that order because a module namespace object lists its exports alphabetically. On my machine this run took 190 ms.
+
+## The module compile cache
+
+Setting the `NODE_COMPILE_CACHE` environment variable to a directory turns on the compile cache for every CommonJS, ES and TypeScript module Node loads ([module docs](https://nodejs.org/api/module.html#module-compile-cache)). It was added in Node 22.1 and is no longer experimental since 25.4:
+
+```text frame="terminal"
+$ NODE_COMPILE_CACHE=.cache node cli/lint.mjs
+checked 20000 rules, matched: 1, 19, 199, 1999, 19999, 7
+$ find .cache -type f | wc -l
+2
+$ rm -r .cache
+```
+
+One cache file for each of the two modules. The cache is written when the process exits, and the first run is slower than without the cache, 210 to 290 ms on my machine, because it has to produce and write it. Later runs took about 165 ms instead of 190: a modest 13% here, more for programs with larger dependency trees and less work per function. The cache lives in a subfolder named after the Node version and architecture (and the user, on Unix), so caches from different versions do not clash; an entry is used only if the module's source is unchanged.
+
+<Since v="22.8" /> A tool can turn the cache on for itself with `module.enableCompileCache()`, so its users do not need the variable. Call it in the entry file before importing anything large; the first exercise does this. Put the cache under `os.tmpdir()`, which is the default when you pass no directory, and set `NODE_DISABLE_COMPILE_CACHE=1` to turn it off, for example when collecting precise coverage.
+
+## Startup snapshots
+
+Some tools spend their startup building data rather than loading code. `ss_index.cjs` answers "what is the *k*-th prime?" from a table of all primes below five million, which it computes with a sieve on every start:
+
+```javascript title="ss_index.cjs"
+// A lookup table that is slow to build: the primes below five million.
+// Run directly, the table is built again on every start.
+const { startupSnapshot } = require("node:v8");
+
+function buildPrimes(limit) {
+  const sieve = new Uint8Array(limit);
+  const primes = [];
+  for (let n = 2; n < limit; n++) {
+    if (sieve[n]) continue;
+    primes.push(n);
+    for (let m = n * n; m < limit; m += n) sieve[m] = 1;
+  }
+  return primes;
+}
+```
+
+The last part decides what to do at the end of initialisation. `startupSnapshot.isBuildingSnapshot()` is true while a snapshot is being built ([v8 docs](https://nodejs.org/api/v8.html#startup-snapshot-api)):
+
+```javascript title="ss_index.cjs (continued)"
+function main(primes) {
+  const k = Number(process.argv.at(-1)) || 1;
+  console.log(`prime number ${k} is ${primes[k - 1]}`);
+}
+
+const primes = buildPrimes(5_000_000);
+if (startupSnapshot.isBuildingSnapshot()) {
+  // Building: keep the table in the snapshot and run main on each start.
+  startupSnapshot.setDeserializeMainFunction(() => main(primes));
+} else {
+  main(primes);
+}
+```
+
+`--build-snapshot` runs the script once and, instead of exiting normally, writes the resulting heap to a blob. `--snapshot-blob` starts Node from that blob and calls the main function that was registered ([CLI docs](https://nodejs.org/api/cli.html#--build-snapshot)):
+
+```text frame="terminal"
+$ node ss_index.cjs 1000
+prime number 1000 is 7919
+$ node --snapshot-blob snap.blob --build-snapshot ss_index.cjs
+$ node --snapshot-blob snap.blob 1000
+prime number 1000 is 7919
+$ node --snapshot-blob snap.blob 5
+prime number 5 is 11
+$ rm snap.blob
+```
+
+On my machine the normal run took 75 ms and the run from the snapshot 40 ms, of which 26 ms is Node itself: the tool's own startup cost went from about 50 ms to about 14 ms. The price is a 10 MB blob, because the whole heap, table included, is in it.
+
+Building a snapshot has rules. The entry point must be a single script; it can `require` built-in modules but not other files, so a real tool is bundled first ([bundlers](../../advanced/bundlers/)). Not every built-in module can be serialised, and anything tied to the outside world, such as open files, sockets, timers, environment variables and the current time, belongs at run time, not in the snapshot. The snapshot is specific to the Node binary that built it. Building snapshots is no longer experimental since Node 25.4 and 24.13.1, while the `--snapshot-blob` flag itself is still marked experimental.
+
+## Single executable applications
+
+A **single executable application** (SEA) is a copy of the `node` binary with your bundled script inside it, so users need neither Node nor `npm install` ([SEA docs](https://nodejs.org/api/single-executable-applications.html)). Its configuration names the script and the output:
+
+```json title="sea/sea-config.json"
+{
+  "main": "hello.js",
+  "output": "hello",
+  "disableExperimentalSEAWarning": true
+}
+```
+
+<Since v="25.5" /> `node --build-sea` builds the executable in one step. On Node 22 and 24, `--experimental-sea-config` produces a blob that you then inject into a copy of `node` with the `postject` tool:
+
+```text frame="terminal"
+$ node --build-sea sea-config.json > /dev/null
+$ ./hello Ada
+Hello, Ada! (Node v26.11.1, packaged)
+$ rm hello
+```
+
+The file is 150 MB on Linux, the size of the `node` binary, and runs only on the platform it was built for. On macOS it must be signed with `codesign` before it runs. The configuration can also embed a startup snapshot (`"useSnapshot": true`) or a code cache (`"useCodeCache": true`), so a SEA can start as fast as the techniques above allow. The feature is still in active development.
+
+## Which technique, when
+
+- **Measure first.** Compare your tool's startup with `node -e 0`. If it is within a few tens of milliseconds, there is little left to win.
+- **Load less.** Import heavy modules lazily with `await import()` inside the command that needs them, and drop dependencies you barely use. This beats every cache.
+- **Compile cache** for tools with large dependency trees. It needs no code changes beyond one call, and it is safe: a changed file is simply recompiled.
+- **Snapshot** for tools with expensive initialisation of data. It costs a build step, a large blob, and care about what may be captured.
+- **SEA** to distribute to users who do not have Node. It is a packaging choice more than a speed one.
+- **Not for servers**, unless they restart often, for example as serverless functions where every cold start is a user waiting.
+
+## Common pitfalls
+
+- **Measuring the first run with a cache.** It is slower: it writes the cache.
+- **Capturing run-time state in a snapshot**, such as the date, environment variables or a random seed. Read them in a deserialize callback or the main function.
+- **Snapshotting multi-file programs** without bundling them.
+- **Shipping a snapshot or cache built by a different Node version.** Both are tied to the binary.
+- **Committing cache folders.** Keep them in a temporary directory.
+
+## Exercises
+
+<Exercise title="A tool that caches itself">
+
+Write `ss_ex_enable.mjs`, which calls `module.enableCompileCache(".cache")` twice and prints the name of each returned status from `module.constants.compileCacheStatus`, then checks that `module.getCompileCacheDir()` is set, then loads `cli/rules.mjs` with `await import()` and prints its `count`. Run `node ss_make.mjs` first. The expected output is `ENABLED`, `ALREADY_ENABLED`, `true` and `20000`.
+
+<Solution>
+
+The rules are imported dynamically on purpose: a static `import` is loaded before any code in the file runs, so the cache would not be on yet.
+
+```javascript title="ss_ex_enable.mjs"
+import module from "node:module";
+
+const { compileCacheStatus } = module.constants;
+const nameOf = (status) =>
+  Object.keys(compileCacheStatus).find((k) => compileCacheStatus[k] === status);
+
+const first = module.enableCompileCache(".cache");
+const second = module.enableCompileCache(".cache");
+console.log("first call:", nameOf(first.status));
+console.log("second call:", nameOf(second.status));
+console.log("cache directory set:", module.getCompileCacheDir() !== undefined);
+
+// Modules imported from now on are compiled through the cache.
+const { count } = await import("./cli/rules.mjs");
+console.log("rules loaded:", count);
+```
+
+```text frame="terminal"
+$ node ss_ex_enable.mjs
+first call: ENABLED
+second call: ALREADY_ENABLED
+cache directory set: true
+rules loaded: 20000
+$ rm -r .cache cli/rules.mjs
+```
+
+A real tool would call `module.enableCompileCache()` without a directory, so the cache goes to the system's temporary folder.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Build time and run time">
+
+Write a snapshot entry script that builds a `Map` of greetings (`en`, `fr`, `de`) at build time, reads the language from the `GREETING_LANG` environment variable in a `startupSnapshot.addDeserializeCallback`, and greets the name given as the last argument in the main function. Build it, then run it with and without `GREETING_LANG=fr`. The expected output is `Hello, Ada!` and `Bonjour, Ada!`.
+
+<Solution>
+
+```javascript title="ss_ex_greet.cjs"
+const { startupSnapshot } = require("node:v8");
+
+// Built once, when the snapshot is made.
+const phrases = new Map([["en", "Hello"], ["fr", "Bonjour"], ["de", "Hallo"]]);
+let language = "en";
+
+// Runs on every start from the snapshot, before the main function:
+// read what can differ between runs here, not at build time.
+startupSnapshot.addDeserializeCallback(() => {
+  language = process.env.GREETING_LANG ?? "en";
+});
+
+startupSnapshot.setDeserializeMainFunction(() => {
+  const name = process.argv.at(-1);
+  console.log(`${phrases.get(language)}, ${name}!`);
+});
+```
+
+```text frame="terminal"
+$ node --snapshot-blob greet.blob --build-snapshot ss_ex_greet.cjs
+$ node --snapshot-blob greet.blob Ada
+Hello, Ada!
+$ GREETING_LANG=fr node --snapshot-blob greet.blob Ada
+Bonjour, Ada!
+$ rm greet.blob
+```
+
+Had the script read `process.env.GREETING_LANG` at the top level, the value at build time would have been frozen into the snapshot, and the second run would also say Hello.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A packaged greeting">
+
+<Since v="25.5" /> Write `hello.js`, which greets `process.argv[2]` and reports `process.version`, and a `sea-config.json` that turns it into an executable called `hello`. Build it with `node --build-sea`, run `./hello Ada`, and delete the 150 MB file afterwards. The expected output is `Hello, Ada! (Node v26.11.1, packaged)` on Node 26.11.1.
+
+<Solution>
+
+The configuration is the one shown above. The script:
+
+```javascript title="sea/hello.js"
+const name = process.argv[2] ?? "world";
+console.log(`Hello, ${name}! (Node ${process.version}, packaged)`);
+```
+
+```text frame="terminal"
+$ node --build-sea sea-config.json > /dev/null
+$ ./hello Ada
+Hello, Ada! (Node v26.11.1, packaged)
+$ rm hello
+```
+
+In a single executable, `process.argv[0]` is the executable's full path and `process.argv[1]` the name it was started with, `./hello` here, so `process.argv[2]` is still the first argument, as in a normal run. The Node version is the one whose binary was copied; upgrading Node means rebuilding the executable.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Compare startup with `node -e 0`, and load less before caching more.
+- `NODE_COMPILE_CACHE=dir`, or `module.enableCompileCache()` from code, keeps compiled bytecode on disk. The first run writes it; later runs skip most compilation.
+- `--build-snapshot` saves an initialised heap and `--snapshot-blob` starts from it, skipping expensive initialisation. Read run-time state in deserialize callbacks.
+- Single executable applications bundle a script into a copy of `node`. <Since v="25.5" /> `node --build-sea` builds one in a step.
+
+The last lesson of the module returns to the code itself: making hot paths allocate less.

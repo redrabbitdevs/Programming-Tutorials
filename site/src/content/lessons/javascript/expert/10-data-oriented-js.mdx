@@ -1,0 +1,420 @@
+---
+language: javascript
+level: expert
+module: Performance
+order: 10
+title: Allocation-aware and data-oriented code
+description: Measure how much memory a hot path allocates, remove hidden intermediate arrays, reuse objects where a profile justifies it, store numeric data in typed arrays, and know what iterator helpers do and do not save.
+minVersion: "22"
+objectives:
+  - Measure the bytes a piece of code allocates, and confirm it with --trace-gc
+  - Remove intermediate arrays from map/filter/reduce chains in hot paths
+  - Compare array chains, iterator helpers and plain loops by allocation and time
+  - Reuse objects with out-parameters and pools, and know the risks
+  - Lay out numeric data as typed arrays instead of arrays of objects
+estimatedMinutes: 45
+fundamentals: []
+---
+
+[The garbage collection lesson](../garbage-collection/) showed that short-lived objects are cheap but not free: each one moves the young generation closer to its next scavenge. In most code that cost is invisible. In a hot path, a loop that runs millions of times per second in a game, a simulation, a parser or a busy server, allocation can be the largest cost left after the algorithm is right. This lesson is about seeing allocation and removing it where it matters, and about laying out data so that there is less to allocate in the first place.
+
+Allocation figures come from Node 26.11.1 and are the same on every run of the same code. Timings are from my machine and labelled.
+
+## Measuring allocation
+
+<Since v="26" /> `v8.getHeapStatistics()` includes `total_allocated_bytes`, the bytes allocated on the JavaScript heap since the process started. Node 24.21 does not report it. The difference before and after a piece of code is what that code allocated. This helper warms the code up first, so that the measurement is of optimised code:
+
+```javascript title="do_chain.mjs"
+import { getHeapStatistics } from "node:v8";
+
+// Megabytes allocated while `work` runs, after three warm-up runs.
+function allocatedMB(work) {
+  for (let i = 0; i < 3; i++) work();
+  const before = getHeapStatistics().total_allocated_bytes;
+  const result = work();
+  const after = getHeapStatistics().total_allocated_bytes;
+  return { result, mb: (after - before) / 2 ** 20 };
+}
+```
+
+On Node 22 and 24, count collections instead: `node --trace-gc app.mjs | grep -c Scavenge` grows with the bytes allocated.
+
+## Hidden intermediate arrays
+
+A chain of array methods reads well, and each step builds a complete new array:
+
+```javascript title="do_chain.mjs (continued)"
+const cents = Array.from({ length: 1_000_000 }, (_, i) => i % 500);
+
+const chain = () => cents.map((c) => c * 2).filter((c) => c > 100)
+  .reduce((a, b) => a + b, 0);
+
+const helpers = () => cents.values().map((c) => c * 2)
+  .filter((c) => c > 100).reduce((a, b) => a + b, 0);
+```
+
+`helpers` uses [iterator helpers](../../intermediate/iterator-helpers/) (ES2025): `values()` returns an iterator, and its `map` and `filter` process one element at a time, so no intermediate array is built. The third version is a plain loop:
+
+```javascript title="do_chain.mjs (continued)"
+function loop() {
+  let total = 0;
+  for (let i = 0; i < cents.length; i++) {
+    const doubled = cents[i] * 2;
+    if (doubled > 100) total += doubled;
+  }
+  return total;
+}
+```
+
+The program measures all three:
+
+```javascript title="do_chain.mjs (continued)"
+const runs = { chain, helpers, loop };
+const mb = {};
+for (const [name, fn] of Object.entries(runs)) {
+  const run = allocatedMB(fn);
+  mb[name] = run.mb;
+  console.log(`${name}: ${run.result}`);
+}
+console.log("chain allocates over 10x the loop:", mb.chain > 10 * mb.loop);
+console.log("helpers allocate more than chain:", mb.helpers > mb.chain);
+```
+
+```text
+chain: 493900000
+helpers: 493900000
+loop: 493900000
+chain allocates over 10x the loop: true
+helpers allocate more than chain: true
+```
+
+The measured figures were 38 MB for the chain, 111 MB for the iterator helpers and 0.1 MB for the loop. On my machine they took about 32 ms, 46 ms and 1.7 ms. The chain's 38 MB is its two intermediate arrays. The helpers avoided those arrays, but the iterator protocol produces a result object (`{ value, done }`) for every step of every stage, and here V8 14.6 did not optimise them away: the helpers allocated three times as much as the chain. Iterator helpers save memory when the source is huge or infinite and you stop early; they are not a way to make an array chain faster.
+
+The loop is also the version that allocates nothing because it reads by index. On Node 26.11.1, summing a 500,000-element array 200 times with `for...of` caused 556 scavenges in `--trace-gc` on my machine, and the same loop written with an index caused 1. Engines can remove iteration overhead, and whether they do depends on the code and the version, which is exactly why hot loops are measured rather than assumed.
+
+## Reusing objects
+
+When a function returns a new small object on every call, such as a vector, a point or a range, a hot loop allocates millions of them. An **out-parameter** lets the caller supply the object to write into:
+
+```javascript title="do_reuse.mjs"
+import { getHeapStatistics } from "node:v8";
+
+// Megabytes allocated by one run of `work`, after three warm-up runs.
+function allocatedMB(work) {
+  for (let i = 0; i < 3; i++) work();
+  const before = getHeapStatistics().total_allocated_bytes;
+  work();
+  return (getHeapStatistics().total_allocated_bytes - before) / 2 ** 20;
+}
+
+const add = (a, b) => ({ x: a.x + b.x, y: a.y + b.y });
+
+function addInto(out, a, b) {
+  out.x = a.x + b.x;
+  out.y = a.y + b.y;
+  return out;
+}
+```
+
+Adding a step a million times both ways:
+
+```javascript title="do_reuse.mjs (continued)"
+const step = { x: 1, y: 2 };
+let fresh, reused;
+
+const freshMB = allocatedMB(() => {
+  fresh = { x: 0, y: 0 };
+  for (let i = 0; i < 1_000_000; i++) fresh = add(fresh, step);
+});
+const reusedMB = allocatedMB(() => {
+  reused = { x: 0, y: 0 };
+  for (let i = 0; i < 1_000_000; i++) addInto(reused, reused, step);
+});
+
+console.log("same result:", fresh.x === reused.x && fresh.y === reused.y);
+console.log("new objects, over 10 MB:", freshMB > 10);
+console.log("reused object, under 1 MB:", reusedMB < 1);
+```
+
+```text
+same result: true
+new objects, over 10 MB: true
+reused object, under 1 MB: true
+```
+
+38 MB against 0.1 MB. V8 can remove the allocation of an object that never escapes the code being optimised (Maglev has a `--maglev-escape-analysis` flag, on by default); this loop carries `fresh` from one iteration to the next, and V8 14.6 allocated every one. For objects that are expensive to create, such as large buffers, a **pool** keeps released objects for reuse, as the second exercise builds.
+
+Reuse has real costs. Mutable shared objects are where aliasing bugs come from: if a caller keeps a reference to a pooled object, the next user overwrites it. Reused objects live long, so they are promoted to the old generation. Use these patterns inside a hot function, behind a normal API, and only where the measurement shows a gain.
+
+## Typed arrays for numeric data
+
+An array of objects stores, for each element, a pointer to an object, the object with its map pointer, and its fields. For numbers there is a denser layout: one [typed array](../../advanced/arraybuffer-typedarrays/) per field, sometimes called a **structure of arrays**:
+
+```javascript title="do_layout.mjs"
+import { getHeapStatistics } from "node:v8";
+
+const N = 1_000_000;
+const heapUsed = () => getHeapStatistics().used_heap_size;
+const external = () => getHeapStatistics().external_memory;
+
+let before = heapUsed();
+const points = Array.from({ length: N }, (_, i) => ({ x: i / 2, y: i / 4 }));
+const objectBytes = heapUsed() - before;
+
+before = external();
+const xs = new Float64Array(N);
+const ys = new Float64Array(N);
+for (let i = 0; i < N; i++) {
+  xs[i] = i / 2;
+  ys[i] = i / 4;
+}
+const typedBytes = external() - before;
+```
+
+Typed array contents live outside the JavaScript heap and are counted in `external_memory`:
+
+```javascript title="do_layout.mjs (continued)"
+console.log("same last point:", points[N - 1].y === ys[N - 1]);
+console.log("typed arrays:", (typedBytes / 2 ** 20).toFixed(2), "MB");
+console.log("objects over twice as large:", objectBytes > 2 * typedBytes);
+```
+
+```text
+same last point: true
+typed arrays: 15.26 MB
+objects over twice as large: true
+```
+
+The typed arrays take exactly 8 bytes per number, 16 MB in all. The objects took about 80 MB of heap on my machine, and the garbage collector has to trace every one of them; it does not look inside a typed array's bytes at all. Loops over typed arrays touch memory in order, which also suits the CPU cache. The first exercise applies this to a particle simulation. The same layout is what you hand to [WebAssembly](../webassembly-interop/), a worker through a `SharedArrayBuffer`, or a GPU.
+
+## When to write code this way
+
+- **After a profile, in the hot path only.** A `map`/`filter` chain over a 50-element array in a request handler costs microseconds; rewriting it as a loop makes the code longer for nothing.
+- **When GC shows up.** `(garbage collector)` high in a CPU profile, or many scavenges in `--trace-gc` for a steady workload, says allocation is worth attacking.
+- **For large numeric data sets**, typed arrays are worth it even outside hot paths, for memory alone.
+- **Keep the readable version** in tests, as the reference the fast version must agree with, like the "same result" checks here.
+
+## Common pitfalls
+
+- **Assuming iterator helpers are cheaper than array methods.** They avoid intermediate arrays, not allocation.
+- **Assuming the engine removes allocations** without measuring. It may not, as the reuse example showed.
+- **Leaking pooled objects** to callers who keep them.
+- **Mixing value types in typed arrays.** A `Float64Array` silently converts strings and `undefined` to `NaN`.
+- **Measuring allocation before warm-up**, which counts the interpreter's own allocations.
+
+## Exercises
+
+<Exercise title="Particles in typed arrays">
+
+A simulation moves 10,000 particles for 100 steps. Each particle has `x`, `y`, `vx` and `vy`; each step, gravity subtracts 0.1 from `vy`, `x` moves by `vx`, and `y` moves by `vy` but never below 0. Write it once with an array of objects replaced by `map` on every step, and once with four `Float64Array`s updated in place. Compare a checksum (the sum of all `x + y`) and the allocation of one run after a warm-up. The expected output is `same checksum: true`, `objects allocate over 20 MB: true` and `typed arrays allocate under 1 MB: true`.
+
+<Solution>
+
+```javascript title="do_ex_particles.mjs"
+import { getHeapStatistics } from "node:v8";
+
+const N = 10_000;
+const STEPS = 100;
+const allocated = () => getHeapStatistics().total_allocated_bytes;
+
+// Version 1: an array of particle objects, replaced on every step.
+function simulateObjects() {
+  let particles = Array.from({ length: N }, (_, i) =>
+    ({ x: i, y: 0, vx: (i % 7) - 3, vy: (i % 5) - 2 }));
+  for (let s = 0; s < STEPS; s++) {
+    particles = particles.map((p) => {
+      const vy = p.vy - 0.1;
+      return { x: p.x + p.vx, y: Math.max(0, p.y + vy), vx: p.vx, vy };
+    });
+  }
+  return particles.reduce((sum, p) => sum + p.x + p.y, 0);
+}
+```
+
+The typed version does the same arithmetic in the same order, so the checksums are identical, not just close:
+
+```javascript title="do_ex_particles.mjs (continued)"
+// Version 2: one typed array per field, updated in place.
+function simulateTyped() {
+  const x = new Float64Array(N), y = new Float64Array(N);
+  const vx = new Float64Array(N), vy = new Float64Array(N);
+  for (let i = 0; i < N; i++) {
+    x[i] = i;
+    vx[i] = (i % 7) - 3;
+    vy[i] = (i % 5) - 2;
+  }
+  for (let s = 0; s < STEPS; s++) {
+    for (let i = 0; i < N; i++) {
+      vy[i] -= 0.1;
+      x[i] += vx[i];
+      y[i] = Math.max(0, y[i] + vy[i]);
+    }
+  }
+  let sum = 0;
+  for (let i = 0; i < N; i++) sum += x[i] + y[i];
+  return sum;
+}
+
+function measure(simulate) {
+  simulate();
+  const before = allocated();
+  const checksum = simulate();
+  return { checksum, mb: (allocated() - before) / 2 ** 20 };
+}
+
+const objects = measure(simulateObjects);
+const typed = measure(simulateTyped);
+console.log("same checksum:", objects.checksum === typed.checksum);
+console.log("objects allocate over 20 MB:", objects.mb > 20);
+console.log("typed arrays allocate under 1 MB:", typed.mb < 1);
+```
+
+```text
+same checksum: true
+objects allocate over 20 MB: true
+typed arrays allocate under 1 MB: true
+```
+
+The measured figures were 95 MB and 0.6 MB. On my machine one run took about 20 ms with objects and 2.2 ms with typed arrays.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A buffer pool">
+
+Write a `BufferPool` class with `acquire()`, which returns a free `Uint8Array` of a fixed size or creates one, and `release(buffer)`, which zeroes it and keeps it for later. Use it in a `handle(message)` function that encodes the message into a pooled buffer with `TextEncoder.encodeInto`, computes a checksum, and releases the buffer in a `finally` block. Handle 10,000 messages. The expected output is `messages handled: 10000, checksum total: 16586720` and `buffers created: 1`.
+
+<Solution>
+
+```javascript title="do_ex_pool.mjs"
+class BufferPool {
+  #free = [];
+  created = 0;
+  constructor(size) {
+    this.size = size;
+  }
+  acquire() {
+    if (this.#free.length > 0) return this.#free.pop();
+    this.created++;
+    return new Uint8Array(this.size);
+  }
+  release(buffer) {
+    buffer.fill(0);
+    this.#free.push(buffer);
+  }
+}
+
+const pool = new BufferPool(1024);
+const encoder = new TextEncoder();
+```
+
+The handler borrows a buffer and always gives it back:
+
+```javascript title="do_ex_pool.mjs (continued)"
+// Encode a message into a pooled buffer and return a checksum of its bytes.
+function handle(message) {
+  const buffer = pool.acquire();
+  try {
+    const { written } = encoder.encodeInto(message, buffer);
+    let sum = 0;
+    for (let i = 0; i < written; i++) sum = (sum + buffer[i]) % 65_521;
+    return sum;
+  } finally {
+    pool.release(buffer);
+  }
+}
+
+let total = 0;
+for (let i = 0; i < 10_000; i++) total += handle(`message number ${i}`);
+console.log("messages handled: 10000, checksum total:", total);
+console.log("buffers created:", pool.created);
+```
+
+```text
+messages handled: 10000, checksum total: 16586720
+buffers created: 1
+```
+
+Messages are handled one at a time, so a single buffer serves them all. With concurrent async handlers, the pool would grow to the number in flight. `release` zeroes the buffer so that one message's bytes can never leak into another's, which matters when buffers hold secrets.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Statistics in one pass">
+
+`statsChained(xs)` copies and sorts the array for the minimum and maximum, reduces for the mean, and filters to count values over 900. Write `statsOnePass(xs)` with one indexed loop and the same result. Check both on 500,000 numbers. The expected output is `{ min: 0, max: 999, mean: 499.5, over900: 49500 }`, `same result: true`, `one pass allocates under 1 MB: true` and `chained allocates over 2 MB: true`.
+
+<Solution>
+
+```javascript title="do_ex_stats.mjs"
+import { getHeapStatistics } from "node:v8";
+
+const values = Array.from({ length: 500_000 }, (_, i) => (i * 7919) % 1000);
+
+function statsChained(xs) {
+  const sorted = [...xs].sort((a, b) => a - b);
+  return {
+    min: sorted[0],
+    max: sorted.at(-1),
+    mean: xs.reduce((a, b) => a + b, 0) / xs.length,
+    over900: xs.filter((x) => x > 900).length,
+  };
+}
+
+function statsOnePass(xs) {
+  let min = Infinity, max = -Infinity, sum = 0, over900 = 0;
+  for (let i = 0; i < xs.length; i++) {
+    const x = xs[i];
+    if (x < min) min = x;
+    if (x > max) max = x;
+    sum += x;
+    if (x > 900) over900++;
+  }
+  return { min, max, mean: sum / xs.length, over900 };
+}
+```
+
+The measurement runs each once to warm up:
+
+```javascript title="do_ex_stats.mjs (continued)"
+function allocatedMB(work) {
+  work();
+  const before = getHeapStatistics().total_allocated_bytes;
+  const result = work();
+  const mb = (getHeapStatistics().total_allocated_bytes - before) / 2 ** 20;
+  return { result, mb };
+}
+
+const a = allocatedMB(() => statsChained(values));
+const b = allocatedMB(() => statsOnePass(values));
+console.log(b.result);
+const same = JSON.stringify(a.result) === JSON.stringify(b.result);
+console.log("same result:", same);
+console.log("one pass allocates under 1 MB:", b.mb < 1);
+console.log("chained allocates over 2 MB:", a.mb > 2);
+```
+
+```text
+{ min: 0, max: 999, mean: 499.5, over900: 49500 }
+same result: true
+one pass allocates under 1 MB: true
+chained allocates over 2 MB: true
+```
+
+The one-pass version is also O(n) instead of the sort's O(n log n). The chained version is easier to check by eye, which makes it the right reference in a test.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- <Since v="26" /> `v8.getHeapStatistics().total_allocated_bytes` measures allocation directly; on older Node, count scavenges with `--trace-gc`.
+- Array method chains build an intermediate array per step. Iterator helpers avoid those arrays but, on V8 14.6, allocate more in total; a plain indexed loop allocates nothing.
+- Out-parameters and pools remove per-call allocation, at the price of shared mutable state. Keep them inside hot functions.
+- Typed arrays store numbers in 8 bytes each, outside the GC's view; an array of objects can take five times as much.
+- Do all of this only where a profile points, and keep the simple version as the reference.
+
+This completes the performance module. The next module turns from speed to safety: the security problems specific to JavaScript, and how to stop them.

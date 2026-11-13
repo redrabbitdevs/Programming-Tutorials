@@ -1,0 +1,2 @@
+quiet: max delay under 50 ms: true
+busy: max delay over 100 ms: true

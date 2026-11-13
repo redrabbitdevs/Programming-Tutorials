@@ -1,0 +1,318 @@
+---
+language: javascript
+level: expert
+module: Performance
+order: 6
+title: Measuring performance
+description: Time JavaScript with performance.now and process.hrtime, build a small benchmark harness that warms up and reports percentiles, avoid the traps the JIT sets for micro-benchmarks, and put growth rate before constant factors.
+minVersion: "22"
+objectives:
+  - Choose a clock for timing code in Node and the browser
+  - Build a benchmark harness that warms up, batches calls and reports percentiles
+  - Recognise JIT effects that make micro-benchmarks lie, such as dead-code elimination
+  - Report latency with percentiles instead of the mean
+  - Use performance marks, measures and timerify to time phases of a real program
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/20-big-o"]
+---
+
+The previous module showed why JavaScript timing is slippery: the same function runs in an interpreter, then in baseline code, then in optimised code that may be thrown away again. This module is about performance work that holds up anyway. It starts with measurement, because every later step, profiling, fixing, checking the fix, depends on numbers you can trust.
+
+Timings in this lesson are from my machine (4 cores, Node 26.11.1) and are labelled. The checked outputs print only conclusions that hold on any machine, such as "the Set was more than ten times faster".
+
+## Growth rate first
+
+Before timing anything, ask how the work grows. [Big-O](../../../fundamentals/beginner/big-o/) tells you how an algorithm scales, and no amount of tuning makes a quadratic algorithm beat a linear one on large inputs. `array.includes` looks at every element; `set.has` hashes. Measuring which is faster for 10 elements is a micro-question; knowing that one is O(n) and the other O(1) per lookup answers the question for every size.
+
+Measurement then answers what Big-O cannot: constant factors, real data, and whether the code you suspect is where the time goes at all.
+
+## Clocks
+
+- **`performance.now()`** returns milliseconds as a floating-point number, measured from the start of the process (or page). It is **monotonic**: it never jumps backwards when the system clock is adjusted. It works the same in Node and browsers.
+- **`process.hrtime.bigint()`** returns nanoseconds as a `BigInt` in Node, from an arbitrary starting point. Use it when you want integer nanoseconds.
+- **`Date.now()`** is wall-clock time in whole milliseconds and can jump when the clock is corrected. Use it for timestamps, never for durations.
+
+Browsers coarsen `performance.now()` on purpose, to make timing attacks harder; on pages that are not cross-origin isolated the resolution is around 100 µs ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/Performance/now)). Time many calls together rather than one.
+
+## A harness you can trust
+
+A single timing of a single call measures noise. A useful harness does four things: it **warms up**, so the JIT has compiled the code before you start recording; it times a **batch** of calls, so each sample is well above the clock's resolution; it takes **many samples**, and it stores each result in a variable that outlives the loop, so the optimiser cannot decide the work is unused. `createHistogram` from `node:perf_hooks` collects the samples ([docs](https://nodejs.org/api/perf_hooks.html#perf_hookscreatehistogramoptions)):
+
+```javascript title="mp_bench.mjs"
+import { createHistogram } from "node:perf_hooks";
+
+export let sink;
+
+export function bench(fn, { batch = 1000, samples = 50, warmup = 10 } = {}) {
+  const histogram = createHistogram();
+  for (let s = -warmup; s < samples; s++) {
+    const start = process.hrtime.bigint();
+    for (let i = 0; i < batch; i++) sink = fn(i);
+    const perCall = (process.hrtime.bigint() - start) / BigInt(batch);
+    if (s >= 0) histogram.record(perCall > 0n ? perCall : 1n);
+  }
+  return {
+    median: histogram.percentile(50),
+    p95: histogram.percentile(95),
+    min: histogram.min,
+  };
+}
+```
+
+The histogram stores integers of at least 1, hence the `1n` guard for calls faster than a nanosecond per batch average. The negative sample numbers are the warm-up rounds, run but not recorded. Here it compares the two lookups:
+
+```javascript title="mp_lookup.mjs"
+import { bench } from "./mp_bench.mjs";
+
+const ids = Array.from({ length: 10_000 }, (_, i) => i * 7);
+const idSet = new Set(ids);
+const probe = (i) => (i * 7919) % 70_000;
+
+const array = bench((i) => ids.includes(probe(i)));
+const set = bench((i) => idSet.has(probe(i)));
+
+console.log("same answers:",
+  ids.includes(probe(3)) === idSet.has(probe(3)));
+console.log("Set median over 10x faster:", set.median * 10 < array.median);
+```
+
+```text
+same answers: true
+Set median over 10x faster: true
+```
+
+On my machine the medians were about 9,000 ns per `includes` and 23 ns per `has`. Always check that the versions you compare give the same answers; a fast wrong function is easy to write.
+
+## How micro-benchmarks lie
+
+The JIT optimises the benchmark as well as the code. Three effects catch people most often.
+
+**Warm-up.** The first calls run in Ignition. [The tiers lesson](../engine-pipeline/) showed a function reaching TurboFan after thousands of calls. Timing the first hundred calls measures the interpreter, which matters for a CLI that runs once and not at all for a server.
+
+**Dead-code elimination.** If a result is never used, the optimiser may remove the work that produced it:
+
+```javascript title="mp_dce.mjs"
+function unused(n) {
+  for (let i = 0; i < n; i++) Math.sqrt(i) * 2.5;
+}
+
+function used(n) {
+  let total = 0;
+  for (let i = 0; i < n; i++) total += Math.sqrt(i) * 2.5;
+  return total;
+}
+
+function time(fn) {
+  const start = performance.now();
+  fn(50_000_000);
+  return performance.now() - start;
+}
+
+time(unused);
+time(used);
+const ratio = time(used) / time(unused);
+console.log("result unused, at least 2x faster:", ratio > 2);
+```
+
+```text
+result unused, at least 2x faster: true
+```
+
+On my machine `unused` took about 21 ms and `used` about 95 ms for the same square roots. A square root whose result is thrown away has no effect, so the optimising compiler is free to drop it, and the timing shows that it did: `unused` costs about what an empty loop costs. That is why the harness writes every result to `sink`.
+
+**Inputs that are too friendly.** A benchmark that calls a function with the same argument every time lets V8 specialise for that one case, and a small array stays in the CPU cache. Use inputs that vary like real data and are as large as real data.
+
+## Report percentiles
+
+Latency is not one number. Here are 100 response times, most of them fast:
+
+```javascript title="mp_stats.mjs"
+import { createHistogram } from "node:perf_hooks";
+
+// 100 response times in milliseconds: most are quick, a few are not.
+const times = [
+  ...Array(90).fill(12), ...Array(7).fill(15), 80, 250, 900,
+];
+
+const histogram = createHistogram();
+for (const t of times) histogram.record(t);
+
+const mean = times.reduce((a, b) => a + b, 0) / times.length;
+console.log("mean:  ", mean.toFixed(1));
+console.log("min:   ", histogram.min);
+console.log("median:", histogram.percentile(50));
+console.log("p99:   ", histogram.percentile(99));
+console.log("max:   ", histogram.max);
+```
+
+```text
+mean:   24.1
+min:    12
+median: 12
+p99:    250
+max:    900
+```
+
+The mean, 24.1 ms, describes no request at all: it is twice the typical time and far below the slow ones. The **median** (p50) is the typical case. A high percentile such as **p99** is what the unluckiest 1% experience, and for a page that makes 50 requests, most visitors meet it. For micro-benchmarks the **minimum** is also useful: noise only ever adds time, so the fastest sample is closest to the code's real cost.
+
+## Timing a real program
+
+For whole programs, Node supports the browser's User Timing API. `performance.mark(name)` records a moment, `performance.measure(name, start, end)` the time between two marks, and `performance.timerify(fn)` wraps a function so that each call produces a `"function"` entry for a `PerformanceObserver` ([perf_hooks docs](https://nodejs.org/api/perf_hooks.html)). The second and third exercises use them. Marks have little overhead, so they can stay in production code and feed a metrics system.
+
+## When not to measure
+
+- **When the answer is already clear from growth rate.** Replace the quadratic loop; do not benchmark it.
+- **When the code is not on a hot path.** Ten times faster at something that takes 0.1% of the time is invisible. [Profile](../profiling-node/) first to find out where time goes.
+- **When the difference is small.** A 5% gap in a micro-benchmark is usually noise or a JIT accident, and may reverse on another Node version.
+- **On a busy laptop for a decision that matters.** Close other programs, run several times, and confirm with a benchmark on hardware like production.
+
+## Common pitfalls
+
+- **Timing one call**, or timing the first calls only.
+- **Discarding results**, so the optimiser removes the work.
+- **Comparing implementations that give different answers.**
+- **Reporting the mean of latencies.** Report the median and a high percentile.
+- **Trusting a micro-benchmark over a profile** of the real program.
+
+## Exercises
+
+<Exercise title="Three ways to remove duplicates">
+
+Write three functions that return the unique values of an array in first-seen order: one with a loop and `includes`, one with `filter` and `indexOf`, and one with a `Set`. Check that they agree on 5,000 numbers with 2,500 distinct values, then benchmark each with `bench` (one call per sample, 20 samples, 3 warm-up rounds) and print the fastest. The expected output is `all agree: true` and `fastest: withSet`.
+
+<Solution>
+
+```javascript title="mp_ex_dedupe.mjs"
+import { bench } from "./mp_bench.mjs";
+
+const input = Array.from({ length: 5000 }, (_, i) => (i * 37) % 2500);
+
+function withIncludes(values) {
+  const out = [];
+  for (const v of values) if (!out.includes(v)) out.push(v);
+  return out;
+}
+
+const withIndexOf = (values) =>
+  values.filter((v, i) => values.indexOf(v) === i);
+
+const withSet = (values) => [...new Set(values)];
+
+const answers = [withIncludes, withIndexOf, withSet]
+  .map((f) => f(input).join());
+console.log("all agree:", answers.every((a) => a === answers[0]));
+
+const options = { batch: 1, samples: 20, warmup: 3 };
+const results = Object.entries({ withIncludes, withIndexOf, withSet })
+  .map(([name, f]) => [name, bench(() => f(input), options)]);
+results.sort((a, b) => a[1].median - b[1].median);
+console.log("fastest:", results[0][0]);
+```
+
+```text
+all agree: true
+fastest: withSet
+```
+
+On my machine the medians were 6.4 ms, 6.1 ms and 0.13 ms. The first two are both O(n²) and close to each other; the `Set` version is O(n) and about fifty times faster at this size, and the gap grows with the input. The histogram accepts `BigInt` samples but returns its percentiles as ordinary numbers, so the comparator can subtract them.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Timerify a function">
+
+Wrap a `parseConfig(text)` function, which returns `JSON.parse(text)`, with `performance.timerify`, observe `"function"` entries, and call the wrapped version five times. Entries are delivered asynchronously, so wait for `setImmediate` before you disconnect. Print the number of entries, the name and type of the first, and whether all durations are non-negative. The expected output is `entries: 5`, `name: parseConfig type: function` and `all durations >= 0: true`.
+
+<Solution>
+
+```javascript title="mp_ex_timerify.mjs"
+import { performance, PerformanceObserver } from "node:perf_hooks";
+
+function parseConfig(text) {
+  return JSON.parse(text);
+}
+
+const entries = [];
+const observer = new PerformanceObserver((list) => {
+  entries.push(...list.getEntries());
+});
+observer.observe({ entryTypes: ["function"] });
+
+const timed = performance.timerify(parseConfig);
+for (let i = 0; i < 5; i++) timed(`{"port": ${8000 + i}}`);
+
+await new Promise((resolve) => setImmediate(resolve));
+observer.disconnect();
+console.log("entries:", entries.length);
+console.log("name:", entries[0].name, "type:", entries[0].entryType);
+console.log("all durations >= 0:", entries.every((e) => e.duration >= 0));
+```
+
+```text
+entries: 5
+name: parseConfig type: function
+all durations >= 0: true
+```
+
+Each entry's `duration` is the time of one call in milliseconds. In a real program you would record them in a histogram rather than keep them all.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Phases of a script">
+
+A script builds a JSON string of 50,000 products, parses it, and sums the prices. Put a mark before and after each phase, create a measure for each of `load`, `parse` and `sum` and one for `total`, and check that the three phases add up to the total. The expected output is `phases: load, parse, sum`, `phases add up to the total: true` and `total price: 2524500`.
+
+<Solution>
+
+```javascript title="mp_ex_phases.mjs"
+import { performance } from "node:perf_hooks";
+
+performance.mark("start");
+const text = JSON.stringify(Array.from({ length: 50_000 }, (_, i) => ({
+  id: i, price: (i % 100) + 0.99,
+})));
+performance.mark("loaded");
+const rows = JSON.parse(text);
+performance.mark("parsed");
+const total = rows.reduce((sum, row) => sum + row.price, 0);
+performance.mark("summed");
+
+const phases = [
+  performance.measure("load", "start", "loaded"),
+  performance.measure("parse", "loaded", "parsed"),
+  performance.measure("sum", "parsed", "summed"),
+];
+const all = performance.measure("total", "start", "summed");
+
+const parts = phases.reduce((sum, m) => sum + m.duration, 0);
+const gap = Math.abs(parts - all.duration);
+console.log("phases:", phases.map((m) => m.name).join(", "));
+console.log("phases add up to the total:", gap < 1e-6);
+console.log("total price:", Math.round(total));
+```
+
+```text
+phases: load, parse, sum
+phases add up to the total: true
+total price: 2524500
+```
+
+Printing `m.duration` for each phase shows where the script spends its time. Because marks are cheap, this kind of timing can stay in a CLI behind a `--timings` option.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Think about growth rate before you time anything.
+- Use `performance.now()` or `process.hrtime.bigint()` for durations, never `Date.now()`.
+- Warm up, time batches, take many samples, keep every result, and check that the versions you compare agree.
+- The JIT can remove unused work and specialise for friendly inputs; benchmark with realistic data.
+- Report the median and a high percentile; the mean of latencies misleads.
+- `performance.mark`, `measure` and `timerify` time phases and functions of real programs.
+
+Next: when a real program is slow, a profiler shows where the time goes.

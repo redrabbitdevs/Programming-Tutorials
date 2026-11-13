@@ -1,0 +1,44 @@
+$ node ml_leak.mjs
+listeners: 500
+wrote leak.heapsnapshot
+$ node ml_count.mjs leak.heapsnapshot Session
+Session: 500
+$ node ml_fixed.mjs
+listeners: 0
+wrote fixed.heapsnapshot
+$ node ml_count.mjs fixed.heapsnapshot Session
+Session: 0
+$ rm leak.heapsnapshot fixed.heapsnapshot
+$ node --heap-prof --heap-prof-dir=prof ml_heapprof.mjs
+requests: 200000
+$ node ml_top.mjs prof/*.heapprofile
+(top level)
+(top level) > repeat
+$ rm -r prof
+$ node --heap-prof --heap-prof-dir=prof --no-turbo-inlining --no-maglev-inlining ml_heapprof.mjs
+requests: 200000
+$ node ml_top.mjs prof/*.heapprofile
+(top level) > recordRequest
+(top level) > recordRequest > repeat
+$ rm -r prof
+$ node ml_ex_cache.mjs
+cache size: 100
+$ node ml_count.mjs cache.heapsnapshot Result
+Result: 100
+$ node ml_ex_timer.mjs leak
+served 300 connections
+$ node ml_count.mjs timer.heapsnapshot Connection
+Connection: 300
+$ node ml_ex_timer.mjs
+served 300 connections
+$ node ml_count.mjs timer.heapsnapshot Connection
+Connection: 0
+$ node ml_ex_weakmap.mjs
+widgets are off screen
+$ node ml_count.mjs widgets.heapsnapshot Widget
+Widget: 1000
+$ node ml_ex_weakmap.mjs weak
+widgets are off screen
+$ node ml_count.mjs widgets.heapsnapshot Widget
+Widget: 0
+$ rm cache.heapsnapshot timer.heapsnapshot widgets.heapsnapshot

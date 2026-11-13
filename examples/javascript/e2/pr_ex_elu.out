@@ -1,0 +1,2 @@
+idle loop under 20% busy: true
+busy loop over 80% busy: true

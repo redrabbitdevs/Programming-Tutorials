@@ -1,0 +1,2 @@
+await Promise.resolve(): 0 heartbeats
+await setImmediate(): more than 5 heartbeats

@@ -1,0 +1,33 @@
+$ node wa_instantiate.mjs
+exports: [
+  { name: 'memory', kind: 'memory' },
+  { name: 'add', kind: 'function' },
+  { name: 'sum', kind: 'function' }
+]
+imports: [ { module: 'env', name: 'report', kind: 'function' } ]
+add(2, 3) = 5
+add(2.9, '3') = 5
+add(2 ** 31, 0) = -2147483648
+$ node wa_memory.mjs
+memory bytes: 65536
+sum of 5 numbers: 150
+after a JS write: 1100
+$ node wa_import.mjs
+fib(10) = 55n
+fib(90) = 2880067194370816120n
+type: bigint
+Number(fib(90)) exact? false
+$ node wa_ex_upper.mjs
+HELLO, WASM!
+CRèME BRûLéE
+$ node wa_ex_grow.mjs
+pages before: 1
+old view length: 0
+old buffer detached: true
+new buffer bytes: 131072
+data kept: 42
+$ node wa_ex_source.mjs
+is a Module: true
+a reported 6
+b reported 60
+same memory: false

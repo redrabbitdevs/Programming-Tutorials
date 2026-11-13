@@ -1,0 +1,33 @@
+$ node ss_make.mjs
+wrote cli/rules.mjs with 20000 functions
+$ node cli/lint.mjs
+checked 20000 rules, matched: 1, 19, 199, 1999, 19999, 7
+$ NODE_COMPILE_CACHE=.cache node cli/lint.mjs
+checked 20000 rules, matched: 1, 19, 199, 1999, 19999, 7
+$ find .cache -type f | wc -l
+2
+$ rm -r .cache
+$ node ss_index.cjs 1000
+prime number 1000 is 7919
+$ node --snapshot-blob snap.blob --build-snapshot ss_index.cjs
+$ node --snapshot-blob snap.blob 1000
+prime number 1000 is 7919
+$ node --snapshot-blob snap.blob 5
+prime number 5 is 11
+$ rm snap.blob
+$ node ss_ex_enable.mjs
+first call: ENABLED
+second call: ALREADY_ENABLED
+cache directory set: true
+rules loaded: 20000
+$ rm -r .cache cli/rules.mjs
+$ node --snapshot-blob greet.blob --build-snapshot ss_ex_greet.cjs
+$ node --snapshot-blob greet.blob Ada
+Hello, Ada!
+$ GREETING_LANG=fr node --snapshot-blob greet.blob Ada
+Bonjour, Ada!
+$ rm greet.blob
+$ node --build-sea sea-config.json > /dev/null
+$ ./hello Ada
+Hello, Ada! (Node v26.11.1, packaged)
+$ rm hello

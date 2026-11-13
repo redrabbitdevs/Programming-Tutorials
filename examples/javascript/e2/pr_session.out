@@ -1,0 +1,12 @@
+$ node --cpu-prof --cpu-prof-dir=prof pr_slow.mjs
+served 10 requests, 1222670 bytes
+$ node pr_top.mjs prof/*.cpuprofile
+over 10% self time: findUser pr_slow.mjs:11
+over 10% self time: (anonymous) pr_slow.mjs:12
+$ node pr_ex_total.mjs prof/*.cpuprofile handleOrdersRequest
+handleOrdersRequest total time over 90%: true
+$ node pr_ex_total.mjs prof/*.cpuprofile findUser
+findUser total time over 90%: true
+$ rm -r prof
+$ node pr_ex_fixed.mjs
+served 10 requests, 1222670 bytes

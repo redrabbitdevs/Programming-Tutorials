@@ -1,0 +1,325 @@
+---
+language: javascript
+level: expert
+module: Performance
+order: 8
+title: Keeping the event loop responsive
+description: See how long synchronous tasks freeze a Node server or a web page, split CPU-heavy work into chunks that yield with setImmediate, move it to a worker thread instead, and choose between the two.
+minVersion: "22"
+objectives:
+  - Explain why a long synchronous task blocks timers, I/O and rendering
+  - Split CPU-bound work into chunks that yield to the event loop
+  - Choose a chunk size, and know why awaiting a resolved promise does not yield
+  - Offload CPU-bound work to a worker thread
+  - Apply the same ideas to the browser's main thread
+estimatedMinutes: 40
+fundamentals: []
+---
+
+[The event loop lesson](../../intermediate/event-loop/) showed that JavaScript runs one task at a time: a callback runs to completion, then the loop picks the next one. That is what makes JavaScript code easy to reason about, and it is also its main performance risk. While one task runs, nothing else does: no timer fires, no request is read, no promise callback runs, and in a browser nothing is painted. [The profiling lesson](../profiling-node/) measured this as event-loop delay. This lesson removes it.
+
+Timings are from my machine (Node 26.11.1) and labelled. The checked output prints only conclusions that hold on any machine.
+
+## Measuring responsiveness
+
+A small helper runs a 10 ms interval timer while some work runs and counts how often it fired. A responsive program lets it fire; a blocked one does not. The same file holds the CPU-bound work used throughout, a trial-division prime test:
+
+```javascript title="el_heartbeat.mjs"
+// Counts how often a 10 ms timer manages to run while `work` runs.
+export async function heartbeatsDuring(work) {
+  let beats = 0;
+  const timer = setInterval(() => beats++, 10);
+  const result = await work();
+  clearInterval(timer);
+  return { beats, result };
+}
+
+// CPU-bound work: count the primes below `limit` by trial division.
+export function isPrime(n) {
+  for (let d = 2; d * d <= n; d++) if (n % d === 0) return false;
+  return n > 1;
+}
+```
+
+## One long task
+
+Counting the primes below three million in a single loop:
+
+```javascript title="el_block.mjs"
+import { heartbeatsDuring, isPrime } from "./el_heartbeat.mjs";
+
+function countPrimes(limit) {
+  let count = 0;
+  for (let n = 0; n < limit; n++) if (isPrime(n)) count++;
+  return count;
+}
+
+const { beats, result } = await heartbeatsDuring(() => countPrimes(3_000_000));
+console.log("primes:", result);
+console.log("heartbeats during the work:", beats);
+```
+
+```text
+primes: 216816
+heartbeats during the work: 0
+```
+
+On my machine the loop runs for about 700 ms, and in all that time the timer never fired. In a server, every request that arrived in those 700 ms waited, including health checks, which is how a load balancer comes to decide that a perfectly healthy server is dead.
+
+## Chunking
+
+The first fix keeps the work on the main thread but splits it into pieces, returning to the event loop between them. `setImmediate` from `node:timers/promises` returns a promise that resolves in the event loop's check phase, after pending I/O has been handled ([timers docs](https://nodejs.org/api/timers.html#timerspromisessetimmediatevalue-options)):
+
+```javascript title="el_chunk.mjs"
+import { setImmediate as yieldToLoop } from "node:timers/promises";
+import { heartbeatsDuring, isPrime } from "./el_heartbeat.mjs";
+
+async function countPrimesInChunks(limit, chunk = 50_000) {
+  let count = 0;
+  for (let start = 0; start < limit; start += chunk) {
+    const end = Math.min(start + chunk, limit);
+    for (let n = start; n < end; n++) if (isPrime(n)) count++;
+    await yieldToLoop();
+  }
+  return count;
+}
+
+const { beats, result } = await heartbeatsDuring(
+  () => countPrimesInChunks(3_000_000));
+console.log("primes:", result);
+console.log("heartbeats during the work:", beats > 5 ? "more than 5" : beats);
+```
+
+```text
+primes: 216816
+heartbeats during the work: more than 5
+```
+
+Same answer, and the timer kept running. On my machine the chunked version took about the same total time as the single loop: 60 yields cost almost nothing. The function is now `async`, so its callers must `await` it, and other code can run between chunks. If that other code can change the data being processed, you have the kinds of problems [the async patterns lesson](../../advanced/async-patterns/) dealt with.
+
+### Choosing a chunk size
+
+Each yield costs a trip around the event loop. Too small a chunk and the trips dominate; too large and each chunk is itself a long task. The second exercise measures it: summing 200,000 numbers took about 190 ms with a yield after every number and under 2 ms with one every 1,000, on my machine. A useful target is chunks of a few milliseconds each. Cut by time rather than count when items vary in cost: check `performance.now()` inside the loop and yield when the chunk has used its budget.
+
+### Yielding has to reach the loop
+
+`await` alone does not yield to the event loop. Awaiting a promise that is already resolved schedules the rest of the function as a **microtask**, and the loop runs all microtasks before it moves on to timers or I/O. The third exercise shows a chunked loop with `await Promise.resolve()` between chunks that blocks timers exactly as badly as the single loop. Yield with `setImmediate` (or `setTimeout`) instead. Node's `scheduler.yield()` from `node:timers/promises` does the same job but is still marked experimental in Node 26 ([docs](https://nodejs.org/api/timers.html#timerspromisesscheduleryield)).
+
+## Offloading to a worker
+
+The second fix moves the work to another thread, as in [the worker threads lesson](../../advanced/worker-threads/). The main thread stays free for the whole time, and on a multi-core machine the work runs in parallel with everything else:
+
+```javascript title="el_worker.mjs"
+import { isMainThread, parentPort, workerData, Worker }
+  from "node:worker_threads";
+import { once } from "node:events";
+import { heartbeatsDuring, isPrime } from "./el_heartbeat.mjs";
+
+function workerMain() {
+  let count = 0;
+  for (let n = 0; n < workerData; n++) if (isPrime(n)) count++;
+  parentPort.postMessage(count);
+}
+
+async function countInWorker(limit) {
+  const worker = new Worker(new URL(import.meta.url), { workerData: limit });
+  const [count] = await once(worker, "message");
+  return count;
+}
+```
+
+The same file is both programs. The main thread starts a worker running it, and the worker runs `workerMain`:
+
+```javascript title="el_worker.mjs (continued)"
+if (isMainThread) {
+  const { beats, result } = await heartbeatsDuring(
+    () => countInWorker(3_000_000));
+  console.log("primes:", result);
+  console.log("heartbeats during the work:", beats > 5 ? "more than 5" : beats);
+} else {
+  workerMain();
+}
+```
+
+```text
+primes: 216816
+heartbeats during the work: more than 5
+```
+
+A worker has a cost of its own: on my machine, starting one took 12 to 23 ms until its first message, and each idle worker added about 7.5 MB of resident memory. Data sent to it is copied. A real server keeps a small pool of workers alive rather than starting one per request.
+
+## Chunking or a worker?
+
+- **Chunk** when the work is moderate (tens to hundreds of milliseconds), needs the main thread's data or objects that cannot be sent to a worker, or runs in a browser where workers are awkward for the job. It is simple, but the main thread still does all the work, so it does not add capacity.
+- **Use a worker** when the work is heavy or frequent, can be described by a message (numbers, strings, plain objects, `ArrayBuffer`s), and the machine has spare cores. It adds capacity and keeps latency flat.
+- **Do neither** when the work is short. A 2 ms task does not need either. Measure event-loop delay before deciding.
+- **Fix the algorithm first.** In [the profiling lesson](../profiling-node/) the slow requests became more than 30 times faster with a `Map`; no amount of chunking would have done that.
+
+## In the browser
+
+A page's main thread also renders and handles input. A task that runs for 50 ms or more counts as a **long task** ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/PerformanceLongTaskTiming)), and a click that lands during one waits for it to end before anything happens on screen. The same two fixes apply. Chunk with `await scheduler.yield()`, which Chrome 129 and Firefox 142 support and Safari does not ([browser data](https://developer.mozilla.org/en-US/docs/Web/API/Scheduler/yield#browser_compatibility)), falling back to `await new Promise((r) => setTimeout(r, 0))`. Or move the work to a Web Worker.
+
+## Common pitfalls
+
+- **Synchronous APIs in request handlers**: `readFileSync`, `JSON.parse` of a huge body, a `crypto` function without its async form, or a slow regular expression.
+- **`await Promise.resolve()` as a yield.** It runs as a microtask and does not let timers or I/O through.
+- **Chunks that are too small**, so the yields cost more than the work.
+- **A new worker per request.** Pool them.
+- **Chunked code that assumes nothing changed between chunks.**
+
+## Exercises
+
+<Exercise title="An endpoint that stays responsive">
+
+Write an HTTP server with two routes: `/health`, which answers `ok` at once, and `/primes`, which counts the primes below three million, either in one loop or yielding with `setImmediate` every 50,000 numbers. In the same program, request `/primes`, wait 20 ms, request `/health`, and record which response arrives first. Do it for both versions. The expected output is `/primes` first for the blocking server and `/health` first for the chunked one.
+
+<Solution>
+
+```javascript title="el_ex_server.mjs"
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { setImmediate as yieldToLoop } from "node:timers/promises";
+import { isPrime } from "./el_heartbeat.mjs";
+
+async function countPrimes(limit, chunked) {
+  let count = 0;
+  for (let n = 0; n < limit; n++) {
+    if (isPrime(n)) count++;
+    if (chunked && n % 50_000 === 0) await yieldToLoop();
+  }
+  return count;
+}
+
+function startServer(chunked) {
+  const server = createServer(async (req, res) => {
+    if (req.url === "/health") return res.end("ok");
+    res.end(String(await countPrimes(3_000_000, chunked)));
+  });
+  server.listen(0);
+  return server;
+}
+
+// Ask for the primes, then 20 ms later for /health; which answers first?
+async function firstToFinish(chunked) {
+  const server = startServer(chunked);
+  await once(server, "listening");
+  const base = `http://localhost:${server.address().port}`;
+  const finished = [];
+  const get = (path) =>
+    fetch(base + path).then((r) => r.text()).then(() => finished.push(path));
+  const primes = get("/primes");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await Promise.all([primes, get("/health")]);
+  server.close();
+  return finished[0];
+}
+
+console.log("blocking server, first answer:", await firstToFinish(false));
+console.log("chunked server, first answer:", await firstToFinish(true));
+```
+
+```text
+blocking server, first answer: /primes
+chunked server, first answer: /health
+```
+
+Here the client runs in the same process as the server, so the blocking version freezes the client's 20 ms timer too and `/health` is not even sent until the primes are done. With a separate client the request would be sent on time and still wait, with the same result. `listen(0)` asks the system for any free port.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="How big a chunk?">
+
+Sum 200,000 numbers with `await setImmediate()` after every 1, 1,000 and 200,000 numbers. Print the total and the number of yields for each, and whether a chunk of 1 is more than ten times slower than a chunk of 1,000. The expected output shows the same total, 900000, with 200000, 200 and 1 yields, and `true`.
+
+<Solution>
+
+```javascript title="el_ex_chunksize.mjs"
+import { setImmediate as yieldToLoop } from "node:timers/promises";
+
+async function sumInChunks(values, chunk) {
+  let total = 0;
+  let yields = 0;
+  for (let start = 0; start < values.length; start += chunk) {
+    const end = Math.min(start + chunk, values.length);
+    for (let i = start; i < end; i++) total += values[i];
+    await yieldToLoop();
+    yields++;
+  }
+  return { total, yields };
+}
+
+const values = Array.from({ length: 200_000 }, (_, i) => i % 10);
+const ms = {};
+for (const chunk of [1, 1000, 200_000]) {
+  const start = performance.now();
+  const { total, yields } = await sumInChunks(values, chunk);
+  ms[chunk] = performance.now() - start;
+  console.log(`chunk ${chunk}: total ${total}, ${yields} yields`);
+}
+console.log("chunk 1 over 10x slower than 1000:", ms[1] > 10 * ms[1000]);
+```
+
+```text
+chunk 1: total 900000, 200000 yields
+chunk 1000: total 900000, 200 yields
+chunk 200000: total 900000, 1 yields
+chunk 1 over 10x slower than 1000: true
+```
+
+On my machine the three took about 190 ms, 1.6 ms and 0.3 ms. With 1,000 numbers per chunk the overhead is small and each chunk is far below a millisecond, so the loop stays responsive.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A yield that is not one">
+
+Count primes below three million, pausing every 50,000 numbers, once with `await Promise.resolve()` and once with `await setImmediate()` from `node:timers/promises`. Use `heartbeatsDuring` to count the timer ticks during each. The expected output is `0 heartbeats` for the promise version and `more than 5 heartbeats` for `setImmediate`.
+
+<Solution>
+
+```javascript title="el_ex_microtask.mjs"
+import { setImmediate as nextTurn } from "node:timers/promises";
+import { heartbeatsDuring, isPrime } from "./el_heartbeat.mjs";
+
+async function countPrimes(limit, pause) {
+  let count = 0;
+  for (let n = 0; n < limit; n++) {
+    if (isPrime(n)) count++;
+    if (n % 50_000 === 0) await pause();
+  }
+  return count;
+}
+
+const viaPromise = () => countPrimes(3_000_000, () => Promise.resolve());
+const viaImmediate = () => countPrimes(3_000_000, () => nextTurn());
+
+const a = await heartbeatsDuring(viaPromise);
+const b = await heartbeatsDuring(viaImmediate);
+console.log("await Promise.resolve():", a.beats, "heartbeats");
+console.log("await setImmediate():", b.beats > 5 ? "more than 5" : b.beats,
+  "heartbeats");
+```
+
+```text
+await Promise.resolve(): 0 heartbeats
+await setImmediate(): more than 5 heartbeats
+```
+
+The function was `async` and awaited 60 times, and still no timer ran. A resolved promise only queues a microtask, and microtasks run before the event loop gets back to timers.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- One long synchronous task blocks timers, I/O, promise callbacks and, in browsers, rendering and input.
+- Chunk CPU-bound work and yield between chunks with `setImmediate` or `setTimeout`; aim for chunks of a few milliseconds.
+- `await` on a resolved promise is a microtask and does not yield to the loop.
+- Workers keep the main thread free and add capacity, at the cost of start-up and copying; pool them.
+- In browsers, tasks of 50 ms or more are long tasks. Use `scheduler.yield()` where supported, or a Web Worker.
+
+Next: a different kind of waiting, the time a program takes to start.
