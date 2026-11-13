@@ -1,0 +1,3 @@
+same result: true
+new objects, over 10 MB: true
+reused object, under 1 MB: true

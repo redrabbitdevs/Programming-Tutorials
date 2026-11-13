@@ -1,0 +1,43 @@
+$ node --allow-natives-syntax sh_maps.mjs
+a and b: true
+a and c: false
+a and d: false
+a and e: false
+$ node --allow-natives-syntax sh_build.mjs
+same order: true
+other order: false
+$ node --allow-natives-syntax sh_delete.mjs
+two Points: true
+after delete, fast: false
+set to undefined, fast: true
+$ node --log-ic --logfile=ic.log --no-logfile-per-isolate --no-lazy-feedback-allocation sh_ic.mjs
+$ grep '^LoadIC' ic.log | cut -d, -f4-7,9 | grep '^2,16,'
+2,16,0,1,x
+2,16,1,P,x
+2,16,P,P,x
+2,16,P,P,x
+2,16,P,N,x
+$ rm ic.log
+$ node --allow-natives-syntax --trace-deopt sh_deopt.mjs | grep -o -E '^[a-z].*|reason: [^)]*'
+optimized: true
+reason: wrong map
+after another shape: false
+$ node --allow-natives-syntax sh_ex_optional.mjs
+before the fix: false
+after the fix: true
+$ node --allow-natives-syntax sh_ex_elements.mjs
+[1, 2, 3]: PACKED_SMI
+push 4.5: PACKED_DOUBLE
+push "five": PACKED_ELEMENTS
+pop both: PACKED_ELEMENTS
+b[10] = 4: HOLEY_SMI
+new Array(3): HOLEY_SMI
+$ node --log-ic --logfile=ic.log --no-logfile-per-isolate --no-lazy-feedback-allocation sh_ex_mono.mjs
+$ grep '^LoadIC' ic.log | cut -d, -f4-7,9 | grep -E '^(11,42|14,16),'
+11,42,0,1,type
+11,42,1,P,type
+11,42,P,P,type
+11,42,P,P,type
+11,42,P,N,type
+14,16,0,1,type
+$ rm ic.log

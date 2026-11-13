@@ -1,0 +1,389 @@
+---
+language: javascript
+level: expert
+module: Engine internals (V8)
+order: 4
+title: Finding memory leaks
+description: Recognise the usual sources of leaks in JavaScript, take heap snapshots with node:v8 and read them in DevTools or with a script, find allocation sites with --heap-prof, and fix leaks by removing references or using WeakMap.
+minVersion: "22"
+objectives:
+  - Name the common sources of leaks in long-running JavaScript programs
+  - Take a heap snapshot with v8.writeHeapSnapshot or a signal, and open it in DevTools
+  - Count objects by class in a snapshot to confirm a leak and its fix
+  - Use --heap-prof to see where retained memory was allocated
+  - Fix leaks caused by listeners, timers, caches and side tables
+estimatedMinutes: 50
+fundamentals: ["fundamentals/beginner/18-memory-and-references"]
+---
+
+[The previous lesson](../garbage-collection/) ended with a rule: the collector frees what is unreachable, not what is unused. A **leak** in JavaScript is memory that stays reachable after the program has stopped needing it. Memory grows request by request, garbage collections get longer, and eventually the process dies with "JavaScript heap out of memory". The symptom is easy to see in `process.memoryUsage().heapUsed` climbing over hours. This lesson is about finding the cause.
+
+Runs are on Node 26.11.1 (V8 14.6). Everything used here, apart from one pair of inlining flags, works the same on Node 22.
+
+## Where leaks come from
+
+Almost every leak is a reference from something long-lived to something that should have been short-lived:
+
+- **Listeners** on an emitter that outlives the listener's owner. The listener's closure keeps its `this` and everything that object holds.
+- **Timers** from `setInterval` that nobody clears. A timer is a root until it is cleared, and so is everything its callback closes over.
+- **Caches** and memo tables without a size limit or expiry.
+- **Side tables**: a `Map` from objects to extra data, which keeps the objects alive after everyone else has dropped them.
+- **Closures** that capture more than they use, stored somewhere long-lived.
+
+Here is the first kind. Each request creates a `Session` that registers for a shutdown event and is never unregistered:
+
+```javascript title="ml_leak.mjs"
+import { EventEmitter } from "node:events";
+import { writeHeapSnapshot } from "node:v8";
+
+const bus = new EventEmitter();
+bus.setMaxListeners(0);
+
+class Session {
+  constructor(id) {
+    this.id = id;
+    this.buffer = new Array(1000).fill(id);
+    bus.on("shutdown", () => this.close());
+  }
+  close() {}
+}
+```
+
+The rest of the program handles 500 requests and writes a heap snapshot:
+
+```javascript title="ml_leak.mjs (continued)"
+function handleRequest(id) {
+  const session = new Session(id);
+  return session.id;
+}
+
+for (let i = 0; i < 500; i++) handleRequest(i);
+console.log("listeners:", bus.listenerCount("shutdown"));
+console.log("wrote", writeHeapSnapshot("leak.heapsnapshot"));
+```
+
+`handleRequest` returns, so `session` is out of scope. But the arrow function in the listener list refers to `this`, and the emitter lives as long as the module. `setMaxListeners(0)` turns off the warning Node prints when an emitter collects more than 10 listeners for one event, which is often the first clue to exactly this bug. Leave the warning on in your own code.
+
+## Heap snapshots
+
+A **heap snapshot** is a file describing every live object, its size and what references it. Node writes one in three ways:
+
+- `v8.writeHeapSnapshot(filename)` from code, as above.
+- `node --heapsnapshot-signal=SIGUSR2 server.mjs`, then `kill -USR2 <pid>`: a snapshot of a running process without changing its code ([CLI docs](https://nodejs.org/api/cli.html#--heapsnapshot-signalsignal)).
+- `node --heapsnapshot-near-heap-limit=1 server.mjs`: a snapshot just before an out-of-memory crash.
+
+Writing a snapshot pauses the program, and it "requires memory about twice the size of the heap" ([v8 docs](https://nodejs.org/api/v8.html#v8writeheapsnapshotfilenameoptions)). On a large production heap, that can be enough to get the process killed.
+
+### Reading one in DevTools
+
+Open Chrome DevTools on any page, choose the **Memory** panel, and use **Load** to open the `.heapsnapshot` file. Alternatively, start Node with `--inspect`, open `chrome://inspect`, and take snapshots of the live process from the same panel. The **Summary** view groups objects by constructor name: here it shows 500 `Session` objects. Select one and the **Retainers** pane shows the chain that keeps it alive: an array of listeners, inside the `_events` object, inside the `EventEmitter`. That chain is the answer to "why is this still here?".
+
+The most useful technique is **comparison**: take a snapshot, run the suspected operation many times, take another, and choose **Comparison** to see which constructors gained objects. Something that grows by exactly the number of operations is your leak.
+
+### Counting from a script
+
+The snapshot is JSON, so a short script can check the same thing in a test or in CI. The format is undocumented and specific to V8, but its `meta` section describes the flat `nodes` array: each object is a group of numbers, and `node_fields` names them. This script counts objects by name:
+
+```javascript title="ml_count.mjs"
+import { readFileSync } from "node:fs";
+
+const file = process.argv[2];
+const snapshot = JSON.parse(readFileSync(file, "utf8"));
+const { node_fields, node_types } = snapshot.snapshot.meta;
+const typeNames = node_types[0];
+const width = node_fields.length;
+const typeAt = node_fields.indexOf("type");
+const nameAt = node_fields.indexOf("name");
+
+const counts = new Map();
+for (let i = 0; i < snapshot.nodes.length; i += width) {
+  if (typeNames[snapshot.nodes[i + typeAt]] !== "object") continue;
+  const name = snapshot.strings[snapshot.nodes[i + nameAt]];
+  counts.set(name, (counts.get(name) ?? 0) + 1);
+}
+```
+
+It prints the counts for the names given on the command line:
+
+```javascript title="ml_count.mjs (continued)"
+for (const name of process.argv.slice(3)) {
+  console.log(`${name}: ${counts.get(name) ?? 0}`);
+}
+```
+
+```text frame="terminal"
+$ node ml_leak.mjs
+listeners: 500
+wrote leak.heapsnapshot
+$ node ml_count.mjs leak.heapsnapshot Session
+Session: 500
+```
+
+Every session is still alive.
+
+## The fix
+
+The session must remove its listener when it is done, and the request handler must make sure it is done. A listener can only be removed with the same function object that was added, so the class stores it in a private field:
+
+```javascript title="ml_fixed.mjs"
+import { EventEmitter } from "node:events";
+import { writeHeapSnapshot } from "node:v8";
+
+const bus = new EventEmitter();
+
+class Session {
+  #onShutdown = () => this.close();
+  constructor(id) {
+    this.id = id;
+    this.buffer = new Array(1000).fill(id);
+    bus.on("shutdown", this.#onShutdown);
+  }
+  close() {
+    bus.off("shutdown", this.#onShutdown);
+  }
+}
+```
+
+The handler closes the session on every path:
+
+```javascript title="ml_fixed.mjs (continued)"
+function handleRequest(id) {
+  const session = new Session(id);
+  try {
+    return session.id;
+  } finally {
+    session.close();
+  }
+}
+
+for (let i = 0; i < 500; i++) handleRequest(i);
+console.log("listeners:", bus.listenerCount("shutdown"));
+console.log("wrote", writeHeapSnapshot("fixed.heapsnapshot"));
+```
+
+```text frame="terminal"
+$ node ml_fixed.mjs
+listeners: 0
+wrote fixed.heapsnapshot
+$ node ml_count.mjs fixed.heapsnapshot Session
+Session: 0
+```
+
+A `using` declaration with [`Symbol.dispose`](../../advanced/using-declarations/) is another way to make the cleanup automatic, and an `EventTarget` listener added with `{ signal }` is removed when that `AbortSignal` aborts.
+
+## Where was it allocated?
+
+A snapshot says what is alive and who holds it. It does not say which code created it. `--heap-prof` runs V8's **sampling heap profiler** and writes a `.heapprofile` when the process exits ([CLI docs](https://nodejs.org/api/cli.html#--heap-prof)). It samples allocations about every 512 KiB by default (`--heap-prof-interval`) and records the call stack of each, and the samples that are still alive at the end form a tree of allocation sites. DevTools opens the file in the Memory panel; it is also JSON, with a `head` node and `children`.
+
+This program keeps a history of every request, and also builds a short-lived string per request:
+
+```javascript title="ml_heapprof.mjs"
+const history = [];
+
+function recordRequest(i) {
+  history.push({ id: i, body: "x".repeat(200) + i });
+}
+
+function renderPage(i) {
+  return ["<li>", String(i), "</li>"].join("");
+}
+
+for (let i = 0; i < 200_000; i++) {
+  recordRequest(i);
+  renderPage(i);
+}
+console.log("requests:", history.length);
+```
+
+`ml_top.mjs` (in the examples folder) walks the tree and prints each allocation site holding more than 20% of the sampled bytes, keeping only frames from your own files plus the function that allocated:
+
+```text frame="terminal"
+$ node --heap-prof --heap-prof-dir=prof ml_heapprof.mjs
+requests: 200000
+$ node ml_top.mjs prof/*.heapprofile
+(top level)
+(top level) > repeat
+```
+
+`renderPage` is missing, because its strings were garbage. `recordRequest` is missing too, and that is a trap: the optimising compilers **inlined** it into the loop, so its allocations are reported in the caller. Turning inlining off for the investigation brings it back (Node 26.11.1, V8 14.6):
+
+```text frame="terminal"
+$ node --heap-prof --heap-prof-dir=prof --no-turbo-inlining --no-maglev-inlining ml_heapprof.mjs
+requests: 200000
+$ node ml_top.mjs prof/*.heapprofile
+(top level) > recordRequest
+(top level) > recordRequest > repeat
+```
+
+Use those flags only while investigating; they change performance. Node 22 has no Maglev by default, and there `--no-turbo-inlining` alone is enough.
+
+## When to go looking
+
+- **When memory grows without levelling off** under steady load. Some growth after start-up is normal: caches warm up, code is compiled, the heap expands to fit its workload.
+- **Before raising `--max-old-space-size`.** If a snapshot comparison shows one constructor growing with every request, a bigger heap only delays the crash.
+- **In tests, for code that must not leak.** A test can run an operation a thousand times, write a snapshot, and assert a count, as the scripts here do. Snapshots are slow, so keep such tests few.
+- **Not by guessing.** Leaks are rarely where you expect. Take two snapshots and compare before changing code.
+
+## Common pitfalls
+
+- **Anonymous listeners** that cannot be removed because nobody kept the function.
+- **Cleanup on the success path only.** Use `try`/`finally` or `using`.
+- **Silencing `MaxListenersExceededWarning`** instead of reading it.
+- **Taking a snapshot of a huge heap in production** without memory to spare.
+- **Trusting function names in heap profiles** without remembering inlining.
+
+## Exercises
+
+<Exercise title="A cache with a limit">
+
+A `render(id)` function memoizes `Result` objects in a `Map` without limit, and a server calls it with ever-new ids. Change it to keep at most 100 entries, evicting the least recently used one: a `Map` iterates in insertion order, so delete and re-insert a key on each hit, and delete the first key when it is over the limit. Call it 10,000 times with mostly new ids, write a snapshot, and count `Result` objects with `ml_count.mjs`. The expected output is `cache size: 100` and `Result: 100`.
+
+<Solution>
+
+```javascript title="ml_ex_cache.mjs"
+import { writeHeapSnapshot } from "node:v8";
+
+class Result {
+  constructor(id) {
+    this.id = id;
+    this.html = `<p>user ${id}</p>`.repeat(20);
+  }
+}
+
+const LIMIT = 100;
+const cache = new Map();
+
+function render(id) {
+  let result = cache.get(id);
+  if (result) {
+    cache.delete(id);
+  } else {
+    result = new Result(id);
+  }
+  cache.set(id, result);
+  if (cache.size > LIMIT) cache.delete(cache.keys().next().value);
+  return result;
+}
+
+for (let i = 0; i < 10_000; i++) render(i % 3 === 0 ? 1 : i);
+console.log("cache size:", cache.size);
+writeHeapSnapshot("cache.heapsnapshot");
+```
+
+```text frame="terminal"
+$ node ml_ex_cache.mjs
+cache size: 100
+$ node ml_count.mjs cache.heapsnapshot Result
+Result: 100
+```
+
+Id 1 is requested every third call, so it stays in the cache while the others pass through.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Timers that outlive their owner">
+
+Write a `Connection` class whose constructor starts `setInterval` and whose `close()` clears it. In a `serve()` function, open 300 connections in a `Set`, and close them all unless the program was started with the argument `leak`. Then write a snapshot and exit with `process.exit()`. The expected counts are `Connection: 300` with `leak` and `Connection: 0` without it.
+
+<Solution>
+
+```javascript title="ml_ex_timer.mjs"
+import { writeHeapSnapshot } from "node:v8";
+
+class Connection {
+  constructor(id) {
+    this.id = id;
+    this.log = [];
+    this.timer = setInterval(() => this.log.push(Date.now()), 1000);
+  }
+  close() {
+    clearInterval(this.timer);
+  }
+}
+
+function serve() {
+  const open = new Set();
+  for (let id = 0; id < 300; id++) open.add(new Connection(id));
+  if (process.argv[2] === "leak") return;
+  for (const connection of open) connection.close();
+}
+
+serve();
+writeHeapSnapshot("timer.heapsnapshot");
+console.log("served 300 connections");
+process.exit();
+```
+
+```text frame="terminal"
+$ node ml_ex_timer.mjs leak
+served 300 connections
+$ node ml_count.mjs timer.heapsnapshot Connection
+Connection: 300
+$ node ml_ex_timer.mjs
+served 300 connections
+$ node ml_count.mjs timer.heapsnapshot Connection
+Connection: 0
+```
+
+The `Set` is gone when `serve` returns, yet the leaky run keeps all 300: each active timer holds its callback, and the callback holds `this`. Without `process.exit()` the leaky version would also never end, because active intervals keep the event loop alive.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A side table">
+
+Code that draws `Widget` objects keeps a label for each in a table keyed by the widget. Write `showWidgets(info)`, which creates 1,000 widgets in a local array and stores `{ label }` for each in `info`. Call it with a `Map`, or a `WeakMap` when the argument is `weak`, then write a snapshot. The expected counts are `Widget: 1000` with the `Map` and `Widget: 0` with the `WeakMap`.
+
+<Solution>
+
+```javascript title="ml_ex_weakmap.mjs"
+import { writeHeapSnapshot } from "node:v8";
+
+class Widget {
+  constructor(id) {
+    this.id = id;
+  }
+}
+
+const strongInfo = new Map();
+const weakInfo = new WeakMap();
+
+function showWidgets(info) {
+  const widgets = Array.from({ length: 1000 }, (_, i) => new Widget(i));
+  for (const w of widgets) info.set(w, { label: "w" + w.id });
+}
+
+showWidgets(process.argv[2] === "weak" ? weakInfo : strongInfo);
+writeHeapSnapshot("widgets.heapsnapshot");
+console.log("widgets are off screen");
+```
+
+```text frame="terminal"
+$ node ml_ex_weakmap.mjs
+widgets are off screen
+$ node ml_count.mjs widgets.heapsnapshot Widget
+Widget: 1000
+$ node ml_ex_weakmap.mjs weak
+widgets are off screen
+$ node ml_count.mjs widgets.heapsnapshot Widget
+Widget: 0
+```
+
+A `WeakMap` does not keep its keys alive, and its values go with them. The work happens inside a function on purpose: objects the module's top-level code touched last can stay referenced by its still-running frame, and a snapshot then shows one stray object.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A leak is memory that stays reachable after it is no longer needed. Listeners, timers, unbounded caches and side tables are the usual causes.
+- Take heap snapshots with `v8.writeHeapSnapshot`, `--heapsnapshot-signal` or `--heapsnapshot-near-heap-limit`, and open them in the DevTools Memory panel. The Retainers pane shows why an object is alive; Comparison shows what grew.
+- A snapshot is JSON, so a script can count objects by constructor to confirm a leak and its fix.
+- `--heap-prof` shows where retained memory was allocated. Inlining can move allocations into the caller.
+- Fix leaks by removing the reference: unregister, clear, bound the cache, or key side tables with `WeakMap`.
+
+The last lesson of this module leaves the JavaScript heap: WebAssembly modules with memory of their own.

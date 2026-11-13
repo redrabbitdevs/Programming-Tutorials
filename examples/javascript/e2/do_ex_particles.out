@@ -1,0 +1,3 @@
+same checksum: true
+objects allocate over 20 MB: true
+typed arrays allocate under 1 MB: true

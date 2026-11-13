@@ -1,0 +1,311 @@
+---
+language: javascript
+level: expert
+module: Engine internals (V8)
+order: 5
+title: WebAssembly from JavaScript
+description: Load and call WebAssembly modules from Node and the browser, pass numbers and BigInts across the boundary, share linear memory through typed arrays, and judge when Wasm is worth its complexity.
+minVersion: "22"
+objectives:
+  - Instantiate a Wasm module with WebAssembly.instantiate and give it imports
+  - Predict how JavaScript values convert to Wasm i32 and i64 parameters
+  - Exchange arrays and strings through exported linear memory
+  - Import a .wasm file as an ES module in Node, and load one in the browser
+  - Decide when WebAssembly helps and when plain JavaScript is the better choice
+estimatedMinutes: 45
+fundamentals: []
+---
+
+WebAssembly (Wasm) is a compact binary format for code that V8 compiles to machine code, alongside JavaScript. It runs in browsers, Node, Deno and Bun. You rarely write it by hand: you compile it from C, C++, Rust, Go or AssemblyScript. From JavaScript, a Wasm module looks like an object of functions and a block of memory, and that boundary is what this lesson is about.
+
+All examples run on Node 22 and later. The `.wasm` files are in the examples folder, next to the `.wat` text they were compiled from with WABT's `wat2wasm`:
+
+```text frame="terminal"
+$ npx -p wabt@1.0.37 wat2wasm math.wat
+```
+
+## A module in text form
+
+The **WebAssembly text format** (WAT) is a readable form of the binary. You need to read it only roughly here. `math.wat` imports one function from JavaScript, exports a memory of one 64 KiB page, and exports `add`:
+
+```wasm title="math.wat"
+(module
+  (import "env" "report" (func $report (param i32)))
+  (memory (export "memory") 1)
+
+  (func (export "add") (param $a i32) (param $b i32) (result i32)
+    local.get $a
+    local.get $b
+    i32.add)
+```
+
+The rest of the module is `sum`, which adds `$count` 32-bit integers stored in memory from byte offset `$ptr`, reports the total to the imported function, and returns it:
+
+```wasm title="math.wat (continued)"
+  (func (export "sum") (param $ptr i32) (param $count i32) (result i32)
+    (local $total i32)
+    (block $done
+      (loop $next
+        (br_if $done (i32.eqz (local.get $count)))
+        (local.set $total
+          (i32.add (local.get $total) (i32.load (local.get $ptr))))
+        (local.set $ptr (i32.add (local.get $ptr) (i32.const 4)))
+        (local.set $count (i32.sub (local.get $count) (i32.const 1)))
+        (br $next)))
+    (call $report (local.get $total))
+    local.get $total)
+)
+```
+
+Wasm has only numeric types: `i32`, `i64`, `f32`, `f64`, plus references in newer modules. There are no strings, objects or arrays. That shapes everything that follows.
+
+## Instantiating
+
+A **module** is compiled code; an **instance** is a module linked to its imports, with its own memory. `WebAssembly.instantiate(bytes, imports)` does both, asynchronously ([MDN](https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/instantiate_static)). The `imports` object must provide everything the module imports, by module name and field name:
+
+```javascript title="wa_instantiate.mjs"
+import { readFile } from "node:fs/promises";
+
+const bytes = await readFile(new URL("./math.wasm", import.meta.url));
+const imports = {
+  env: { report: (total) => console.log("wasm reported", total) },
+};
+const { module, instance } = await WebAssembly.instantiate(bytes, imports);
+
+console.log("exports:", WebAssembly.Module.exports(module));
+console.log("imports:", WebAssembly.Module.imports(module));
+console.log("add(2, 3) =", instance.exports.add(2, 3));
+console.log("add(2.9, '3') =", instance.exports.add(2.9, "3"));
+console.log("add(2 ** 31, 0) =", instance.exports.add(2 ** 31, 0));
+```
+
+```text frame="terminal"
+$ node wa_instantiate.mjs
+exports: [
+  { name: 'memory', kind: 'memory' },
+  { name: 'add', kind: 'function' },
+  { name: 'sum', kind: 'function' }
+]
+imports: [ { module: 'env', name: 'report', kind: 'function' } ]
+add(2, 3) = 5
+add(2.9, '3') = 5
+add(2 ** 31, 0) = -2147483648
+```
+
+The last two lines are the boundary at work. An exported function converts each argument for its parameter type. For `i32`, `2.9` is truncated to 2 and `"3"` is converted to the number 3, without an error. `2 ** 31` does not fit in a signed 32-bit integer and wraps around to -2,147,483,648. Validate values in JavaScript before they cross.
+
+## Sharing memory
+
+A Wasm instance has **linear memory**: one resizable `ArrayBuffer`, exported here as `memory`. JavaScript reads and writes it through typed arrays, exactly as in [the typed arrays lesson](../../advanced/arraybuffer-typedarrays/), and Wasm reads it with `i32.load` and friends. To pass an array, write it into memory and pass its offset and length:
+
+```javascript title="wa_memory.mjs"
+import { readFile } from "node:fs/promises";
+
+const bytes = await readFile(new URL("./math.wasm", import.meta.url));
+const { instance } = await WebAssembly.instantiate(bytes, {
+  env: { report: () => {} },
+});
+const { memory, sum } = instance.exports;
+
+console.log("memory bytes:", memory.buffer.byteLength);
+const numbers = new Int32Array(memory.buffer, 0, 5);
+numbers.set([10, 20, 30, 40, 50]);
+console.log("sum of 5 numbers:", sum(0, 5));
+
+numbers[4] = 1000;
+console.log("after a JS write:", sum(0, 5));
+```
+
+```text frame="terminal"
+$ node wa_memory.mjs
+memory bytes: 65536
+sum of 5 numbers: 150
+after a JS write: 1100
+```
+
+Nothing was copied: the typed array and the Wasm code look at the same bytes. In real programs the Wasm side owns the layout. A C or Rust library usually exports an allocator, and you ask it for a block before writing into memory, instead of writing at offset 0. Toolchains such as Emscripten and wasm-bindgen generate that glue code for you, including the conversion of strings to and from UTF-8 bytes.
+
+## Wasm as an ES module
+
+In Node 22.19 and later, and 24.5 and later, a `.wasm` file can be imported like a JavaScript module, without a flag ([ESM docs](https://nodejs.org/api/esm.html#wasm-modules)). `fib.wasm` exports `fib(n)`, which returns an `i64`:
+
+```javascript title="wa_import.mjs"
+import { fib } from "./fib.wasm";
+
+console.log("fib(10) =", fib(10));
+console.log("fib(90) =", fib(90));
+console.log("type:", typeof fib(10));
+console.log("Number(fib(90)) exact?", Number.isSafeInteger(Number(fib(90))));
+```
+
+```text frame="terminal"
+$ node wa_import.mjs
+fib(10) = 55n
+fib(90) = 2880067194370816120n
+type: bigint
+Number(fib(90)) exact? false
+```
+
+Node also prints an `ExperimentalWarning` on standard error: importing Wasm instances is still in active development. An `i64` crosses the boundary as a `BigInt` in both directions, so the 64-bit result stays exact, which a `Number` could not. A module's own imports are resolved as module specifiers in this form, so `math.wasm`, which imports from `"env"`, would need a package or file named `env`; use `WebAssembly.instantiate` for modules like it.
+
+## In the browser
+
+The browser API is the same, plus `WebAssembly.instantiateStreaming`, which compiles while the file downloads. It requires the server to send the file with the `application/wasm` content type ([MDN](https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/instantiateStreaming_static)):
+
+```javascript title="wa_browser.mjs"
+// Served next to math.wasm. The server must send it as application/wasm.
+const imports = {
+  env: { report: (total) => console.log("wasm reported", total) },
+};
+const { instance } = await WebAssembly.instantiateStreaming(
+  fetch("./math.wasm"),
+  imports,
+);
+
+const out = document.querySelector("#out");
+out.textContent = `add(2, 3) = ${instance.exports.add(2, 3)}`;
+```
+
+Load it with `<script type="module" src="wa_browser.mjs">` from a page with an element `id="out"`, served over HTTP by any static file server; `file://` URLs do not work. A Content Security Policy can block Wasm compilation unless it allows `'wasm-unsafe-eval'` in `script-src`.
+
+## When WebAssembly helps
+
+- **Reusing a library written in another language**: an image codec, a database such as SQLite, a physics engine, a compression library. This is the most common and most convincing reason.
+- **Long numeric kernels** that do a lot of work per call on data already in linear memory. Wasm code gives predictable performance without warm-up or deoptimization.
+- **Not for code that is mostly calls across the boundary.** Each call converts arguments, and strings and objects must be encoded into memory and back. A function that does a little arithmetic on each of a million JavaScript objects is usually faster in JavaScript, which V8 optimises well, as the previous lessons showed.
+- **Not for working with the DOM**, which Wasm can reach only through imported JavaScript functions.
+- **Not as a first resort for speed.** Profile first. A better algorithm or less allocation in JavaScript is cheaper to build and maintain than a second language and a build step.
+
+## Common pitfalls
+
+- **Silent conversions.** Fractions are truncated and large numbers wrap for `i32` parameters; validate first.
+- **Mixing up `i64` and `Number`.** 64-bit integers arrive as `BigInt` and must be passed as `BigInt`.
+- **Holding typed arrays across a `memory.grow`.** Growing detaches the old buffer; create views again after any call that may grow memory.
+- **Assuming text works.** Wasm sees bytes. Encode with `TextEncoder` and decode with `TextDecoder`, and remember that non-ASCII characters take several bytes.
+- **Serving `.wasm` with the wrong content type**, which makes `instantiateStreaming` fail.
+
+## Exercises
+
+<Exercise title="Shout through memory">
+
+`text.wasm` exports `memory` and `upper(ptr, len)`, which turns ASCII `a` to `z` into capitals in place. Write `shout(text)`: encode the text into memory with `TextEncoder.encodeInto`, call `upper`, and decode the same bytes. Try `"hello, wasm!"` and `"crème brûlée"`. The expected output is `HELLO, WASM!` and `CRèME BRûLéE`.
+
+<Solution>
+
+```javascript title="wa_ex_upper.mjs"
+import { readFile } from "node:fs/promises";
+
+const bytes = await readFile(new URL("./text.wasm", import.meta.url));
+const { instance } = await WebAssembly.instantiate(bytes);
+const { memory, upper } = instance.exports;
+
+function shout(text) {
+  const view = new Uint8Array(memory.buffer);
+  const { written } = new TextEncoder().encodeInto(text, view);
+  upper(0, written);
+  return new TextDecoder().decode(view.subarray(0, written));
+}
+
+console.log(shout("hello, wasm!"));
+console.log(shout("crème brûlée"));
+```
+
+```text frame="terminal"
+$ node wa_ex_upper.mjs
+HELLO, WASM!
+CRèME BRûLéE
+```
+
+`è`, `û` and `é` are two bytes each in UTF-8, neither in the ASCII range, so `upper` leaves them alone. `encodeInto` returns the number of bytes written, which is the length to pass, not `text.length`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Growing memory">
+
+`text.wasm` also exports `grow(pages)`, which runs `memory.grow` and returns the old size in pages. Make a `Uint8Array` over `memory.buffer`, store 42 in its first byte, grow by one page, and print the old view's length, whether its buffer is detached, the size of a fresh view, and its first byte. The expected output is `1`, `0`, `true`, `131072` and `42`.
+
+<Solution>
+
+```javascript title="wa_ex_grow.mjs"
+import { readFile } from "node:fs/promises";
+
+const bytes = await readFile(new URL("./text.wasm", import.meta.url));
+const { instance } = await WebAssembly.instantiate(bytes);
+const { memory, grow } = instance.exports;
+
+const view = new Uint8Array(memory.buffer);
+view[0] = 42;
+console.log("pages before:", grow(1));
+console.log("old view length:", view.length);
+console.log("old buffer detached:", view.buffer.detached);
+
+const fresh = new Uint8Array(memory.buffer);
+console.log("new buffer bytes:", fresh.length);
+console.log("data kept:", fresh[0]);
+```
+
+```text frame="terminal"
+$ node wa_ex_grow.mjs
+pages before: 1
+old view length: 0
+old buffer detached: true
+new buffer bytes: 131072
+data kept: 42
+```
+
+The data survives; the old `ArrayBuffer` object does not. `memory.buffer` returns a new buffer after growth, so read it again after any call that might allocate.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="One module, two instances">
+
+<Since v="24" /> The source phase import, `import source mod from "./math.wasm"`, gives you the compiled `WebAssembly.Module` without instantiating it ([ESM docs](https://nodejs.org/api/esm.html#wasm-source-phase-imports)). Use it to create two instances with `new WebAssembly.Instance`, each with its own `report` function that prints a label. Fill the first instance's memory with 1, 2, 3 and the second's with 10, 20, 30, call `sum(0, 3)` on both, and check whether they share memory. The expected output is `is a Module: true`, `a reported 6`, `b reported 60` and `same memory: false`.
+
+<Solution>
+
+```javascript title="wa_ex_source.mjs"
+import source mathModule from "./math.wasm";
+
+function instantiate(label) {
+  const report = (total) => console.log(`${label} reported ${total}`);
+  return new WebAssembly.Instance(mathModule, { env: { report } });
+}
+
+const a = instantiate("a");
+const b = instantiate("b");
+new Int32Array(a.exports.memory.buffer).set([1, 2, 3]);
+new Int32Array(b.exports.memory.buffer).set([10, 20, 30]);
+
+console.log("is a Module:", mathModule instanceof WebAssembly.Module);
+a.exports.sum(0, 3);
+b.exports.sum(0, 3);
+console.log("same memory:", a.exports.memory === b.exports.memory);
+```
+
+```text frame="terminal"
+$ node wa_ex_source.mjs
+is a Module: true
+a reported 6
+b reported 60
+same memory: false
+```
+
+The module was compiled once, and each instance got its own memory and its own imports. On Node 22 the `import source` line is a syntax error.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- A Wasm module is compiled code; an instance links it to imports and gives it memory. `WebAssembly.instantiate(bytes, imports)` creates both.
+- Arguments are converted at the boundary: `i32` truncates and wraps, `i64` uses `BigInt`.
+- Linear memory is an `ArrayBuffer` that JavaScript reads through typed arrays. Strings and arrays cross as bytes plus an offset and a length, and `memory.grow` detaches old views.
+- Node imports `.wasm` files as ES modules (experimental, no flag since 22.19 and 24.5). <Since v="24" /> `import source` gives the compiled module. Browsers add `instantiateStreaming`, which needs `application/wasm`.
+- Use Wasm to reuse code from other languages or for heavy numeric kernels, not as a reflex for speed.
+
+That completes the engine module. The next module turns to performance: first, how to measure it without fooling yourself.

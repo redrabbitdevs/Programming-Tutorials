@@ -1,0 +1,4 @@
+{ min: 0, max: 999, mean: 499.5, over900: 49500 }
+same result: true
+one pass allocates under 1 MB: true
+chained allocates over 2 MB: true

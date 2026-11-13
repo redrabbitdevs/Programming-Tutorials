@@ -1,0 +1,3 @@
+entries: 5
+name: parseConfig type: function
+all durations >= 0: true

@@ -1,0 +1,5 @@
+chain: 493900000
+helpers: 493900000
+loop: 493900000
+chain allocates over 10x the loop: true
+helpers allocate more than chain: true

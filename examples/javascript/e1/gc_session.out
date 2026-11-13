@@ -1,0 +1,30 @@
+$ node --trace-gc gc_churn.mjs | grep -o -E 'Scavenge|Mark-Compact' | sort -u
+Scavenge
+$ node --trace-gc gc_grow.mjs | grep -o -E 'Scavenge|Mark-Compact' | sort -u
+Mark-Compact
+Scavenge
+$ node --max-old-space-size=32 gc_grow.mjs > oom.log 2>&1
+$ echo $?
+134
+$ grep -o 'JavaScript heap out of memory' oom.log
+JavaScript heap out of memory
+$ rm oom.log
+$ node --max-old-space-size=64 gc_spaces.mjs
+new_space present
+old_space present
+code_space present
+large_object_space present
+heap limit: 160 MB
+$ node --expose-gc gc_weakref.mjs
+alive before: true
+alive after gc: false
+finalized: big object
+$ node gc_ex_reuse.mjs
+fresh objects, minor GCs: more than 10
+reused objects, minor GCs: fewer than 3
+$ node gc_ex_limit.mjs
+limit grows by 192 MB
+rest of the limit: 96 MB in both
+$ node --expose-gc gc_ex_registry.mjs
+entries before: 2
+entries after gc: 1 [ 'chart' ]

@@ -1,0 +1,336 @@
+---
+language: javascript
+level: expert
+module: Engine internals (V8)
+order: 2
+title: Hidden classes and inline caches
+description: See how V8 gives objects hidden classes (maps), how property order and delete change them, how inline caches go from monomorphic to megamorphic, and when shape-stable code is worth writing.
+minVersion: "22"
+objectives:
+  - Explain what a hidden class (map) is and compare maps with %HaveSameMap
+  - Predict when two objects share a map, and what delete does to an object
+  - Read inline-cache states from a --log-ic log
+  - Connect a wrong-map deoptimization to unstable shapes
+  - Decide when shape stability is worth designing for
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/15-records-and-objects"]
+---
+
+A JavaScript object looks like a dictionary: any string key, added or removed at any time. Looking up a key in a real dictionary is slow compared with reading a field at a fixed offset, which is what a C struct does. V8 closes most of that gap with **hidden classes**, which its source calls **maps**, and with **inline caches** that remember them. [The previous lesson](../engine-pipeline/) showed that optimised code bets on feedback. For property access, the feedback is the map.
+
+All runs here are on Node 26.11.1 (V8 14.6) with the flags shown. The `%` functions need `--allow-natives-syntax`, as before.
+
+## Objects with the same shape share a map
+
+A map describes an object's layout: which properties it has, in what order, and where each value is stored. Objects with the same layout point to the same map, so the layout is stored once. `%HaveSameMap(a, b)` compares two objects' maps:
+
+```javascript title="sh_maps.mjs"
+const a = { x: 1, y: 2 };
+const b = { x: 10, y: 20 };
+const c = { y: 2, x: 1 };
+console.log("a and b:", %HaveSameMap(a, b));
+console.log("a and c:", %HaveSameMap(a, c));
+
+const d = { x: 1 };
+d.y = 2;
+console.log("a and d:", %HaveSameMap(a, d));
+
+const e = { x: 1, y: 2 };
+e.z = 3;
+console.log("a and e:", %HaveSameMap(a, e));
+```
+
+```text frame="terminal"
+$ node --allow-natives-syntax sh_maps.mjs
+a and b: true
+a and c: false
+a and d: false
+a and e: false
+```
+
+Values do not matter, keys and their order do: `a` and `c` hold the same data and have different maps. `d` is less obvious. It has the same keys in the same order as `a`, but it got them in two steps, while the literal got its layout in one, and the two routes ended on different maps. Adding `z` to `e` moves it to yet another map.
+
+## Transitions
+
+When you add a property, V8 moves the object to a new map and remembers the step as a **transition** from the old map. The next object that takes the same step follows the same transition and reaches the same map. So objects built the same way end up sharing:
+
+```javascript title="sh_build.mjs"
+function build(order) {
+  const point = {};
+  for (const key of order) point[key] = 0;
+  return point;
+}
+
+const p = build(["x", "y"]);
+const q = build(["x", "y"]);
+const r = build(["y", "x"]);
+console.log("same order:", %HaveSameMap(p, q));
+console.log("other order:", %HaveSameMap(p, r));
+```
+
+```text frame="terminal"
+$ node --allow-natives-syntax sh_build.mjs
+same order: true
+other order: false
+```
+
+Constructors and class fields are the natural way to build objects the same way every time, because the same lines run in the same order for every instance.
+
+## delete leaves the fast path
+
+`delete` does more than remove a key. On V8 14.6 it switches the object to **dictionary mode**: its properties move into a hash table, and `%HasFastProperties` turns false. Setting the property to `undefined` keeps the layout:
+
+```javascript title="sh_delete.mjs"
+class Point {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+}
+console.log("two Points:", %HaveSameMap(new Point(1, 2), new Point(3, 4)));
+
+const s = new Point(1, 2);
+delete s.y;
+console.log("after delete, fast:", %HasFastProperties(s));
+
+const t = new Point(1, 2);
+t.y = undefined;
+console.log("set to undefined, fast:", %HasFastProperties(t));
+```
+
+```text frame="terminal"
+$ node --allow-natives-syntax sh_delete.mjs
+two Points: true
+after delete, fast: false
+set to undefined, fast: true
+```
+
+The two are not equivalent: `"y" in t` is still true. If a set of keys really changes at run time, use a `Map`, which is built to be a dictionary ([Maps and sets in depth](../../intermediate/maps-sets-in-depth/)).
+
+## Inline caches
+
+Each property access in your code, such as `point.x` on one particular line, has its own **inline cache** (IC): a slot in the feedback vector that remembers the maps it has seen and where `x` lives in each. An IC moves through states:
+
+- **uninitialized** (`0`): never run;
+- **monomorphic** (`1`): one map seen, so one check and a direct read;
+- **polymorphic** (`P`): a few maps, up to 4 by default (`--max-valid-polymorphic-map-count`);
+- **megamorphic** (`N`): too many maps, so V8 falls back to a slower generic lookup.
+
+The letters are V8's own, from [`ic.cc`](https://github.com/v8/v8/blob/14.6.202/src/ic/ic.cc). This function reads `x` from five objects with five different maps:
+
+```javascript title="sh_ic.mjs"
+function getX(point) {
+  return point.x;
+}
+
+const shapes = [
+  { x: 1 },
+  { x: 1, y: 2 },
+  { x: 1, z: 3 },
+  { x: 1, w: 4 },
+  { x: 1, v: 5 },
+];
+for (const shape of shapes) getX(shape);
+```
+
+`--log-ic` writes every IC change to a log file. Feedback vectors are normally created only after a few calls, so `--no-lazy-feedback-allocation` makes even these five calls count. Fields 4 to 7 of each `LoadIC` line are the source line, column, old state and new state, and field 9 is the key ([`log.cc`](https://github.com/v8/v8/blob/14.6.202/src/logging/log.cc)); `grep '^2,16,'` keeps the access at line 2, column 16:
+
+```text frame="terminal"
+$ node --log-ic --logfile=ic.log --no-logfile-per-isolate --no-lazy-feedback-allocation sh_ic.mjs
+$ grep '^LoadIC' ic.log | cut -d, -f4-7,9 | grep '^2,16,'
+2,16,0,1,x
+2,16,1,P,x
+2,16,P,P,x
+2,16,P,P,x
+2,16,P,N,x
+$ rm ic.log
+```
+
+Monomorphic after the first object, polymorphic from the second, and megamorphic at the fifth. The log also holds thousands of lines from Node's own JavaScript, which is why the filter matters.
+
+## Shapes and optimised code
+
+The optimising tiers use IC feedback. A monomorphic site becomes a single map check followed by a load from a fixed offset. If a different map arrives, the check fails and the function deoptimizes:
+
+```javascript title="sh_deopt.mjs"
+function lengthOf(v) {
+  return Math.hypot(v.x, v.y);
+}
+
+%PrepareFunctionForOptimization(lengthOf);
+lengthOf({ x: 3, y: 4 });
+lengthOf({ x: 6, y: 8 });
+%OptimizeFunctionOnNextCall(lengthOf);
+lengthOf({ x: 5, y: 12 });
+console.log("optimized:", %ActiveTierIsTurbofan(lengthOf));
+
+lengthOf({ y: 4, x: 3 });
+console.log("after another shape:", %ActiveTierIsTurbofan(lengthOf));
+```
+
+```text frame="terminal"
+$ node --allow-natives-syntax --trace-deopt sh_deopt.mjs | grep -o -E '^[a-z].*|reason: [^)]*'
+optimized: true
+reason: wrong map
+after another shape: false
+```
+
+`{ y: 4, x: 3 }` is the same data in a different order, and to V8 a different map.
+
+## When shape stability is worth designing for
+
+- **In hot code that a profile has pointed at.** Rendering loops, parsers, simulations and per-request code in busy servers run the same property accesses millions of times. Mixing shapes there can cost real time, and `--trace-deopt` showing `wrong map` again and again is the sign.
+- **Not in ordinary code.** A polymorphic IC is still fast, and a megamorphic one is slower but not catastrophic. Configuration objects, one-off results and test fixtures do not need care.
+- **Prefer habits to tricks.** Initialise every field in the constructor, give optional fields a value such as `null` instead of adding them later, and use a `Map` for data whose keys change. These are good style anyway, which is why they rarely cost anything.
+- **Do not rely on this lesson's exact output.** Whether `delete` always leaves the fast path, and how many maps a polymorphic IC holds, are V8 implementation choices that can change in any release.
+
+## Common pitfalls
+
+- **Adding optional properties after construction.** Each combination of present and absent properties is another map.
+- **Using `delete` to "clean up" objects in a hot path.** Assign `undefined` or `null`, or use a `Map`.
+- **Building the same record in different key orders**, for example from JSON with keys in varying order, and then reading it in a hot function.
+- **Expecting to see a single program's ICs in `--log-ic` without filtering.** Node's own code produces most of the log.
+
+## Exercises
+
+<Exercise title="An optional field">
+
+A class `Before` sets `this.color` only when an option is given. Show with `%HaveSameMap` that an instance with a color and one without have different maps. Write `After`, which always sets `color` (to `null` when there is none), and show that its instances share a map. The expected output is `before the fix: false` and `after the fix: true`.
+
+<Solution>
+
+```javascript title="sh_ex_optional.mjs"
+class Before {
+  constructor(name, options = {}) {
+    this.name = name;
+    if (options.color) this.color = options.color;
+    this.size = options.size ?? 1;
+  }
+}
+
+class After {
+  constructor(name, options = {}) {
+    this.name = name;
+    this.color = options.color ?? null;
+    this.size = options.size ?? 1;
+  }
+}
+
+const b1 = new Before("a");
+const b2 = new Before("b", { color: "red" });
+console.log("before the fix:", %HaveSameMap(b1, b2));
+console.log("after the fix:", %HaveSameMap(new After("a"),
+  new After("b", { color: "red" })));
+```
+
+```text frame="terminal"
+$ node --allow-natives-syntax sh_ex_optional.mjs
+before the fix: false
+after the fix: true
+```
+
+`Before` objects without a color go `name` then `size`; with a color they go `name`, `color`, `size`. Those are different transition paths.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Elements kinds">
+
+Arrays have a second kind of shape for their indexed elements, called the **elements kind**. Write a `kind(array)` helper with `%HasHoleyElements`, `%HasSmiElements` and `%HasDoubleElements` that prints names such as `PACKED_SMI`. Start with `[1, 2, 3]`, push `4.5`, push `"five"`, pop both, then try `b[10] = 4` on a fresh `[1, 2, 3]` and `new Array(3)`. The expected kinds are `PACKED_SMI`, `PACKED_DOUBLE`, `PACKED_ELEMENTS`, `PACKED_ELEMENTS`, `HOLEY_SMI` and `HOLEY_SMI`.
+
+<Solution>
+
+```javascript title="sh_ex_elements.mjs"
+function kind(array) {
+  const packed = %HasHoleyElements(array) ? "HOLEY" : "PACKED";
+  if (%HasSmiElements(array)) return packed + "_SMI";
+  if (%HasDoubleElements(array)) return packed + "_DOUBLE";
+  return packed + "_ELEMENTS";
+}
+
+const a = [1, 2, 3];
+console.log("[1, 2, 3]:", kind(a));
+a.push(4.5);
+console.log("push 4.5:", kind(a));
+a.push("five");
+console.log('push "five":', kind(a));
+a.pop();
+a.pop();
+console.log("pop both:", kind(a));
+
+const b = [1, 2, 3];
+b[10] = 4;
+console.log("b[10] = 4:", kind(b));
+console.log("new Array(3):", kind(new Array(3)));
+```
+
+```text frame="terminal"
+$ node --allow-natives-syntax sh_ex_elements.mjs
+[1, 2, 3]: PACKED_SMI
+push 4.5: PACKED_DOUBLE
+push "five": PACKED_ELEMENTS
+pop both: PACKED_ELEMENTS
+b[10] = 4: HOLEY_SMI
+new Array(3): HOLEY_SMI
+```
+
+Kinds only become more general: removing the string does not bring the array back to doubles. Writing past the end leaves holes, and so does `new Array(n)`. Filling arrays in order, with one type of value, keeps them in the most specific kind.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Normalise at the edge">
+
+Five event sources produce objects with different extra fields, and a hot function reads `event.type`. Convert each raw event once into an object with the same three fields (`type`, `value`, `source`), then call the hot function on the converted objects. Use `--log-ic` to show that the hot function's access stays monomorphic. The expected log lines for the hot access are just `0,1`; the conversion's own `e.type` goes megamorphic.
+
+<Solution>
+
+```javascript title="sh_ex_mono.mjs"
+// Events arrive from five sources, each with its own extra field.
+const raw = [
+  { type: "click", x: 1 },
+  { type: "key", code: 2 },
+  { type: "scroll", dy: 3 },
+  { type: "touch", id: 4 },
+  { type: "resize", w: 5 },
+];
+
+// Normalise once at the edge: every event gets the same three fields.
+const events = raw.map((e) => ({ type: e.type, value: 0, source: e }));
+
+function typeOf(event) {
+  return event.type;
+}
+
+for (const event of events) typeOf(event);
+```
+
+```text frame="terminal"
+$ node --log-ic --logfile=ic.log --no-logfile-per-isolate --no-lazy-feedback-allocation sh_ex_mono.mjs
+$ grep '^LoadIC' ic.log | cut -d, -f4-7,9 | grep -E '^(11,42|14,16),'
+11,42,0,1,type
+11,42,1,P,type
+11,42,P,P,type
+11,42,P,P,type
+11,42,P,N,type
+14,16,0,1,type
+$ rm ic.log
+```
+
+The megamorphic access did not disappear; it moved to line 11, which runs once per event. Line 14 is the access that runs in the hot path, and it stays monomorphic.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- V8 gives each object a hidden class, called a map, that records its keys, their order and their storage. Objects built the same way share a map.
+- Adding a property follows a transition to a new map. Different orders give different maps, and `delete` can switch an object to slow dictionary mode.
+- Each property access has an inline cache that goes from uninitialized to monomorphic, polymorphic (up to 4 maps) and megamorphic.
+- Optimised code checks maps; a new map causes a `wrong map` deoptimization.
+- Initialise every field in the constructor and use `Map` for changing keys. Go further only where a profile shows a hot, unstable site.
+
+Next: what happens to all these objects when your code no longer needs them.
