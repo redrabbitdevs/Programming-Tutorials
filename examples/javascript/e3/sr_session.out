@@ -1,0 +1,65 @@
+$ node --permission --allow-fs-read=e3/sr_lnk --allow-net e3/sr_smoke.mjs e3/sr_lnk
+200 /
+200 /client.js
+200 /links.mjs
+$ node --permission --allow-fs-read=a4/lnk/server --allow-fs-read=a4/lnk/shared --allow-net e3/sr_smoke.mjs a4/lnk
+req 1: Error: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
+    at readFile (node:internal/fs/promises:2245:49)
+    at serveFile (a4/lnk/server/app.mjs:68:22)
+    at route (a4/lnk/server/app.mjs:75:12)
+    at handle (a4/lnk/server/app.mjs:88:11)
+    at a4/lnk/server/app.mjs:103:33
+    at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:66:14)
+    at Server.<anonymous> (a4/lnk/server/app.mjs:103:14)
+    at Server.emit (node:events:514:20)
+    at parserOnIncoming (node:_http_server:1464:12)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+req 1: 500 internal error
+node:_http_server:422
+    throw new ERR_HTTP_HEADERS_SENT('write');
+          ^
+
+Error [ERR_HTTP_HEADERS_SENT]: Cannot write headers after they are sent to the client
+    at ServerResponse.writeHead (node:_http_server:422:11)
+    at sendJson (a4/lnk/server/app.mjs:16:12)
+    at handle (a4/lnk/server/app.mjs:95:5) {
+  code: 'ERR_HTTP_HEADERS_SENT'
+}
+
+Node.js v26.11.1
+$ node --permission --allow-fs-read=e3/sr_lnk/server --allow-fs-read=e3/sr_lnk/shared --allow-net e3/sr_smoke.mjs e3/sr_lnk
+req 1: Error: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
+    at readFile (node:internal/fs/promises:2245:49)
+    at serveFile (e3/sr_lnk/server/app.mjs:79:22)
+    at route (e3/sr_lnk/server/app.mjs:88:12)
+    at handle (e3/sr_lnk/server/app.mjs:104:11)
+    at e3/sr_lnk/server/app.mjs:120:33
+    at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:66:14)
+    at Server.<anonymous> (e3/sr_lnk/server/app.mjs:120:14)
+    at Server.emit (node:events:514:20)
+    at parserOnIncoming (node:_http_server:1464:12)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+req 1: 500 internal error
+500 /
+req 2: Error: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
+    at readFile (node:internal/fs/promises:2245:49)
+    at serveFile (e3/sr_lnk/server/app.mjs:79:22)
+    at route (e3/sr_lnk/server/app.mjs:88:12)
+    at handle (e3/sr_lnk/server/app.mjs:104:11)
+    at e3/sr_lnk/server/app.mjs:120:33
+    at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:66:14)
+    at Server.<anonymous> (e3/sr_lnk/server/app.mjs:120:14)
+    at Server.emit (node:events:514:20)
+    at parserOnIncoming (node:_http_server:1464:12)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+req 2: 500 internal error
+500 /client.js
+200 /links.mjs
+$ node --permission-audit sr_ex_audit.mjs
+FileSystemRead public/client.js
+FileSystemRead public/index.html
+FileSystemRead server/app.mjs
+FileSystemRead server/store.mjs
+FileSystemRead shared/links.mjs
+Net (any)
+Net 127.0.0.1

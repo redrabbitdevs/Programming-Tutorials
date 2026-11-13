@@ -1,0 +1,39 @@
+{
+  "name": "shop",
+  "version": "2.3.0",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "shop",
+      "version": "2.3.0"
+    },
+    "node_modules/left-trim": {
+      "version": "1.4.0",
+      "resolved": "https://registry.npmjs.org/left-trim/-/left-trim-1.4.0.tgz",
+      "integrity": "sha512-AAAAexampleonlyAAAA=="
+    },
+    "node_modules/fast-image": {
+      "version": "3.0.1",
+      "resolved": "https://registry.npmjs.org/fast-image/-/fast-image-3.0.1.tgz",
+      "integrity": "sha512-BBBBexampleonlyBBBB==",
+      "hasInstallScript": true
+    },
+    "node_modules/colour-utils": {
+      "version": "0.9.0",
+      "resolved": "git+ssh://git@example.com/someone/colour-utils.git#4f2c1e9",
+      "integrity": "sha512-CCCCexampleonlyCCCC=="
+    },
+    "node_modules/tiny-date": {
+      "version": "2.1.0",
+      "resolved": "https://downloads.example.net/tiny-date-2.1.0.tgz"
+    },
+    "node_modules/fast-image/node_modules/prebuild": {
+      "version": "5.0.0",
+      "resolved": "https://registry.npmjs.org/prebuild/-/prebuild-5.0.0.tgz",
+      "integrity": "sha512-DDDDexampleonlyDDDD==",
+      "hasInstallScript": true,
+      "dev": true
+    }
+  }
+}

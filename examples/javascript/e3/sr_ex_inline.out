@@ -1,0 +1,7 @@
+legacy page: [
+  '1 x inline <script>',
+  '2 x event handler attribute',
+  '1 x style attribute (needs style-src)',
+  '1 x javascript: URL'
+]
+sr_lnk page: []

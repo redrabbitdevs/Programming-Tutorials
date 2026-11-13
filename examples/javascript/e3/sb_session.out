@@ -1,0 +1,8 @@
+$ node sb_proto.mjs
+target.isAdmin: true
+'__proto__' in {}: true
+$ node --disable-proto=delete sb_proto.mjs
+target.isAdmin: undefined
+'__proto__' in {}: false
+$ node --disable-proto=throw sb_proto.mjs
+ERR_PROTO_ACCESS

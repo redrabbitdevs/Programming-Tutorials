@@ -1,0 +1,12 @@
+{
+  "name": "lnk",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server/main.mjs",
+    "start:locked": "node --permission --allow-fs-read=server --allow-fs-read=shared --allow-fs-read=public --allow-net server/main.mjs",
+    "test": "node --test",
+    "check": "node --check server/app.mjs && node --check public/client.js"
+  }
+}

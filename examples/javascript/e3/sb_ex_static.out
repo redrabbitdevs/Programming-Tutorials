@@ -1,0 +1,7 @@
+/                            /srv/site/public/index.html
+/css/site.css                /srv/site/public/css/site.css
+/..%2f..%2fetc/passwd        null
+/%2e%2e/%2e%2e/etc/passwd    /srv/site/public/etc/passwd
+/report.pdf%00.html          null
+/%E0%A4%A                    null
+/..%2fpublic-backup/key.txt  null

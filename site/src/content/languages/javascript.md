@@ -10,7 +10,7 @@ versionLabel: "Node.js"
 latestEdition: "ECMAScript 2026"
 wikipedia: "https://en.wikipedia.org/wiki/JavaScript"
 summary: "The language of the web pages you use every day, also used for servers and command-line tools through Node.js."
-status: in-progress
+status: complete
 levels:
   beginner:
     blurb: Values, functions, arrays and objects, and modules in Node.js, with an optional first look at the browser.
@@ -19,5 +19,5 @@ levels:
   advanced:
     blurb: Metaprogramming, resources and concurrency, binary data, and building and shipping packages.
   expert:
-    blurb: V8 internals, performance, and security across the supply chain.
+    blurb: V8 internals, performance, and security across the supply chain, ending with a security review of the advanced project.
 ---

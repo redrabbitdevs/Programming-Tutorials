@@ -1,0 +1,3 @@
+own __proto__ key: true
+settings.theme: dark
+visitor.isAdmin: true

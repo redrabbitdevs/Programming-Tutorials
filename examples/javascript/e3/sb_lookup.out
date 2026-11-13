@@ -1,0 +1,6 @@
+apple: 120
+constructor: [Function: Object]
+toString is a price: true
+Map, constructor: unknown
+bare, constructor: unknown
+Object.hasOwn(prices, 'toString'): false

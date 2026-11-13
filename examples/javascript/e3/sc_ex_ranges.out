@@ -1,0 +1,5 @@
+dependencies.colour-utils: github:someone/colour-utils (git source)
+dependencies.tiny-date: https://downloads.example.net/tiny-date-2.1.0.tgz (tarball URL)
+dependencies.logger: * (any version)
+dependencies.http-client: latest (any version)
+devDependencies.test-kit: >=2 (no upper bound)

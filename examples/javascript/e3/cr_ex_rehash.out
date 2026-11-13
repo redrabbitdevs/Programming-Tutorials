@@ -1,0 +1,4 @@
+stored cost: 4096
+wrong password: false 4096
+right password: true 32768
+still works: true

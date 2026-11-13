@@ -1,0 +1,544 @@
+---
+language: javascript
+level: expert
+module: Security and the supply chain
+order: 15
+title: "Project: security review"
+description: "Review and harden the link shortener from the advanced project: write a threat model, probe the running app for findings, fix input validation, add a Content Security Policy and other headers, remove a crash that took the whole server down, run it under the permission model, test every fix, and close the JavaScript track."
+minVersion: "22"
+objectives:
+  - Write a short threat model for a web app, and turn it into checks
+  - Probe a running app for findings, and rank them by impact
+  - Fix input validation, response headers and error handling, each with a test
+  - Run the app with the smallest set of permission grants, found with audit mode
+  - Record accepted risks, and review the techniques of the expert level
+estimatedMinutes: 90
+fundamentals: ["fundamentals/beginner/28-clean-code-and-security-basics"]
+---
+
+This lesson has no new topics. It takes a real program through a security review with the tools of this module, the way you would review your own service before it goes on the internet: decide what could go wrong, look for it in the running program, fix what you find, prove each fix with a test, and write down what you chose not to fix.
+
+The program is **lnk**, the link shortener from the [advanced project](../../advanced/project-fullstack/): a `node:http` JSON API, a static page and a browser client that share one validation module, and no npm dependencies. The reviewed copy is `e3/sr_lnk/`; the original stays in `a4/lnk/`, so you can compare them at any point.
+
+## Step 1: the threat model
+
+A threat model answers four questions in a few lines. Write it before you read any code, so the code does not decide what you look for.
+
+| Question | For lnk |
+|---|---|
+| What are we protecting? | The stored links (their integrity), the server (its availability), and visitors who follow short links |
+| Who can reach it? | Anyone on the internet, with no account |
+| Where does input enter? | `POST /api/links` (a JSON body), `GET /<code>`, `GET /api/links/<code>`, and the three static files |
+| What is the worst outcome? | A short link that runs script or misleads a visitor; one request that stops the server for everyone |
+
+Each row becomes a check: input that becomes code or a header ([JavaScript security bugs](../js-security-bugs/)), headers that let the browser defend the page, behaviour under errors and slow clients, and what the process can reach ([the permission model](../node-permission-model/)). Dependencies would be a row too; lnk has none, which is the best supply chain there is.
+
+## Step 2: probe the running app
+
+Reading code finds some problems; running it finds others. `sr_probe.mjs` starts the **original** app on a free port and sends it the requests a curious attacker would:
+
+```javascript title="sr_probe.mjs"
+// Probes the advanced project's link shortener, unchanged, for the
+// findings in the security review. Run from this folder: node sr_probe.mjs
+import { createApp } from "../a4/lnk/server/app.mjs";
+import { createStore } from "../a4/lnk/server/store.mjs";
+
+const lines = [];
+const server = createApp(createStore(), { write: (l) => lines.push(l) });
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const base = `http://127.0.0.1:${server.address().port}`;
+
+const shorten = async (url) => {
+  const response = await fetch(`${base}/api/links`,
+    { method: "POST", body: JSON.stringify({ url }) });
+  return [response.status, await response.json()];
+};
+```
+
+It checks the headers, a URL with a line break in it, a URL with a user name, and a code that names an `Object.prototype` member:
+
+```javascript title="sr_probe.mjs (continued)"
+// 1. Which security headers does the page carry?
+const page = await fetch(base);
+for (const name of ["content-security-policy", "x-content-type-options"]) {
+  console.log(`${name}:`, page.headers.get(name));
+}
+
+// 2. A link with a line break in it is accepted...
+const withBreak = "https://example.com/a\r\nSet-Cookie: x=1";
+const [status, link] = await shorten(withBreak);
+console.log("line break accepted:", status);
+// ...and every visit to it then fails.
+const visit = await fetch(`${base}/${link.code}`, { redirect: "manual" });
+console.log("visit:", visit.status);
+console.log(lines.at(-2).split("\n")[0]);
+```
+
+The last part also prints the server's timeouts:
+
+```javascript title="sr_probe.mjs (continued)"
+// 3. A link that hides its real host behind a user name.
+const [hidden] = await shorten("https://bank.example@phish.example/login");
+console.log("user name in URL accepted:", hidden);
+
+// 4. Codes that name Object.prototype members.
+const proto = await fetch(`${base}/api/links/constructor`);
+console.log("constructor code:", proto.status);
+console.log("server timeouts:", server.requestTimeout, server.headersTimeout);
+server.close();
+```
+
+```text
+content-security-policy: null
+x-content-type-options: null
+line break accepted: 201
+visit: 500
+req 3: TypeError [ERR_INVALID_CHAR]: Invalid character in header content ["Location"]
+user name in URL accepted: 201
+constructor code: 404
+server timeouts: 300000 60000
+```
+
+The good news first. The store is a `Map`, so `constructor` is an unknown code, not a crash or a leak. Static files come from a fixed table, so no request path reaches the file system. Errors are logged with their stack but answered with a plain `internal error`. And `checkUrl` already refused `javascript:` links.
+
+The findings, worst first:
+
+1. **No security headers.** If an XSS bug is ever added, nothing in the browser stops it, and any site may frame the page.
+2. **A crash on a failed file read** (found in step 4): one request could stop the whole server.
+3. **Line breaks accepted.** `URL.canParse` ignores tabs and newlines, so the raw text is stored. Node refuses to put it in a `Location` header, which saved us from header injection, but every visit to that link is a 500.
+4. **User names accepted.** `https://bank.example@phish.example/login` goes to `phish.example`; the text before `@` is only there to fool a reader.
+5. **Five-minute request timeout,** the `node:http` default. Slow clients can hold connections open far longer than this API ever needs.
+
+## Step 3: validate what a link may contain
+
+The fix belongs in `shared/links.mjs`, so that the browser shows the same message before it sends anything. `diff -u` shows the change:
+
+```diff
+--- a4/lnk/shared/links.mjs
++++ e3/sr_lnk/shared/links.mjs
+@@ -11,10 +11,12 @@
+ }
+ 
+ export function checkUrl(text) {
++  if (/[\s\x00-\x1f\x7f]/.test(text)) return "no spaces or control characters";
+   if (!URL.canParse(text)) return "not a valid URL";
+-  const { protocol } = new URL(text);
++  const { protocol, username, password } = new URL(text);
+   if (protocol !== "http:" && protocol !== "https:") {
+     return "only http and https links";
+   }
++  if (username || password) return "no user names or passwords in links";
+   return null;
+ }
+```
+
+A real URL never needs a raw space or control character; encoded forms such as `%20` still pass. Rejecting at the door is better than cleaning up later, because the stored text is then exactly what was checked.
+
+## Step 4: headers, and an error path that crashed
+
+Every response now carries a Content Security Policy and two smaller headers:
+
+```diff
++// Sent with every response. The page has no inline code, so the policy
++// can forbid everything but this origin's own scripts.
++const SECURITY_HEADERS = {
++  "Content-Security-Policy": "default-src 'self'; object-src 'none'; " +
++    "base-uri 'none'; frame-ancestors 'none'; form-action 'self'; " +
++    "require-trusted-types-for 'script'",
++  "X-Content-Type-Options": "nosniff",
++  "Referrer-Policy": "no-referrer",
++};
+```
+
+`default-src 'self'` allows scripts, styles and requests only from the app's own origin, so an injected `<script>` or `onclick` does not run. `frame-ancestors 'none'` stops other sites from framing the page. `require-trusted-types-for 'script'` makes HTML sinks refuse strings, which costs nothing here because `client.js` only ever uses `textContent` and `replaceChildren`. `nosniff` stops browsers from guessing a response's type, and `no-referrer` stops the app's pages from sending their address to the sites they load or link to. `handle` sets them with `response.setHeader` before routing, so even error responses carry them.
+
+The policy could be this strict because the advanced project kept all code in files. A page with inline handlers needs them moved out first; the second exercise finds them.
+
+Running the original app under the permission model, with read access to its code but **not** to `public/`, turned up the second finding. The first request for a page fails to read the file and the whole server dies:
+
+```text frame="terminal"
+$ node --permission --allow-fs-read=a4/lnk/server --allow-fs-read=a4/lnk/shared --allow-net e3/sr_smoke.mjs a4/lnk
+req 1: Error: Access to this API has been restricted. Use --allow-fs-read to manage permissions.
+    at readFile (node:internal/fs/promises:2245:49)
+    at serveFile (a4/lnk/server/app.mjs:68:22)
+    at route (a4/lnk/server/app.mjs:75:12)
+    at handle (a4/lnk/server/app.mjs:88:11)
+    at a4/lnk/server/app.mjs:103:33
+    at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:66:14)
+    at Server.<anonymous> (a4/lnk/server/app.mjs:103:14)
+    at Server.emit (node:events:514:20)
+    at parserOnIncoming (node:_http_server:1464:12)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+req 1: 500 internal error
+node:_http_server:422
+    throw new ERR_HTTP_HEADERS_SENT('write');
+          ^
+
+Error [ERR_HTTP_HEADERS_SENT]: Cannot write headers after they are sent to the client
+    at ServerResponse.writeHead (node:_http_server:422:11)
+    at sendJson (a4/lnk/server/app.mjs:16:12)
+    at handle (a4/lnk/server/app.mjs:95:5) {
+  code: 'ERR_HTTP_HEADERS_SENT'
+}
+
+Node.js v26.11.1
+```
+
+`serveFile` wrote the `200` status line, then awaited the read. When the read failed, the error handler tried to write a `500` on a response that had already started, and that second error escaped. A missing file, a full disk or a permissions mistake would have done the same in production. The fix is to finish everything that can fail before writing anything:
+
+```diff
+ async function serveFile(response, [path, type]) {
++  // Read first: if reading fails, no headers have been sent yet, and the
++  // error handler can still answer 500.
++  const body = await readFile(join(root, path));
+   response.writeHead(200, { "Content-Type": type });
+-  response.end(await readFile(join(root, path)));
++  response.end(body);
+ }
+```
+
+The last change is one option: `createServer({ requestTimeout: 10_000 }, ...)` closes a request that has not finished within 10 seconds. A real deployment usually sits behind a proxy with its own limits; set them on both.
+
+## Step 5: run with least privilege
+
+`sr_smoke.mjs` starts the app in the folder it is given, requests the three files and stops, which makes it a quick check that a set of grants is enough:
+
+```javascript title="sr_smoke.mjs"
+// Start the link shortener in the folder given as the argument, request
+// each file it serves, and stop. Run it under --permission to check that a
+// set of grants is enough for the app.
+const dir = process.argv[2];
+const { createApp } = await import(`../${dir}/server/app.mjs`);
+const { createStore } = await import(`../${dir}/server/store.mjs`);
+
+const server = createApp(createStore(), { write: console.log });
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const base = `http://127.0.0.1:${server.address().port}`;
+
+for (const path of ["/", "/client.js", "/links.mjs"]) {
+  const response = await fetch(base + path);
+  console.log(response.status, path);
+}
+server.close();
+```
+
+The first exercise uses audit mode to list what the app touches: its three code folders for reading and the network, nothing else. With those grants everything works, and with `public/` missing the fixed app answers 500 for the two files it cannot read and keeps running:
+
+```text frame="terminal"
+$ node --permission --allow-fs-read=e3/sr_lnk --allow-net e3/sr_smoke.mjs e3/sr_lnk
+200 /
+200 /client.js
+200 /links.mjs
+```
+
+The `start:locked` script in `sr_lnk/package.json` runs the server this way. <Since v="25" /> It needs Node 25 or later: `--allow-net` does not exist on 22 and 24, where the model leaves the network open anyway. On those versions, start with `--permission` and the three `--allow-fs-read` grants, and drop `--allow-net`.
+
+## Step 6: a test for every fix
+
+`test/security.test.mjs` runs next to the original integration tests. It starts the app the same way:
+
+```javascript title="sr_lnk/test/security.test.mjs"
+import { after, before, describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { createApp } from "../server/app.mjs";
+import { createStore } from "../server/store.mjs";
+
+describe("security review fixes", () => {
+  let server;
+  let base;
+  before(async () => {
+    server = createApp(createStore(), { write: () => {} });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    base = `http://127.0.0.1:${server.address().port}`;
+  });
+  after(() => server.close());
+
+  const shorten = (url) => fetch(`${base}/api/links`, {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
+```
+
+The header test checks a page, an API error and a 404, because error paths are where headers are most often forgotten:
+
+```javascript title="sr_lnk/test/security.test.mjs (continued)"
+  it("sends a strict CSP and nosniff on every response", async () => {
+    for (const path of ["/", "/api/links/nope", "/nope"]) {
+      const { headers } = await fetch(base + path);
+      assert.match(headers.get("content-security-policy"),
+        /default-src 'self'.*require-trusted-types-for 'script'/);
+      assert.equal(headers.get("x-content-type-options"), "nosniff");
+    }
+  });
+```
+
+Each finding from step 2 that the validation fixed gets a case with the exact error message:
+
+```javascript title="sr_lnk/test/security.test.mjs (continued)"
+  it("rejects links with line breaks or credentials", async () => {
+    const cases = {
+      "https://example.com/a\r\nSet-Cookie: x=1":
+        "no spaces or control characters",
+      "https://bank.example@phish.example/login":
+        "no user names or passwords in links",
+    };
+    for (const [url, error] of Object.entries(cases)) {
+      const response = await shorten(url);
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error });
+    }
+  });
+```
+
+The last two tests pin down behaviour that was already right, so that a later change cannot quietly break it:
+
+```javascript title="sr_lnk/test/security.test.mjs (continued)"
+  it("treats prototype names as unknown codes", async () => {
+    for (const code of ["constructor", "__proto__", "toString"]) {
+      assert.equal((await fetch(`${base}/api/links/${code}`)).status, 404);
+      const visit = await fetch(`${base}/${code}`, { redirect: "manual" });
+      assert.equal(visit.status, 404);
+    }
+  });
+
+  it("limits how long a request may take", () => {
+    assert.equal(server.requestTimeout, 10_000);
+  });
+});
+```
+
+```text
+▶ security review fixes
+  ✔ sends a strict CSP and nosniff on every response
+  ✔ rejects links with line breaks or credentials
+  ✔ treats prototype names as unknown codes
+  ✔ limits how long a request may take
+✔ security review fixes
+ℹ tests 4
+ℹ suites 1
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+The five original tests pass unchanged, including the one that stores `https://example.com/café`: validation got stricter about control characters, not about Unicode.
+
+## Step 7: write down what you accept
+
+A review ends with the risks you decided to keep, and why, so the next reviewer does not rediscover them:
+
+- **Open redirects by design.** A shortener sends visitors wherever its users say. Mitigations, such as a preview page or a blocklist of known phishing hosts, are product decisions.
+- **No rate limit.** Anyone can create links without limit. The [advanced project's third exercise](../../advanced/project-fullstack/) adds one; a proxy in front can do the same.
+- **No authentication and an in-memory store.** Acceptable for this app; both change the threat model when they change.
+- **Dependencies.** None today. The first `npm install` adds the [supply chain](../supply-chain/) review to every future change: lockfile in review, `ignore-scripts`, `npm audit` in CI.
+
+## Common pitfalls
+
+- **Reviewing only the happy path.** Two of the five findings were in error handling.
+- **Fixing on one side only.** Validation in `shared/` keeps the browser and the server in agreement.
+- **Adding a CSP without testing error pages.** Set headers before routing, and test a 404.
+- **A fix without a test.** Each finding here has one, so it cannot come back unnoticed.
+- **Treating the review as finished.** Repeat it whenever the threat model changes: a login, a database, a dependency.
+
+## Exercises
+
+<Exercise title="Find the grants with audit mode">
+
+<Since v="24.20" /> Write `sr_ex_audit.mjs`, which subscribes to the permission audit channels, then imports the reviewed app, starts it, requests its three files and stops. Print each `permission` and `resource` once, sorted, with paths relative to `sr_lnk` and an empty resource shown as `(any)`. Run it with `--permission-audit`. The expected output is five `FileSystemRead` lines (`public/client.js`, `public/index.html`, `server/app.mjs`, `server/store.mjs`, `shared/links.mjs`) and two `Net` lines, `(any)` and `127.0.0.1`.
+
+<Solution>
+
+```javascript title="sr_ex_audit.mjs"
+// Run with: node --permission-audit sr_ex_audit.mjs
+// Lists every resource the hardened app touches while serving its pages.
+import { channel } from "node:diagnostics_channel";
+import { isAbsolute, relative } from "node:path";
+
+const touched = new Set();
+function record({ permission, resource }) {
+  const where = isAbsolute(resource) ? relative("sr_lnk", resource)
+    : resource || "(any)";
+  touched.add(`${permission} ${where}`);
+}
+for (const scope of ["fs", "net", "child", "worker"]) {
+  channel(`node:permission-model:${scope}`).subscribe(record);
+}
+
+// Import after subscribing, so the module loads are recorded too.
+const { createApp } = await import("./sr_lnk/server/app.mjs");
+const { createStore } = await import("./sr_lnk/server/store.mjs");
+const server = createApp(createStore(), { write: () => {} });
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const base = `http://127.0.0.1:${server.address().port}`;
+for (const path of ["/", "/client.js", "/links.mjs"]) await fetch(base + path);
+server.close();
+
+for (const entry of [...touched].sort()) console.log(entry);
+```
+
+```text frame="terminal"
+$ node --permission-audit sr_ex_audit.mjs
+FileSystemRead public/client.js
+FileSystemRead public/index.html
+FileSystemRead server/app.mjs
+FileSystemRead server/store.mjs
+FileSystemRead shared/links.mjs
+Net (any)
+Net 127.0.0.1
+```
+
+The `(any)` entry is `listen`, which has no host. These are exactly the grants in `start:locked`: three folders to read, and the network.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Find what a strict CSP would block">
+
+Before adding a policy without `'unsafe-inline'` to an older page, list what it would break. Write `inlineCode(html)`, which counts inline `<script>` elements (without `src`), event handler attributes such as `onclick=`, inline `<style>` elements, `style=` attributes and `javascript:` links. Run it on a sample legacy page and on `sr_lnk/public/index.html`. The expected output for the legacy page is one inline script, two event handlers, one style attribute and one `javascript:` URL; for `sr_lnk` it is an empty list.
+
+<Solution>
+
+```javascript title="sr_ex_inline.mjs"
+import { readFileSync } from "node:fs";
+
+// Things a policy of script-src 'self' without 'unsafe-inline' blocks.
+const RULES = [
+  [/<script(?![^>]*\bsrc=)[^>]*>/gi, "inline <script>"],
+  [/\son[a-z]+\s*=/gi, "event handler attribute"],
+  [/<style[\s>]/gi, "inline <style> (needs style-src)"],
+  [/\sstyle\s*=/gi, "style attribute (needs style-src)"],
+  [/href\s*=\s*["']?javascript:/gi, "javascript: URL"],
+];
+
+function inlineCode(html) {
+  const found = [];
+  for (const [pattern, label] of RULES) {
+    const count = html.match(pattern)?.length ?? 0;
+    if (count > 0) found.push(`${count} x ${label}`);
+  }
+  return found;
+}
+
+const legacy = `<button onclick="save()">Save</button>
+<script>window.config = { debug: true };</script>
+<p style="color: red">Error</p>
+<a href="javascript:void(0)" onmouseover="tip()">?</a>
+<script type="module" src="/app.js"></script>`;
+
+console.log("legacy page:", inlineCode(legacy));
+const page = readFileSync("sr_lnk/public/index.html", "utf8");
+console.log("sr_lnk page:", inlineCode(page));
+```
+
+```text
+legacy page: [
+  '1 x inline <script>',
+  '2 x event handler attribute',
+  '1 x style attribute (needs style-src)',
+  '1 x javascript: URL'
+]
+sr_lnk page: []
+```
+
+Regular expressions are good enough for a first inventory of your own pages, not for parsing hostile HTML. The browser's own report is the final word: send the policy as `Content-Security-Policy-Report-Only` first and watch the console.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Grade the response headers">
+
+Write `grade(appDir)`, which starts the app in `appDir`, requests `/`, `/client.js` and `/api/links/nope`, and returns the names of required headers that are missing or wrong on any of them: a CSP with `default-src 'self'` and `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, and a `Referrer-Policy` of `no-referrer` or `same-origin`. Grade both apps. The expected output is all three names for `../a4/lnk` and an empty list for `sr_lnk`.
+
+<Solution>
+
+```javascript title="sr_ex_headers.mjs"
+// Grade the security headers of the advanced project and the reviewed one.
+const REQUIRED = {
+  "content-security-policy": (v) => /default-src 'self'/.test(v) &&
+    /frame-ancestors 'none'/.test(v),
+  "x-content-type-options": (v) => v === "nosniff",
+  "referrer-policy": (v) => v === "no-referrer" || v === "same-origin",
+};
+
+async function grade(appDir) {
+  const { createApp } = await import(`./${appDir}/server/app.mjs`);
+  const { createStore } = await import(`./${appDir}/server/store.mjs`);
+  const server = createApp(createStore(), { write: () => {} });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const missing = new Set();
+  for (const path of ["/", "/client.js", "/api/links/nope"]) {
+    const { headers } = await fetch(base + path);
+    for (const [name, ok] of Object.entries(REQUIRED)) {
+      if (!ok(headers.get(name) ?? "")) missing.add(name);
+    }
+  }
+  server.close();
+  return [...missing];
+}
+
+console.log("../a4/lnk missing:", await grade("../a4/lnk"));
+console.log("sr_lnk missing:", await grade("sr_lnk"));
+```
+
+```text
+../a4/lnk missing: [
+  'content-security-policy',
+  'x-content-type-options',
+  'referrer-policy'
+]
+sr_lnk missing: []
+```
+
+Run a check like this in CI against the real server, so that a refactor of the routing cannot drop the headers from one kind of response.
+
+</Solution>
+
+</Exercise>
+
+## Self-check: the expert level
+
+Ten questions, one or two from each lesson of the level. Answer them before you open the answers.
+
+1. Why does a function usually get faster after it has run a few thousand times, and what makes it slow again?
+2. Two objects have the same properties, added in a different order. Why can that make a property read slower?
+3. A server's memory grows by the same amount after every request and never comes back. Is that the garbage collector's fault?
+4. You benchmark a function that returns nothing and get an impossibly fast result. What probably happened?
+5. A CPU profile shows one function with high total time but almost no self time. Where is the time going?
+6. Why does `await`ing an already-resolved promise in a loop not keep a server responsive?
+7. What do `NODE_COMPILE_CACHE` and a startup snapshot each save?
+8. Why can merging a parsed JSON object into another object give every object in the process a new property?
+9. Does `node --permission` protect you from a malicious package?
+10. Why use `timingSafeEqual` instead of `===` to compare an HMAC?
+
+<details>
+<summary>Answers</summary>
+
+1. V8 starts in the Ignition interpreter and collects type feedback; hot code is compiled by Sparkplug, Maglev and TurboFan on the basis of that feedback. When the assumptions fail, for example a new type appears, the optimised code is thrown away and it deoptimizes ([how V8 runs your code](../engine-pipeline/)).
+2. They get different hidden classes (maps), so a site that reads both becomes polymorphic and cannot use a single fast check ([hidden classes and inline caches](../shapes-inline-caches/)).
+3. No. The collector only frees unreachable objects; something, often a listener, a timer or an unbounded cache, keeps them reachable. Compare two heap snapshots to see what grew ([finding memory leaks](../memory-leaks/), [garbage collection](../garbage-collection/)).
+4. The JIT removed the work because its result was never used. Use the result, and use realistic inputs ([measuring performance](../measuring-performance/)).
+5. In the functions it calls. Self time is time spent in the function's own code ([profiling Node.js](../profiling-node/)).
+6. Continuing after a resolved promise is a microtask, and microtasks all run before the event loop moves on to timers and I/O. Yield with `setImmediate` or `setTimeout` instead ([keeping the event loop responsive](../event-loop-performance/)).
+7. The compile cache saves compiling the code again; a snapshot saves running the initialisation again, by starting from a saved heap ([startup](../startup-snapshots-cache/)).
+8. A `"__proto__"` key from `JSON.parse` is an own property, and assigning through it in the merge writes into `Object.prototype` ([JavaScript security bugs](../js-security-bugs/#prototype-pollution)).
+9. No. It contains mistakes in trusted code; malicious code can bypass it, and it does not cover install scripts ([the permission model](../node-permission-model/), [the supply chain](../supply-chain/)).
+10. `===` stops at the first differing character, so its timing reveals how much of a guess was right; `timingSafeEqual` takes the same time whatever the content ([cryptography and secrets](../crypto-and-secrets/)).
+
+</details>
+
+## What you can now do
+
+This is the end of the expert level and of the JavaScript track. You can read what V8 does with your code and write code that suits it; measure, profile and fix slow, blocking or memory-hungry programs; start them fast; and ship them with least privilege, a reviewed dependency tree, correct cryptography and a security review behind them. Together with the levels before, that is the whole language and runtime, from your first `console.log` to production.
+
+## Where next
+
+- **Another language.** A second language shows which of your habits are JavaScript and which are programming. The [Python track](../../../python/beginner/install-python/) is complete on this site, and the [language catalogue](../../../../languages/) lists the rest. TypeScript, which adds static types to everything you know now, is planned as a track of its own.
+- **The shared fundamentals.** The [fundamentals track](../../../../fundamentals/) covers the ideas common to every language, from algorithms to testing, if you skipped any of it.
+- **How JavaScript changes.** Follow the [TC39 proposals](https://github.com/tc39/proposals) repository: each stage of a proposal, from idea to standard, is a pull request you can read. Try a Stage 3 feature behind a flag before it ships.
+- **Node.js itself.** The [contributing guide](https://github.com/nodejs/node/blob/main/CONTRIBUTING.md) explains how to build Node from source and make a first change; fixing a documentation page, perhaps one that this track linked to, is a good start.
+- **Security as a practice.** The [OWASP Cheat Sheet Series](https://cheatsheetseries.owasp.org/) has a page for most topics in this module, and the [Node.js security policy](https://github.com/nodejs/node/blob/main/SECURITY.md) explains how to report a vulnerability. Review one of your own projects the way this lesson reviewed lnk.

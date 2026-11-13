@@ -1,0 +1,321 @@
+---
+language: javascript
+level: expert
+module: Security and the supply chain
+order: 12
+title: Sandboxing Node with the permission model
+description: Run a Node program with least privilege - turn on the permission model, grant only the files, network and child processes it needs, read the errors it throws, check and drop permissions at run time, discover what a program needs with audit mode, and know what the model does not protect against.
+minVersion: "22"
+objectives:
+  - Turn on the permission model and grant file system access by path
+  - Read ERR_ACCESS_DENIED errors and check permissions with process.permission.has
+  - Know which Node versions restrict the network, and grant it with --allow-net
+  - Discover a program's needs with --permission-audit, and drop permissions after startup
+  - Explain why the model is a seat belt for trusted code, not a sandbox for hostile code
+estimatedMinutes: 45
+fundamentals: []
+---
+
+The last lesson was about bugs that let input become instructions. However careful you are, one will slip through one day, in your code or in one of the hundreds of packages it loads. **Least privilege** limits what happens then: a report generator that can only read its input folder and write its output folder cannot leak your SSH keys, whatever a bug or a compromised dependency tries.
+
+Node has this built in. With `--permission`, every file access, network connection, child process and worker is checked against what you granted on the command line. The model was added in Node 20 and has been stable since 23.5.0 and 22.13.0 ([permissions docs](https://nodejs.org/api/permissions.html)). All transcripts here are from Node 26.11.1; differences on 22 and 24 are noted.
+
+## Everything is denied
+
+This probe tries five things and reports which ones the model allowed. A denied operation throws an error whose `code` is `ERR_ACCESS_DENIED` and whose `permission` names the scope:
+
+```javascript title="pm_probe.mjs"
+import { readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { execFileSync } from "node:child_process";
+
+// Run `action`, and report whether the permission model allowed it.
+function attempt(label, action) {
+  try {
+    action();
+    console.log(`allowed  ${label}`);
+  } catch (error) {
+    if (error.code !== "ERR_ACCESS_DENIED") throw error;
+    console.log(`denied   ${label} (${error.permission})`);
+  }
+}
+```
+
+The five attempts read two files, write one, open a port and run a program:
+
+```javascript title="pm_probe.mjs (continued)"
+console.log("permission model:", process.permission ? "on" : "off");
+attempt("read pm_data/sales.csv", () => readFileSync("pm_data/sales.csv"));
+attempt("read session.mjs", () => readFileSync("session.mjs"));
+attempt("write pm_out/probe.txt", () => writeFileSync("pm_out/probe.txt", ""));
+attempt("listen on a port", () => createServer().listen(0).close());
+attempt("run a program", () => execFileSync("true"));
+```
+
+Without the flag, `process.permission` is `undefined` and everything is allowed. With it, everything is denied:
+
+```text frame="terminal"
+$ node pm_probe.mjs
+permission model: off
+allowed  read pm_data/sales.csv
+allowed  read session.mjs
+allowed  write pm_out/probe.txt
+allowed  listen on a port
+allowed  run a program
+$ node --permission pm_probe.mjs
+permission model: on
+denied   read pm_data/sales.csv (FileSystemRead)
+denied   read session.mjs (FileSystemRead)
+denied   write pm_out/probe.txt (FileSystemWrite)
+denied   listen on a port (Net)
+denied   run a program (ChildProcess)
+```
+
+Node could still read `pm_probe.mjs` itself: since 24.2.0 and 22.17.0 the entry point is readable without a grant. Modules it imports are not, so a real program needs read access to its own source folders.
+
+## Granting access
+
+Each kind of access has a flag. File system grants take a path, relative to the current directory or absolute, and may be repeated:
+
+| Flag | Allows |
+|---|---|
+| `--allow-fs-read=path` | reading files and directories under `path` |
+| `--allow-fs-write=path` | writing, creating and deleting under `path` |
+| `--allow-net` | network access <Since v="25" /> |
+| `--allow-child-process` | starting other programs |
+| `--allow-worker` | worker threads |
+| `--allow-addons`, `--allow-wasi` | native addons, WASI |
+
+`*` grants everything for that flag, and a path that ends in `*` matches anything that starts with it. Grant the input folder for reading and the output folder for writing:
+
+```text frame="terminal"
+$ node --permission --allow-fs-read=pm_data --allow-fs-write=pm_out pm_probe.mjs
+permission model: on
+allowed  read pm_data/sales.csv
+denied   read session.mjs (FileSystemRead)
+allowed  write pm_out/probe.txt
+denied   listen on a port (Net)
+denied   run a program (ChildProcess)
+$ node --permission --allow-fs-read=pm_data --allow-fs-write=pm_out --allow-net pm_probe.mjs
+permission model: on
+allowed  read pm_data/sales.csv
+denied   read session.mjs (FileSystemRead)
+allowed  write pm_out/probe.txt
+allowed  listen on a port
+denied   run a program (ChildProcess)
+```
+
+<Since v="25" /> The network is part of the model since Node 25.0.0, where `--allow-net` was added. **On Node 22 and 24 the permission model does not restrict the network at all**: the same probe on 22.23.4 and 24.21.0 prints `allowed  listen on a port` without any grant, and `--allow-net` is rejected there as a bad option. If a script must not talk to the network on those versions, the permission model cannot enforce it; use the operating system (a container, a firewall rule) instead.
+
+## What a denial looks like
+
+A real program, not a probe, does not catch the error. This one sums a CSV file by region and writes a summary:
+
+```javascript title="pm_report.mjs"
+import { readFileSync, writeFileSync } from "node:fs";
+
+// Sum the amount column of a CSV file by region.
+const text = readFileSync("pm_data/sales.csv", "utf8");
+const [, ...rows] = text.trim().split("\n");
+const totals = new Map();
+for (const row of rows) {
+  const [region, amount] = row.split(",");
+  totals.set(region, (totals.get(region) ?? 0) + Number(amount));
+}
+
+const lines = [...totals].map(([region, total]) => `${region}: ${total}`);
+writeFileSync("pm_out/summary.txt", lines.join("\n") + "\n");
+console.log("wrote pm_out/summary.txt");
+console.log("may read session.mjs:",
+  process.permission?.has("fs.read", "session.mjs") ?? "no model");
+```
+
+`process.permission.has(scope, reference)` answers without trying. The scopes are `"fs.read"`, `"fs.write"`, `"net"`, `"child"` and `"worker"`; for the file scopes the reference is a path. With the right grants the report runs, and without write access it stops at the write:
+
+```text frame="terminal"
+$ node --permission --allow-fs-read=pm_data --allow-fs-write=pm_out pm_report.mjs
+wrote pm_out/summary.txt
+may read session.mjs: false
+$ cat pm_out/summary.txt
+north: 150
+south: 95
+$ node --permission --allow-fs-read=pm_data pm_report.mjs
+node:fs:3028
+    return binding.writeFileUtf8(
+                   ^
+
+Error: Access to this API has been restricted. Use --allow-fs-write to manage permissions.
+    at writeFileSync (node:fs:3028:20)
+    at pm_report.mjs:13:1
+    at ModuleJob.run (node:internal/modules/esm/module_job:569:25)
+    at async node:internal/modules/esm/loader:650:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:105:5) {
+  code: 'ERR_ACCESS_DENIED',
+  permission: 'FileSystemWrite',
+  resource: 'pm_out/summary.txt'
+}
+```
+
+The error names the flag to use and, in `resource`, the absolute path that was refused (shortened here). That makes the model easy to adopt: run, read the error, add the narrowest grant, repeat.
+
+## Finding out what a program needs
+
+<Since v="24.20" /> Repeating that loop for a large program is slow. `--permission-audit` performs every check but denies nothing; instead it publishes each would-be denial on a [diagnostics channel](https://nodejs.org/api/diagnostics_channel.html), one per scope, named `node:permission-model:fs`, `node:permission-model:net`, `node:permission-model:child` and so on. Each message has `permission` and `resource` properties. The second exercise turns that into a list of the grants a script needs. Audit mode was added in 24.20.0 and 25.8.0; Node 22 does not have it.
+
+<Since v="24.20" /> The opposite direction is also possible: a program can give up a permission once it no longer needs it. `process.permission.drop(scope, reference)` is irreversible. A server can read its configuration at startup and then drop read access to that folder, so that a later bug cannot read it again. Only an exact grant can be dropped: a grant of a folder cannot be narrowed to one file inside it. Dropping does not close files, sockets or processes that are already open.
+
+## What the model does not do
+
+The permission model is a seat belt: it stops **trusted** code from accidentally using resources it was not granted. It does not protect against malicious code, which can bypass it, because Node's [security policy](https://github.com/nodejs/node/blob/main/SECURITY.md) trusts any code it is asked to run ([permissions](https://nodejs.org/api/permissions.html)). Treat it as a way to contain bugs and to make a program's needs explicit, not as a jail for code you suspect.
+
+Know its documented limits:
+
+- **Symbolic links are followed**, even to locations outside the granted paths. Make sure no granted folder contains a link that points elsewhere.
+- **Open file descriptors bypass it.** A descriptor opened before a grant was dropped, or inherited, still works.
+- **Child processes and workers can widen it.** `--allow-child-process` prints a `SecurityWarning` for a reason: a child is another program. Since 24.4.0 and 22.18.0, a child Node process receives the parent's permission flags through `NODE_OPTIONS`, but the program it runs could be anything. A worker started without `execArgv` gets the parent's flags; one started with its own `execArgv` does not.
+- **It covers this process only.** It does nothing about `npm install` scripts, which run before your program ever starts. That is the next lesson's subject.
+
+For untrusted code use an operating-system boundary: a container, a separate user account, or a virtual machine.
+
+## Common pitfalls
+
+- **Forgetting the program's own modules.** Only the entry point is readable by default; grant its source folders too.
+- **Assuming the network is covered on Node 22 or 24.** It is not, and `--allow-net` does not exist there.
+- **Granting `*` to make an error go away.** Read the `resource` in the error and grant that folder instead.
+- **Granting a folder that does not exist yet.** On Node 26.11.1, `--allow-fs-write=pm_notes` given before `pm_notes` existed did not cover files later created inside it; `pm_notes/*` did. Create output folders before the program starts, or grant with `*`.
+- **Treating the model as a sandbox.** It contains accidents in code you trust, nothing more.
+
+## Exercises
+
+<Exercise title="One folder, no network">
+
+`pm_ex_lock.mjs` appends its argument to `pm_notes/today.txt`, prints the file, reports whether it may write `x.txt`, and then makes a "telemetry" connection to port 9 on `127.0.0.1`, where nothing listens. Run it without the model, delete `pm_notes`, and run it again so that it can read and write only `pm_notes` and nothing else. Expected on Node 26: the first run prints `buy milk`, `may write x.txt: undefined` and `telemetry: ECONNREFUSED`; the locked run prints `call Ada`, `may write x.txt: false` and `telemetry: ERR_ACCESS_DENIED`.
+
+<Solution>
+
+```javascript title="pm_ex_lock.mjs"
+// A note-taking script that should only ever touch pm_notes/.
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { createConnection } from "node:net";
+import { once } from "node:events";
+
+mkdirSync("pm_notes", { recursive: true });
+appendFileSync("pm_notes/today.txt", `${process.argv[2] ?? "note"}\n`);
+console.log(readFileSync("pm_notes/today.txt", "utf8").trim());
+console.log("may write x.txt:", process.permission?.has("fs.write", "x.txt"));
+
+// A "telemetry" call that a dependency might make behind your back.
+// Port 9 on this machine has no listener, so an allowed call is refused.
+const socket = createConnection(9, "127.0.0.1");
+const [error] = await once(socket, "error");
+console.log("telemetry:", error.code);
+```
+
+```text frame="terminal"
+$ node pm_ex_lock.mjs 'buy milk'
+buy milk
+may write x.txt: undefined
+telemetry: ECONNREFUSED
+$ rm -r pm_notes
+$ node --permission --allow-fs-read='pm_notes/*' --allow-fs-write='pm_notes/*' pm_ex_lock.mjs 'call Ada'
+call Ada
+may write x.txt: false
+telemetry: ERR_ACCESS_DENIED
+```
+
+The quotes stop the shell from expanding `*` itself. A denied connection is reported through the socket's `error` event, not thrown, because connecting is asynchronous. On Node 22 and 24 the locked run reports `ECONNREFUSED`: the connection is attempted.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Audit what a script needs">
+
+<Since v="24.20" /> Write `pm_ex_audit.mjs`, which subscribes to the `fs`, `net`, `child` and `worker` audit channels and collects, per `permission`, the set of resources. Then it reads `pm_data/sales.csv`, writes and deletes `pm_out/audit.txt`, and runs `true`. Run it with `--permission-audit`. The expected output is `FileSystemRead [ 'pm_data/sales.csv', 'pm_out/audit.txt' ]`, `FileSystemWrite [ 'pm_out/audit.txt' ]` and `ChildProcess [ 'true' ]` (with absolute paths, shortened here).
+
+<Solution>
+
+```javascript title="pm_ex_audit.mjs"
+// Run with --permission-audit to list what a script would need.
+import { channel } from "node:diagnostics_channel";
+import { readFileSync, writeFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+
+const needed = new Map();
+function record({ permission, resource }) {
+  needed.set(permission, (needed.get(permission) ?? new Set()).add(resource));
+}
+for (const scope of ["fs", "net", "child", "worker"]) {
+  channel(`node:permission-model:${scope}`).subscribe(record);
+}
+
+// The work being audited.
+readFileSync("pm_data/sales.csv");
+writeFileSync("pm_out/audit.txt", "checked\n");
+execFileSync("true");
+rmSync("pm_out/audit.txt");
+
+for (const [permission, resources] of needed) {
+  console.log(permission, [...resources]);
+}
+```
+
+```text frame="terminal"
+$ node --permission-audit pm_ex_audit.mjs
+FileSystemRead [ 'pm_data/sales.csv', 'pm_out/audit.txt' ]
+FileSystemWrite [ 'pm_out/audit.txt' ]
+ChildProcess [ 'true' ]
+```
+
+`rmSync` needed read access to the file it deleted as well as write access, which is easy to miss by hand. The grants for this script are therefore `--allow-fs-read=pm_data --allow-fs-read=pm_out --allow-fs-write=pm_out --allow-child-process`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Drop access after startup">
+
+<Since v="24.20" /> Write `pm_ex_drop.mjs`, which reads `pm_data/sales.csv` once and prints the number of data rows, then drops read access to `pm_data`, prints whether it still has it, and tries to read the file again. Run it with read access to `pm_data` only. The expected output is `rows at startup: 3`, `may read pm_data now: false` and `second read: ERR_ACCESS_DENIED`.
+
+<Solution>
+
+```javascript title="pm_ex_drop.mjs"
+import { readFileSync } from "node:fs";
+
+// Read configuration while the grant is still there...
+const config = readFileSync("pm_data/sales.csv", "utf8");
+console.log("rows at startup:", config.trim().split("\n").length - 1);
+
+// ...then give it up for the rest of the process.
+process.permission.drop("fs.read", "pm_data");
+console.log("may read pm_data now:", process.permission.has("fs.read", "pm_data"));
+
+try {
+  readFileSync("pm_data/sales.csv");
+} catch (error) {
+  console.log("second read:", error.code);
+}
+```
+
+```text frame="terminal"
+$ node --permission --allow-fs-read=pm_data pm_ex_drop.mjs
+rows at startup: 3
+may read pm_data now: false
+second read: ERR_ACCESS_DENIED
+```
+
+The reference passed to `drop` must match the grant: `"pm_data"`, not `"pm_data/sales.csv"`. On Node 22 `drop` does not exist and the call throws a `TypeError`.
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `--permission` denies file system, child process, worker, addon and WASI access unless granted; <Since v="25" /> from Node 25 it also denies the network unless `--allow-net` is given.
+- Grant paths with `--allow-fs-read` and `--allow-fs-write`; the entry point is readable by default, its imports are not.
+- Denials throw `ERR_ACCESS_DENIED` with `permission` and `resource`; `process.permission.has` checks without trying.
+- <Since v="24.20" /> `--permission-audit` lists what a program would need, and `process.permission.drop` gives a permission up for good.
+- The model contains mistakes in trusted code. It is not a defence against malicious code, and it does not cover install scripts.
+
+Next: the code you did not write. The npm supply chain is where most JavaScript projects get their dependencies, and where an attacker would most like to get in.

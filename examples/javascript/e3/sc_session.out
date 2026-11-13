@@ -1,0 +1,23 @@
+$ npm pack --silent ../sc_greet
+greet-1.0.0.tgz
+$ npm ci --silent
+$ cat postinstall-ran.txt
+greet postinstall ran
+$ node app.mjs
+Hello, supply chain!
+$ npm install-scripts ls
+1 package has install scripts not yet covered by allowScripts:
+  greet@1.0.0 (postinstall: node postinstall.js)
+
+Run `npm install-scripts approve <pkg>` to allow, or `npm install-scripts deny <pkg>` to deny.
+$ rm -r node_modules postinstall-ran.txt
+$ npm ci --ignore-scripts --silent
+$ ls
+app.mjs
+greet-1.0.0.tgz
+node_modules
+package-lock.json
+package.json
+$ node app.mjs
+Hello, supply chain!
+$ rm -r node_modules greet-1.0.0.tgz
