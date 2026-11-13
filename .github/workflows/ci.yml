@@ -30,11 +30,13 @@ jobs:
           cache-dependency-path: site/package-lock.json
       # setup-python's manifest can lag new releases; uv ships CPython builds the day they're out.
       - uses: astral-sh/setup-uv@v6
-      - name: Install Python 3.15
-        run: uv python install 3.15
+      # Pin the exact patch release: version-printing examples record 3.15.0, and an
+      # unpinned '3.15' silently moved to 3.15.2 and broke them.
+      - name: Install Python 3.15.0
+        run: uv python install 3.15.0
       - name: Validate
         run: |
-          export PYTHON="$(uv python find 3.15)"
+          export PYTHON="$(uv python find 3.15.0)"
           "$PYTHON" --version
           "$NODE" --version
           scripts/validate.sh
