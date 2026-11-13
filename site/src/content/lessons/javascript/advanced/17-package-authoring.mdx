@@ -1,0 +1,395 @@
+---
+language: javascript
+level: advanced
+module: Building and shipping
+order: 17
+title: Writing a package
+description: Lay out and publish a modern npm package - exports and conditional exports, ESM-only versus dual packages now that require(esm) works, files, engines, a dry run of npm pack and npm publish - and see the single executable alternative for shipping a command-line tool.
+minVersion: "22"
+objectives:
+  - Write the package.json fields a published library needs and explain each one
+  - Control the public entry points with exports and order conditional exports correctly
+  - Decide between an ESM-only and a dual package, knowing what require(esm) changed
+  - Check what a package will contain with npm pack and npm publish dry runs
+  - Build a single executable application from a script and know its limits
+estimatedMinutes: 50
+fundamentals: []
+---
+
+[The npm lesson](../../intermediate/npm-in-depth/) showed how a package exposes paths through `exports` and keeps private ones behind `imports`, and [the CommonJS lesson](../../beginner/commonjs-awareness/) explained why two module systems exist. This lesson puts that knowledge to work from the other side: you are the author, other people install your code, and every field in `package.json` is a promise to them. The example is a small library, `@example/slug`, which turns titles into URL slugs.
+
+## The files of a package
+
+```text
+pkg_slug/
+  package.json   README.md   LICENSE
+  src/index.js
+  test/slug.test.js
+  app.mjs   legacy.cjs
+```
+
+```json title="pkg_slug/package.json"
+{
+  "name": "@example/slug",
+  "version": "1.0.0",
+  "description": "Turn titles into URL slugs",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["src"],
+  "engines": { "node": ">=22.12" },
+  "scripts": { "test": "node --test" }
+}
+```
+
+Field by field:
+
+- **`name`** and **`version`** identify the release. A **scoped** name such as `@example/slug` belongs to a user or organisation on the registry, so it cannot be taken by someone else.
+- **`license`** is an SPDX identifier, matching the `LICENSE` file.
+- **`type: "module"`** makes `.js` files ES modules.
+- **`exports`** lists the only paths consumers can import. Exporting `./package.json` lets tools read your version without reaching into private files.
+- **`files`** is an allow-list of what goes into the published tarball. `package.json`, the `README` and the `LICENSE` are always included ([npm docs: files](https://docs.npmjs.com/cli/v11/configuring-npm/package-json#files)).
+- **`engines`** states which Node versions you support. npm only **warns** when it does not match, unless the user has set `engine-strict` ([npm docs: engines](https://docs.npmjs.com/cli/v11/configuring-npm/package-json#engines)).
+
+The code itself is one function. `\p{M}` matches the combining accent marks that `normalize("NFKD")` splits off letters ([Unicode lesson](../../intermediate/unicode-js/)):
+
+```javascript title="pkg_slug/src/index.js"
+export function slugify(title) {
+  return title
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+```
+
+## Trying it as a consumer
+
+A package with `exports` can import itself by its own name, so you can test the public interface, exactly as users will see it, without installing anything:
+
+```javascript title="pkg_slug/app.mjs"
+import { slugify } from "@example/slug";
+import pkg from "@example/slug/package.json" with { type: "json" };
+
+console.log(slugify("Crème Brûlée: A History"));
+console.log(`${pkg.name}@${pkg.version}`);
+```
+
+```text frame="terminal"
+$ node app.mjs
+creme-brulee-a-history
+@example/slug@1.0.0
+```
+
+The test file uses the same self-reference, so `npm test` also exercises `exports`. Now a CommonJS consumer:
+
+```javascript title="pkg_slug/legacy.cjs"
+const { slugify } = require("@example/slug");
+
+console.log(slugify("Hello from CommonJS"));
+```
+
+```text frame="terminal"
+$ node legacy.cjs
+hello-from-commonjs
+```
+
+<Since v="22.12" /> That `require()` of an ES module works without a flag from Node 22.12, and the feature is no longer experimental since Node 25.4 ([modules docs](https://nodejs.org/api/modules.html#loading-ecmascript-modules-using-require)). It is why `engines` says `>=22.12`. The one exception is a module graph that uses top-level `await`: `require()` is synchronous and throws `ERR_REQUIRE_ASYNC_MODULE`.
+
+## What goes into the tarball
+
+Before publishing, look at exactly what would be uploaded. `npm pack --dry-run` lists it without writing anything:
+
+```text frame="terminal"
+$ npm pack --dry-run
+npm notice
+npm notice package: @example/slug@1.0.0
+npm notice Tarball Contents
+npm notice 1.1kB LICENSE
+npm notice 164B README.md
+npm notice 321B package.json
+npm notice 181B src/index.js
+npm notice Tarball Details
+npm notice name: @example/slug
+npm notice version: 1.0.0
+npm notice filename: example-slug-1.0.0.tgz
+npm notice package size: 1.2 kB
+npm notice unpacked size: 1.7 kB
+npm notice shasum: 988da761cc3ce8c1694cb2358de857bd1dc9e265
+npm notice integrity: sha512-ZR2FFIh8wnlWP[...]ZVTaSQ1WolInQ==
+npm notice total files: 4
+npm notice
+example-slug-1.0.0.tgz
+```
+
+The tests, the two demo consumers and anything else outside `files` stay out. Without `files`, npm would publish the whole folder except what `.npmignore` or `.gitignore` excludes, which is how secrets and test fixtures end up on the registry. `npm pack` without `--dry-run` writes the `.tgz` file itself, which you can install into another project with `npm install ../pkg_slug/example-slug-1.0.0.tgz` for a last check.
+
+## Conditional exports
+
+An entry in `exports` can be an object of **conditions** instead of a single path. Node picks the **first** key, in the order written, that matches how the package is being loaded ([packages docs](https://nodejs.org/api/packages.html#conditional-exports)):
+
+- `"node"` matches in Node; other runtimes and bundlers define their own, such as `"browser"`.
+- `"import"` matches `import` and `import()`, and `"require"` matches `require()`.
+- `"module-sync"` matches both, for an ES module without top-level `await`.
+- `"default"` always matches, and must come last.
+- Tools add their own, such as `"types"` for TypeScript declaration files ([types lesson](../../intermediate/types-for-js/)), which must come first.
+
+```json
+{
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "browser": "./src/browser.js",
+      "default": "./src/index.js"
+    }
+  }
+}
+```
+
+Because the first match wins, putting `"default"` first would hide every other entry. Custom conditions can be switched on with `node --conditions=NAME` (or `-C NAME`), which an exercise uses.
+
+## ESM-only or dual?
+
+A **dual package** ships an ES module build and a CommonJS build of the same code, selected with `"import"` and `"require"` conditions. It was the standard answer while CommonJS code could not load ES modules. It has a cost besides the second build: the **dual package hazard**. If one part of a program imports the package and another requires it, two separate copies are loaded, with separate state and separate classes:
+
+```json title="pkg_dual/package.json"
+{
+  "name": "@example/dual",
+  "type": "module",
+  "exports": {
+    ".": { "import": "./token.mjs", "require": "./token.cjs" }
+  }
+}
+```
+
+`token.mjs` and `token.cjs` each define the same `class Token {}`, exported in the style of their module system. A program that uses both routes:
+
+```javascript title="pkg_dual/hazard.mjs"
+import { createRequire } from "node:module";
+import { Token } from "@example/dual";
+
+const require = createRequire(import.meta.url);
+const { Token: RequiredToken } = require("@example/dual");
+
+console.log(Token === RequiredToken);
+console.log(new Token() instanceof RequiredToken);
+```
+
+```text frame="terminal"
+$ node hazard.mjs
+false
+false
+```
+
+An object made by one copy fails `instanceof` checks in the other, and a cache or registry kept in module state exists twice. Now that every supported Node line can `require()` an ES module, the simpler choice for a new package is **ESM-only**: one build, one copy, usable from both module systems on Node 22.12 and later. Keep top-level `await` out of your entry points so CommonJS users can load them.
+
+## Publishing
+
+Publishing needs an account on [npmjs.com](https://www.npmjs.com/) and `npm login`. The release steps are short:
+
+```text frame="terminal"
+$ npm test
+$ npm version patch
+$ npm publish
+```
+
+`npm version patch` raises the version in `package.json` (1.0.0 to 1.0.1), and in a git repository commits that change and tags it. With npm 11 a new package, scoped or not, is published publicly unless you pass `--access restricted` ([npm docs: publish](https://docs.npmjs.com/cli/v11/commands/npm-publish#access)). `npm publish --dry-run` does everything except the upload and prints the same contents list as `npm pack`. A version number, once published, can never be used again, even if you unpublish that version ([npm docs: unpublish](https://docs.npmjs.com/cli/v11/commands/npm-unpublish)). The expert module on the supply chain covers provenance and other ways to make a release trustworthy.
+
+## Shipping an executable instead
+
+For a command-line tool meant for people who do not have Node installed, a package is the wrong shape. <Since v="25.5" /> Node can build a **single executable application**: one file that contains the Node binary and your script ([SEA docs](https://nodejs.org/api/single-executable-applications.html)). Node 25.5 added the one-step `--build-sea` flag; older versions use `--experimental-sea-config` and an extra injection tool. The feature is marked *active development*, so details may still change.
+
+```javascript title="sea_greet/greet.mjs"
+const name = process.argv[2] ?? "world";
+console.log(`Hello, ${name}!`);
+```
+
+```json title="sea_greet/sea-config.json"
+{
+  "main": "greet.mjs",
+  "mainFormat": "module",
+  "output": "greet",
+  "disableExperimentalSEAWarning": true
+}
+```
+
+```text frame="terminal"
+$ node --build-sea sea-config.json
+$ ./greet Ada
+Hello, Ada!
+$ du -h greet
+144M	greet
+```
+
+The build prints one line naming the Node binary and configuration it used (left out above, as the path differs on every machine). The result is about 144 MB on Linux, because it is a full Node binary, and it runs only on the platform it was built for. The main script can import only built-in modules, so a program with dependencies must be bundled into one file first, which [the next lesson](../bundlers/) shows how to do. On macOS the binary must also be signed.
+
+## When not to publish a package
+
+- **Code used by one application.** Keep it in the repository; a workspace (from the npm lesson) shares it between local packages without a registry.
+- **A few lines anyone could write.** Every dependency is a supply-chain risk for your users. Small helpers belong in their own code.
+- **A dual build "for compatibility".** Unless you must support Node older than 22.12, or runtimes without `require(esm)`, ship ESM only.
+- **Bundled dependencies.** Let npm install your dependencies, so users get security fixes and can deduplicate them; bundle only for executables and browsers.
+
+## Common pitfalls
+
+- **No `files` field.** Tests, fixtures and local configuration get published. Check with `npm pack --dry-run`.
+- **`"default"` before other conditions.** It always matches, so later conditions are never used.
+- **Top-level `await` in an entry point.** CommonJS consumers get `ERR_REQUIRE_ASYNC_MODULE`.
+- **Testing with relative imports.** `import "../src/index.js"` bypasses `exports`, so a broken map goes unnoticed. Import your package by name.
+- **Expecting `engines` to stop an install.** It only warns by default.
+
+## Exercises
+
+<Exercise title="A development build">
+
+Copy `pkg_slug` to a folder `pkg_dev`. Add a file `src/index.dev.js` that re-exports a `slugify` which first checks that its argument is a string, throwing `TypeError("slugify expects a string")` otherwise, and then calls the real one. Change `exports` so that `"."` maps the condition `"development"` to the new file and `"default"` to `src/index.js`. Write `check.mjs`, which calls `slugify(42)` inside `try` and prints the error message. Expected output: `node check.mjs` prints `title.normalize is not a function`, and `node -C development check.mjs` prints `slugify expects a string`.
+
+<Solution>
+
+The development file imports the real implementation by a relative path, which is allowed inside the package. Without the flag only `"default"` matches; with `-C development` the first entry matches.
+
+```json title="pkg_dev/package.json"
+{
+  "name": "@example/slug",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.dev.js",
+      "default": "./src/index.js"
+    }
+  }
+}
+```
+
+```javascript title="pkg_dev/src/index.dev.js"
+import { slugify as fast } from "./index.js";
+
+export function slugify(title) {
+  if (typeof title !== "string") {
+    throw new TypeError("slugify expects a string");
+  }
+  return fast(title);
+}
+```
+
+The check imports the package by name:
+
+```javascript title="pkg_dev/check.mjs"
+import { slugify } from "@example/slug";
+
+try {
+  slugify(42);
+} catch (error) {
+  console.log(error.message);
+}
+```
+
+```text frame="terminal"
+$ node check.mjs
+title.normalize is not a function
+$ node -C development check.mjs
+slugify expects a string
+```
+
+`pkg_dev/src/index.js` is a copy of the one in `pkg_slug`. Without the check, the error comes from deep inside the implementation and names a method the caller never used. A development build can afford checks like this; the default build stays small and fast.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Top-level await and require">
+
+In a folder `pkg_tla`, create a package `@example/config` (with `"type": "module"` and `"exports": "./index.js"`) whose `index.js` reads `settings.json` with `await readFile(...)` at the top level and exports the parsed object as `settings`. Write `use.cjs`, which tries `require("@example/config")` and prints the error code, then loads it with `import()` and prints `settings.theme`. With `settings.json` holding `{ "theme": "dark" }`, the expected output is `ERR_REQUIRE_ASYNC_MODULE` then `dark`.
+
+<Solution>
+
+`import()` returns a promise and works from CommonJS, so it can wait for the module's top-level `await`. A library that wants to be `require()`-able would instead export an async function, `loadSettings()`, and do the reading when it is called.
+
+```json title="pkg_tla/package.json"
+{
+  "name": "@example/config",
+  "type": "module",
+  "exports": "./index.js"
+}
+```
+
+```javascript title="pkg_tla/index.js"
+import { readFile } from "node:fs/promises";
+
+const url = new URL("./settings.json", import.meta.url);
+export const settings = JSON.parse(await readFile(url, "utf8"));
+```
+
+```javascript title="pkg_tla/use.cjs"
+try {
+  require("@example/config");
+} catch (error) {
+  console.log(error.code);
+}
+
+import("@example/config").then(({ settings }) => {
+  console.log(settings.theme);
+});
+```
+
+```text frame="terminal"
+$ node use.cjs
+ERR_REQUIRE_ASYNC_MODULE
+dark
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Check the tarball">
+
+In `pkg_slug`, add a folder `fixtures` with a file `big.txt`, and change `files` to `["src", "fixtures"]`. Run `npm pack --dry-run` and find `fixtures/big.txt` in the list. Then put `files` back and add a second published entry point: a file `src/cli.js` that prints `slugify(process.argv[2])`, exported as `"./cli"`. Run `npm pack --dry-run` again. Expected result: the first run lists `fixtures/big.txt`; the second lists `src/cli.js` and no fixtures, with five files in total.
+
+<Solution>
+
+`files` decides what is packed; `exports` decides what can be imported. A file must be in both to be usable by consumers. The CLI file:
+
+```javascript title="pkg_slug_cli/src/cli.js"
+import { slugify } from "@example/slug";
+
+console.log(slugify(process.argv[2] ?? ""));
+```
+
+The `exports` field after the change:
+
+```json
+{
+  ".": "./src/index.js",
+  "./cli": "./src/cli.js",
+  "./package.json": "./package.json"
+}
+```
+
+The second dry run lists `LICENSE`, `README.md`, `package.json` and the two source files:
+
+```text frame="terminal"
+$ npm pack --dry-run 2>&1 | grep -E 'B src/|total files'
+npm notice 87B src/cli.js
+npm notice 181B src/index.js
+npm notice total files: 5
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `package.json` is a contract: `name`, `version`, `license`, `type`, `exports`, `files` and `engines` each tell users something they will rely on.
+- `exports` lists the public entry points. Conditions are tried in the order written, so `"default"` comes last and `"types"` first.
+- <Since v="22.12" /> CommonJS can `require()` an ES module without top-level `await`, so a new package can be ESM-only and avoid the dual package hazard.
+- Check the tarball with `npm pack --dry-run` before every publish, and import your package by name in its own tests.
+- <Since v="25.5" /> `node --build-sea` turns a single-file script into an executable for one platform.
+
+The next lesson moves to the browser side of shipping: bundlers, dev servers, and when you can do without them.

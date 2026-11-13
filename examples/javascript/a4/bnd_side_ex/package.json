@@ -1,0 +1,5 @@
+{
+  "name": "bnd-side",
+  "type": "module",
+  "sideEffects": ["./src/analytics.js"]
+}

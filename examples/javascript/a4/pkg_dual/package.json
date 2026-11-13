@@ -1,0 +1,7 @@
+{
+  "name": "@example/dual",
+  "type": "module",
+  "exports": {
+    ".": { "import": "./token.mjs", "require": "./token.cjs" }
+  }
+}

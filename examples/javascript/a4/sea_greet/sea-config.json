@@ -1,0 +1,6 @@
+{
+  "main": "greet.mjs",
+  "mainFormat": "module",
+  "output": "greet",
+  "disableExperimentalSEAWarning": true
+}

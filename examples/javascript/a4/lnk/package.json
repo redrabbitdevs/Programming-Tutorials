@@ -1,0 +1,11 @@
+{
+  "name": "lnk",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server/main.mjs",
+    "test": "node --test",
+    "check": "node --check server/app.mjs && node --check public/client.js"
+  }
+}

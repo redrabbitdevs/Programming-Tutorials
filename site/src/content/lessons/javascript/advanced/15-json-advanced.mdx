@@ -1,0 +1,331 @@
+---
+language: javascript
+level: advanced
+module: Binary data and encoding
+order: 15
+title: JSON in depth
+description: Keep 64-bit integers and exact decimals intact with the reviver's context.source and JSON.rawJSON, round-trip BigInt, Date, Map and Set through JSON, and process JSON Lines one record at a time.
+minVersion: "22"
+objectives:
+  - Explain why large integers lose precision in JSON.parse
+  - Read the original text of a value through the reviver's context.source
+  - Write numbers exactly as given with JSON.rawJSON, including BigInt
+  - Round-trip Date, Map and Set with a replacer and reviver pair
+  - Parse JSON Lines input record by record and survive bad lines
+estimatedMinutes: 45
+fundamentals: []
+---
+
+[The JSON lesson](../../beginner/json-js/) covered `parse` and `stringify`, replacers, revivers and `toJSON`, and listed what JSON cannot represent. This lesson deals with the cases where that list hurts in practice: database IDs that do not fit in a double, prices whose exact text matters, and types such as `BigInt`, `Map` and `Set` that need to survive a trip through a file or a network. Two ES2026 additions make the number cases solvable without a third-party parser: the reviver's `context` argument and `JSON.rawJSON` ([MDN: JSON.rawJSON](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/rawJSON)). Both are already in Node 22.
+
+## The problem with big numbers
+
+JSON itself puts no limit on numbers. `JSON.parse` turns each one into a JavaScript number, a 64-bit double, which represents integers exactly only up to 2<sup>53</sup> − 1 (see [the numbers lesson](../../beginner/numbers-js/)). Database systems commonly use 64-bit integer IDs, which go far beyond that:
+
+```javascript title="jx_precision.mjs"
+const text = '{"id": 12345678901234567891, "price": 1.10}';
+const order = JSON.parse(text);
+
+console.log(order.id);
+console.log(Number.isSafeInteger(order.id));
+console.log(order.price);
+```
+
+```text
+12345678901234567000
+false
+1.1
+```
+
+The ID came back as a different number, with no error. Send it back to the server and you update the wrong record, or none. The price lost its trailing zero, which is harmless for arithmetic but not if the text must be preserved, for example to verify a signature over it. Some APIs send large IDs as strings for this reason. When you do not control the format, you need the original text.
+
+## The original text: context.source
+
+A reviver now receives a third argument, `context`. For a primitive value (a number, string, boolean or `null`), `context.source` is the exact text it was parsed from. For arrays and objects, `context` is an empty object, because their text is just the sum of their parts.
+
+```javascript title="jx_source.mjs"
+const text = '{"id": 12345678901234567891, "price": 1.10, "tags": ["a", null]}';
+
+JSON.parse(text, (key, value, context) => {
+  console.log(JSON.stringify(key), value, context);
+  return value;
+});
+```
+
+```text
+"id" 12345678901234567000 { source: '12345678901234567891' }
+"price" 1.1 { source: '1.10' }
+"0" a { source: '"a"' }
+"1" null { source: 'null' }
+"tags" [ 'a', null ] {}
+"" { id: 12345678901234567000, price: 1.1, tags: [ 'a', null ] } {}
+```
+
+The output also shows the reviver's order: children before their parent, and the whole result last with the key `""`. With the source available, a reviver can turn every integer that is not safe into a `BigInt`, built from the text, not from the already rounded number:
+
+```javascript title="jx_source.mjs (continued)"
+function bigIntReviver(key, value, { source }) {
+  const isInteger = typeof value === "number" && /^-?\d+$/.test(source);
+  if (isInteger && !Number.isSafeInteger(value)) return BigInt(source);
+  return value;
+}
+
+const order = JSON.parse(text, bigIntReviver);
+console.log(order.id, typeof order.id);
+```
+
+```text
+12345678901234567891n bigint
+```
+
+## Writing exact text: JSON.rawJSON
+
+Going the other way, `JSON.stringify` refuses a `BigInt`:
+
+```javascript title="jx_raw.mjs"
+const order = { id: 12345678901234567891n, quantity: 2 };
+
+try {
+  JSON.stringify(order);
+} catch (error) {
+  console.log(error.name, error.message);
+}
+```
+
+```text
+TypeError Do not know how to serialize a BigInt
+```
+
+`JSON.rawJSON(text)` creates a special frozen object that `stringify` writes as `text`, unchanged. The text must be valid JSON for a single primitive: a number, string, boolean or `null`. A replacer can use it for every `BigInt`, and for any number whose exact text you kept:
+
+```javascript title="jx_raw.mjs (continued)"
+function bigIntReplacer(key, value) {
+  if (typeof value === "bigint") return JSON.rawJSON(value.toString());
+  return value;
+}
+
+console.log(JSON.stringify(order, bigIntReplacer));
+console.log(JSON.stringify({ price: JSON.rawJSON("1.10") }));
+console.log(JSON.isRawJSON(JSON.rawJSON("1")));
+```
+
+```text
+{"id":12345678901234567891,"quantity":2}
+{"price":1.10}
+true
+```
+
+`JSON.isRawJSON` tells these objects apart from ordinary ones. Passing an object or array as text, such as `JSON.rawJSON('{"a":1}')`, throws `SyntaxError`, so `rawJSON` cannot be used to inject arbitrary structure.
+
+You may see `BigInt.prototype.toJSON = ...` in older code. It works, but it changes a built-in for every library in the process. A replacer keeps the decision local to one call.
+
+## Round-tripping other types
+
+`Date`, `Map` and `Set` need a convention: write each one as a tagged object, and let a reviver recognise the tag. One detail trips people up: `stringify` calls `toJSON` **before** the replacer, so the replacer receives a `Date` already turned into a string. The original value is still available as `this[key]`, where `this` is the object that holds the property. That requires a `function`, since an arrow function has no `this` of its own (see [this in depth](../../intermediate/this-in-depth/)).
+
+```javascript title="jx_types.mjs"
+function typedReplacer(key, value) {
+  const original = this[key];
+  if (original instanceof Date) return { $type: "Date", value };
+  if (value instanceof Map) return { $type: "Map", value: [...value] };
+  if (value instanceof Set) return { $type: "Set", value: [...value] };
+  return value;
+}
+
+function typedReviver(key, value) {
+  if (value?.$type === "Date") return new Date(value.value);
+  if (value?.$type === "Map") return new Map(value.value);
+  if (value?.$type === "Set") return new Set(value.value);
+  return value;
+}
+```
+
+A round trip:
+
+```javascript title="jx_types.mjs (continued)"
+const session = {
+  started: new Date(Date.UTC(2026, 9, 18, 9, 30)),
+  roles: new Set(["reader", "editor"]),
+  visits: new Map([["home", 3], ["docs", 1]]),
+};
+
+const text = JSON.stringify(session, typedReplacer);
+console.log(text);
+const back = JSON.parse(text, typedReviver);
+console.log(back.started.toISOString(), back.roles.has("editor"));
+console.log(back.visits.get("home"));
+```
+
+```text
+{"started":{"$type":"Date","value":"2026-10-18T09:30:00.000Z"},"roles":{"$type":"Set","value":["reader","editor"]},"visits":{"$type":"Map","value":[["home",3],["docs",1]]}}
+2026-10-18T09:30:00.000Z true
+3
+```
+
+Because the reviver works from the leaves up, the entries of a `Map` are already revived when the `Map` is built, so nested tagged values work too. If the data can contain user-supplied objects, a user can send `{"$type": "Date"}` as well; pick a tag name that cannot collide, or validate the revived result.
+
+## JSON Lines
+
+`JSON.parse` needs the whole document in memory. For large data the usual answer is **JSON Lines** (also called NDJSON): one JSON value per line, so a reader can handle one record at a time and skip a bad line without losing the rest ([jsonlines.org](https://jsonlines.org/)). The [streams lesson](../streams-advanced/) wrote such a file; here is the robust reading side, with a chunk boundary in the middle of a record:
+
+```javascript title="jx_lines.mjs"
+import { createInterface } from "node:readline";
+import { Readable } from "node:stream";
+
+const input = Readable.from([
+  '{"id":1,"ok":true}\n{"id":2,',
+  '"ok":false}\nnot json\n\n{"id":3,"ok":true}\n',
+]);
+
+let lineNumber = 0;
+for await (const line of createInterface({ input, crlfDelay: Infinity })) {
+  lineNumber++;
+  if (line.trim() === "") continue;
+  try {
+    console.log(JSON.parse(line));
+  } catch (error) {
+    console.log(`line ${lineNumber}: ${error.name}`);
+  }
+}
+```
+
+```text
+{ id: 1, ok: true }
+{ id: 2, ok: false }
+line 3: SyntaxError
+{ id: 3, ok: true }
+```
+
+`readline` joins the split record before `JSON.parse` sees it. A single huge JSON document, such as one 2 GB array, cannot be parsed incrementally with built-in tools; that needs a streaming parser from npm, or a change of format to JSON Lines.
+
+## When not to reach for these tools
+
+- **Numbers that fit.** If every ID is below 2<sup>53</sup>, plain `JSON.parse` is correct and simpler. Add a `BigInt` reviver when the data needs it, not by default.
+- **Deep copies inside one program.** `structuredClone(value)` copies `Date`, `Map`, `Set`, `BigInt` and typed arrays without any convention. JSON is for data that leaves the process.
+- **Validation.** A reviver can convert values, but checking the shape of untrusted data (required fields, types, ranges) is clearer as a separate step after parsing.
+- **Binary data.** JSON has no bytes type. Base64 inside JSON works for small payloads, as [the previous lesson](../base64-hex/) showed; send large files as binary.
+
+## Common pitfalls
+
+- **Building the `BigInt` from `value`.** `BigInt(value)` uses the already rounded double. Use `BigInt(context.source)`.
+- **Arrow functions as replacers that need `this[key]`.** They see the outer `this`. Use a `function`.
+- **Expecting the replacer to see a `Date`.** `toJSON` has already run. Check `this[key]`.
+- **Patching `BigInt.prototype.toJSON`.** It changes behaviour for all code in the process.
+- **Mixed types for one field.** A reviver that returns `BigInt` only for large IDs gives some records a number and others a `bigint`, and `1n === 1` is false. Convert by key if the field must have one type.
+
+## Exercises
+
+<Exercise title="Round-trip 64-bit IDs">
+
+Parse `[{"id":9007199254740993,"user":"ada"},{"id":42,"user":"bob"}]` so that every `id` field becomes a `BigInt`, whatever its size, add `1n` to each, and print the type of each ID and the re-serialised JSON. Expected output: `bigint bigint` and `[{"id":9007199254740994,"user":"ada"},{"id":43,"user":"bob"}]`.
+
+<Solution>
+
+Converting by key gives every record the same type, which avoids the mixed-type pitfall. The plain `JSON.parse` would have read 9007199254740993 as 9007199254740992, so adding 1 would have produced the wrong ID.
+
+```javascript title="jx_ex_ids.mjs"
+const text = '[{"id":9007199254740993,"user":"ada"},{"id":42,"user":"bob"}]';
+
+const reviver = (key, value, { source }) =>
+  key === "id" ? BigInt(source) : value;
+const replacer = (key, value) =>
+  typeof value === "bigint" ? JSON.rawJSON(String(value)) : value;
+
+const users = JSON.parse(text, reviver);
+for (const user of users) user.id += 1n;
+
+console.log(users.map((user) => typeof user.id).join(" "));
+console.log(JSON.stringify(users, replacer));
+```
+
+```text
+bigint bigint
+[{"id":9007199254740994,"user":"ada"},{"id":43,"user":"bob"}]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Refuse lossy numbers">
+
+Write `strictParse(text)`, which parses like `JSON.parse` but throws a `RangeError` with the message `lossy number at "KEY": SOURCE` when an integer in the text is not a safe integer. Try `{"count": 3, "total": 120}` and `{"count": 3, "total": 90071992547409930}`, printing the result or the error message. Expected output: `{ count: 3, total: 120 }` and `lossy number at "total": 90071992547409930`.
+
+<Solution>
+
+The check uses the source text to decide whether the value was written as an integer, then `Number.isSafeInteger` on the parsed value. Decimals pass unchanged; they are approximate by nature, and the next lesson deals with them.
+
+```javascript title="jx_ex_strict.mjs"
+function strictParse(text) {
+  return JSON.parse(text, (key, value, { source }) => {
+    const isInteger = typeof value === "number" && /^-?\d+$/.test(source);
+    if (isInteger && !Number.isSafeInteger(value)) {
+      throw new RangeError(`lossy number at "${key}": ${source}`);
+    }
+    return value;
+  });
+}
+
+const inputs = [
+  '{"count": 3, "total": 120}',
+  '{"count": 3, "total": 90071992547409930}',
+];
+for (const text of inputs) {
+  try {
+    console.log(strictParse(text));
+  } catch (error) {
+    console.log(error.message);
+  }
+}
+```
+
+```text
+{ count: 3, total: 120 }
+lossy number at "total": 90071992547409930
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Keep prices exactly as written">
+
+A price list arrives as `{"items":[{"sku":"A1","price":19.90},{"sku":"B2","price":5.00}]}`. Parse it so that each `price` is kept as its source text in a string, print the prices, then serialise the object again so that the output is identical to the input text, and print whether it is. Expected output: `[ '19.90', '5.00' ]` and `true`.
+
+<Solution>
+
+Storing the source as a string keeps the digits; writing it back with `JSON.rawJSON` turns it back into a JSON number, not a quoted string. A plain round trip would have written `19.9` and `5`.
+
+```javascript title="jx_ex_prices.mjs"
+const text =
+  '{"items":[{"sku":"A1","price":19.90},{"sku":"B2","price":5.00}]}';
+
+const list = JSON.parse(text, (key, value, { source }) =>
+  key === "price" ? source : value,
+);
+console.log(list.items.map((item) => item.price));
+
+const out = JSON.stringify(list, (key, value) =>
+  key === "price" ? JSON.rawJSON(value) : value,
+);
+console.log(out === text);
+```
+
+```text
+[ '19.90', '5.00' ]
+true
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `JSON.parse` turns every number into a double, so integers beyond 2<sup>53</sup> − 1 change silently.
+- A reviver's third argument, `context.source`, holds the original text of each primitive. Build `BigInt` values from it.
+- `JSON.rawJSON(text)` makes `stringify` write a primitive exactly as given; use it in a replacer for `BigInt` and for preserved decimals.
+- `toJSON` runs before the replacer. Use `this[key]` in a `function` replacer to see the original value, and tag types such as `Date`, `Map` and `Set` for the reviver.
+- JSON Lines lets you process large data record by record with `readline`.
+
+The last lesson of this module turns from representing numbers to computing with them exactly.

@@ -1,0 +1,560 @@
+---
+language: javascript
+level: advanced
+module: Building and shipping
+order: 21
+title: Testing at scale
+description: Keep a growing codebase correct with node:test - how the runner isolates and orders test files, random order to expose hidden dependencies, integration tests against a real HTTP server, coverage thresholds and reports for CI, property-based tests by hand and with fast-check, and a CI workflow across Node versions.
+minVersion: "22"
+objectives:
+  - Explain how node --test finds, isolates and parallelises test files
+  - Keep tests independent, and expose order dependence with a random seed
+  - Write integration tests that start a real server on a free port
+  - Enforce coverage thresholds and produce reports for CI tools
+  - Write property-based tests with a seeded generator and with fast-check
+  - Run the suite in CI on every supported Node version
+estimatedMinutes: 55
+fundamentals: ["fundamentals/beginner/25-testing-mindset"]
+---
+
+[The node:test lesson](../../intermediate/node-test/) wrote unit tests, and [the mocking lesson](../../intermediate/mocks-and-fake-timers/) replaced time and dependencies. That is enough for a library of a few files. A real project has hundreds of tests, a server, a database and several Node versions to support, and its test suite needs to stay fast, trustworthy and honest about what it covers. The [testing mindset](../../../fundamentals/beginner/testing-mindset/) lesson discusses what to test; this one is about the machinery.
+
+## How the runner treats a suite
+
+`node --test` without file names searches the current folder for test files. By default it matches names such as `*.test.mjs`, `*-test.js`, `*_test.cjs` and `test.js`, and every file in a `test` folder ([test runner docs](https://nodejs.org/api/test.html#running-tests-from-the-command-line)). You can pass your own glob patterns in quotes.
+
+Each test file runs in its **own child process** by default. A file cannot see another file's global variables or module state, and a crash in one file does not take the others down. Files run in parallel, up to one less than the number of CPU cores (`--test-concurrency` changes that). Tests **inside** a file share one process and run one after the other.
+
+Two flags change the model. <Since v="22.8" /> `--test-isolation=none` runs every file in the runner's own process, which starts faster but lets files affect each other. `--test-shard=1/3` runs only the first third of the files, so CI can split a slow suite across three machines.
+
+## Independent tests
+
+Tests that pass only in a particular order are a trap: they break when someone adds a test, runs one test alone, or splits the suite. Module-level state is the usual cause:
+
+```javascript title="tst/order.test.mjs"
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+const cart = [];
+
+test("adds an item", () => {
+  cart.push("tea");
+  assert.equal(cart.length, 1);
+});
+
+test("lists the cart", () => {
+  assert.deepEqual(cart, ["tea"]);
+});
+```
+
+```text
+✔ adds an item
+✔ lists the cart
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+Both pass, in the order written. (Durations are left out of the reports in this lesson.) <Since v="26.1" /> `--test-randomize` shuffles the order of files and of the tests within them, and prints the seed it used; `--test-random-seed=N` repeats a particular order ([CLI docs](https://nodejs.org/api/cli.html#--test-randomize)):
+
+```text frame="terminal"
+$ node --test --test-random-seed=1 order.test.mjs
+✖ lists the cart (3.178805ms)
+✔ adds an item (0.340208ms)
+```
+
+The second test depended on the first. The fix is to give each test its own state, created in a `beforeEach` hook or inside the test. The same goes for files and ports: create a temporary directory per test (`mkdtemp`, removed in `t.after`) and let the operating system choose a free port, as the next section does.
+
+## Integration tests with a real server
+
+A unit test calls a function. An **integration test** goes through the real interfaces: here, HTTP requests to a running server. The subject is a small inventory API. `createInventory()` returns a new server with its own empty store each time, so every test suite gets fresh state:
+
+```javascript title="tst/inventory.mjs"
+import { createServer } from "node:http";
+
+async function readJson(request) {
+  let text = "";
+  for await (const chunk of request) text += chunk;
+  return JSON.parse(text);
+}
+
+function send(response, status, body) {
+  response.writeHead(status, { "Content-Type": "application/json" });
+  response.end(JSON.stringify(body));
+}
+```
+
+The request handler has two routes and a fallback:
+
+```javascript title="tst/inventory.mjs (continued)"
+export function createInventory() {
+  const items = new Map();
+  return createServer(async (request, response) => {
+    const match = /^\/items\/(\d+)$/.exec(request.url);
+    if (request.method === "GET" && match) {
+      const item = items.get(Number(match[1]));
+      return send(response, item ? 200 : 404, item ?? { error: "not found" });
+    }
+    if (request.method === "POST" && request.url === "/items") {
+      const body = await readJson(request).catch(() => null);
+      if (typeof body?.name !== "string" || !Number.isInteger(body.qty)) {
+        return send(response, 400, { error: "name and qty required" });
+      }
+      const item = { id: items.size + 1, name: body.name, qty: body.qty };
+      items.set(item.id, item);
+      return send(response, 201, item);
+    }
+    send(response, 404, { error: "not found" });
+  });
+}
+```
+
+The test suite starts the server in a `before` hook, on port `0`, which asks the operating system for any free port, so parallel test files never collide. `after` closes it:
+
+```javascript title="tst/inventory.test.mjs"
+import { after, before, describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { createInventory } from "./inventory.mjs";
+
+describe("inventory API", () => {
+  let server;
+  let base;
+
+  before(async () => {
+    server = createInventory();
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    base = `http://127.0.0.1:${server.address().port}`;
+  });
+
+  after(() => server.close());
+```
+
+The tests use `fetch`, exactly as a client would:
+
+```javascript title="tst/inventory.test.mjs (continued)"
+  it("creates an item and reads it back", async () => {
+    const created = await fetch(`${base}/items`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "tea", qty: 3 }),
+    });
+    assert.equal(created.status, 201);
+    const { id } = await created.json();
+    const read = await fetch(`${base}/items/${id}`);
+    assert.deepEqual(await read.json(), { id, name: "tea", qty: 3 });
+  });
+
+  it("answers 404 for an unknown item", async () => {
+    const response = await fetch(`${base}/items/999`);
+    assert.equal(response.status, 404);
+  });
+});
+```
+
+```text
+▶ inventory API
+  ✔ creates an item and reads it back
+  ✔ answers 404 for an unknown item
+✔ inventory API
+ℹ tests 2
+ℹ suites 1
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+These tests check routing, JSON parsing, status codes and headers together, which no unit test of `send` alone would. They are slower, so a suite usually has many unit tests and fewer integration tests. For a database, the same pattern applies: create a fresh database or schema per test file, and drop it in `after`.
+
+## Coverage in CI
+
+The intermediate lesson showed the coverage report. In CI you want it to **fail** the build when coverage drops. <Since v="22.8" /> `--test-coverage-lines`, `--test-coverage-branches` and `--test-coverage-functions` set minimum percentages, and the run exits with code 1 below them. `--test-coverage-include` and `--test-coverage-exclude` take glob patterns that narrow the report, for example to leave out the test files themselves. <Since v="26.7" /> `--test-coverage-include-all` also lists source files that no test loaded, at zero per cent, which a normal report silently leaves out.
+
+Reports for other tools come from **reporters**. The `lcov` reporter writes coverage in the LCOV format that many CI services and editors display, and `junit` writes test results as XML. Each `--test-reporter` takes a matching `--test-reporter-destination`:
+
+```text frame="terminal"
+$ node --test --experimental-test-coverage \
+    --test-coverage-exclude='**/*.test.mjs' --test-coverage-lines=90 \
+    --test-reporter=spec --test-reporter-destination=stdout \
+    --test-reporter=lcov --test-reporter-destination=lcov.info \
+    inventory.test.mjs
+```
+
+The terminal still shows the human-readable report, and `lcov.info` holds the data for the CI service. On the inventory tests this run passes the gate: the coverage table reports 90.91 per cent of lines, with the error branches of the `POST` route uncovered. The `--experimental-test-coverage` flag still carries its old name, although coverage works on every supported Node line.
+
+## Property-based tests
+
+An example-based test checks the cases you thought of. A **property-based test** states something that must hold for **every** input, then checks it against many generated inputs. Here is a function with a bug that the obvious examples miss:
+
+```javascript title="tst/chunk.mjs"
+export function chunk(array, size) {
+  const chunks = [];
+  for (let i = 0; i + size <= array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+  return chunks;
+}
+```
+
+`chunk([1, 2, 3, 4], 2)` gives `[[1, 2], [3, 4]]`, as a test would expect. A property catches more: flattening the chunks must give back the original array. Generated inputs must be **reproducible**, so the generator uses a seeded pseudo-random function instead of `Math.random`. `mulberry32` is a small, well-known one; you do not need to follow its bit operations:
+
+```javascript title="tst/property.mjs"
+export function mulberry32(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function randomArray(random, maxLength = 20) {
+  const length = Math.floor(random() * (maxLength + 1));
+  return Array.from({ length }, () => Math.floor(random() * 100));
+}
+```
+
+`forAll` runs a property against generated arrays, and when one fails, **shrinks** it: it tries removing runs of elements, longest first, and keeps any smaller array that still fails, so the report shows a minimal case instead of twenty random numbers:
+
+```javascript title="tst/property.mjs (continued)"
+const holds = (property, input) => {
+  try {
+    return property(input) !== false;
+  } catch {
+    return false;
+  }
+};
+
+function shrink(array, property) {
+  for (let size = array.length; size >= 1; size--) {
+    for (let start = 0; start + size <= array.length; start++) {
+      const smaller = array.toSpliced(start, size);
+      if (!holds(property, smaller)) return shrink(smaller, property);
+    }
+  }
+  return array;
+}
+```
+
+The loop that generates and checks:
+
+```javascript title="tst/property.mjs (continued)"
+export function forAll(property, { runs = 100, seed = 1 } = {}) {
+  const random = mulberry32(seed);
+  for (let run = 1; run <= runs; run++) {
+    const input = randomArray(random);
+    if (!holds(property, input)) {
+      return { run, seed, input, shrunk: shrink(input, property) };
+    }
+  }
+  return null;
+}
+```
+
+The property test asserts that no counterexample exists:
+
+```javascript title="tst/chunk.test.mjs"
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { chunk } from "./chunk.mjs";
+import { forAll } from "./property.mjs";
+
+test("chunks flatten back to the input", () => {
+  const failure = forAll((array) => {
+    assert.deepEqual(chunk(array, 3).flat(), array);
+  });
+  assert.equal(failure, null, JSON.stringify(failure));
+});
+```
+
+```text
+✖ chunks flatten back to the input
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+The failure message, from the "failing tests" part of the report:
+
+```text frame="terminal"
+AssertionError [ERR_ASSERTION]: {"run":1,"seed":1,"input":[0,52,98,96,28,61,72,42,99,45,48,13,40],"shrunk":[40]}
+```
+
+The very first input failed, and shrinking reduced 13 numbers to one: with a single element, the result is empty, so the element is lost. The bug is the loop condition, which skips a last chunk shorter than `size`; the fix is `i < array.length`.
+
+### fast-check
+
+The library **fast-check** (version 4.10.2 when checked on 2026-10-18; `npm install --save-dev fast-check`) does all of this with far better generators and shrinking. Its **arbitraries** describe inputs, and `fc.assert` runs the property:
+
+```javascript title="tst_fc/chunk.fc.test.mjs"
+import { test } from "node:test";
+import fc from "fast-check";
+import assert from "node:assert/strict";
+import { chunk } from "../tst/chunk.mjs";
+
+test("chunks flatten back to the input", () => {
+  fc.assert(
+    fc.property(fc.array(fc.integer()), fc.integer({ min: 1, max: 10 }),
+      (array, size) => {
+        assert.deepEqual(chunk(array, size).flat(), array);
+      }),
+  );
+});
+```
+
+```text frame="terminal"
+$ node --test chunk.fc.test.mjs
+✖ chunks flatten back to the input (8.401527ms)
+…
+  Error: Property failed after 2 tests
+  { seed: -1495164840, path: "1:1:2:1:1", endOnFailure: true }
+  Counterexample: [[0],2]
+  Shrunk 4 time(s)
+```
+
+This is an excerpt of the report; the seed is different on every run. fast-check varied the size as well as the array, found a failure, and shrank it to the smallest case it could. The seed in the message reproduces the run: pass it as `fc.assert(..., { seed })`.
+
+## Continuous integration
+
+Run the suite on every push, on every Node line you support. A GitHub Actions workflow is a YAML file in `.github/workflows/`:
+
+```yaml title=".github/workflows/test.yml"
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm test
+```
+
+The matrix runs the job three times, once per version. `npm ci` installs exactly what the lock file says. Put the coverage flags into the `test` script in `package.json`, so CI and developers run the same command.
+
+## When not to add more tests
+
+- **Coverage for its own sake.** Raise the threshold to stop regressions, not to reach a round number; a test without meaningful assertions adds coverage and no safety.
+- **Property tests for code without a clear invariant.** Formatting a report has no short universal property; examples serve better.
+- **End-to-end tests for every branch.** Test branches in fast unit tests and use integration tests for the wiring.
+- **Tests of the framework or the language.** Test your logic, not that `Map` stores values.
+
+## Common pitfalls
+
+- **Shared state between tests.** Create state per test; try `--test-randomize` on Node 26 to find dependencies.
+- **Fixed ports.** Two files using port 3000 collide when run in parallel. Listen on port 0.
+- **Unseeded randomness.** A failure you cannot reproduce cannot be fixed. Seed every generator and print the seed.
+- **Forgetting to close servers and timers.** The test process cannot exit while they are open. Close them in `after`.
+- **Coverage that includes test files.** Exclude them, or the percentage is inflated.
+
+## Exercises
+
+<Exercise title="A coverage gate">
+
+Write `tst/discount.mjs` with `discount(total)`, which returns 0 below 50, 5 from 50 to 99, and 10 from 100 up, and `tst/discount.test.mjs` with one test that checks only `discount(20)` and `discount(60)`. Run it with `--experimental-test-coverage --test-coverage-exclude='**/*.test.mjs' --test-coverage-lines=100` and print the exit code; then add an assertion for `discount(150)` and run again. Expected result: the first run fails the threshold with exit code 1, the second exits with 0.
+
+<Solution>
+
+```javascript title="tst/discount.mjs"
+export function discount(total) {
+  if (total < 50) return 0;
+  if (total < 100) return 5;
+  return 10;
+}
+```
+
+The finished test, with the third assertion that closes the gap:
+
+```javascript title="tst/discount.test.mjs"
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { discount } from "./discount.mjs";
+
+test("discount steps", () => {
+  assert.equal(discount(20), 0);
+  assert.equal(discount(60), 5);
+  assert.equal(discount(150), 10);
+});
+```
+
+With only the first two assertions, the test passes but the run fails the gate. The end of the output, durations left out:
+
+```text frame="terminal"
+$ node --test --experimental-test-coverage \
+    --test-coverage-exclude='**/*.test.mjs' --test-coverage-lines=100 \
+    discount.test.mjs
+✔ discount steps
+…
+ℹ Error: 80.00% line coverage does not meet threshold of 100%.
+ℹ start of coverage report
+ℹ -------------------------------------------------------------
+ℹ file         | line % | branch % | funcs % | uncovered lines
+ℹ -------------------------------------------------------------
+ℹ discount.mjs |  80.00 |    75.00 |  100.00 | 4
+ℹ -------------------------------------------------------------
+ℹ all files    |  80.00 |    75.00 |  100.00 |
+ℹ -------------------------------------------------------------
+ℹ end of coverage report
+$ echo $?
+1
+```
+
+With the third assertion, the same command ends with exit code 0.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="More integration tests">
+
+Add a file `tst/inventory-errors.test.mjs` for the inventory API, with its own server, and three tests: a `POST` with the body `not json` gets status 400; a `POST` of `{ "name": "tea" }` (no `qty`) gets 400 and the error `name and qty required`; and every response, including errors, has the content type `application/json`. Expected result: `tests 3`, `pass 3`.
+
+<Solution>
+
+A helper keeps each test to the point. Because this file starts its own server, it does not depend on `inventory.test.mjs` and can run in parallel with it.
+
+```javascript title="tst/inventory-errors.test.mjs"
+import { after, before, describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { createInventory } from "./inventory.mjs";
+
+describe("inventory API errors", () => {
+  let server;
+  let base;
+  before(async () => {
+    server = createInventory();
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    base = `http://127.0.0.1:${server.address().port}`;
+  });
+  after(() => server.close());
+
+  const post = (body) => fetch(`${base}/items`, { method: "POST", body });
+```
+
+The three tests:
+
+```javascript title="tst/inventory-errors.test.mjs (continued)"
+  it("rejects a body that is not JSON", async () => {
+    assert.equal((await post("not json")).status, 400);
+  });
+
+  it("requires a quantity", async () => {
+    const response = await post(JSON.stringify({ name: "tea" }));
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "name and qty required" });
+  });
+
+  it("always answers with JSON", async () => {
+    const responses = [await post("x"), await fetch(`${base}/nowhere`)];
+    for (const response of responses) {
+      assert.equal(response.headers.get("content-type"), "application/json");
+    }
+  });
+});
+```
+
+```text
+▶ inventory API errors
+  ✔ rejects a body that is not JSON
+  ✔ requires a quantity
+  ✔ always answers with JSON
+✔ inventory API errors
+ℹ tests 3
+ℹ suites 1
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Properties of a fixed chunk">
+
+Fix `chunk` (the loop condition becomes `i < array.length`) in a new file `tst/chunk-fixed.mjs`, and write `tst/chunk-fixed.test.mjs` with two property tests using `forAll` with 500 runs and seed 42: flattening gives back the input, for sizes 1 to 5; and every chunk except the last has exactly `size` elements, and the last has between 1 and `size`. Expected result: `tests 2`, `pass 2`.
+
+<Solution>
+
+The second property pins down the shape of the result, which the first does not: a `chunk` that returned `[array]` would pass the flattening test.
+
+```javascript title="tst/chunk-fixed.mjs"
+export function chunk(array, size) {
+  const chunks = [];
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+  return chunks;
+}
+```
+
+```javascript title="tst/chunk-fixed.test.mjs"
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { chunk } from "./chunk-fixed.mjs";
+import { forAll } from "./property.mjs";
+
+const options = { runs: 500, seed: 42 };
+
+test("chunks flatten back to the input", () => {
+  for (let size = 1; size <= 5; size++) {
+    const failure = forAll(
+      (array) => assert.deepEqual(chunk(array, size).flat(), array), options);
+    assert.equal(failure, null, JSON.stringify(failure));
+  }
+});
+
+test("chunks have the right lengths", () => {
+  const failure = forAll((array) => {
+    const chunks = chunk(array, 3);
+    chunks.slice(0, -1).forEach((c) => assert.equal(c.length, 3));
+    const last = chunks.at(-1);
+    if (last) assert.ok(last.length >= 1 && last.length <= 3);
+  }, options);
+  assert.equal(failure, null, JSON.stringify(failure));
+});
+```
+
+```text
+✔ chunks flatten back to the input
+✔ chunks have the right lengths
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- `node --test` finds test files by name, runs each in its own process, and runs files in parallel; `--test-shard` splits a suite across machines.
+- Tests must not depend on each other. <Since v="26.1" /> `--test-randomize` and `--test-random-seed` expose and reproduce order dependence.
+- Integration tests start a fresh server on port 0 in `before`, call it with `fetch`, and close it in `after`.
+- <Since v="22.8" /> Coverage thresholds fail the run in CI; the `lcov` and `junit` reporters feed other tools.
+- Property-based tests check an invariant against many seeded inputs and shrink failures; fast-check is the full-featured library.
+- CI runs `npm ci` and the tests on every supported Node line.
+
+The last lesson of the advanced level puts the whole module together in one small full-stack application.

@@ -1,0 +1,11 @@
+{
+  "name": "@example/slug",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.dev.js",
+      "default": "./src/index.js"
+    }
+  }
+}

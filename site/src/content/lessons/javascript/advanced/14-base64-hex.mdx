@@ -1,0 +1,384 @@
+---
+language: javascript
+level: advanced
+module: Binary data and encoding
+order: 14
+title: Base64 and hex
+description: Turn bytes into text and back with the ES2026 Uint8Array methods toBase64, fromBase64, toHex, fromHex and setFromBase64, choose between standard and URL-safe base64, decode strictly or in a stream, and know when Node's Buffer is still the right tool.
+minVersion: "26"
+objectives:
+  - Explain how base64 and hex represent bytes as text and what each costs in size
+  - Encode and decode with toBase64, fromBase64, toHex and fromHex
+  - Choose the base64url alphabet, padding and last-chunk handling for a given format
+  - Decode base64 that arrives in pieces with setFromBase64
+  - Fall back to Buffer on Node 22 and 24, and avoid btoa and atob for Unicode text
+estimatedMinutes: 40
+fundamentals: ["fundamentals/beginner/06-text-and-strings"]
+---
+
+Bytes often have to travel through channels built for text: a JSON field, a URL, an HTTP header, an environment variable, an email. **Base64** and **hex** are the two common ways to write arbitrary bytes using only safe characters. JavaScript had no standard way to do either for bytes until ES2026, which added methods to `Uint8Array` ([MDN: fromBase64](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array/fromBase64)). They are in Node 26 and are Baseline newly available in browsers since September 2025. Node 22 and 24 do not have them; a fallback with `Buffer` comes at the end.
+
+## How the encodings work
+
+**Hex** writes each byte as two characters from `0-9a-f`, so the text is twice as long as the data. It is easy to read, which is why hashes and colours use it.
+
+**Base64** takes the bytes three at a time (24 bits) and writes them as four characters, each standing for 6 bits. The 64 characters are `A-Z`, `a-z`, `0-9` and two more: `+` and `/` in the standard alphabet, `-` and `_` in the **base64url** alphabet, which is safe in URLs and file names. When the input is not a multiple of three bytes, the last group is padded with `=`. The text is a third longer than the data.
+
+Neither is encryption. Anyone can decode them.
+
+## Bytes to base64 and back
+
+Text must become bytes first. As in [the Unicode lesson](../../intermediate/unicode-js/), `TextEncoder` produces UTF-8 and `TextDecoder` reads it ([text and strings](../../../fundamentals/beginner/text-and-strings/) explains the general idea of an encoding):
+
+```javascript title="b64_text.mjs"
+const bytes = new TextEncoder().encode("héllo");
+const encoded = bytes.toBase64();
+console.log(bytes.length, encoded);
+
+const decoded = Uint8Array.fromBase64(encoded);
+console.log(new TextDecoder().decode(decoded));
+console.log(Uint8Array.fromBase64("aMOp\nbGxv").length);
+```
+
+```text
+6 aMOpbGxv
+héllo
+6
+```
+
+`toBase64()` is a method of every `Uint8Array`; `fromBase64()` is a static method that returns a new one. Whitespace inside the input is ignored, so base64 wrapped over several lines, as in PEM files and emails, decodes directly.
+
+## Alphabet and padding
+
+Formats differ in alphabet and padding. JSON Web Tokens, for example, use base64url without padding. Both choices are options:
+
+```javascript title="b64_url.mjs"
+const bytes = Uint8Array.of(0xfb, 0xff, 0xbf, 0x01);
+console.log(bytes.toBase64());
+console.log(bytes.toBase64({ alphabet: "base64url" }));
+console.log(bytes.toBase64({ alphabet: "base64url", omitPadding: true }));
+```
+
+```text
++/+/AQ==
+-_-_AQ==
+-_-_AQ
+```
+
+The bytes were chosen so that the encoding uses the two characters that differ between the alphabets. Put `+/+/AQ==` into a URL query and the `+` turns into a space when the server parses it; that is the bug base64url avoids.
+
+## Decoding strictly
+
+`fromBase64` throws `SyntaxError` on any character outside the chosen alphabet. The `lastChunkHandling` option says what to do with the final group of characters ([MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Uint8Array/fromBase64#lastchunkhandling)):
+
+- `"loose"` (the default) accepts a last group of two or three characters with or without padding.
+- `"strict"` requires the padding, and requires the unused bits of the last character to be zero, so every byte sequence has exactly one accepted encoding.
+- `"stop-before-partial"` decodes only complete groups and ignores an unfinished one, for input that is still arriving.
+
+```javascript title="b64_strict.mjs"
+const inputs = ["aGk=", "aGk", "aG k=", "a@k=", "-_-_AQ"];
+
+for (const input of inputs) {
+  try {
+    const bytes = Uint8Array.fromBase64(input, { lastChunkHandling: "strict" });
+    console.log(JSON.stringify(input), bytes);
+  } catch (error) {
+    console.log(JSON.stringify(input), error.name);
+  }
+}
+```
+
+```text
+"aGk=" Uint8Array(2) [ 104, 105 ]
+"aGk" SyntaxError
+"aG k=" Uint8Array(2) [ 104, 105 ]
+"a@k=" SyntaxError
+"-_-_AQ" SyntaxError
+```
+
+The unpadded `aGk` is refused only because of `"strict"`. The last input is valid base64url, but the default alphabet is standard base64, so `-` and `_` are errors. Decode untrusted input strictly, with the alphabet the format specifies, and treat a `SyntaxError` as bad input.
+
+## Hex
+
+`toHex()` writes lowercase hex; `fromHex()` accepts either case and throws `SyntaxError` on an odd length or a character that is not a hex digit. A SHA-256 hash from the Web Crypto API is a natural use:
+
+```javascript title="b64_hex.mjs"
+const data = new TextEncoder().encode("hello");
+const digest = await crypto.subtle.digest("SHA-256", data);
+console.log(new Uint8Array(digest).toHex());
+
+console.log(Uint8Array.fromHex("FF8800"));
+try {
+  Uint8Array.fromHex("abc");
+} catch (error) {
+  console.log(error.name);
+}
+```
+
+```text
+2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+Uint8Array(3) [ 255, 136, 0 ]
+SyntaxError
+```
+
+`crypto.subtle.digest` returns an `ArrayBuffer`, so a `Uint8Array` view goes over it before `toHex()`.
+
+## Decoding into an existing buffer
+
+`setFromBase64(text, options)` decodes into a `Uint8Array` you already have, instead of allocating a new one, and returns how many characters it **read** and how many bytes it **wrote**. `setFromHex` is the hex equivalent. When the target is too small, it stops at the last complete group that fits:
+
+```javascript title="b64_into.mjs"
+const target = new Uint8Array(8);
+const { read, written } = target.setFromBase64("aGVsbG8gd29ybGQ=");
+console.log(read, written);
+console.log(new TextDecoder().decode(target.subarray(0, written)));
+```
+
+```text
+8 6
+hello 
+```
+
+Combined with `"stop-before-partial"`, the `read` count makes a decoder for base64 that arrives in pieces, such as a stream of chunks cut at arbitrary places. Characters that were not read wait for the next piece:
+
+```javascript title="b64_into.mjs (continued)"
+function base64Decoder() {
+  let pending = "";
+  return (text, last = false) => {
+    pending += text;
+    const out = new Uint8Array(Math.ceil(pending.length / 4) * 3);
+    const { read, written } = out.setFromBase64(pending, {
+      lastChunkHandling: last ? "loose" : "stop-before-partial",
+    });
+    pending = pending.slice(read);
+    return out.subarray(0, written);
+  };
+}
+```
+
+Three pieces of `hello world`, none of them on a group boundary:
+
+```javascript title="b64_into.mjs (continued)"
+const decode = base64Decoder();
+const pieces = ["aGVsb", "G8gd2", "9ybGQ="];
+pieces.forEach((piece, i) => {
+  const bytes = decode(piece, i === pieces.length - 1);
+  console.log(JSON.stringify(new TextDecoder().decode(bytes)));
+});
+```
+
+```text
+"hel"
+"lo "
+"world"
+```
+
+## btoa and atob
+
+Browsers have long had `btoa` (bytes to base64) and `atob`, and Node has them as globals too. They work on **strings** in which each character stands for one byte, a format that predates `Uint8Array`. Give `btoa` a character above 255 and it throws; give `atob` the encoding of UTF-8 text and you get one character per byte:
+
+```javascript title="b64_btoa.mjs"
+try {
+  btoa("€");
+} catch (error) {
+  console.log(error.name);
+}
+console.log(atob("aMOpbGxv"));
+```
+
+```text
+InvalidCharacterError
+hÃ©llo
+```
+
+Encode text to bytes and use the `Uint8Array` methods. Keep `btoa` and `atob` for code that must run in old browsers.
+
+## Buffer, and Node 22 and 24
+
+Node's **`Buffer`** has done this job for years, through the encoding names `"base64"`, `"base64url"` and `"hex"`. Create buffers with `Buffer.from` or `Buffer.alloc`, never with `new Buffer()`, which is deprecated ([DEP0005](https://nodejs.org/api/deprecations.html#DEP0005)).
+
+```javascript title="b64_buffer.mjs"
+const buf = Buffer.from("héllo");
+console.log(buf.toString("base64"), buf.toString("hex"));
+console.log(Buffer.from("aMOpbGxv", "base64").toString());
+
+console.log(Buffer.from("ab@@cd", "base64"));
+console.log(Buffer.from("abc", "hex"));
+```
+
+```text
+aMOpbGxv 68c3a96c6c6f
+héllo
+<Buffer 69 b7 1d>
+<Buffer ab>
+```
+
+The last two lines show the difference that matters. `Buffer` is **lenient**: it skips characters it does not understand and stops at the first bad hex pair, without an error. The new methods throw. For input from outside, that strictness is worth having.
+
+Code that must also run on Node 22 or 24 can test for the method and fall back to `Buffer`. `Buffer.from(arrayBuffer, offset, length)` makes a `Buffer` view over the same memory without copying:
+
+```javascript title="b64_compat.mjs"
+function toBase64(bytes) {
+  if (typeof bytes.toBase64 === "function") return bytes.toBase64();
+  const { buffer, byteOffset, byteLength } = bytes;
+  return Buffer.from(buffer, byteOffset, byteLength).toString("base64");
+}
+
+console.log(toBase64(new TextEncoder().encode("héllo")));
+```
+
+```text frame="terminal"
+$ node b64_compat.mjs
+aMOpbGxv
+$ ~/node22/bin/node b64_compat.mjs
+aMOpbGxv
+```
+
+The fallback is lenient when decoding, so validate input yourself on the older versions.
+
+## When not to use base64
+
+- **For secrecy.** Base64 hides nothing. Encrypt with Web Crypto, or do not send the data.
+- **For large binary payloads.** Base64 inside JSON costs a third more bytes plus the work of encoding and decoding. Send the bytes as a binary body (`application/octet-stream`) or a multipart upload instead.
+- **For data that is already text.** JSON strings carry any Unicode text; encoding it again only makes it longer.
+
+## Common pitfalls
+
+- **Encoding a string directly.** There is no `"text".toBase64()`. Encode with `TextEncoder` first, and decode the result with `TextDecoder`.
+- **Mixing alphabets.** Decoding base64url with the default alphabet throws. Pass `alphabet: "base64url"`.
+- **Trusting `Buffer` to validate.** It silently drops bad characters. Use the `Uint8Array` methods, or check the input.
+- **Using `btoa` for Unicode.** It throws on characters above 255.
+
+## Exercises
+
+<Exercise title="Encode and decode a file">
+
+Write a temporary file holding the 256 byte values 0 to 255 in order. Read it back, encode the contents as base64 and as hex, print the length of each text and the first 16 characters of the hex, then decode both texts and print whether each result equals the original bytes. Remove the directory at the end. Expected output: `base64: 344 characters`, `hex: 512 characters`, `000102030405060708090a0b0c0d0e0f`, `true true`.
+
+<Solution>
+
+`readFile` returns a `Buffer`, and a `Buffer` is a `Uint8Array`, so it has `toBase64()` and `toHex()` too. Three bytes make four base64 characters, so 256 bytes need 86 groups, the last padded: 344 characters.
+
+```javascript title="b64_ex_file.mjs"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const equal = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+const dir = await mkdtemp(join(tmpdir(), "b64-"));
+const path = join(dir, "all-bytes.bin");
+await writeFile(path, Uint8Array.from({ length: 256 }, (_, i) => i));
+```
+
+The encoding and the check:
+
+```javascript title="b64_ex_file.mjs (continued)"
+const original = await readFile(path);
+const base64 = original.toBase64();
+const hex = original.toHex();
+console.log(`base64: ${base64.length} characters`);
+console.log(`hex: ${hex.length} characters`);
+console.log(hex.slice(0, 32));
+
+const fromBase64 = Uint8Array.fromBase64(base64);
+const fromHex = Uint8Array.fromHex(hex);
+console.log(equal(fromBase64, original), equal(fromHex, original));
+await rm(dir, { recursive: true });
+```
+
+```text
+base64: 344 characters
+hex: 512 characters
+000102030405060708090a0b0c0d0e0f
+true true
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="An unsigned token">
+
+A JSON Web Token is three base64url parts without padding, joined with dots. Write `encodePart(object)`, which turns an object into JSON, then UTF-8, then base64url without padding, and `decodePart(text)`, which reverses it. Build `header.payload` from `{ alg: "none" }` and `{ sub: "ada", name: "Ada Lovelace" }`, print it, then split it and print the decoded payload. Expected output: `eyJhbGciOiJub25lIn0.eyJzdWIiOiJhZGEiLCJuYW1lIjoiQWRhIExvdmVsYWNlIn0` and `{ sub: 'ada', name: 'Ada Lovelace' }`.
+
+<Solution>
+
+Decoding passes the same alphabet. Without a signature this token proves nothing about who made it; real tokens add a third part signed with a key, which the expert security module covers.
+
+```javascript title="b64_ex_token.mjs"
+const url = { alphabet: "base64url", omitPadding: true };
+
+function encodePart(object) {
+  const bytes = new TextEncoder().encode(JSON.stringify(object));
+  return bytes.toBase64(url);
+}
+
+function decodePart(text) {
+  const bytes = Uint8Array.fromBase64(text, { alphabet: "base64url" });
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+const token = [{ alg: "none" }, { sub: "ada", name: "Ada Lovelace" }]
+  .map(encodePart)
+  .join(".");
+console.log(token);
+console.log(decodePart(token.split(".")[1]));
+```
+
+```text
+eyJhbGciOiJub25lIn0.eyJzdWIiOiJhZGEiLCJuYW1lIjoiQWRhIExvdmVsYWNlIn0
+{ sub: 'ada', name: 'Ada Lovelace' }
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Parse hex colours">
+
+Write `parseColor(text)`, which accepts a CSS colour such as `#ff8800` (a `#` and exactly six hex digits) and returns `{ r, g, b }`, using `Uint8Array.fromHex`. It throws a `TypeError` with the message `not a colour: TEXT` when the text does not start with `#` or is not seven characters long; let `fromHex` report bad digits. Try `#ff8800`, `#FFFFFF`, `ff8800`, `#ff880` and `#gg0000`, printing either the object or the error's name. Expected output: `{ r: 255, g: 136, b: 0 }`, `{ r: 255, g: 255, b: 255 }`, `TypeError`, `TypeError`, `SyntaxError`.
+
+<Solution>
+
+The length check comes first because `fromHex` would accept a valid even number of digits of any length. Destructuring takes the three bytes in order.
+
+```javascript title="b64_ex_color.mjs"
+function parseColor(text) {
+  if (!text.startsWith("#") || text.length !== 7) {
+    throw new TypeError(`not a colour: ${text}`);
+  }
+  const [r, g, b] = Uint8Array.fromHex(text.slice(1));
+  return { r, g, b };
+}
+
+for (const text of ["#ff8800", "#FFFFFF", "ff8800", "#ff880", "#gg0000"]) {
+  try {
+    console.log(parseColor(text));
+  } catch (error) {
+    console.log(error.name);
+  }
+}
+```
+
+```text
+{ r: 255, g: 136, b: 0 }
+{ r: 255, g: 255, b: 255 }
+TypeError
+TypeError
+SyntaxError
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Hex doubles the size of the data; base64 adds a third. Both are encodings, not encryption.
+- `bytes.toBase64()`, `Uint8Array.fromBase64()`, `bytes.toHex()` and `Uint8Array.fromHex()` are ES2026 and in Node 26.
+- Options choose the `base64url` alphabet, drop padding, and set how strictly the last group is checked. Bad input throws `SyntaxError`.
+- `setFromBase64` and `setFromHex` decode into an existing array and report what they read and wrote, which supports streaming.
+- `btoa` and `atob` work on byte strings, not Unicode text. `Buffer` encodes the same formats on every Node version but decodes leniently.
+
+The next lesson goes back to JSON, which carries most of the data these encodings end up in, and handles the numbers and types it cannot represent on its own.

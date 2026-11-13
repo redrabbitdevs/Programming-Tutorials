@@ -1,0 +1,393 @@
+---
+language: javascript
+level: advanced
+module: Binary data and encoding
+order: 16
+title: Numeric precision
+description: Choose a strategy for exact arithmetic in JavaScript - scaled integers, BigInt fixed point with explicit rounding, compensated summation and exact decimal formatting - and see where Math.sumPrecise fits while it is still browser-only.
+minVersion: "22"
+objectives:
+  - Recognise the three ways floating-point sums go wrong
+  - Do money arithmetic in integer cents, including fair allocation of remainders
+  - Implement fixed-point decimals with BigInt and half-even rounding
+  - Sum floats accurately with compensated summation, and know what Math.sumPrecise adds
+  - Round only for display, with Intl.NumberFormat and decimal strings
+estimatedMinutes: 45
+fundamentals: ["fundamentals/beginner/05-expressions-and-operators"]
+---
+
+[The numbers lesson](../../beginner/numbers-js/) recommended whole cents for money and `BigInt` for large integers. This lesson turns that advice into working techniques and adds the cases it left out: dividing money without losing a cent, decimals with more places than cents, long sums of measurements, and rounding that does what an accountant expects. The [fundamentals lesson on operators](../../../fundamentals/beginner/expressions-and-operators/) explains why binary floating point cannot store 0.1; here the question is what to do about it.
+
+## Three ways a float sum goes wrong
+
+```javascript title="mp_float.mjs"
+let total = 0;
+for (let i = 0; i < 10; i++) total += 0.1;
+console.log(total, total === 1);
+
+console.log(1e20 + 1 - 1e20, 1e20 - 1e20 + 1);
+
+console.log((1.005).toFixed(2), (1.005).toPrecision(20));
+```
+
+```text
+0.9999999999999999 false
+0 1
+1.00 1.0049999999999998934
+```
+
+- **Representation error.** 0.1 is stored as a nearby binary fraction, and ten of those errors add up to a visible one.
+- **Absorption.** Added to 10<sup>20</sup>, a 1 is below the precision of the result and disappears, so the order of operations changes the answer.
+- **Rounding surprises.** `toFixed(2)` rounds the stored value, which is slightly below 1.005, so it rounds down.
+
+No single fix covers all three. Pick by what the numbers mean.
+
+## Money in integer cents
+
+For currency with a fixed number of decimal places, store whole minor units (cents) in ordinary numbers. Integers up to 2<sup>53</sup> are exact, which is about 90 trillion units of currency in cents. The important part is never to pass through a float on the way in. Parse the decimal text directly:
+
+```javascript title="mp_cents.mjs"
+function toCents(text) {
+  const match = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+  if (!match) throw new SyntaxError(`not an amount: ${text}`);
+  const [, sign, whole, fraction = ""] = match;
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  return sign ? -cents : cents;
+}
+
+function formatCents(cents) {
+  const sign = cents < 0 ? "-" : "";
+  const abs = Math.abs(cents);
+  const fraction = String(abs % 100).padStart(2, "0");
+  return `${sign}${Math.trunc(abs / 100)}.${fraction}`;
+}
+```
+
+Sums of cents are exact. Division is where money code usually loses a cent: one euro split three ways is 33.33 three times, which adds up to 99.99. **Allocation** hands out the remainder one cent at a time:
+
+```javascript title="mp_cents.mjs (continued)"
+function allocate(totalCents, parts) {
+  const base = Math.floor(totalCents / parts);
+  const remainder = totalCents - base * parts;
+  return Array.from({ length: parts }, (_, i) =>
+    i < remainder ? base + 1 : base,
+  );
+}
+
+const prices = ["0.10", "0.20", "19.99"].map(toCents);
+const sum = prices.reduce((a, b) => a + b, 0);
+console.log(prices, formatCents(sum));
+console.log(allocate(toCents("1.00"), 3).map(formatCents));
+```
+
+```text
+[ 10, 20, 1999 ] 20.29
+[ '0.34', '0.33', '0.33' ]
+```
+
+The parts always add up to the total. Who gets the extra cent is a business rule; the first parties is the simplest one.
+
+## BigInt fixed point
+
+When you need more decimal places than cents (interest rates, exchange rates, unit prices of a fraction of a cent), or amounts beyond 2<sup>53</sup>, use a `BigInt` that counts in units of 10<sup>−4</sup> or whatever scale you choose. `BigInt` division truncates toward zero, so every operation that divides must round explicitly. This sketch handles non-negative values only, to keep it short:
+
+```javascript title="mp_fixed.mjs"
+const SCALE = 10_000n; // four decimal places
+
+function parse(text) {
+  const [whole, fraction = ""] = text.split(".");
+  return BigInt(whole) * SCALE + BigInt(fraction.padEnd(4, "0"));
+}
+
+function format(value) {
+  const fraction = String(value % SCALE).padStart(4, "0");
+  return `${value / SCALE}.${fraction}`;
+}
+```
+
+**Half-even rounding** (also called banker's rounding) rounds a value exactly halfway to the even neighbour, so 0.5 goes to 0 and 1.5 to 2. Over many operations, half-up rounding drifts upward; half-even does not.
+
+```javascript title="mp_fixed.mjs (continued)"
+function divideRounded(n, d) {
+  const quotient = n / d;
+  const twiceRest = (n % d) * 2n;
+  if (twiceRest > d) return quotient + 1n;
+  if (twiceRest === d && quotient % 2n === 1n) return quotient + 1n;
+  return quotient;
+}
+
+function multiply(a, b) {
+  return divideRounded(a * b, SCALE);
+}
+```
+
+A product of two scaled numbers has the scale twice, so `multiply` divides by the scale once, with rounding. Some results:
+
+```javascript title="mp_fixed.mjs (continued)"
+console.log(format(parse("0.1") + parse("0.2")));
+console.log(format(multiply(parse("1.0005"), parse("0.5"))));
+console.log(format(multiply(parse("1.0015"), parse("0.5"))));
+
+const balance = parse("98765432109876.5432");
+console.log(format(multiply(balance, parse("1.0125"))));
+```
+
+```text
+0.3000
+0.5002
+0.5008
+100000000011250.0000
+```
+
+0.50025 rounded to 0.5002 and 0.50075 to 0.5008: both halfway cases went to the even last digit. The last line is far beyond what a double can hold exactly, and every digit is right. A production library also handles signs, division and parsing errors; the point here is that the rounding rule is yours to choose and must be written down.
+
+## Accurate float sums
+
+Measurements, statistics and physics are naturally floats; converting them to integers makes no sense. For long sums of floats, **compensated summation** keeps a second variable with the low-order bits that each addition lost, and adds them back at the end. This is Neumaier's variant, which also handles the absorption case:
+
+```javascript title="mp_sum.mjs"
+function compensatedSum(values) {
+  let sum = 0;
+  let compensation = 0;
+  for (const x of values) {
+    const t = sum + x;
+    if (Math.abs(sum) >= Math.abs(x)) compensation += sum - t + x;
+    else compensation += x - t + sum;
+    sum = t;
+  }
+  return sum + compensation;
+}
+```
+
+Compared with a plain `reduce`:
+
+```javascript title="mp_sum.mjs (continued)"
+const naive = (values) => values.reduce((a, b) => a + b, 0);
+const tenths = Array(10).fill(0.1);
+
+console.log(naive(tenths), compensatedSum(tenths));
+console.log(naive([1e20, 0.1, -1e20]), compensatedSum([1e20, 0.1, -1e20]));
+console.log(compensatedSum([0.1, 0.2]));
+```
+
+```text
+0.9999999999999999 1
+0 0.1
+0.30000000000000004
+```
+
+The last line is a reminder of the limit: the sum is now accurate for the numbers actually stored, and the stored 0.1 and 0.2 add up to slightly more than 0.3. Compensation removes errors from the adding, not from the inputs.
+
+### Math.sumPrecise
+
+ES2026 adds `Math.sumPrecise(iterable)`, which returns the exact mathematical sum of the stored values, rounded once to the nearest double ([MDN: Math.sumPrecise](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/sumPrecise)). It is Baseline newly available in browsers since April 2026, but **no Node release has it yet**, including Node 26, whose V8 predates it. Use it in browser code with a fallback:
+
+```javascript title="mp_sum_precise.mjs"
+import { compensatedSum } from "./compensated.mjs";
+
+export function sum(values) {
+  if (typeof Math.sumPrecise === "function") return Math.sumPrecise(values);
+  return compensatedSum(values);
+}
+```
+
+In a current browser, `Math.sumPrecise([1e20, 0.1, -1e20])` returns 0.1 and `Math.sumPrecise([0.1, 0.2])` still returns 0.30000000000000004, for the reason above. It throws `TypeError` if any element is not a number, and returns `-0` for an empty iterable.
+
+## Rounding for display only
+
+Keep full precision in calculations and round once, when you show the number. `Intl.NumberFormat` (from [the formatting lesson](../../intermediate/intl-formatting/)) rounds the shortest decimal form of a number, so it avoids the `toFixed` surprise. It also accepts a **decimal string**, which it formats exactly, with any number of digits, and a `roundingMode` option:
+
+```javascript title="mp_display.mjs"
+const twoPlaces = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+console.log((1.005).toFixed(2), twoPlaces.format(1.005));
+console.log(twoPlaces.format("12345678901234567891.125"));
+
+const halfEven = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2,
+  roundingMode: "halfEven",
+});
+console.log(halfEven.format("1.005"), halfEven.format("1.015"));
+```
+
+```text
+1.00 1.01
+12,345,678,901,234,567,891.13
+1 1.02
+```
+
+So the output of a `BigInt` fixed-point calculation can go to `Intl.NumberFormat` as the string from `format`, with no float in between.
+
+## When not to use exact arithmetic
+
+- **Measurements, graphics, physics and statistics.** The inputs are already approximate. Plain doubles are fast and accurate enough; compensate only very long sums.
+- **Everything, just in case.** `BigInt` is slower, does not mix with numbers (`1n + 1` throws), and has no `Math` functions. Use it where exactness is a requirement.
+- **Your own decimal library for production money.** The sketches above show the ideas. A real system needs negative values, currencies with different minor units, and audited rounding rules; use a well-tested library or the database's decimal type.
+
+## Common pitfalls
+
+- **Parsing money with `parseFloat` and multiplying by 100.** `parseFloat("1.15") * 100` is 114.99999999999999. Parse the text.
+- **Dividing money and rounding each share.** The shares no longer add up. Allocate the remainder.
+- **Truncating `BigInt` division.** `7n / 2n` is `3n`. Round explicitly.
+- **Rounding in the middle of a calculation.** Each rounding adds error. Round once, for display or storage.
+- **Expecting `Math.sumPrecise` in Node.** It is not in any Node release yet.
+
+## Exercises
+
+<Exercise title="Sum money three ways">
+
+Sum the prices `["1.10", "2.20", "3.30", "19.99"]` three ways and print each result as text: with `parseFloat` and a plain sum, printed with `String`; in integer cents using `toCents` from this lesson (copy it), printed with two decimals; and with the compensated sum over the `parseFloat` values, printed with `String`. Expected output: `float: 26.589999999999996`, `cents: 26.59`, `compensated: 26.59`.
+
+<Solution>
+
+Integer cents give the exact decimal answer by construction. The compensated sum lands on 26.59 here because the exact sum of the stored values is closest to the double for 26.59. That is not guaranteed for every list, which is why money belongs in cents.
+
+```javascript title="mp_ex_three.mjs"
+function toCents(text) {
+  const match = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+  if (!match) throw new SyntaxError(`not an amount: ${text}`);
+  const [, sign, whole, fraction = ""] = match;
+  const cents = Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
+  return sign ? -cents : cents;
+}
+
+function compensatedSum(values) {
+  let sum = 0;
+  let compensation = 0;
+  for (const x of values) {
+    const t = sum + x;
+    if (Math.abs(sum) >= Math.abs(x)) compensation += sum - t + x;
+    else compensation += x - t + sum;
+    sum = t;
+  }
+  return sum + compensation;
+}
+```
+
+The three sums:
+
+```javascript title="mp_ex_three.mjs (continued)"
+const prices = ["1.10", "2.20", "3.30", "19.99"];
+const floats = prices.map(parseFloat);
+
+const floatSum = floats.reduce((a, b) => a + b, 0);
+const cents = prices.map(toCents).reduce((a, b) => a + b, 0);
+
+console.log(`float: ${floatSum}`);
+console.log(`cents: ${Math.trunc(cents / 100)}.${String(cents % 100).padStart(2, "0")}`);
+console.log(`compensated: ${compensatedSum(floats)}`);
+```
+
+```text
+float: 26.589999999999996
+cents: 26.59
+compensated: 26.59
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Split a bill by weights">
+
+Write `allocateByWeight(totalCents, weights)`, which splits an amount in proportion to the weights: give each party `Math.floor(total * weight / sumOfWeights)`, then hand out the leftover cents one at a time, starting with the party whose exact share had the largest fractional part. Split 100.00 (10000 cents) by the weights `[1, 1, 1]` and 10.00 by `[50, 30, 20, 7]`, printing the shares and their sum. Expected output: `[ 3334, 3333, 3333 ] 10000` and `[ 467, 280, 187, 66 ] 1000`.
+
+<Solution>
+
+The "largest remainder" rule gives the extra cents to the parties that were closest to deserving another one. The fractional part is computed with integer arithmetic (`%`), so no float error decides who gets a cent. Ties keep the original order, because `toSorted` is stable.
+
+```javascript title="mp_ex_weights.mjs"
+function allocateByWeight(totalCents, weights) {
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  const shares = weights.map((w) => Math.floor((totalCents * w) / totalWeight));
+  const rests = weights.map((w) => (totalCents * w) % totalWeight);
+
+  let left = totalCents - shares.reduce((a, b) => a + b, 0);
+  const order = weights.map((_, i) => i).toSorted((a, b) => rests[b] - rests[a]);
+  for (const i of order) {
+    if (left === 0) break;
+    shares[i] += 1;
+    left -= 1;
+  }
+  return shares;
+}
+
+for (const [total, weights] of [[10000, [1, 1, 1]], [1000, [50, 30, 20, 7]]]) {
+  const shares = allocateByWeight(total, weights);
+  console.log(shares, shares.reduce((a, b) => a + b, 0));
+}
+```
+
+```text
+[ 3334, 3333, 3333 ] 10000
+[ 467, 280, 187, 66 ] 1000
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Compound interest in fixed point">
+
+Using `parse`, `format` and `multiply` from this lesson (copy them), start with a balance of `1000.0000` and apply a monthly rate of `1.0042` twelve times, rounding half-even to four places after each month. Do the same with ordinary numbers (`balance *= 1.0042`) and print both, the float with `toFixed(4)`, and the float's full value. Expected output: `fixed: 1051.5807`, `float: 1051.5807`, `float, full: 1051.5806944291164`.
+
+<Solution>
+
+Here the two agree to four places, but they did different things: the fixed-point version rounded every month, as a bank statement does, so its result is reproducible on any machine and in any language that follows the same rule. The float never rounded, and its last digits are an accident of binary representation.
+
+```javascript title="mp_ex_interest.mjs"
+const SCALE = 10_000n;
+
+function parse(text) {
+  const [whole, fraction = ""] = text.split(".");
+  return BigInt(whole) * SCALE + BigInt(fraction.padEnd(4, "0"));
+}
+
+function format(value) {
+  const fraction = String(value % SCALE).padStart(4, "0");
+  return `${value / SCALE}.${fraction}`;
+}
+```
+
+The rounding division and `multiply`, then the two loops:
+
+```javascript title="mp_ex_interest.mjs (continued)"
+function divideRounded(n, d) {
+  const quotient = n / d;
+  const twiceRest = (n % d) * 2n;
+  if (twiceRest > d) return quotient + 1n;
+  if (twiceRest === d && quotient % 2n === 1n) return quotient + 1n;
+  return quotient;
+}
+
+const multiply = (a, b) => divideRounded(a * b, SCALE);
+
+let fixed = parse("1000.0000");
+let float = 1000;
+for (let month = 0; month < 12; month++) {
+  fixed = multiply(fixed, parse("1.0042"));
+  float *= 1.0042;
+}
+console.log(`fixed: ${format(fixed)}`);
+console.log(`float: ${float.toFixed(4)}`);
+console.log(`float, full: ${float}`);
+```
+
+```text
+fixed: 1051.5807
+float: 1051.5807
+float, full: 1051.5806944291164
+```
+
+</Solution>
+
+</Exercise>
+
+## Summary
+
+- Float errors come from representation, absorption and rounding of the stored value. Choose a strategy by what the numbers mean.
+- Money: integer cents parsed from text, with remainders allocated so the parts add up.
+- More places or bigger amounts: `BigInt` fixed point, with an explicit rounding rule such as half-even on every division.
+- Measurements: doubles, with compensated summation for long sums. `Math.sumPrecise` does this exactly in browsers, but is in no Node release yet.
+- Round once, for display, with `Intl.NumberFormat`, which also formats decimal strings exactly.
+
+This ends the Binary data and encoding module. The last advanced module, Building and shipping, turns your code into packages, bundles and a deployed application.

@@ -1,0 +1,6 @@
+{
+  "name": "bnd-app",
+  "private": true,
+  "type": "module",
+  "imports": { "#format": "./src/format.js" }
+}

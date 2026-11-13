@@ -1,0 +1,7 @@
+"id" 12345678901234567000 { source: '12345678901234567891' }
+"price" 1.1 { source: '1.10' }
+"0" a { source: '"a"' }
+"1" null { source: 'null' }
+"tags" [ 'a', null ] {}
+"" { id: 12345678901234567000, price: 1.1, tags: [ 'a', null ] } {}
+12345678901234567891n bigint

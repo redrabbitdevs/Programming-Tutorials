@@ -1,0 +1,12 @@
+▶ inventory API errors
+  ✔ rejects a body that is not JSON
+  ✔ requires a quantity
+  ✔ always answers with JSON
+✔ inventory API errors
+ℹ tests 3
+ℹ suites 1
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
