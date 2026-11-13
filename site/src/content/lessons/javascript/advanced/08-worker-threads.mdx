@@ -89,7 +89,7 @@ worker says: { from: 0, to: 2000000, count: 148933 }
 exit code: 0
 ```
 
-While the worker counted, the main thread's event loop was free to run timers and handle requests. The worker exited by itself with code 0 when it had nothing left to do, exactly as a Node program does. `new URL("./file.mjs", import.meta.url)` builds the path relative to the current module, not to the directory the program was started from.
+While the worker counted, the main thread was free to run timers and handle requests. The worker exited by itself with code 0 when it had nothing left to do, as a Node program does. `new URL("./file.mjs", import.meta.url)` builds the path relative to the current module, not to the working directory.
 
 `once` has one more useful property: if the emitter emits `error` while you wait, the promise rejects ([events docs](https://nodejs.org/api/events.html#eventsonceemitter-name-options)). A worker that crashes therefore turns into a rejected `await`.
 
@@ -138,11 +138,11 @@ true false
 DataCloneError
 ```
 
-Unlike JSON, structured clone keeps `Date`, `Map`, `Set`, `RegExp`, `BigInt` and typed arrays, and it handles the circular `self` reference. But it does not walk the prototype chain: a class instance arrives as a plain object with its own data properties, and getters and methods are gone. Functions cannot be cloned at all and throw a `DataCloneError` ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm)). Send plain data, and rebuild class instances on the other side if you need them.
+Unlike JSON, structured clone keeps `Date`, `Map`, `Set`, `RegExp`, `BigInt` and typed arrays, and handles the circular `self` reference. But it ignores the prototype chain: a class instance arrives as a plain object with its own data properties, without getters or methods. Functions throw a `DataCloneError` ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm)). Send plain data, and rebuild class instances on the other side.
 
 ### Transferring instead of copying
 
-Copying a 100 MB buffer to a worker costs time and doubles the memory. `postMessage(value, transferList)` can **transfer** an `ArrayBuffer` instead: the memory moves to the receiver, and the sender's buffer becomes detached, with a length of 0. A `MessageChannel` gives two connected ports in the same thread, which is enough to see this:
+An `ArrayBuffer` is a fixed block of raw bytes, and a typed array such as `Uint8Array` is a view that reads those bytes as numbers of one type; [the typed arrays lesson](../arraybuffer-typedarrays/) teaches both in depth. Copying a 100 MB buffer to a worker costs time and doubles the memory. `postMessage(value, transferList)` can **transfer** an `ArrayBuffer` instead: the memory moves to the receiver, and the sender's buffer becomes detached, with a length of 0. A `MessageChannel` gives two connected ports in the same thread, which is enough to see this:
 
 ```javascript title="wt_transfer.mjs"
 import { MessageChannel } from "node:worker_threads";
@@ -170,11 +170,11 @@ after a transfer: 0
 received: [ 1048576, 1048576 ]
 ```
 
-The receiver got a megabyte both times, but the second time the sender lost its copy. Every view on a transferred buffer becomes unusable. Node `Buffer`s need care: those made by `Buffer.from()` or `Buffer.allocUnsafe()` live in a shared internal pool, cannot be transferred, and are cloned together with the whole pool ([worker_threads docs](https://nodejs.org/api/worker_threads.html#considerations-when-transferring-typedarrays-and-buffers)). To share memory rather than hand it over, use a `SharedArrayBuffer`, the subject of the next lesson.
+The receiver got a megabyte both times, but the second time the sender lost its copy, and every view on it became unusable. Small `Buffer`s from `Buffer.from()` or `Buffer.allocUnsafe()` live in a shared internal pool and cannot be transferred ([worker_threads docs](https://nodejs.org/api/worker_threads.html#considerations-when-transferring-typedarrays-and-buffers)). To share memory rather than hand it over, use a `SharedArrayBuffer`, the subject of the next lesson.
 
 ## A worker pool
 
-Starting a worker means starting a new JavaScript environment that loads its own copy of every module it imports. Doing that for each small task wastes most of the gain, and the Node documentation advises a pool of workers instead ([worker_threads docs](https://nodejs.org/api/worker_threads.html)). A pool starts a fixed number of workers once, then feeds them tasks from a queue:
+Starting a worker starts a new JavaScript environment that loads its own copy of every module it imports. Doing that per task wastes most of the gain, so use a pool ([worker_threads docs](https://nodejs.org/api/worker_threads.html)): start a fixed number of workers once, then feed them tasks from a queue:
 
 ```javascript title="worker_pool.mjs"
 import { Worker } from "node:worker_threads";
@@ -257,9 +257,9 @@ per chunk: 22044 19494 18700 18260 17971 17686 17453 17325
 total: 148933
 ```
 
-The chunks finish in whatever order the threads get through them, but `Promise.all` keeps the results in input order, so the output is the same on every run and on every machine. Chunks later in the range hold fewer primes but cost more per number, so equal-sized chunks do not take equal time. Using more chunks than workers keeps every worker busy until the end.
+The chunks finish in any order, but `Promise.all` keeps the results in input order, so the output is the same on every run. Later chunks cost more per number, so equal-sized chunks do not take equal time; more chunks than workers keeps every worker busy until the end.
 
-This pool is deliberately small. A production pool also replaces a worker that crashes, rejects the task it was running, and reports to diagnostic tools through `AsyncResource`, as the Node documentation describes.
+A production pool also replaces a worker that crashes, rejects the task it was running, and reports to diagnostic tools through `AsyncResource`.
 
 ## When a worker crashes
 
@@ -315,12 +315,12 @@ self.addEventListener("message", (event) => {
 });
 ```
 
-Serve both files and `primes.mjs` from the same origin; a worker script must be same-origin with the page ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/Worker/Worker)). The point in a browser is the same as in Node: a long computation in the page's main thread freezes scrolling, clicks and rendering, and in a worker it does not.
+Serve both files and `primes.mjs` from the same origin, as a worker script must be ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/Worker/Worker)). A long computation in the page's main thread freezes scrolling, clicks and rendering; in a worker it does not.
 
 ## When workers cost more than they save
 
-- **I/O-bound work.** Reading files, querying databases and calling APIs is already concurrent on the main thread. The Node documentation says workers "do not help much with I/O-intensive work". Use the patterns from the previous lesson instead.
-- **Small tasks.** Starting a worker and cloning data to it and back has a fixed cost. If the task is quicker than that, the worker makes the program slower. Measure with your real workload before and after.
+- **I/O-bound work.** Reading files, querying databases and calling APIs is already concurrent on the main thread. Use the patterns from the previous lesson instead.
+- **Small tasks.** Starting a worker and cloning data to it and back has a fixed cost. If the task is quicker than that, the worker makes the program slower. Measure with your real workload.
 - **Large inputs that must be copied.** Cloning a big object graph can cost more than the computation on it. Transfer buffers, or send only what the worker needs.
 - **More workers than cores.** Threads beyond `availableParallelism()` compete for the same cores and add memory, since every worker has its own heap and module copies.
 

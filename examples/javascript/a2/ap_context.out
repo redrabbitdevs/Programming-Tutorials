@@ -1,0 +1,8 @@
+[A] start
+[B] start
+[B] done after 1 turns
+[A] done after 2 turns
+[C] timer
+[-] outside any request
+[emit] plain listener
+[on] bound listener

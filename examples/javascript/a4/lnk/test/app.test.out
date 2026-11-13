@@ -1,12 +1,13 @@
 ▶ link shortener
   ✔ shortens a link and redirects to it
   ✔ rejects links that are not http or https
-  ✔ rejects bodies over the size limit
+  ✔ answers 413 when the body is over 10,000 bytes
+  ✔ decodes a character split across two chunks
   ✔ serves the page and 404s unknown codes
 ✔ link shortener
-ℹ tests 4
+ℹ tests 5
 ℹ suites 1
-ℹ pass 4
+ℹ pass 5
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0

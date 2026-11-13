@@ -16,13 +16,13 @@ estimatedMinutes: 55
 fundamentals: []
 ---
 
-Metaprogramming is code that works on the behaviour of other code. You have met two kinds of it already. [Property descriptors](../../intermediate/property-descriptors/) let you change what a single property does when it is read or assigned. [Well-known symbols](../../intermediate/symbols/) such as `Symbol.iterator` and `Symbol.toPrimitive` let an object take part in a language protocol. Both work one property or one protocol at a time.
+[Property descriptors](../../intermediate/property-descriptors/) change what one property does, and [well-known symbols](../../intermediate/symbols/) such as `Symbol.iterator` let an object join a language protocol, one property or protocol at a time.
 
-A **proxy** goes further. It wraps an object and intercepts the basic operations on it: reading any property, assigning, checking with `in`, deleting, listing keys, even calling it when it is a function. That includes properties nobody has defined yet. This lesson shows how proxies work, how `Reflect` forwards operations correctly, the rules a proxy may not break, and the cost that should make you hesitate before you reach for one. Proxies and `Reflect` are ES2015 and run on every Node version this course supports.
+A **proxy** goes further. It wraps an object and intercepts the basic operations on it: reading any property, even an undefined one, assigning, `in`, `delete`, listing keys, and calling. Proxies and `Reflect` are ES2015 and run on every supported Node version.
 
 ## A first proxy
 
-`new Proxy(target, handler)` creates a proxy. The **target** is the object being wrapped. The **handler** is an object whose methods, called **traps**, replace the default behaviour of an operation. An operation that has no trap goes straight to the target.
+`new Proxy(target, handler)` wraps the **target**. The **handler**'s methods, called **traps**, replace the default behaviour of an operation; an operation with no trap goes straight to the target.
 
 ```javascript title="proxy_basics.mjs"
 const target = { name: "Ada" };
@@ -46,14 +46,14 @@ undefined
 ada@example.com false
 ```
 
-- The `get` trap receives the target and the key, and decides what a read returns. A missing property now reads as `"(none)"` instead of `undefined`.
-- The target is untouched: reading `target.email` directly still gives `undefined`.
-- The handler has no `set` trap, so the assignment falls through and lands on the target.
-- The proxy is a different object from its target. Code that holds the target bypasses every trap.
+- The `get` trap decides what a read returns: a missing property now reads as `"(none)"`.
+- The target is untouched: `target.email` is still `undefined`.
+- With no `set` trap, the assignment falls through to the target.
+- The proxy is a different object, and code that holds the target bypasses every trap.
 
 ## Traps and the operations behind them
 
-Every operation on an object is defined in the specification as one of a small set of **internal methods**, such as `[[Get]]`, `[[Set]]` or `[[OwnPropertyKeys]]`. A proxy has one trap per internal method, 13 in all:
+The specification defines every object operation through 13 **internal methods**, such as `[[Get]]` and `[[OwnPropertyKeys]]`, and a proxy has one trap for each:
 
 | Trap | Triggered by |
 |---|---|
@@ -66,7 +66,7 @@ Every operation on an object is defined in the specification as one of a small s
 | `isExtensible`, `preventExtensions` | the extensibility checks and `Object.preventExtensions` |
 | `apply`, `construct` | calling a function, and `new` (function targets only) |
 
-The table is a guide, not the whole story. Many operations use several internal methods, and the quickest way to see which is to log them. **`Reflect`** is a built-in object with one function per trap, with the same name and the same parameters, and each does exactly what the default operation would do. That makes a logging handler short:
+Many operations use several internal methods; to see which, log them. **`Reflect`** is a built-in object with one function per trap, with the same name and parameters, each doing exactly what the default operation does. That makes a logging handler short:
 
 ```javascript title="trap_log.mjs"
 const names = ["get", "set", "has", "deleteProperty", "ownKeys",
@@ -108,11 +108,11 @@ delete         deleteProperty
 Object.keys    ownKeys, getOwnPropertyDescriptor, getOwnPropertyDescriptor
 ```
 
-The output holds two surprises. An assignment fires `set`, and then `getOwnPropertyDescriptor` and `defineProperty` as well: the default `[[Set]]` checks whether the property exists and then defines it, and because the proxy was passed along as the receiver, those steps went through the proxy's traps too. `Object.keys` asks for the list of keys and then for each key's descriptor, because it must skip keys that are not enumerable. Logging is how you find out what your traps will see.
+Two surprises. An assignment fires `set`, then `getOwnPropertyDescriptor` and `defineProperty`: the default `[[Set]]` checks the property and then defines it on the receiver, which is the proxy. `Object.keys` reads each key's descriptor to skip non-enumerable keys. Logging shows what your traps will see.
 
 ## Reflect and the receiver
 
-The `get` and `set` traps receive a third argument, the **receiver**: the object the operation started on, which is normally the proxy itself. It matters when the property is a getter or setter, because the receiver becomes `this` inside it. Compare a trap that reads `obj[key]` with one that calls `Reflect.get(obj, key, receiver)`:
+The `get` and `set` traps receive a third argument, the **receiver**: the object the operation started on, normally the proxy. For a getter or setter, the receiver becomes `this`. Compare forwarding with `obj[key]` and with `Reflect.get(obj, key, receiver)`:
 
 ```javascript title="receiver.mjs"
 const person = {
@@ -147,9 +147,9 @@ console.log(correct.greeting);
 Hello, friend
 ```
 
-In the first proxy, `obj[key]` runs the getter with `this` set to the target, so `this.nickname` skips the proxy and finds nothing. `Reflect.get` with the receiver runs the getter with `this` set to the proxy, so the getter's own read goes through the trap and gets the default. The rule is simple: **forward with `Reflect` and pass every argument the trap received**. The habit also covers objects that inherit from a proxy, where the receiver is the inheriting object rather than the proxy.
+With `obj[key]`, the getter runs with `this` set to the target, so `this.nickname` skips the proxy and finds nothing. `Reflect.get` with the receiver runs it with `this` set to the proxy, so the getter's own read goes through the trap. The rule: **forward with `Reflect` and pass every argument the trap received**. It also covers objects that inherit from a proxy.
 
-`Reflect` has a second advantage over the older `Object` functions. Where `Object.defineProperty` throws when it cannot define a property, `Reflect.defineProperty` returns `false`, and `Reflect.set` returns whether the assignment worked. Traps such as `set` and `defineProperty` must return a boolean too, so the `Reflect` result is exactly what they need to pass back.
+`Reflect` also reports failure differently: `Reflect.defineProperty` returns `false` where `Object.defineProperty` throws, and `Reflect.set` returns whether the assignment worked. Traps such as `set` and `defineProperty` must return a boolean, so the `Reflect` result is exactly what to pass back.
 
 ```javascript title="reflect_booleans.mjs"
 const frozen = Object.freeze({ id: 1 });
@@ -176,7 +176,7 @@ TypeError
 
 ## A validating model
 
-The most common real use of a proxy is to check values as they are assigned. Here the rules live in a schema object, so any property it names is checked, and a property it does not name is refused.
+The most common use of a proxy is checking values as they are assigned. Here the rules live in a schema: a property it names is checked, and any other is refused.
 
 ```javascript title="validating_model.mjs"
 function model(schema, initial) {
@@ -219,9 +219,9 @@ bad value for "age": 37.5
 unknown field "email"
 ```
 
-Two details are worth copying. `String(key)` in the first message turns a symbol key into text, since a template literal throws on a symbol. And the initial values are copied with spread into a fresh target, so that nobody else holds a reference to the unchecked object.
+`String(key)` turns a symbol key into text, since a template literal throws on a symbol. The initial values are spread into a fresh target, so nobody holds a reference to the unchecked object.
 
-The same trap can tell other code about a change instead of refusing it. This is the core of an **observable** object, one that lets other code react when its data changes:
+The same trap can report a change instead of refusing it, which is the core of an **observable** object:
 
 ```javascript title="observable.mjs"
 function observable(target, onChange) {
@@ -250,11 +250,11 @@ items: 0 -> 2
 items: 2 -> 3
 ```
 
-The second assignment stores the same value, so no change is reported. Note what this watcher does not see: a change inside a nested object such as `cart.address.city = "Oslo"` reads `address` through the proxy and then assigns on the plain inner object. Watching nested data means wrapping each nested object as it is read, which is where proxy-based libraries get complicated.
+The second assignment stores the same value, so nothing is reported. Nested changes are missed: `cart.address.city = "Oslo"` reads `address` through the proxy, then assigns on the plain inner object. Watching nested data means wrapping each object as it is read.
 
 ## Invariants: the rules a trap cannot break
 
-A trap may answer almost anything, but not everything. The specification defines **invariants** that keep a proxy consistent with its target. They mostly protect properties that are non-configurable and non-writable, and targets that are not extensible: a promise made by the target must still hold when you look through the proxy. When a trap breaks one, the operation throws a `TypeError`.
+A trap may answer almost anything, but not everything. **Invariants** keep a proxy consistent with its target, mostly for non-configurable, non-writable properties and non-extensible targets: what the target promises must still hold through the proxy. A trap that breaks one makes the operation throw a `TypeError`.
 
 ```javascript title="invariants.mjs"
 const target = {};
@@ -281,7 +281,7 @@ TypeError
 99
 ```
 
-`id` was defined with `defineProperty`, so it is non-writable and non-configurable ([the descriptor defaults](../../intermediate/property-descriptors/)). A `get` trap may not report a different value for it, and a `has` trap may not hide it. On an ordinary property, the same lying trap is allowed. In practice you meet invariants when you proxy a frozen object and try to change what it reports. The fix is to give the proxy a different target, such as an empty object, and look values up elsewhere.
+`id` was defined with `defineProperty`, so it is non-writable and non-configurable ([the descriptor defaults](../../intermediate/property-descriptors/)). A `get` trap may not report another value for it, and a `has` trap may not hide it; on an ordinary property both lies are allowed. To proxy a frozen object, give the proxy a different target and look values up elsewhere.
 
 ## Proxying functions
 
@@ -309,11 +309,11 @@ console.log(max.name, max.length);
 max 2
 ```
 
-Because only `apply` is trapped, `max.name` and `max.length` read straight from the target. An ordinary wrapper function such as `(...args) => fn(...args)` would do the counting just as well, and would be faster. A function proxy earns its place when the wrapper must look exactly like the original, properties and all.
+Only `apply` is trapped, so `max.name` and `max.length` read from the target. A plain wrapper such as `(...args) => fn(...args)` counts just as well, and faster; a function proxy earns its place when the wrapper must look exactly like the original.
 
 ## Revocable proxies
 
-`Proxy.revocable(target, handler)` returns a proxy together with a `revoke` function. After `revoke()`, every operation on the proxy throws a `TypeError`. This lets you hand out access for a limited time, such as to a plugin during set-up only.
+`Proxy.revocable(target, handler)` returns a proxy and a `revoke` function. After `revoke()`, every operation on the proxy throws a `TypeError`, which lets you hand out access for a limited time, such as to a plugin during set-up.
 
 ```javascript title="revocable.mjs"
 const { proxy: settings, revoke } = Proxy.revocable({ theme: "dark" }, {});
@@ -337,7 +337,7 @@ TypeError
 
 A proxy is a separate object, and some things refuse to work through one.
 
-**Private fields.** A `#field` belongs to the object the constructor created, not to a proxy of it. A method called through the proxy runs with `this` set to the proxy, and the private read fails ([private elements](../../intermediate/private-and-static/) are not properties, so no trap can forward them).
+**Private fields.** A `#field` belongs to the object the constructor created. A method called through the proxy runs with `this` set to the proxy, and the private read fails: [private elements](../../intermediate/private-and-static/) are not properties, so no trap can forward them.
 
 ```javascript title="proxy_limits.mjs"
 class Account {
@@ -359,7 +359,7 @@ try {
 TypeError
 ```
 
-**Built-ins with internal slots.** A `Map`, `Set`, `Date` or promise stores its data in an internal slot, which only the real object has. Calling `Map.prototype.get` with the proxy as `this` fails in the same way. The workaround is a `get` trap that binds methods to the target:
+**Built-ins with internal slots.** A `Map`, `Set`, `Date` or promise keeps its data in an internal slot that only the real object has, so `Map.prototype.get` with the proxy as `this` fails too. A `get` trap that binds methods to the target works around it:
 
 ```javascript title="proxy_limits.mjs (continued)"
 const plain = new Proxy(new Map([["a", 1]]), {});
@@ -385,37 +385,28 @@ TypeError
 
 `size` is a getter on `Map.prototype`, so the trap passes the map itself as the receiver instead of the proxy.
 
-**Identity.** `proxy === target` is `false`, so a proxy used as a `Map` key or a `Set` member is a different entry from its target. `instanceof` still works, because it asks the `getPrototypeOf` trap and the default answer is the target's prototype.
+**Identity.** `proxy === target` is `false`, so as a `Map` key or `Set` member a proxy is a different entry from its target. `instanceof` still works, through the default `getPrototypeOf`.
 
-**What the console shows.** Printing a proxy with `console.log` does not run its traps. Node shows the target's own contents, which may not be what your code sees through the proxy. Node 26 labels the output `Proxy(...)`, and Node 22 and 24 print the target as if it were a plain object.
+**The console.** `console.log` does not run a proxy's traps: Node shows the target's own contents, which may differ from what your code sees. Node 26 labels the output `Proxy(...)`; Node 22 and 24 print the target as a plain object.
 
 ## When not to use a Proxy
 
-A proxy changes the meaning of the most basic operations in the language. That is its power and its cost, and it is the wrong tool more often than the right one.
+**It is slow on hot paths.** In one test run on Node 26, a read through a forwarding `get` trap was about 60 times slower than a plain read. Measure your own hot path, and keep proxies away from data a tight loop reads.
 
-**It is slow on hot paths.** Engines optimise ordinary property access heavily, and a proxy takes every operation off that path. On my machine (Node 26.11.1 on a 2.1 GHz Xeon virtual machine), a loop of 100 million reads of one property took about 60 ms on a plain object, about 1.4 s through a proxy with an empty handler, and about 3.8 s through a proxy whose `get` trap forwarded with `Reflect.get`. The exact ratio will differ on your machine and between Node versions, but the order of magnitude is the point: do not put a proxy in front of data that a tight loop reads.
+**It is hard to debug.** The behaviour lives in a handler far from the line that reads `user.age`, stack traces gain trap frames, and nobody can tell from `cart.items += 1` that a callback runs.
 
-**It is hard to debug.** Behaviour lives in a handler that is nowhere near the line that reads `user.age`. Stack traces gain trap frames, the console shows the target rather than what the traps report, and an assignment that throws looks like ordinary code from the outside. A reader cannot tell from `cart.items += 1` that a callback runs.
+**It surprises other code**, as the previous section showed. A known set of properties is better served by setters or an explicit `validate()` call where data enters, read-only data by `Object.freeze`, call counting by a [wrapper function](../../beginner/higher-order-functions/), and protocols by well-known symbols.
 
-**It surprises other code.** Private fields, `Map`s and other built-ins fail through a proxy, identity checks fail, and libraries that inspect objects may get answers that differ from what the traps say.
-
-Prefer the plain tools when they fit:
-
-- A known, fixed set of properties to validate: a class with setters or [accessor descriptors](../../intermediate/property-descriptors/), or an explicit `validate(object)` function called at the boundary where data enters.
-- Read-only data: `Object.freeze`, which costs nothing on reads.
-- Logging or counting calls: a wrapper function (the [higher-order functions](../../beginner/higher-order-functions/) pattern).
-- Hooking into a language protocol: a well-known symbol method such as `Symbol.iterator`.
-
-Reach for a proxy when the set of keys is open-ended or unknown in advance, when the wrapper must be indistinguishable from the original, or when you are building a tool whose whole job is interception: test doubles, change tracking in a framework, access control around an object you hand to other code. Keep the handler small, forward everything you do not change with `Reflect`, and leave a comment where the proxy is created.
+Reach for a proxy when the set of keys is open-ended, when the wrapper must be indistinguishable from the original, or when interception is the tool's whole job: test doubles, change tracking, access control. Keep the handler small, and forward everything else with `Reflect`.
 
 ## Common pitfalls
 
-- **Forwarding with `obj[key]` instead of `Reflect.get(obj, key, receiver)`.** Getters and setters then run against the target and skip your traps.
-- **Forgetting to return `true` from `set`, `deleteProperty` or `defineProperty`.** In a module, which is always strict, a falsy return makes the assignment throw a `TypeError`. Returning the `Reflect` result avoids the problem.
-- **Putting a template literal around a symbol key.** Keys can be symbols, such as `Symbol.iterator` or Node's inspection symbols. Use `String(key)`.
-- **Proxying a frozen object and expecting to change what it reports.** The invariants forbid it. Use a different target.
-- **Keeping a reference to the target.** Writes through it bypass every check. Create the target inside the function that creates the proxy.
-- **Proxying class instances with private fields, or built-ins.** Bind methods to the target, or avoid the proxy.
+- **Forwarding with `obj[key]`.** Getters and setters then run against the target. Use `Reflect.get(obj, key, receiver)`.
+- **Not returning `true` from `set`, `deleteProperty` or `defineProperty`.** In a module a falsy return throws a `TypeError`. Return the `Reflect` result.
+- **A template literal around a symbol key.** It throws. Use `String(key)`.
+- **Proxying a frozen object to change what it reports.** The invariants forbid it. Use a different target.
+- **Keeping a reference to the target.** Writes through it bypass every check.
+- **Proxying private fields or built-ins.** Bind methods to the target, or avoid the proxy.
 
 ## Exercises
 
@@ -556,11 +547,11 @@ ReferenceError no property "prot"
 
 ## Summary
 
-- `new Proxy(target, handler)` intercepts the basic operations on an object. Each trap corresponds to one internal method, and an operation without a trap goes to the target.
-- `Reflect` offers the default behaviour of every trap as a function with the same name and parameters. Forward with it, passing the receiver, and return its boolean results from `set`, `deleteProperty` and `defineProperty`.
-- Common uses are validation, change notification, default values and controlled access, with `Proxy.revocable` to withdraw access.
-- Invariants stop a trap from contradicting non-configurable properties and non-extensible targets, and violations throw a `TypeError`.
-- Private fields and built-ins with internal slots do not work through a plain proxy, and a proxy is never identical to its target.
-- Proxies are much slower than plain property access and hide behaviour from readers and debuggers. Prefer setters, `Object.freeze`, wrapper functions or explicit validation when they are enough.
+- `new Proxy(target, handler)` intercepts the basic operations on an object, one trap per internal method.
+- `Reflect` does each default operation. Forward with it, pass the receiver, and return its boolean results.
+- Proxies suit validation, change notification, defaults and controlled access; `Proxy.revocable` withdraws access.
+- Invariants stop a trap from contradicting non-configurable properties and non-extensible targets.
+- Private fields and built-ins with internal slots fail through a plain proxy, and a proxy is never its target.
+- Proxies are slow and hide behaviour. Prefer setters, `Object.freeze`, wrappers or explicit validation when they are enough.
 
 Next: [tagged templates](../tagged-templates/), the other piece of syntax that lets a function take over part of the language.

@@ -1,13 +1,16 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { setTimeout as delay } from "node:timers/promises";
 import { createApp } from "../server/app.mjs";
 import { createStore } from "../server/store.mjs";
 
 describe("link shortener", () => {
+  const lines = [];
   let server;
   let base;
   before(async () => {
-    server = createApp(createStore());
+    const write = (line) => lines.push(line);
+    server = createApp(createStore(), { write });
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${server.address().port}`;
   });
@@ -23,6 +26,7 @@ describe("link shortener", () => {
     assert.equal(created.status, 201);
     const { code } = await created.json();
     assert.equal(code, "g8");
+    assert.deepEqual(lines, ["req 1: created g8"]);
 
     const visit = await fetch(`${base}/${code}`, { redirect: "manual" });
     assert.equal(visit.status, 302);
@@ -40,10 +44,31 @@ describe("link shortener", () => {
     }
   });
 
-  it("rejects bodies over the size limit", async () => {
-    const url = `https://example.com/${"x".repeat(20_000)}`;
+  it("answers 413 when the body is over 10,000 bytes", async () => {
+    const url = `https://example.com/${"é".repeat(6_000)}`;
     const response = await shorten({ url });
-    assert.equal(response.status, 400);
+    assert.equal(response.status, 413);
+    assert.deepEqual(await response.json(), { error: "body too large" });
+    assert.match(lines.at(-1), /^req \d+: 413 body too large$/);
+  });
+
+  it("decodes a character split across two chunks", async () => {
+    const json = JSON.stringify({ url: "https://example.com/café" });
+    const bytes = new TextEncoder().encode(json);
+    const cut = bytes.indexOf(0xa9); // between the two bytes of é
+    const body = new ReadableStream({
+      async start(controller) {
+        controller.enqueue(bytes.subarray(0, cut));
+        await delay(50);
+        controller.enqueue(bytes.subarray(cut));
+        controller.close();
+      },
+    });
+    const init = { method: "POST", body, duplex: "half" };
+    const response = await fetch(`${base}/api/links`, init);
+    assert.equal(response.status, 201);
+    const link = await response.json();
+    assert.equal(link.url, "https://example.com/café");
   });
 
   it("serves the page and 404s unknown codes", async () => {

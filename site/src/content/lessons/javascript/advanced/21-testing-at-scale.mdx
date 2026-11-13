@@ -25,7 +25,7 @@ fundamentals: ["fundamentals/beginner/25-testing-mindset"]
 
 Each test file runs in its **own child process** by default. A file cannot see another file's global variables or module state, and a crash in one file does not take the others down. Files run in parallel, up to one less than the number of CPU cores (`--test-concurrency` changes that). Tests **inside** a file share one process and run one after the other.
 
-Two flags change the model. <Since v="22.8" /> `--test-isolation=none` runs every file in the runner's own process, which starts faster but lets files affect each other. `--test-shard=1/3` runs only the first third of the files, so CI can split a slow suite across three machines.
+Two flags change the model. <Since v="23.6" /> `--test-isolation=none` runs every file in the runner's own process, which starts faster but lets files affect each other; Node 22 spells it `--experimental-test-isolation=none`. `--test-shard=1/3` runs only the first third of the files, so CI can split a slow suite across three machines.
 
 ## Independent tests
 
@@ -59,7 +59,7 @@ test("lists the cart", () => {
 ℹ todo 0
 ```
 
-Both pass, in the order written. (Durations are left out of the reports in this lesson.) <Since v="26.1" /> `--test-randomize` shuffles the order of files and of the tests within them, and prints the seed it used; `--test-random-seed=N` repeats a particular order ([CLI docs](https://nodejs.org/api/cli.html#--test-randomize)):
+Both pass, in the order written. (Durations are left out of the reports in this lesson.) <Since v="24.16" /> `--test-randomize` shuffles the order of files and of the tests within them, and prints the seed it used; `--test-random-seed=N` repeats a particular order ([CLI docs](https://nodejs.org/api/cli.html#--test-randomize)):
 
 ```text frame="terminal"
 $ node --test --test-random-seed=1 order.test.mjs
@@ -337,15 +337,15 @@ jobs:
       matrix:
         node: [22, 24, 26]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm test
 ```
 
-The matrix runs the job three times, once per version. `npm ci` installs exactly what the lock file says. Put the coverage flags into the `test` script in `package.json`, so CI and developers run the same command.
+The matrix runs the job three times, once per version. Action versions move on: check each action's README for its current major before you copy a workflow (v7 for both in November 2026). `npm ci` installs exactly what the lock file says. Put the coverage flags into the `test` script in `package.json`, so CI and developers run the same command.
 
 ## When not to add more tests
 
@@ -356,7 +356,7 @@ The matrix runs the job three times, once per version. `npm ci` installs exactly
 
 ## Common pitfalls
 
-- **Shared state between tests.** Create state per test; try `--test-randomize` on Node 26 to find dependencies.
+- **Shared state between tests.** Create state per test; try `--test-randomize` on Node 24.16 or later to find dependencies.
 - **Fixed ports.** Two files using port 3000 collide when run in parallel. Listen on port 0.
 - **Unseeded randomness.** A failure you cannot reproduce cannot be fixed. Seed every generator and print the seed.
 - **Forgetting to close servers and timers.** The test process cannot exit while they are open. Close them in `after`.
@@ -551,7 +551,7 @@ test("chunks have the right lengths", () => {
 ## Summary
 
 - `node --test` finds test files by name, runs each in its own process, and runs files in parallel; `--test-shard` splits a suite across machines.
-- Tests must not depend on each other. <Since v="26.1" /> `--test-randomize` and `--test-random-seed` expose and reproduce order dependence.
+- Tests must not depend on each other. <Since v="24.16" /> `--test-randomize` and `--test-random-seed` expose and reproduce order dependence.
 - Integration tests start a fresh server on port 0 in `before`, call it with `fetch`, and close it in `after`.
 - <Since v="22.8" /> Coverage thresholds fail the run in CI; the `lcov` and `junit` reporters feed other tools.
 - Property-based tests check an invariant against many seeded inputs and shrink failures; fast-check is the full-featured library.

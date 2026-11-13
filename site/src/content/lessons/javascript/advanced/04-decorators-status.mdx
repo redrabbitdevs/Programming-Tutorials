@@ -16,25 +16,25 @@ estimatedMinutes: 45
 fundamentals: []
 ---
 
-If you read TypeScript code, or code built with Babel, you will meet lines like `@logged` above a method or `@component(...)` above a class. These are **decorators**: functions applied to a class or class member when it is defined, written with an `@` in front. They look like part of JavaScript. They are not, yet.
+In TypeScript code, or code built with Babel, you will meet `@logged` above a method or `@component(...)` above a class. These are **decorators**: functions applied to a class or class member when it is defined. They look like JavaScript. They are not, yet.
 
-This lesson is different from the others in this course. It teaches decorators as a concept: what the proposal says, where it stands, and why the syntax fails in Node. Then it shows how to get the same effects with plain JavaScript that runs today, and when not to bother.
+This lesson explains the proposal and where it stands, then gets the same effects with plain JavaScript that runs today, and says when not to bother.
 
 ## Where decorators stand
 
-Decorators are a **Stage 2.7** proposal at TC39. Two sources say so: the table of active proposals in the [tc39/proposals repository](https://github.com/tc39/proposals), which lists Decorators and the companion Decorator Metadata proposal under Stage 2.7, and the first line of the [proposal's own README](https://github.com/tc39/proposal-decorators), "**Stage**: 2.7". Both were checked on 2026-10-17. As [the first lesson of the course](../../beginner/what-is-javascript/) explained, only Stage 4 proposals are part of the language. Decorators are not in ECMAScript 2026.
+Decorators are a **Stage 2.7** TC39 proposal, together with Decorator Metadata ([tc39/proposals](https://github.com/tc39/proposals), checked 2026-10-17). Only Stage 4 proposals are part of the language ([what JavaScript is](../../beginner/what-is-javascript/)), so decorators are not in ECMAScript 2026.
 
 <Callout type="warning">
 
-Some older pages, including parts of the proposal's own FAQ and of Node's TypeScript documentation, still describe decorators as Stage 3. The stage line at the top of the README and the TC39 proposals table are the current status. Check them again before you rely on this lesson's date.
+Some older pages, including parts of the proposal's FAQ, still say Stage 3. The TC39 proposals table is the current status; check it again before you rely on this lesson's date.
 
 </Callout>
 
-For this course, decorator syntax was tested on Node 22.22.0, 24.21.0 and 26.11.1. On all three, a class with `@logged` on a method is a `SyntaxError`, both in a `.mjs` file and in a `.ts` file run with Node's type stripping. Node's TypeScript documentation says the same: decorators are not transformed, and they give a parser error. So there is no runnable decorator syntax in this lesson. Every example below is plain JavaScript.
+On Node 22.22.0, 24.21.0 and 26.11.1, a class with `@logged` on a method is a `SyntaxError`, in a `.mjs` file and in a `.ts` file run with type stripping, which does not transform decorators ([Node TypeScript docs](https://nodejs.org/api/typescript.html)). Every runnable example below is plain JavaScript.
 
 ## What the proposal looks like
 
-In the proposal, a decorator is an ordinary function. The engine calls it when the class is defined, with two arguments: the thing being decorated (a method, a getter, a class, and so on) and a **context** object that describes it. The decorator may return a replacement of the same kind, or nothing to keep the original. The README's example of a method decorator is `logged`. A shortened version, in proposal syntax, reads like this:
+A proposal decorator is an ordinary function. The engine calls it when the class is defined, with the decorated value (a method, a getter, a class and so on) and a **context** object that describes it. It returns a replacement of the same kind, or nothing to keep the original. A shortened method decorator, in proposal syntax ([proposal README](https://github.com/tc39/proposal-decorators)):
 
 ```javascript
 // Proposal syntax: a SyntaxError in Node 22, 24 and 26.
@@ -53,9 +53,9 @@ class C {
 }
 ```
 
-The context's `kind` is one of `"class"`, `"method"`, `"getter"`, `"setter"`, `"field"` or `"accessor"`. It also carries the member's `name`, whether it is `static` or `private`, an `access` object for reading and writing the member, and `addInitializer` for set-up code. The proposal also adds a new class element, the **auto-accessor**, written `accessor x = 1`, which defines a getter and setter backed by a private field, so that decorators can intercept reads and writes of a property. It is a `SyntaxError` in Node too.
+The context's `kind` is `"class"`, `"method"`, `"getter"`, `"setter"`, `"field"` or `"accessor"`. It also carries the member's `name`, `static` and `private` flags, an `access` object for reading and writing the member, and `addInitializer` for set-up code. The proposal also adds the **auto-accessor**, `accessor x = 1`: a getter and setter backed by a private field, which is also a `SyntaxError` in Node.
 
-The README describes what a method decorator "roughly desugars" to: the method is defined normally, then replaced by the decorator's result.
+A method decorator roughly desugars to defining the method normally, then replacing it with the decorator's result:
 
 ```javascript
 // The README's desugaring, in plain JavaScript.
@@ -64,16 +64,16 @@ C.prototype.m = logged(C.prototype.m, {
 }) ?? C.prototype.m;
 ```
 
-That second snippet is ordinary JavaScript, and it is the key to everything in this lesson: a decorator is a function that receives a value and returns a replacement. You can call such functions yourself.
+That snippet is ordinary JavaScript, and it is the key to this lesson: a decorator is a function that receives a value and returns a replacement, and you can call it yourself.
 
 ## TypeScript and Babel decorators
 
-Decorators are widely used today because TypeScript and Babel compile them into plain JavaScript before the code runs. Two families exist, and they are not compatible:
+TypeScript and Babel compile decorators into plain JavaScript before the code runs, in two incompatible families:
 
-- **Proposal-style decorators** follow the current proposal: `(value, context)` in, replacement out.
-- **Legacy decorators**, called "experimental" decorators in TypeScript and "legacy" in Babel. The README's comparison says Babel's legacy mode is based on the proposal as it stood in 2014, and TypeScript's is largely similar. They receive the class or prototype under construction and a full property descriptor, and TypeScript's version also supports decorators on parameters, which the proposal does not.
+- **Proposal-style decorators**: `(value, context)` in, replacement out.
+- **Legacy decorators** ("experimental" in TypeScript, "legacy" in Babel), based on the proposal as it stood in 2014. They receive the class or prototype and a full property descriptor, and TypeScript's also decorate parameters, which the proposal does not.
 
-A decorator written for one family breaks with the other, because the arguments differ. The README notes that a library can support both by checking whether its second argument is an object, which it always is in the proposal and never in the legacy style. When you read decorator code, find out which family the build uses before you reason about it. The rules for TypeScript belong to the TypeScript track. In JavaScript, a decorator always means a build step.
+A decorator written for one family breaks with the other, so find out which one the build uses before you reason about decorator code. Either way, in JavaScript a decorator means a build step; the TypeScript rules belong to the TypeScript track.
 
 ## Method wrappers in plain JavaScript
 
@@ -117,9 +117,9 @@ warning: toF is deprecated
 212 32
 ```
 
-The replacement is a `function`, not an arrow function, so that it receives `this` from the call and can pass it on with `value.call(this, ...args)`. An arrow function would capture the `this` of `deprecated` instead, and the method would lose its object. The `warned` flag lives in the decorator's closure, so it is shared by every instance, which is why the second call stays quiet.
+The replacement is a `function`, not an arrow function, so it receives `this` from the call and passes it on with `value.call(this, ...args)`; an arrow function would lose the object. The `warned` flag lives in the decorator's closure and is shared by every instance, so the second call stays quiet.
 
-This works, and it has a weakness the proposal README points out: the class is "defined" in two steps. Between the `class` statement and the `decorateMethod` call, the undecorated method exists, and nothing at the class itself tells a reader that `toF` is wrapped. Keep the decorating call directly under the class.
+The weakness: the class is defined in two steps, and nothing at the class itself tells a reader that `toF` is wrapped. Keep the decorating call directly under the class.
 
 ## Fields and accessors
 
@@ -149,7 +149,7 @@ console.log(v.level, Object.keys(v));
 0 []
 ```
 
-To reuse the behaviour across classes, as a decorator would, a function can install the accessor on a prototype with [`Object.defineProperty`](../../intermediate/property-descriptors/). A private `#` field cannot be added from outside a class, so the values go in a `WeakMap` keyed by instance, which keeps them out of sight and lets them be collected with the instance.
+To reuse the behaviour across classes, a function can install the accessor on a prototype with [`Object.defineProperty`](../../intermediate/property-descriptors/). A `#` field cannot be added from outside a class, so the values go in a `WeakMap` keyed by instance, which lets them be collected with it.
 
 ```javascript title="clamped_helper.mjs"
 function clamp(Class, name, min, max) {
@@ -176,7 +176,7 @@ console.log(s.bass, new Speaker().bass, Object.keys(s));
 6 -6 []
 ```
 
-The accessor lives on the prototype, so `Object.keys` on the instance is empty, just as with a class getter. One trap from the proposal README applies here too: a class **field** with the same name would be defined on the instance by `[[DefineOwnProperty]]` and hide the prototype accessor. Do not declare `bass = 0` as a field in `Speaker`.
+The accessor lives on the prototype, so `Object.keys` on the instance is empty, as with a class getter. A class **field** with the same name would be defined on each instance and hide the accessor, so do not declare `bass = 0` in `Speaker`.
 
 ## Class decorators as class factories
 
@@ -214,9 +214,9 @@ buy milk 2026-10-17 true
 "" [ '' ]
 ```
 
-`registered` returns the class unchanged and only records it, like a decorator that returns nothing. `withCreatedAt` returns a new class, and the instance works: it has its text, its `createdAt` field, and it passes `instanceof`. (The fixed date stands in for a real timestamp so that the output is the same on every run.)
+`registered` only records the class, like a decorator that returns nothing. `withCreatedAt` returns a subclass whose instance has its text and a `createdAt` field, and passes `instanceof`. (The fixed date keeps the output the same on every run.)
 
-The second line shows the cost. The class that `withCreatedAt` returns is an anonymous `class extends Base`, so its name is the empty string, and `registered`, which ran on it, filed it under `""`. Stacked class wrappers see each other's output, not the class you wrote, and error messages and the debugger show the empty name too. A wrapper that returns a new class should copy the name across. A class's `name` is not writable, but it is configurable, so `defineProperty` can set it:
+The second line shows the cost. The returned class is an anonymous `class extends Base`, so its name is the empty string, and `registered` filed it under `""`. Stacked wrappers see each other's output, not the class you wrote, and the debugger shows the empty name too. A class's `name` is not writable but is configurable, so the wrapper can copy it with `defineProperty`:
 
 ```javascript title="class_factory.mjs (continued)"
 function withCreatedAtNamed(Base) {
@@ -235,11 +235,11 @@ console.log(Task.name, [...registry.keys()]);
 Task [ '', 'Task' ]
 ```
 
-For plain functions there is nothing to wait for. The proposal does not cover function declarations, and the higher-order wrappers from [the beginner lesson](../../beginner/higher-order-functions/) and [the functional patterns lesson](../functional-patterns/) are already the decorator pattern for functions.
+For plain functions there is nothing to wait for: the proposal does not cover function declarations, and the higher-order wrappers from [the beginner lesson](../../beginner/higher-order-functions/) and [the functional patterns lesson](../functional-patterns/) already are the decorator pattern.
 
 ## When not to decorate
 
-The proposal's README is frank about the downside: decorators "can also feel 'magical' in the sense that they hide details from the user, making what's going on under the hood harder to understand", and "in some cases decorators can become more trouble than they're worth." The same is true of the plain wrappers in this lesson.
+Decorators hide details from the reader, and in some cases become more trouble than they are worth ([proposal README](https://github.com/tc39/proposal-decorators)). The plain wrappers in this lesson share that cost.
 
 **Wrappers change what a function looks like.** A wrapped method has the wrapper's `name` and `length`, not the original's:
 
@@ -265,11 +265,11 @@ original 2
 5 false
 ```
 
-The wrapper is anonymous and declares no parameters, so its `name` is empty and its `length` is 0. Code that relies on `length`, such as the `curry` from the last lesson, now misbehaves, and stack traces show an anonymous frame between the caller and the real method.
+The wrapper is anonymous and declares no parameters, so its `name` is empty and its `length` is 0. Code that reads `length`, such as the `curry` from the last lesson, misbehaves, and stack traces gain an anonymous frame.
 
-**Behaviour moves away from the code it changes.** A reader of `toF` cannot see that it warns, retries or caches unless they find the wrapping call. Several wrappers on one method run in a specific nesting order, and changing that order can change the result, such as logging before or after a cache.
+**Behaviour moves away from the code it changes.** A reader of `toF` cannot see that it warns, retries or caches without finding the wrapping call, and stacked wrappers depend on their nesting order, such as logging before or after a cache.
 
-**Every wrapper is another call.** Each call to a wrapped method passes through the wrapper first. That is usually negligible next to real work, but it adds up on a method called millions of times. A wrapper that creates a closure per instance, rather than once per class, also costs memory per object.
+**Every wrapper is another call.** That is usually negligible, but it adds up on a method called millions of times, and a wrapper that creates a closure per instance costs memory per object.
 
 Prefer writing the behaviour directly when only one or two methods need it. Wrap when the same concern, such as logging, timing or access checks, really applies to many members, and keep each wrapper small and named.
 
@@ -430,10 +430,10 @@ summing
 
 ## Summary
 
-- Decorators are a Stage 2.7 TC39 proposal (tc39/proposals and the proposal README, checked 2026-10-17). They are not in ECMAScript 2026, and the syntax is a `SyntaxError` in Node 22, 24 and 26, including in `.ts` files.
-- A proposal decorator is a function called with the decorated value and a context object (`kind`, `name`, `static`, `private`, `access`, `addInitializer`), returning a replacement or nothing.
+- Decorators are a Stage 2.7 TC39 proposal (checked 2026-10-17), not ECMAScript 2026. The syntax is a `SyntaxError` in Node 22, 24 and 26, including in `.ts` files.
+- A proposal decorator is called with the decorated value and a context object, and returns a replacement or nothing.
 - TypeScript and Babel compile decorators away. Their legacy decorators use a different calling convention from the proposal, and the two are not interchangeable.
-- In plain JavaScript, wrap methods by replacing them on the prototype, write accessors with private fields or `defineProperty` and a `WeakMap`, and treat class decorators as functions from class to class.
+- In plain JavaScript, replace methods on the prototype, write accessors with private fields or `defineProperty` and a `WeakMap`, and treat class decorators as functions from class to class.
 - Wrappers hide behaviour, change `name` and `length`, add stack frames and a call per invocation. Use them for concerns shared by many members, not for one-offs.
 
 Next: [eval, Function and code loading](../realms-and-eval/), the last and riskiest kind of metaprogramming: turning strings into code.
