@@ -4,7 +4,7 @@ level: advanced
 module: Resources and concurrency
 order: 7
 title: Advanced async patterns
-description: Build the small concurrency tools that real programs need, with plain promises - a semaphore, a bounded queue with backpressure, retries with exponential backoff, and a token-bucket rate limiter - and test them without depending on timing.
+description: Build the small concurrency tools that real programs need, with plain promises - a semaphore, a bounded queue with backpressure, retries with exponential backoff, and a token-bucket rate limiter - test them without depending on timing, and carry request context with AsyncLocalStorage.
 minVersion: "22"
 objectives:
   - Explain why an unbounded Promise.all over a large input is a bug, and bound it
@@ -12,17 +12,18 @@ objectives:
   - Build a bounded queue in which a fast producer waits for a slow consumer
   - Retry failed operations with exponential backoff and jitter, and stop on cancellation
   - Limit a rate with a token bucket, and make time-based code testable
+  - Carry a request id through await chains with AsyncLocalStorage
 estimatedMinutes: 50
 fundamentals: ["fundamentals/beginner/16-stacks-queues-linked"]
 ---
 
-JavaScript runs your code on one thread, yet a Node program can have thousands of operations in flight at once: every pending `fetch`, file read or timer is one. That is a strength, and it is also how programs fall over. This lesson builds four small tools that keep concurrency under control. None needs a library; each is a few lines of promises, and each is a pattern you will recognise inside libraries you use.
+JavaScript runs your code on one thread, yet a Node program can have thousands of operations in flight at once: every pending `fetch`, file read or timer is one. That is a strength, and it is also how programs fall over. This lesson builds four small tools that keep concurrency under control, each a few lines of promises, then shows how to carry request context across all that concurrency.
 
-You already know the parts. [The promise combinators lesson](../../intermediate/promise-combinators/) built `mapLimit`, a fixed pool of async workers, and [the promises lesson](../../intermediate/promises/) introduced `Promise.withResolvers()`, which returns a promise together with its `resolve` and `reject` functions. That pairing is the key to everything below: it lets one piece of code create a promise and a different piece of code settle it later.
+[The promise combinators lesson](../../intermediate/promise-combinators/) built `mapLimit`, a fixed pool of async workers, and [the promises lesson](../../intermediate/promises/) introduced `Promise.withResolvers()`, which returns a promise together with its `resolve` and `reject` functions. That pairing lets one piece of code create a promise and another settle it later, and everything below builds on it.
 
 ## Why unbounded Promise.all is a bug
 
-`await Promise.all(urls.map(fetch))` starts every request in the same instant. With ten URLs that is fine. With fifty thousand, the program opens fifty thousand sockets, the server you are calling sees a flood, and memory fills with responses that arrive faster than you can handle them. Nothing in the language stops you, because a promise is not a task waiting to run: by the time you hold it, the work has already started. The only place to apply a limit is **before** the work starts, which is what every tool here does.
+`await Promise.all(urls.map(fetch))` starts every request in the same instant. With ten URLs that is fine. With fifty thousand, the program opens fifty thousand sockets, floods the server, and fills memory with responses. A promise is not a task waiting to run: by the time you hold it, the work has started. So the only place to apply a limit is **before** the work starts, which is what every tool here does.
 
 ## A semaphore
 
@@ -51,9 +52,9 @@ export class Semaphore {
 }
 ```
 
-`release` does not increase the count when someone is waiting: it passes the slot straight to the first waiter, so a newcomer cannot jump the queue. No lock is needed, because nothing else can run between reading and changing `#free`; there is no `await` in between.
+When someone is waiting, `release` passes the slot straight to them, so a newcomer cannot jump the queue. No lock is needed: there is no `await` between reading and changing `#free`, so nothing else can run there.
 
-To see the order of events without relying on timers, the next program makes tasks that finish only when the script says so. Each task stores its own `resolve`, and the script calls them in a chosen order. `settle` waits for one turn of the event loop with `setImmediate`, so every pending promise reaction has run before the next line.
+To see the order of events without timers, the next program makes tasks that finish only when the script says so: each stores its own `resolve`, and the script calls them in a chosen order. `settle` waits one event-loop turn with `setImmediate`, so every pending promise reaction runs before the next line.
 
 ```javascript title="ap_semaphore.mjs"
 import { Semaphore } from "./semaphore.mjs";
@@ -104,13 +105,13 @@ end c
 end d
 ```
 
-Only two tasks ever run. `c` starts the moment `b` ends, and `d` the moment `a` ends. The `finally` block matters: a task that throws must still release its slot, or the semaphore slowly leaks slots until everything waits forever. <Since v="24" /> With [`using`](../using-declarations/), `acquire` could return a disposable guard instead, which makes forgetting the release impossible.
+Only two tasks ever run: `c` starts the moment `b` ends, and `d` when `a` ends. The `finally` matters: a task that throws must still release its slot, or the semaphore leaks slots until everything waits forever. <Since v="24" /> With [`using`](../using-declarations/), `acquire` could return a disposable guard instead, which makes forgetting the release impossible.
 
-The same trick, settling promises by hand, is how you test concurrency code. Tests built on real delays are slow and fail at random on a busy machine; tests that decide the order themselves give the same result every time.
+Settling promises by hand is also how you test concurrency code: tests built on real delays are slow and flaky, while tests that decide the order themselves always give the same result.
 
 ## A bounded queue and backpressure
 
-A semaphore limits how many things run. A **bounded queue**, often called a channel, limits how far a producer can get ahead of a consumer. `put` waits while the queue is full, and `take` waits while it is empty. A waiting producer is **backpressure**, the same idea you met with [streams](../../intermediate/streams-intro/), built here from scratch.
+A **bounded queue**, often called a channel, limits how far a producer can get ahead of a consumer. `put` waits while the queue is full, and `take` waits while it is empty. A waiting producer is **backpressure**, the same idea you met with [streams](../../intermediate/streams-intro/), built here from scratch.
 
 ```javascript title="ap_channel.mjs"
 class Channel {
@@ -127,7 +128,7 @@ class Channel {
   }
 ```
 
-Two queues of resolve functions hold whoever is waiting. Each side wakes one waiter on the other side when it changes the queue. The `while` loops recheck the condition after waking, which is a good habit: by the time a waiter runs, someone else may have taken the space.
+Two queues of resolve functions hold whoever is waiting, and each side wakes one waiter on the other side when it changes the queue. The `while` loops recheck the condition after waking: by then, someone else may have taken the space.
 
 ```javascript title="ap_channel.mjs (continued)"
   async put(item) {
@@ -185,11 +186,11 @@ put 5
   processed 5
 ```
 
-The consumer took item 1 at once, leaving room for 2 and 3. Then the queue was full and the producer stopped. From then on, every `put` waits for a `take`. However fast the producer is, at most two items sit in memory.
+The consumer took item 1 at once, leaving room for 2 and 3. Then the queue was full, and from then on every `put` waits for a `take`. However fast the producer, at most two items sit in memory.
 
 ## Retries with backoff
 
-Networks fail in passing: a timeout, a `503 Service Unavailable`. Trying again often works, but trying again **at once**, from many clients, hits a struggling server just when it is weakest. The usual answer is **exponential backoff**: wait longer after each failure, for example 10, 20, 40 ms. **Jitter** adds a random part, so clients that failed together do not all retry together. Here the delay is a random value between half and all of the current ceiling:
+Networks fail in passing: a timeout, a `503 Service Unavailable`. Trying again often works, but trying again **at once**, from many clients, hits a struggling server when it is weakest. The usual answer is **exponential backoff**: wait longer after each failure, for example 10, 20, 40 ms. **Jitter** adds a random part, so clients that failed together do not all retry together. Here the delay is a random value between half and all of the current ceiling:
 
 ```javascript title="ap_retry.mjs"
 import { setTimeout as sleep } from "node:timers/promises";
@@ -210,7 +211,7 @@ async function retry(fn, options = {}) {
 }
 ```
 
-Passing the `signal` to `sleep` from `node:timers/promises` means that [cancelling](../../intermediate/cancellation/) interrupts the wait at once. The random source is a parameter, so the demonstration can fix it and print the same delays on every run:
+Passing the `signal` to `sleep` from `node:timers/promises` lets [cancelling](../../intermediate/cancellation/) interrupt the wait at once. The random source is a parameter, so the demonstration can fix it:
 
 ```javascript title="ap_retry.mjs (continued)"
 async function flaky(attempt) {
@@ -236,11 +237,11 @@ attempt 1: 503 busy, wait 10 ms
 gave up: 503 busy
 ```
 
-In real code, retry only errors that can succeed later. A `404 Not Found` or a validation error will fail the same way every time, and an operation that is not safe to repeat, such as a payment, needs an idempotency key from the server's API before it may be retried at all.
+Retry only errors that can succeed later. A `404 Not Found` fails the same way every time, and an operation that is not safe to repeat, such as a payment, needs an idempotency key before it may be retried.
 
 ## Rate limiting with a token bucket
 
-Some limits are per time rather than per moment: "at most 2 requests per second, with bursts of 3". A **token bucket** models this. The bucket holds up to `capacity` tokens and gains `perSecond` tokens each second; each request spends one, and a request that finds no whole token is refused or must wait.
+Some limits are per time: "at most 2 requests per second, with bursts of 3". A **token bucket** holds up to `capacity` tokens and gains `perSecond` tokens each second; each request spends one, and a request that finds no whole token is refused or waits.
 
 ```javascript title="ap_bucket.mjs"
 class TokenBucket {
@@ -263,7 +264,7 @@ class TokenBucket {
 }
 ```
 
-The class never reads the clock itself; the caller passes the current time in milliseconds. In production that is `performance.now()`. In a test it is whatever times you choose:
+The class never reads the clock; the caller passes the time in milliseconds: `performance.now()` in production, any times you choose in a test:
 
 ```javascript title="ap_bucket.mjs (continued)"
 const bucket = new TokenBucket({ capacity: 3, perSecond: 2, now: 0 });
@@ -287,11 +288,74 @@ for (const t of times) {
 2000 refused
 ```
 
-The burst of three passes and the fourth is refused. At 500 ms one whole token has refilled. After a long pause the bucket is full again, but never fuller than its capacity. Passing time in, instead of reading it inside, is the same move as passing `random` into `retry`: it makes the code deterministic under test. [Fake timers](../../intermediate/mocks-and-fake-timers/) are the other way to get there.
+The burst of three passes and the fourth is refused. At 500 ms one whole token has refilled. After a long pause the bucket is full again, but never fuller than its capacity. Passing time in is the same move as passing `random` into `retry`: it makes the code deterministic under test, as [fake timers](../../intermediate/mocks-and-fake-timers/) also do.
+
+## Request context with AsyncLocalStorage
+
+A server handles many requests at once, and its log lines are useless unless each names its request. Passing a request id through every function breaks down once the call goes through code you do not own. Node's `AsyncLocalStorage`, from `node:async_hooks`, keeps a value for one asynchronous call chain: `run(store, fn)` calls `fn` with `store` as the current value, and `getStore()` returns it from anywhere inside, after any number of `await`s ([async_context docs](https://nodejs.org/api/async_context.html)). It is stable in every supported Node line. TC39's AsyncContext proposal, at Stage 2, would bring the same idea to the language.
+
+```javascript title="ap_context.mjs"
+import { AsyncLocalStorage } from "node:async_hooks";
+import { EventEmitter } from "node:events";
+import { setTimeout as sleep } from "node:timers/promises";
+
+const context = new AsyncLocalStorage();
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+function log(message) {
+  const id = context.getStore()?.id ?? "-";
+  console.log(`[${id}] ${message}`);
+}
+```
+
+Two requests run interleaved, and a third schedules a timer. `log` never receives an id, yet every line gets the right one:
+
+```javascript title="ap_context.mjs (continued)"
+async function handle(turns) {
+  log("start");
+  for (let i = 0; i < turns; i++) await settle();
+  log(`done after ${turns} turns`);
+}
+
+await Promise.all([
+  context.run({ id: "A" }, () => handle(2)),
+  context.run({ id: "B" }, () => handle(1)),
+]);
+context.run({ id: "C" }, () => setTimeout(() => log("timer"), 5));
+await sleep(10);
+log("outside any request");
+```
+
+Event emitters are the exception. A listener runs in the context of the code that calls `emit`, not of the code that added it. `AsyncLocalStorage.bind(fn)` captures the current context, so the listener keeps it:
+
+```javascript title="ap_context.mjs (continued)"
+const events = new EventEmitter();
+context.run({ id: "on" }, () => {
+  events.on("plain", () => log("plain listener"));
+  events.on("bound", AsyncLocalStorage.bind(() => log("bound listener")));
+});
+context.run({ id: "emit" }, () => {
+  events.emit("plain");
+  events.emit("bound");
+});
+```
+
+```text
+[A] start
+[B] start
+[B] done after 1 turns
+[A] done after 2 turns
+[C] timer
+[-] outside any request
+[emit] plain listener
+[on] bound listener
+```
+
+Request B finished first, and each line still carried its own id; outside any `run`, `getStore()` returns `undefined`. Propagation adds a little work to every promise and callback, so keep the store small (an id, a user) and measure on hot paths. [The full-stack project](../project-fullstack/) uses it to tag every server log line.
 
 ## When not to build your own
 
-These tools are short enough to write and understand, which is why they are worth learning. In a larger program, check first whether the platform already does the job. Node streams and `pipeline` give backpressure for data flowing through stages. HTTP clients and database drivers usually have their own connection pools, which already cap concurrency; wrapping them in a second limit only makes behaviour harder to predict. And when the work is CPU-bound rather than waiting on I/O, no amount of async scheduling helps, because one thread can only compute one thing at a time. That is the subject of the next lesson.
+In a larger program, check first whether the platform already does the job. Node streams and `pipeline` give backpressure for data flowing through stages. HTTP clients and database drivers usually pool their connections, which already caps concurrency; a second limit on top only makes behaviour harder to predict. And when the work is CPU-bound rather than waiting on I/O, no async scheduling helps, because one thread computes one thing at a time. That is the subject of the next lesson.
 
 ## Common pitfalls
 
@@ -300,6 +364,7 @@ These tools are short enough to write and understand, which is why they are wort
 - **Waking a waiter without rechecking.** Use `while`, not `if`, around the wait.
 - **Retrying everything.** Retry only transient errors, cap the attempts, add jitter, and honour cancellation.
 - **Reading the clock inside the logic.** Pass time in, so tests do not need real delays.
+- **Losing the context in a listener.** An `EventEmitter` listener sees the context of `emit`. Wrap it with `AsyncLocalStorage.bind`.
 
 ## Exercises
 
@@ -527,5 +592,6 @@ channel is closed
 - Retry transient failures with exponential backoff and jitter, cap the attempts, and pass the `AbortSignal` into the waits.
 - A token bucket limits a rate while allowing short bursts. Pass time and randomness in, so the code can be tested without real delays.
 - Settling promises by hand in a chosen order gives concurrency tests that never flake.
+- `AsyncLocalStorage` carries a value such as a request id through `await`s and timers; bind event listeners explicitly.
 
 The next lesson leaves the single thread behind: worker threads run JavaScript in parallel.

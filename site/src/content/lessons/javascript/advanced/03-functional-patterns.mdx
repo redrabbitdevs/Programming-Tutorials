@@ -16,9 +16,9 @@ estimatedMinutes: 50
 fundamentals: ["fundamentals/beginner/22-problem-patterns", "fundamentals/beginner/23-paradigms"]
 ---
 
-The functional style builds programs from small functions that compute new values instead of changing old ones. The [fundamentals lesson on paradigms](../../../fundamentals/beginner/paradigms/) explains the idea, and two beginner lessons already showed the JavaScript basics: [higher-order functions](../../beginner/higher-order-functions/) built `compose`, `partial` and `once`, and [the recursion lesson](../../beginner/recursion-js/) memoised Fibonacci with a `Map`.
+The functional style builds programs from small functions that compute new values instead of changing old ones ([paradigms](../../../fundamentals/beginner/paradigms/)). Two beginner lessons showed the basics: [higher-order functions](../../beginner/higher-order-functions/) built `compose`, `partial` and `once`, and [the recursion lesson](../../beginner/recursion-js/) memoised Fibonacci with a `Map`.
 
-This lesson turns those tools into habits you can use in real code. It covers what makes a JavaScript function impure, how to update data without mutating it, `pipe` and currying, memoisation that does not give wrong answers or eat memory, and the point where the style stops paying for itself. The non-mutating array methods are ES2023, and everything here runs on Node 22.
+This lesson turns those tools into habits: avoiding impurity, updating data without mutating it, `pipe` and currying, memoisation that stays correct and bounded, and where the style stops paying. The non-mutating array methods are ES2023, and everything here runs on Node 22.
 
 ## Pure functions in JavaScript
 
@@ -49,7 +49,7 @@ console.log(draft.tags);
 
 The pure version returns a new post with a new `tags` array, and the original is untouched. The impure version changes the caller's object, so anyone else holding `draft` sees the change, often far from the line that caused it.
 
-A function that needs the time or a random number can stay pure by taking it as a parameter: `isExpired(token, now)` instead of calling `Date.now()` inside. The caller passes `Date.now()` in production and a fixed number in a test. The impure part moves to the edge of the program, and the logic in the middle becomes easy to test.
+A function that needs the time or a random number can stay pure by taking it as a parameter: `isExpired(token, now)` instead of calling `Date.now()` inside. The impure part moves to the edge of the program, and the logic becomes easy to test.
 
 ## Updating arrays without mutation
 
@@ -78,7 +78,7 @@ console.log(scores);
 [ 10, 20, 30 ]
 ```
 
-`toSorted`, `toReversed` and `toSpliced` take the same arguments as `sort`, `reverse` and `splice`. `with(index, value)` is the copying form of `array[index] = value`, and it accepts a negative index to count from the end. Together with `map`, `filter`, `slice`, `concat` and spread, they cover every update without touching the original.
+`toSorted`, `toReversed` and `toSpliced` take the same arguments as `sort`, `reverse` and `splice`, and `with(index, value)` is the copying form of `array[index] = value` (a negative index counts from the end). With `map`, `filter`, `slice` and spread, they cover every update without touching the original.
 
 ## Updating nested objects
 
@@ -107,9 +107,9 @@ dark light
 true false
 ```
 
-The function recurses along the path, rebuilding each level with spread or `with`. The parameter list destructures the path into its first key and the rest. The changed branch is new at every level, while `cart` is the very same object in both states. Sharing makes the copy cheap, and it lets other code detect a change with `===` instead of comparing every field.
+The function recurses along the path, destructured into its first key and the rest, rebuilding each level with spread or `with`. The changed branch is new at every level, while `cart` is the very same object in both states. Sharing makes the copy cheap, and lets other code detect a change with `===`.
 
-`structuredClone`, from [the copies lesson](../../beginner/copies-and-references/), is the opposite tool: it copies everything, which is right before you hand data to code you do not trust, and wasteful for a routine update. `Object.freeze` can guard against accidental mutation in development, but it is shallow, as [the descriptors lesson](../../intermediate/property-descriptors/) explained.
+`structuredClone` ([the copies lesson](../../beginner/copies-and-references/)) copies everything: right before handing data to code you do not trust, wasteful for a routine update. `Object.freeze` guards against accidental mutation, but only one level deep ([descriptors](../../intermediate/property-descriptors/)).
 
 ## pipe: composition that reads left to right
 
@@ -138,11 +138,11 @@ console.log(paidRevenue(orders));
 
 Each step takes the previous step's result. You can name the steps, test them one by one, and reorder or remove them without rewriting the others.
 
-TC39 is discussing a pipeline operator, `|>`, that would write this as an expression. It is a Stage 2 proposal (TC39 proposals list, checked 2026-10-17), its syntax is not settled, and no Node version runs it. Write `pipe` as a function.
+A pipeline operator, `|>`, is a Stage 2 TC39 proposal (checked 2026-10-17) with unsettled syntax that no Node version runs. Write `pipe` as a function.
 
 ## Currying
 
-A **curried** function takes its arguments one at a time: `add(1)(2)` instead of `add(1, 2)`. Each call returns a function waiting for the next argument until all have arrived. It is related to partial application from the beginner lesson, but it is automatic: you can stop after any argument.
+A **curried** function takes its arguments one at a time: `add(1)(2)` instead of `add(1, 2)`. Each call returns a function waiting for the next argument. It is partial application made automatic: you can stop after any argument.
 
 ```javascript title="curry.mjs"
 function curry(fn) {
@@ -168,7 +168,7 @@ true false true
 
 `curry` counts the arguments it has collected and compares them with `fn.length`, the number of parameters the function declares. Once there are enough, it calls `fn`.
 
-The order of the parameters decides how useful a curried function is. Put the data last and the settings first, as `between(min, max, n)` does, and fixing the settings gives a one-argument function that drops straight into `map`, `filter` or `pipe`.
+Parameter order decides how useful a curried function is. Put the settings first and the data last, as `between(min, max, n)` does, and fixing the settings gives a one-argument function for `map`, `filter` or `pipe`.
 
 `fn.length` is also curry's weak spot. It stops counting at the first parameter with a default value, and a rest parameter does not count at all:
 
@@ -230,9 +230,9 @@ console.log(fixed(2, 3), fixed(2, 10));
 
 The default key is the first argument, which is fine for one-argument functions and wrong for `area`: `area(2, 10)` finds the result cached under `2` and returns `6`. The fix is a key function that includes every argument. `cache.has` rather than a truthiness check means a cached `0` or `undefined` is still a hit.
 
-`JSON.stringify(args)` is a tempting general key, but it treats `{ a: 1, b: 2 }` and `{ b: 2, a: 1 }` as different keys, gives `[undefined]` and `[null]` the same key, drops functions, and throws on a `BigInt`. Prefer a key built for the function at hand.
+`JSON.stringify(args)` is a tempting key, but it separates `{ a: 1, b: 2 }` from `{ b: 2, a: 1 }`, merges `[undefined]` with `[null]`, and throws on a `BigInt`. Build a key for the function at hand.
 
-When the argument is an object, use a `WeakMap` keyed by the object itself. The cache entry then lives exactly as long as the object, as [the weak collections lesson](../../intermediate/weak-collections/) explained. This only works if the object is never mutated, which is one more reason to pair memoisation with immutable data.
+When the argument is an object, use a `WeakMap` keyed by the object, so the entry lives exactly as long as the object ([weak collections](../../intermediate/weak-collections/)). That is correct only if the object is never mutated, one more reason to pair memoisation with immutable data.
 
 A cache keyed by strings or numbers grows without limit. A `Map` remembers insertion order, so a small change makes it a **least recently used** (LRU) cache: move each hit to the end, and evict from the front.
 
@@ -277,9 +277,7 @@ Only memoise pure functions. A memoised function that reads the clock or a datab
 
 ## When not to write it this way
 
-Functional code is easier to reason about, but each technique has a cost. Weigh it the way you would weigh any abstraction.
-
-**Copying is not free.** Each immutable update allocates new arrays and objects. One update is cheap. A loop that copies the whole array on every step is not: `items.reduce((acc, x) => [...acc, x * 2], [])` copies `acc` every time, so its work grows with the square of the length. Mutation that never leaves the function is invisible to callers, so the function stays pure from the outside:
+**Copying is not free.** One update is cheap; a loop that copies the whole array every step is not: `items.reduce((acc, x) => [...acc, x * 2], [])` copies `acc` each time, so its work grows with the square of the length. Mutation that never leaves the function is invisible to callers:
 
 ```javascript title="local_mutation.mjs"
 function histogram(words) {
@@ -300,11 +298,11 @@ Map(2) { 'a' => 2, 'b' => 1 } [ 'a', 'b', 'a' ]
 
 `histogram` mutates its own `Map` freely, never touches `words`, and returns the same result for the same input. That is pure enough. Reserve copying for data that is shared.
 
-**Small anonymous functions hurt debugging.** A pipeline of ten arrow functions gives a stack trace of anonymous frames, and stepping through it in a debugger means stepping in and out of `reduce`. Name the steps that matter (`const onlyPaid = (list) => ...`) so traces and tests can refer to them.
+**Small anonymous functions hurt debugging.** A pipeline of ten arrow functions gives a stack trace of anonymous frames. Name the steps that matter (`const onlyPaid = (list) => ...`).
 
-**Currying everything hurts readability.** `between(1)(10)(n)` is clever. In a team codebase, a plain function with named parameters, or one small `partial` where it helps, is usually clearer. Each partial call also creates a new closure, which a plain call does not.
+**Currying everything hurts readability.** `between(1)(10)(n)` is clever; a plain function with named parameters, or one small `partial`, is usually clearer.
 
-**Caches cost memory and correctness.** A memo cache is a long-lived data structure. Bound its size, key it correctly, and only put pure functions behind it. If a function is cheap, a cache lookup can cost more than the work.
+**Caches cost memory and correctness.** Bound a memo cache's size, key it correctly, and put only pure functions behind it. For a cheap function, the lookup can cost more than the work.
 
 ## Common pitfalls
 

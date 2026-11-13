@@ -16,9 +16,9 @@ estimatedMinutes: 50
 fundamentals: []
 ---
 
-[The previous lesson](../worker-threads/) moved data between threads by copying it or by transferring it. In both cases only one thread can see a given piece of memory at a time, so threads cannot step on each other. A `SharedArrayBuffer` gives that up: it is a block of bytes that several threads see at once. That makes some things fast that would otherwise need constant messages, and it opens the door to a class of bugs that single-threaded JavaScript never has. This lesson shows both.
+[The previous lesson](../worker-threads/) moved data between threads by copying it or by transferring it. In both cases only one thread can see a given piece of memory at a time, so threads cannot step on each other. A `SharedArrayBuffer` gives that up: it is a block of bytes that several threads see at once. That saves constant messages, and it opens the door to bugs that single-threaded JavaScript never has.
 
-Everything here runs on Node 22. Shared memory holds only raw bytes, viewed through typed arrays such as `Int32Array`. There is no way to share an object, a string or a `Map`.
+Everything here runs on Node 22. Shared memory holds only raw bytes, viewed through typed arrays: an `Int32Array` reads the bytes as 32-bit integers, 4 bytes per element, and `view[i]` reads or writes one of them ([the typed arrays lesson](../arraybuffer-typedarrays/) covers views in depth). There is no way to share an object, a string or a `Map`.
 
 ## Sharing, not copying
 
@@ -118,7 +118,7 @@ Atomics.add: 4000000
 plain ++ never more: true
 ```
 
-`Atomics.add` gives exactly four million every time. The plain `++` result changes from run to run, which is why the program prints only a fact that is always true about it: lost updates can make it smaller, never larger. On my machine, with four cores, five runs of the plain version gave between 2,675,162 and 3,580,066. On a single core it might even come out right, which is what makes races dangerous: code that passes every test on your laptop can fail on a server.
+`Atomics.add` gives exactly four million every time. The plain `++` result changes from run to run, so the program prints only what is always true about it: lost updates make it smaller, never larger. On four cores it can lose hundreds of thousands of updates; on a single core it might even come out right. That is what makes races dangerous: code that passes every test on your laptop can fail on a server.
 
 ## Atomic operations
 
@@ -201,7 +201,7 @@ console.log("received:", received.join(" "));
 received: 1 4 9 16 25
 ```
 
-Every value arrives once and in order, on every run, because each step waits for the state that the other thread publishes. Nothing depends on how the operating system schedules the threads. All the printing happens in the main thread. A worker's `console.log` output is piped through a stream into the main thread's `process.stdout` ([worker docs](https://nodejs.org/api/worker_threads.html#workerstdout)), so its order relative to the main thread's own output is not guaranteed.
+Every value arrives once and in order, on every run, because each step waits for the state the other thread publishes. All the printing happens in the main thread. A worker's `console.log` output is piped through a stream into the main thread's `process.stdout` ([worker docs](https://nodejs.org/api/worker_threads.html#workerstdout)), so its order relative to the main thread's own output is not guaranteed.
 
 <Since v="24" /> `Atomics.pause()` (Stage 4 in May 2026, expected in ES2027) hints to the CPU that a thread is spinning in a short busy-wait loop before it falls back to `Atomics.wait`. It has no effect other than timing ([MDN](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Atomics/pause)). It belongs in hand-tuned locks and is rarely needed in application code.
 

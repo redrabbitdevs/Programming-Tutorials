@@ -94,6 +94,7 @@ export function createStore({ firstId = 1000 } = {}) {
 The server answers three kinds of request: static files for the page, the JSON API under `/api/`, and short codes. Static files come from a fixed table, never from a path built out of the request, so a request for `/../server/app.mjs` cannot read your source code:
 
 ```javascript title="lnk/server/app.mjs"
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -113,45 +114,72 @@ function sendJson(response, status, body) {
 }
 ```
 
-The body reader stops at a size limit, so nobody can make the server buffer a gigabyte. `serveFile` sends one entry of the table:
+Any function can reject a request by throwing an `HttpError` that carries its status. Log lines carry a request id kept in an `AsyncLocalStorage` (from [the async patterns lesson](../async-patterns/)), so `log` needs no id argument however deep it is called:
 
 ```javascript title="lnk/server/app.mjs (continued)"
-async function readJson(request, limit = 10_000) {
-  let text = "";
-  for await (const chunk of request) {
-    text += chunk;
-    if (text.length > limit) throw new RangeError("body too large");
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
   }
-  return JSON.parse(text);
 }
 
-async function serveFile(response, [path, type]) {
-  response.writeHead(200, { "Content-Type": type });
-  response.end(await readFile(join(root, path)));
+const requests = new AsyncLocalStorage();
+
+function log(message) {
+  const { id, write } = requests.getStore();
+  write(`req ${id}: ${message}`);
 }
 ```
 
-The API has two routes. Creating a link validates with the shared `checkUrl`:
+The body reader stops at a size limit, so nobody can make the server buffer a gigabyte. The request is a stream of `Buffer` chunks, which are `Uint8Array`s ([the typed arrays lesson](../arraybuffer-typedarrays/)). The reader counts their `byteLength`, so the limit is in bytes, not characters, and decodes the text once at the end, because a chunk can end in the middle of a character ([the streams lesson](../streams-advanced/) shows what per-chunk decoding does):
 
 ```javascript title="lnk/server/app.mjs (continued)"
-async function api(store, method, path, request, response) {
+async function readJson(request, limit = 10_000) {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of request) {
+    bytes += chunk.byteLength;
+    if (bytes > limit) throw new HttpError(413, "body too large");
+    chunks.push(chunk);
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new HttpError(400, "invalid JSON");
+  }
+}
+```
+
+The API has two routes and returns a status and a body. Creating a link validates with the shared `checkUrl`:
+
+```javascript title="lnk/server/app.mjs (continued)"
+async function api(store, method, path, request) {
   if (method === "POST" && path === "/api/links") {
-    const body = await readJson(request).catch(() => null);
+    const body = await readJson(request);
     const url = body?.url;
     const problem = typeof url === "string" ? checkUrl(url) : "url required";
-    if (problem) return sendJson(response, 400, { error: problem });
-    return sendJson(response, 201, store.add(url));
+    if (problem) throw new HttpError(400, problem);
+    const link = store.add(url);
+    log(`created ${link.code}`);
+    return [201, link];
   }
   const match = /^\/api\/links\/(\w+)$/.exec(path);
   const link = method === "GET" && match ? store.get(match[1]) : null;
-  if (link) return sendJson(response, 200, link);
-  sendJson(response, 404, { error: "not found" });
+  if (link) return [200, link];
+  throw new HttpError(404, "not found");
 }
 ```
 
 The router puts the pieces together. A short code answers with status `302` and a `Location` header, which makes the browser go there:
 
 ```javascript title="lnk/server/app.mjs (continued)"
+async function serveFile(response, [path, type]) {
+  response.writeHead(200, { "Content-Type": type });
+  response.end(await readFile(join(root, path)));
+}
+
 async function route(store, request, response) {
   const path = new URL(request.url, "http://localhost").pathname;
   const { method } = request;
@@ -159,30 +187,45 @@ async function route(store, request, response) {
     return serveFile(response, files[path]);
   }
   if (path.startsWith("/api/")) {
-    return api(store, method, path, request, response);
+    const [status, body] = await api(store, method, path, request);
+    return sendJson(response, status, body);
   }
   const target = method === "GET" ? store.visit(path.slice(1)) : null;
   if (target) return response.writeHead(302, { Location: target }).end();
-  sendJson(response, 404, { error: "not found" });
+  throw new HttpError(404, "not found");
 }
 ```
 
-The exported function creates the server. Every request runs inside `try`, so an unexpected error becomes a `500` response instead of a crashed server:
+Every request runs inside `try`. An `HttpError` becomes its own status; anything else becomes a `500` response instead of a crashed server:
 
 ```javascript title="lnk/server/app.mjs (continued)"
-export function createApp(store) {
-  return createServer(async (request, response) => {
-    try {
-      await route(store, request, response);
-    } catch (error) {
-      console.error(error);
-      sendJson(response, 500, { error: "internal error" });
-    }
+async function handle(store, request, response) {
+  try {
+    await route(store, request, response);
+  } catch (error) {
+    const known = error instanceof HttpError;
+    if (!known) log(error.stack);
+    const { status, message } = known ? error
+      : { status: 500, message: "internal error" };
+    log(`${status} ${message}`);
+    sendJson(response, status, { error: message });
+  }
+}
+```
+
+The exported function numbers the requests and starts each one inside `requests.run`, so everything the request awaits sees its id:
+
+```javascript title="lnk/server/app.mjs (continued)"
+export function createApp(store, { write = console.log } = {}) {
+  let nextId = 1;
+  return createServer((request, response) => {
+    const context = { id: nextId++, write };
+    requests.run(context, () => handle(store, request, response));
   });
 }
 ```
 
-`createApp` takes the store as an argument and does not call `listen`. That is what makes it testable: tests create an app with a fresh store and listen on port 0. The entry point is the only file that knows about the environment:
+`createApp` takes the store and the log writer as arguments and does not call `listen`. That is what makes it testable: tests create an app with a fresh store, collect the log lines in an array, and listen on port 0. The entry point is the only file that knows about the environment:
 
 ```javascript title="lnk/server/main.mjs"
 import { createApp } from "./app.mjs";
@@ -257,38 +300,42 @@ Start the server with `npm start`, which runs `node server/main.mjs`, and open t
 
 ## Integration tests
 
-The tests drive the app through HTTP, as the browser does, with a fresh store per test file:
+The tests drive the app through HTTP, as the browser does, with a fresh store per test file. The log writer pushes into `lines`, so a test can check what the server logged:
 
 ```javascript title="lnk/test/app.test.mjs"
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { setTimeout as delay } from "node:timers/promises";
 import { createApp } from "../server/app.mjs";
 import { createStore } from "../server/store.mjs";
 
 describe("link shortener", () => {
+  const lines = [];
   let server;
   let base;
   before(async () => {
-    server = createApp(createStore());
+    const write = (line) => lines.push(line);
+    server = createApp(createStore(), { write });
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${server.address().port}`;
   });
   after(() => server.close());
-
-  const shorten = (body) => fetch(`${base}/api/links`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
 ```
 
 `fetch` normally follows redirects; `redirect: "manual"` returns the `302` itself so the test can inspect it:
 
 ```javascript title="lnk/test/app.test.mjs (continued)"
+  const shorten = (body) => fetch(`${base}/api/links`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
   it("shortens a link and redirects to it", async () => {
     const created = await shorten({ url: "https://example.com/a/long/path" });
     assert.equal(created.status, 201);
     const { code } = await created.json();
     assert.equal(code, "g8");
+    assert.deepEqual(lines, ["req 1: created g8"]);
 
     const visit = await fetch(`${base}/${code}`, { redirect: "manual" });
     assert.equal(visit.status, 302);
@@ -300,7 +347,7 @@ describe("link shortener", () => {
   });
 ```
 
-Then the cases that must fail safely:
+Then the cases that must fail safely. The oversize URL is 6,000 `é`s: 6,000 characters but 12,000 bytes, so only a limit counted in bytes catches it:
 
 ```javascript title="lnk/test/app.test.mjs (continued)"
   it("rejects links that are not http or https", async () => {
@@ -310,12 +357,41 @@ Then the cases that must fail safely:
     }
   });
 
-  it("rejects bodies over the size limit", async () => {
-    const url = `https://example.com/${"x".repeat(20_000)}`;
+  it("answers 413 when the body is over 10,000 bytes", async () => {
+    const url = `https://example.com/${"é".repeat(6_000)}`;
     const response = await shorten({ url });
-    assert.equal(response.status, 400);
+    assert.equal(response.status, 413);
+    assert.deepEqual(await response.json(), { error: "body too large" });
+    assert.match(lines.at(-1), /^req \d+: 413 body too large$/);
   });
+```
 
+To prove that the reader decodes once, the next test sends the body as a `ReadableStream` in two pieces, cut between the two bytes of `é`, with a pause so that they arrive as separate chunks. A streamed request body needs `duplex: "half"` in `fetch`:
+
+```javascript title="lnk/test/app.test.mjs (continued)"
+  it("decodes a character split across two chunks", async () => {
+    const json = JSON.stringify({ url: "https://example.com/café" });
+    const bytes = new TextEncoder().encode(json);
+    const cut = bytes.indexOf(0xa9); // between the two bytes of é
+    const body = new ReadableStream({
+      async start(controller) {
+        controller.enqueue(bytes.subarray(0, cut));
+        await delay(50);
+        controller.enqueue(bytes.subarray(cut));
+        controller.close();
+      },
+    });
+    const init = { method: "POST", body, duplex: "half" };
+    const response = await fetch(`${base}/api/links`, init);
+    assert.equal(response.status, 201);
+    const link = await response.json();
+    assert.equal(link.url, "https://example.com/café");
+  });
+```
+
+The last test checks the page and an unknown code:
+
+```javascript title="lnk/test/app.test.mjs (continued)"
   it("serves the page and 404s unknown codes", async () => {
     const page = await fetch(base);
     assert.match(page.headers.get("content-type"), /^text\/html/);
@@ -328,17 +404,20 @@ Then the cases that must fail safely:
 ▶ link shortener
   ✔ shortens a link and redirects to it
   ✔ rejects links that are not http or https
-  ✔ rejects bodies over the size limit
+  ✔ answers 413 when the body is over 10,000 bytes
+  ✔ decodes a character split across two chunks
   ✔ serves the page and 404s unknown codes
 ✔ link shortener
-ℹ tests 4
+ℹ tests 5
 ℹ suites 1
-ℹ pass 4
+ℹ pass 5
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
 ```
+
+With the naive reader, `text += chunk` checked with `text.length > limit`, the last two failure tests fail: the split body is stored as `caf��`, and the 12,000-byte body passes the character count.
 
 ## Scripts, linting and CI
 
@@ -358,7 +437,7 @@ Then the cases that must fail safely:
 }
 ```
 
-`node --test` finds `test/app.test.mjs` by itself. For linting, add ESLint with the flat configuration from [the lint lesson](../../intermediate/lint-format/) and a `lint` script; the browser files need the browser globals in their part of the configuration, the server files the Node globals. The CI workflow from [the testing lesson](../testing-at-scale/) runs `npm ci`, `npm run lint` and `npm test` on Node 22, 24 and 26.
+`node --test` finds `test/app.test.mjs` by itself. For linting, add ESLint with the flat configuration from [the lint lesson](../../intermediate/lint-format/) and a `lint` script; the browser files need the browser globals in their part of the configuration, the server files the Node globals. Then add a `- run: npm run lint` step before `npm test` in the CI workflow from [the testing lesson](../testing-at-scale/), which runs on Node 22, 24 and 26.
 
 ## When not to build it this way
 
@@ -407,11 +486,12 @@ export function chooseCode(store, body) {
 }
 ```
 
-In `api`, the line `return sendJson(response, 201, store.add(url));` becomes:
+In `api`, the three lines from `const link = store.add(url);` become:
 
 ```javascript
 const result = chooseCode(store, body);
-return sendJson(response, result.status, result.link ?? { error: result.error });
+if (result.error) throw new HttpError(result.status, result.error);
+return [result.status, result.link];
 ```
 
 A generated code could still collide with a custom code registered earlier, such as a custom `g8`; a real store keeps one map and makes `add` skip codes that are taken. The tests call `chooseCode` directly, which covers the rules without a server:
@@ -566,11 +646,11 @@ In `createApp`, the key would be `request.socket.remoteAddress`; behind a proxy 
 
 ## The advanced level in review
 
-This project closes the advanced level. Looking back over its four modules:
+This project closes the advanced level. It reused a piece of each earlier module: an `AsyncLocalStorage` request id in every log line (A2), a body reader that counts `Buffer` bytes and decodes once (A3, and the decoding pitfall from A2's streams lesson), and the package scripts, shared ESM and integration tests of A4. Looking back over the four modules:
 
 - **Metaprogramming and functional patterns.** `Proxy` and `Reflect` intercept operations on objects; tagged templates turn template literals into safe builders; immutable data and composition keep logic predictable. Decorators are still a proposal, and `eval` is almost never the answer.
 - **Resources and concurrency.** `using` declarations release resources on every path; semaphores, queues, retries and rate limits keep async work bounded; worker threads and shared memory with `Atomics` use more than one core; streams move data with backpressure; child processes run other programs safely.
 - **Binary data and encoding.** `ArrayBuffer`, typed arrays and `DataView` read and write bytes in any layout; `Float16Array` halves storage at a known cost; base64 and hex move bytes through text; JSON keeps large numbers exact with `context.source` and `JSON.rawJSON`; money and measurements each get the right kind of arithmetic.
-- **Building and shipping.** Packages with a precise `exports` map, ESM-only now that `require(esm)` works; bundles when they pay for themselves; compatibility decided by Baseline and maintained Node lines; tests that run in isolation, in random order, against real servers and generated inputs; and, here, all of it in one application.
+- **Building and shipping.** Packages with a precise `exports` map, ESM-only now that `require(esm)` works; bundles when they pay for themselves; compatibility decided by Baseline and maintained Node lines; tests that run in isolation, in random order, against real servers and generated inputs.
 
 The expert level goes underneath and around this code. Its first module looks inside V8: how your code is parsed, compiled and optimised, how garbage collection works, and how to find memory leaks. The second measures and improves performance, from benchmarking without fooling yourself to profiling and start-up time. The third is about security: JavaScript-specific vulnerabilities, Node's permission model, the npm supply chain, cryptography, and a full security review of this link shortener.
