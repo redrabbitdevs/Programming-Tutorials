@@ -1,0 +1,322 @@
+---
+language: typescript
+level: beginner
+module: Functions
+order: 13
+title: Optional, default and rest parameters
+description: Type every parameter form in TypeScript, including optional parameters, default values, rest parameters and destructured option objects.
+minVersion: "5.0"
+objectives:
+  - Mark a parameter optional with `?` and handle its `undefined` value
+  - Predict the type of a parameter that has a default value
+  - Type a rest parameter as an array
+  - Type a destructured options object
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/09-functions"]
+---
+
+JavaScript lets you call a function with fewer or more arguments than it declares. TypeScript is stricter: the count is checked, so a function must say which parameters may be left out. This lesson types the parameter forms from [parameters in JavaScript](../../../javascript/beginner/parameters-js/): optional, default, rest and destructured. It builds on [typing functions](../function-types/).
+
+## Optional parameters
+
+A `?` after a parameter name makes it optional. Callers may leave it out, and inside the function it can be `undefined`.
+
+```ts title="optional_param.ts"
+function greet(who: string, greeting?: string): string {
+  return `${greeting ?? "Hello"}, ${who}`;
+}
+
+console.log(greet("Ada"));
+console.log(greet("Ada", "Welcome"));
+```
+
+The type of `greeting` inside the function is `string | undefined`. The nullish coalescing operator `??` from [the JavaScript track](../../../javascript/beginner/null-undefined-nullish/) supplies a fallback when it is missing.
+
+```bash frame="terminal"
+node optional_param.ts
+```
+
+```text
+Hello, Ada
+Welcome, Ada
+```
+
+Because the value may be `undefined`, using it directly is an error:
+
+```ts title="optional_unchecked.ts"
+function shout(text?: string): string {
+  return text.toUpperCase();
+}
+console.log(shout("hi"));
+```
+
+The compiler warns before the program can crash.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false optional_unchecked.ts
+```
+
+```text
+optional_unchecked.ts(2,10): error TS18048: 'text' is possibly 'undefined'.
+```
+
+Optional parameters must come after the required ones, because a call is matched by position:
+
+```ts title="required_after_optional.ts"
+function range(start?: number, end: number): number[] {
+  return [start ?? 0, end];
+}
+console.log(range(1, 5));
+```
+
+Here `end` is required but follows an optional parameter.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false required_after_optional.ts
+```
+
+```text
+required_after_optional.ts(1,32): error TS1016: A required parameter cannot follow an optional parameter.
+```
+
+## Default values
+
+A parameter with a default value is also optional for the caller. Its type is inferred from the default, so you often need no annotation.
+
+```ts title="default_param.ts"
+function power(base: number, exponent = 2): number {
+  return base ** exponent;
+}
+
+console.log(power(3));
+console.log(power(3, 3));
+```
+
+Here `exponent` is a `number` because its default is `2`. Inside the function it is never `undefined`, because the default fills in when the argument is missing or `undefined`. That is a difference from `?`, which leaves the value possibly `undefined`.
+
+```bash frame="terminal"
+node default_param.ts
+```
+
+```text
+9
+27
+```
+
+The inferred type is enforced for callers as well:
+
+```ts title="default_wrong.ts"
+function power(base: number, exponent = 2): number {
+  return base ** exponent;
+}
+console.log(power(3, "2"));
+```
+
+The compiler infers `number` from the default, so the string is rejected.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false default_wrong.ts
+```
+
+```text
+default_wrong.ts(4,22): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+```
+
+## Rest parameters
+
+A rest parameter collects the remaining arguments into an array, so its type is an array type.
+
+```ts title="rest_params.ts"
+function sum(...numbers: number[]): number {
+  return numbers.reduce((total, n) => total + n, 0);
+}
+
+console.log(sum(1, 2, 3));
+console.log(sum(...[4, 5]));
+console.log(sum());
+```
+
+`numbers` is a `number[]` inside the function. Callers pass the values one by one, or spread an array with `...`. Passing none gives an empty array.
+
+```bash frame="terminal"
+node rest_params.ts
+```
+
+```text
+6
+9
+0
+```
+
+Each argument is checked against the element type:
+
+```ts title="rest_wrong.ts"
+function sum(...numbers: number[]): number {
+  return numbers.reduce((total, n) => total + n, 0);
+}
+console.log(sum(1, "2", 3));
+```
+
+The string `"2"` does not fit `number`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false rest_wrong.ts
+```
+
+```text
+rest_wrong.ts(4,20): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+```
+
+A rest parameter must come last, and a function has at most one.
+
+## Destructured parameters
+
+When a function takes an options object, you can destructure it right in the parameter list. The type annotation goes after the whole pattern, and does not appear inside it:
+
+```ts title="destructured.ts"
+function formatName({
+  first,
+  last,
+  upper = false,
+}: {
+  first: string;
+  last: string;
+  upper?: boolean;
+}): string {
+  const full = `${first} ${last}`;
+  return upper ? full.toUpperCase() : full;
+}
+
+console.log(formatName({ first: "Ada", last: "Lovelace" }));
+console.log(formatName({ first: "Ada", last: "Lovelace", upper: true }));
+```
+
+The pattern names the properties, and the type after the colon says what each one is. The `upper = false` default and the `upper?: boolean` property work together: the default is used when the property is missing. This is verbose, and a later module shows how to give the type a name so that it can sit apart from the function.
+
+```bash frame="terminal"
+node destructured.ts
+```
+
+```text
+Ada Lovelace
+ADA LOVELACE
+```
+
+A misspelled property is caught as a typo.
+
+```ts title="destructured_wrong.ts"
+function formatName({ first, last }: { first: string; last: string }): string {
+  return `${first} ${last}`;
+}
+console.log(formatName({ first: "Ada", lst: "Lovelace" }));
+```
+
+The compiler even suggests the name you meant.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false destructured_wrong.ts
+```
+
+```text
+destructured_wrong.ts(4,40): error TS2561: Object literal may only specify known properties, but 'lst' does not exist in type '{ first: string; last: string; }'. Did you mean to write 'last'?
+```
+
+Options objects are a good habit when a function takes more than two or three parameters, because the call site then names each value, as in `formatName({ first: "Ada", last: "Lovelace" })`.
+
+## Common pitfalls
+
+- **Treating an optional parameter as always present.** Its type includes `undefined`, so check it or give it a fallback.
+- **Using `?` where a default would do.** A default removes the `undefined` case, so the body is simpler.
+- **Putting a required parameter after an optional one.** The compiler rejects it with `TS1016`.
+- **Writing the type inside the destructuring pattern.** In `{ first: string }` as a pattern, `string` would be taken as a new variable name. The type belongs after the closing brace.
+
+<Exercise title="Format a name">
+
+Write `formatName({ first, last, upper })` where `first` and `last` are strings and `upper` is an optional boolean that defaults to `false`. When `upper` is true, return the full name in upper case. Call it with `{ first: "Grace", last: "Hopper", upper: true }`. Expected output: `GRACE HOPPER`.
+
+<Solution>
+
+```ts title="ex_format_name.ts"
+function formatName({
+  first,
+  last,
+  upper = false,
+}: {
+  first: string;
+  last: string;
+  upper?: boolean;
+}): string {
+  const full = `${first} ${last}`;
+  return upper ? full.toUpperCase() : full;
+}
+
+console.log(formatName({ first: "Grace", last: "Hopper", upper: true }));
+```
+
+```text
+GRACE HOPPER
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Defaults for repeating text">
+
+Write `repeatText(text, times, separator)` returning the text repeated `times` times, joined by `separator`. Give `times` the default `2` and `separator` the default `" "`, with no annotations on those two. Print `repeatText("ha")` and `repeatText("ha", 3, "-")`. Expected output: `ha ha` and `ha-ha-ha`.
+
+<Solution>
+
+```ts title="ex_repeat.ts"
+function repeatText(text: string, times = 2, separator = " "): string {
+  return Array(times).fill(text).join(separator);
+}
+
+console.log(repeatText("ha"));
+console.log(repeatText("ha", 3, "-"));
+```
+
+```text
+ha ha
+ha-ha-ha
+```
+
+The types `number` and `string` are inferred from the defaults. `Array(times).fill(text)` builds an array of `times` copies, and `join` puts the separator between them.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Join with a separator">
+
+Write `joinWith(separator: string, ...parts: string[]): string`. Print `joinWith(", ", "a", "b", "c")` and `joinWith("-")`. Expected output: `a, b, c` and then an empty line.
+
+<Solution>
+
+```ts title="ex_join_with.ts"
+function joinWith(separator: string, ...parts: string[]): string {
+  return parts.join(separator);
+}
+
+console.log(joinWith(", ", "a", "b", "c"));
+console.log(joinWith("-"));
+```
+
+```text
+a, b, c
+```
+
+With no parts, the rest parameter is an empty array, and joining it gives an empty string.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- `x?: T` makes a parameter optional, and its type then includes `undefined`. Optional parameters go after required ones.
+- A default value makes a parameter optional too, and the type is inferred from the default. Inside the function it is never `undefined`.
+- A rest parameter `...args: T[]` collects the remaining arguments into an array and must be last.
+- A destructured parameter puts the type after the whole pattern, and options objects keep call sites readable.
+
+Next: `void`, `undefined` and functions that return nothing.

@@ -1,0 +1,319 @@
+---
+language: typescript
+level: beginner
+module: Functions
+order: 12
+title: Typing functions
+description: Annotate function parameters and return values, write function type expressions for callbacks, and see how contextual typing fills in callback parameters for you.
+minVersion: "5.0"
+objectives:
+  - Annotate parameters and a return type
+  - Read the errors for a wrong argument, a wrong argument count and a wrong return
+  - "Write a function type expression such as `(n: number) => number`"
+  - Explain contextual typing and when it does not apply
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/09-functions"]
+---
+
+A function is where types pay for themselves. Calling `add("2", 3)` by accident is easy, and the compiler stops it before the program runs. This lesson types the three places a function touches the outside world: its parameters, its return value, and the functions you pass into it. The JavaScript side is in [declarations, expressions and arrows](../../../javascript/beginner/function-forms/) and [higher-order functions](../../../javascript/beginner/higher-order-functions/), and the general idea is in the fundamentals lesson on [functions](../../../fundamentals/beginner/functions/).
+
+## Parameters and return types
+
+Annotate each parameter with `: Type`, and the return value with `: Type` after the closing parenthesis.
+
+```ts title="add_typed.ts"
+function add(a: number, b: number): number {
+  return a + b;
+}
+
+console.log(add(2, 3));
+```
+
+You learned in [annotations and inference](../annotations-and-inference/) that the return type can be inferred. Writing it anyway tells readers what the function promises, and makes the compiler check the body against that promise.
+
+```bash frame="terminal"
+node add_typed.ts
+```
+
+```text
+5
+```
+
+A call is checked against the parameter list: the type of each argument and also how many there are.
+
+```ts title="add_wrong.ts"
+function add(a: number, b: number): number {
+  return a + b;
+}
+
+console.log(add(2, "3"));
+console.log(add(2));
+console.log(add(2, 3, 4));
+```
+
+Three lines, two kinds of mistake. A wrong type is `TS2345`, and the wrong count is `TS2554`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false add_wrong.ts
+```
+
+```text
+add_wrong.ts(5,20): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+add_wrong.ts(6,13): error TS2554: Expected 2 arguments, but got 1.
+add_wrong.ts(7,23): error TS2554: Expected 2 arguments, but got 3.
+```
+
+The plain JavaScript version of this file runs and prints `23`, `NaN` and `5`, which is a bug on every line. A body that returns the wrong thing is also caught:
+
+```ts title="return_wrong.ts"
+function label(n: number): string {
+  return n * 2;
+}
+console.log(label(4));
+```
+
+The function promises a string and returns a number.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false return_wrong.ts
+```
+
+```text
+return_wrong.ts(2,3): error TS2322: Type 'number' is not assignable to type 'string'.
+```
+
+## Function type expressions
+
+Functions are values, so they have types too. A **function type expression** writes the parameter list and the return type with an arrow between them: `(a: number, b: number) => number`. The parameter names are only for readability and do not have to match the names in the function.
+
+```ts title="function_values.ts"
+const operation: (a: number, b: number) => number = (a, b) => a + b;
+
+function applyTwice(f: (n: number) => number, x: number): number {
+  return f(f(x));
+}
+
+console.log(operation(2, 3));
+console.log(applyTwice((n) => n * 3, 2));
+```
+
+`operation` is a variable holding a function. `applyTwice` takes a function as its first parameter, and callers must pass something with that shape.
+
+```bash frame="terminal"
+node function_values.ts
+```
+
+```text
+5
+18
+```
+
+The arrow in a type has a different meaning from the arrow in an expression. In `(n) => n * 3` it starts a function body, and in `(n: number) => number` it separates the parameters from the return type. Position tells you which: after a colon, it is a type.
+
+A wrong function is rejected with the same kind of message as a wrong value. Here the callback returns a string:
+
+```ts title="callback_return.ts"
+function applyTwice(f: (n: number) => number, x: number): number {
+  return f(f(x));
+}
+
+console.log(applyTwice((n) => `${n}!`, 2));
+```
+
+The message points at the callback's return value.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false callback_return.ts
+```
+
+```text
+callback_return.ts(5,31): error TS2322: Type 'string' is not assignable to type 'number'.
+```
+
+## Contextual typing
+
+Look back at the example above: `applyTwice((n) => n * 3, 2)` has no annotation on `n`. It does not need one. TypeScript knows from the type of `applyTwice` that the first argument takes a `number`, so it gives `n` that type. This is **contextual typing**: the place where a function appears gives its parameters their types.
+
+```ts title="contextual.ts"
+const doubled = [1, 2, 3].map((n) => n * 2);
+const labels = ["a", "b"].map((s) => s.toUpperCase());
+console.log(doubled, labels);
+```
+
+`map` expects a function from an element to anything, and the array holds numbers in the first case and strings in the second, so `n` is a `number` and `s` is a `string`. Hover over them to see.
+
+```bash frame="terminal"
+node contextual.ts
+```
+
+```text
+[ 2, 4, 6 ] [ 'A', 'B' ]
+```
+
+The checks are real. Using a property the string does not have is reported:
+
+```ts title="contextual_wrong.ts"
+const sizes = ["a", "bb"].map((s) => s.count);
+console.log(sizes);
+```
+
+The callback's `s` is a string, and strings have no `count`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false contextual_wrong.ts
+```
+
+```text
+contextual_wrong.ts(1,40): error TS2339: Property 'count' does not exist on type 'string'.
+```
+
+Contextual typing only works where the compiler can see the expected type. A function stored first and passed later has no context, which is the `TS7006` from the earlier lessons:
+
+```ts title="no_context.ts"
+const triple = (n) => n * 3;
+console.log([1, 2].map(triple));
+```
+
+The parameter `n` has nothing to infer from.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false no_context.ts
+```
+
+```text
+no_context.ts(1,17): error TS7006: Parameter 'n' implicitly has an 'any' type.
+```
+
+The fix is to annotate the parameter:
+
+```ts title="no_context_fixed.ts"
+const triple = (n: number) => n * 3;
+console.log([1, 2].map(triple));
+```
+
+Now it type-checks and runs.
+
+```bash frame="terminal"
+node no_context_fixed.ts
+```
+
+```text
+[ 3, 6 ]
+```
+
+## The Function type: avoid it
+
+TypeScript has a built-in type called `Function` that accepts any function, and it does not check the call at all:
+
+```ts title="function_type_any.ts"
+const run: Function = (n: number) => n * 2;
+console.log(run("not a number", "or two"));
+```
+
+That compiles, though it passes two strings to a function that wants a number. Write the real shape instead, such as `(n: number) => number`.
+
+## Common pitfalls
+
+- **Forgetting that parameters need annotations.** Contextual typing helps callbacks passed inline. A standalone function does not get it.
+- **Confusing the two arrows.** After a colon, `=>` is a type. In an expression, it begins a body.
+- **Using `Function`.** It accepts any call. Write the signature.
+- **Matching parameter names.** The names in a function type are labels and do not have to match the real function.
+
+<Exercise title="Type a map-like helper">
+
+Write `mapNumbers(values: number[], fn: (n: number) => number): number[]` that builds a new array by calling `fn` on each element. Do not use `Array.prototype.map`. Call it with `[1, 2, 3]` and `(n) => n * n`, without annotating `n`. Expected output: `[ 1, 4, 9 ]`.
+
+<Solution>
+
+```ts title="ex_map_helper.ts"
+function mapNumbers(values: number[], fn: (n: number) => number): number[] {
+  const result: number[] = [];
+  for (const value of values) {
+    result.push(fn(value));
+  }
+  return result;
+}
+
+console.log(mapNumbers([1, 2, 3], (n) => n * n));
+```
+
+```text
+[ 1, 4, 9 ]
+```
+
+The callback's `n` is typed by the parameter `fn`, which is contextual typing at work.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fix the callback">
+
+This call fails with `TS2322`, because the callback returns a string where a number is expected:
+
+```ts
+function applyTwice(f: (n: number) => number, x: number): number {
+  return f(f(x));
+}
+
+console.log(applyTwice((n) => `${n}!`, 2));
+```
+
+Change the callback so that it adds 10 to its argument, and apply it to 1. Expected output: `21`.
+
+<Solution>
+
+```ts title="ex_callback_fix.ts"
+function applyTwice(f: (n: number) => number, x: number): number {
+  return f(f(x));
+}
+
+console.log(applyTwice((n) => n + 10, 1));
+```
+
+```text
+21
+```
+
+The type of `f` forces the callback to return a number.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A list of operations">
+
+Declare an array whose elements are objects with a `label: string` and a `run: (n: number) => number`. Add two operations, one that doubles and one that squares, and print each label with its result for the input 5. Expected output: `double 10` and `square 25` on separate lines.
+
+<Solution>
+
+```ts title="ex_operations.ts"
+const operations: { label: string; run: (n: number) => number }[] = [
+  { label: "double", run: (n) => n * 2 },
+  { label: "square", run: (n) => n * n },
+];
+
+for (const op of operations) {
+  console.log(op.label, op.run(5));
+}
+```
+
+```text
+double 10
+square 25
+```
+
+The type `{ label: string; run: (n: number) => number }[]` is an array of objects, and the `n` in each `run` is contextually typed.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Annotate parameters and, usually, the return type. Calls are checked for argument types and for argument count.
+- A function type expression such as `(a: number, b: number) => number` describes a function value, for variables and for callbacks.
+- Contextual typing gives inline callbacks their parameter types from where they are used.
+- A function defined on its own gets no context, so its parameters need annotations. Do not use the `Function` type.
+
+Next: optional, default and rest parameters.

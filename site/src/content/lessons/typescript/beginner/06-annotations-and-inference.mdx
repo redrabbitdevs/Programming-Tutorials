@@ -1,0 +1,302 @@
+---
+language: typescript
+level: beginner
+module: Basic types
+order: 6
+title: Type annotations and inference
+description: Know when to write a type annotation and when to let TypeScript infer the type from the value, including how let and const infer differently.
+minVersion: "5.0"
+objectives:
+  - "Write a type annotation with `: Type` on variables, parameters and return values"
+  - Predict the type TypeScript infers from an initial value
+  - Explain why `let` infers a wider type than `const`
+  - Decide which declarations need an annotation and which do not
+estimatedMinutes: 25
+fundamentals: ["fundamentals/beginner/04-variables-and-assignment"]
+---
+
+In the first module you wrote annotations such as `n: number` and saw the compiler check them. This module covers the types you will use every day. We start with the question that comes before all the others: when do you have to write a type, and when does TypeScript already know it? The general idea of a variable holding a value is in the [fundamentals lesson on variables](../../../fundamentals/beginner/variables-and-assignment/), and [let and const](../../../javascript/beginner/let-const/) is the JavaScript lesson this one builds on.
+
+## Annotations: you say the type
+
+A **type annotation** is a colon and a type after a name. It tells the compiler what the name is allowed to hold.
+
+```ts
+let count: number = 0;
+const title: string = "Dune";
+```
+
+The annotation is checked, then erased: the JavaScript that runs is `let count = 0;`. You already know this from the [first module](../what-is-typescript/).
+
+## Inference: the compiler works it out
+
+You rarely need to write the types above. When a variable is created with a value, TypeScript **infers** its type from that value.
+
+```ts title="inferred.ts"
+const price = 9.99;
+const tags = ["sale", "new"];
+
+function add(a: number, b: number) {
+  return a + b;
+}
+
+const total = add(price, 1);
+console.log(total, tags.length);
+```
+
+Here `price` is a `number`, `tags` is a `string[]` (an array of strings, covered in [arrays and tuples](../arrays-and-tuples/)), and `total` is a `number` because `add` returns the sum of two numbers. Nothing on `price`, `tags` or `total` is annotated, and all three are fully checked.
+
+```bash frame="terminal"
+node inferred.ts
+```
+
+```text
+10.99 2
+```
+
+Functions are inferred the same way. `add` has no return annotation, but TypeScript reads the `return a + b` and concludes the result is a `number`. Hover over `add` in your editor to see the inferred signature. The proof that the inferred type is real is that misusing it is an error:
+
+```ts title="return_inferred.ts"
+function double(n: number) {
+  return n * 2;
+}
+
+const label: string = double(4);
+console.log(label);
+```
+
+Line 5 asks for a `string`, but `double` returns a `number`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false return_inferred.ts
+```
+
+```text
+return_inferred.ts(5,7): error TS2322: Type 'number' is not assignable to type 'string'.
+```
+
+## let and const infer differently
+
+A `let` variable can be reassigned, so TypeScript gives it the general type of its value. A `string` value gives a `string` variable, and later assignments must also be strings.
+
+```ts title="let_widening_wrong.ts"
+let city = "Oslo";
+city = 42;
+console.log(city);
+```
+
+The error is on the assignment, not on the declaration.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false let_widening_wrong.ts
+```
+
+```text
+let_widening_wrong.ts(2,1): error TS2322: Type 'number' is not assignable to type 'string'.
+```
+
+A `const` variable can never change, so TypeScript can keep the exact value as its type. `const city = "Oslo"` has the type `"Oslo"`, a **literal type**, which the lesson on [literal types](../literal-types/) covers in full. You can see the difference when a `const` and a `let` with the same value are assigned to a variable that only accepts `"north"`:
+
+```ts title="const_literal.ts"
+const fixed = "north";
+let loose = "north";
+
+const a: "north" = fixed;
+const b: "north" = loose;
+console.log(a, b);
+```
+
+The `const` passes and the `let` does not, because the `let` was widened to `string`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false const_literal.ts
+```
+
+```text
+const_literal.ts(5,7): error TS2322: Type 'string' is not assignable to type '"north"'.
+```
+
+TypeScript calls this **widening**: it replaces an exact value with its general type, but only where the variable could change later.
+
+## When to annotate
+
+Inference is not a reason to leave every type out. The practical rule is to annotate the places where information enters or leaves a function or module, and infer inside.
+
+- **Parameters** need an annotation. A parameter has no initial value to infer from. Without one, you get error `TS7006`, as in [reading compiler errors](../reading-errors/).
+- **Return types** are inferred, but writing them on functions that other files call documents the intent, and the compiler then reports the mistake inside the function if the body returns the wrong thing.
+- **Variables with an initial value** almost never need one. `const count: number = 0` repeats what the compiler already sees.
+- **Variables without a value yet** do need one, because there is nothing to infer from.
+
+```ts title="deferred.ts"
+let total: number;
+total = 10;
+console.log(total);
+```
+
+An empty array is the case that surprises people. With no elements, there is nothing to infer from, so annotate it:
+
+```ts title="names_empty.ts"
+const names: string[] = [];
+names.push("Ada");
+names.push(7);
+console.log(names);
+```
+
+The annotation `string[]` is what turns the wrong `push` on line 3 into a compile-time error.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false names_empty.ts
+```
+
+```text
+names_empty.ts(3,12): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+```
+
+A correct version, for comparison:
+
+```ts title="names_fixed.ts"
+const names: string[] = [];
+names.push("Ada");
+names.push("Grace");
+console.log(names);
+```
+
+It runs and prints both names.
+
+```bash frame="terminal"
+node names_fixed.ts
+```
+
+```text
+[ 'Ada', 'Grace' ]
+```
+
+## Common pitfalls
+
+- **Annotating what is obvious.** `const ready: boolean = true` adds noise and no safety.
+- **Forgetting that `let` widens.** If a `let` must only ever hold certain exact values, annotate it with those values, as the [literal types](../literal-types/) lesson shows.
+- **Trusting an inferred type you never looked at.** Hover over the name in your editor. The type you assumed and the type inferred are sometimes different.
+- **Declaring a variable with neither a type nor a value.** `let value;` is allowed, but its type then changes with each assignment, which is hard to follow. Give it an annotation instead.
+
+<Exercise title="Remove the redundant annotations">
+
+Remove every annotation from this file that the compiler can infer, and keep the ones it cannot. The output must stay `Hello x3 0.5 true`.
+
+```ts
+const greeting: string = "Hello";
+const count: number = 3;
+const ratio: number = 0.5;
+const ready: boolean = true;
+
+function label(name: string, n: number): string {
+  return `${name} x${n}`;
+}
+
+const result: string = label(greeting, count);
+console.log(result, ratio, ready);
+```
+
+<Solution>
+
+```ts title="ex_redundant.ts"
+const greeting = "Hello";
+const count = 3;
+const ratio = 0.5;
+const ready = true;
+
+function label(name: string, n: number): string {
+  return `${name} x${n}`;
+}
+
+const result = label(greeting, count);
+console.log(result, ratio, ready);
+```
+
+```text
+Hello x3 0.5 true
+```
+
+The four constants and `result` are inferred from their values. The parameters need their annotations. The return annotation on `label` is optional, and keeping it is a matter of style.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fix an array that has no type">
+
+This file fails with `TS7034` and `TS7005` because the compiler cannot tell what the empty array holds. Add one annotation that fixes both errors. Expected output: `1`.
+
+```ts
+const queue = [];
+
+function first() {
+  return queue[0];
+}
+
+queue.push(1);
+console.log(first());
+```
+
+<Solution>
+
+```ts title="ex_empty_array.ts"
+const queue: number[] = [];
+
+function first(): number {
+  return queue[0];
+}
+
+queue.push(1);
+console.log(first());
+```
+
+```text
+1
+```
+
+Annotating `queue` as `number[]` gives it a fixed type. Adding the return annotation to `first` is optional, since it would be inferred as `number`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Spot the widening">
+
+This file has one error, `TS2322`. Find the line and fix it by changing one keyword, with no annotations added. Expected output: `go go`.
+
+```ts
+const a = "go";
+let b = "go";
+const first: "go" = a;
+const second: "go" = b;
+console.log(first, second);
+```
+
+<Solution>
+
+```ts title="ex_widen.ts"
+const a = "go";
+const b = "go";
+const first: "go" = a;
+const second: "go" = b;
+console.log(first, second);
+```
+
+```text
+go go
+```
+
+`b` was declared with `let`, so its type widened to `string`. Declaring it with `const` keeps the type `"go"`, which is the type of the value.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- An annotation is `: Type` after a name. It is checked and then erased.
+- TypeScript infers the type from an initial value, and infers function return types from `return` statements.
+- `const` keeps the exact value as its type. `let` widens it, because the variable can change.
+- Annotate parameters, empty arrays and variables with no value yet. Let everything else be inferred.
+
+Next: the primitive types in detail.

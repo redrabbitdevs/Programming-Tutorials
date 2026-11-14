@@ -1,0 +1,304 @@
+---
+language: typescript
+level: beginner
+module: Functions
+order: 14
+title: void, undefined and returns
+description: Understand the return types void, undefined and never, why a callback typed to return void can still return a value, and what TypeScript 5.1 changed for functions without return.
+minVersion: "5.0"
+objectives:
+  - Use `void` as the return type of a function that gives no useful result
+  - Explain why `forEach(x => arr.push(x))` type-checks
+  - Write a function typed to return `undefined` without a `return` statement
+  - Tell `void`, `undefined` and `never` apart
+estimatedMinutes: 25
+fundamentals: []
+---
+
+A function that returns nothing is common: it logs, saves or changes something and finishes. JavaScript hands back `undefined` in that case, and TypeScript has three different types around that idea. They look similar and behave differently, and a wrong choice causes some of the least obvious errors beginners meet. This lesson sorts out `void`, `undefined` and `never`. It follows [typing functions](../function-types/) and uses `never` from [any, unknown and never](../any-unknown-never/).
+
+## void: no result to use
+
+`void` as a return type says that the function's result is not meant to be used. Use it for functions that act and do not compute.
+
+```ts title="void_ok.ts"
+function log(message: string): void {
+  console.log(`[log] ${message}`);
+}
+
+log("started");
+```
+
+The function acts and returns nothing.
+
+```bash frame="terminal"
+node void_ok.ts
+```
+
+```text
+[log] started
+```
+
+If a function declared to return `void` tries to return a real value, the compiler objects:
+
+```ts title="void_declared.ts"
+function log(message: string): void {
+  return message;
+}
+console.log(log("hi"));
+```
+
+The error is on the `return` statement.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false void_declared.ts
+```
+
+```text
+void_declared.ts(2,3): error TS2322: Type 'string' is not assignable to type 'void'.
+```
+
+Because the result is not meant to be used, TypeScript also stops you from using it. A `void` value cannot even be tested:
+
+```ts title="void_value.ts"
+function log(message: string): void {
+  console.log(message);
+}
+
+const result = log("saved");
+if (result) {
+  console.log("truthy");
+}
+```
+
+The value of `result` is `void`, so the `if` is an error.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false void_value.ts
+```
+
+```text
+void_value.ts(6,5): error TS1345: An expression of type 'void' cannot be tested for truthiness.
+```
+
+## Callbacks: void means "ignored"
+
+When `void` appears in a function **type**, it means something looser: "the caller ignores whatever comes back". A function that does return a value is allowed wherever such a type is expected.
+
+```ts title="void_callback.ts"
+const numbers: number[] = [];
+[1, 2, 3].forEach((n) => numbers.push(n * 10));
+console.log(numbers);
+```
+
+`forEach` is typed to accept a callback `(value) => void`. The arrow here is `(n) => numbers.push(n * 10)`, and `push` returns the new length of the array, which is a `number`. That is fine, because `forEach` ignores the result. The shorter arrow form is convenient, and the type rule is what lets it compile.
+
+```bash frame="terminal"
+node void_callback.ts
+```
+
+```text
+[ 10, 20, 30 ]
+```
+
+The same rule applies to your own types:
+
+```ts title="void_vs_undefined.ts"
+type Handler = () => void;
+const handler: Handler = () => 42;
+console.log(handler());
+```
+
+`Handler` promises `void`, and the function returns 42. The types allow it, and the value is really returned at run time, as the output shows. What you cannot do is rely on it in typed code, because the compiler treats the result of `handler()` as `void`.
+
+```bash frame="terminal"
+node void_vs_undefined.ts
+```
+
+```text
+42
+```
+
+The two cases are consistent. A function that you declare with a `void` return type promises to return nothing. A function type that says `void` promises only that callers will not use the result, so any function fits.
+
+## undefined: an actual value
+
+`undefined` is a value, and `undefined` as a return type means the function returns that value. Before TypeScript 5.1, such a function needed an explicit `return undefined;`. <Since v="5.1" /> Now a function whose return type is `undefined` (or includes it) may simply reach the end of its body.
+
+```ts title="undefined_return.ts"
+function noop(): undefined {}
+
+function locate(items: string[], wanted: string): undefined {
+  if (items.includes(wanted)) {
+    console.log("found", wanted);
+  }
+}
+
+console.log(noop(), locate(["a", "b"], "b"));
+```
+
+Both functions end without a `return`, and the compiler accepts both. Calling them gives `undefined`, as the output shows.
+
+```bash frame="terminal"
+node undefined_return.ts
+```
+
+```text
+found b
+undefined undefined
+```
+
+A return type that is a union including `undefined` also allows a path that falls off the end, so a function can sometimes return a value and sometimes nothing:
+
+```ts title="undefined_missing.ts"
+function pick(n: number): number | undefined {
+  if (n > 0) {
+    return n;
+  }
+}
+console.log(pick(1), pick(-1));
+```
+
+The practical difference between `void` and `undefined`: a `void` result must not be used, while an `undefined` result is a real value that you can print or compare. Use `void` for "returns nothing of interest" and `undefined` when callers will see and test the value.
+
+```bash frame="terminal"
+node undefined_missing.ts
+```
+
+```text
+1 undefined
+```
+
+## never: does not return at all
+
+A `void` function finishes and returns. A `never` function never gets to return, because it throws or loops forever.
+
+```ts title="never_vs_void.ts"
+function halt(message: string): never {
+  throw new Error(message);
+}
+
+function report(message: string): void {
+  console.log(message);
+}
+
+try {
+  report("fine");
+  halt("halted");
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+`report` returns normally. `halt` raises an error, so the `try` stops there. A `never` branch adds nothing to a result type, as in [any, unknown and never](../any-unknown-never/).
+
+```bash frame="terminal"
+node never_vs_void.ts
+```
+
+```text
+fine
+Error: halted
+```
+
+| Return type | Function returns? | Result usable? |
+|---|---|---|
+| `void` | yes | no, ignore it |
+| `undefined` | yes | yes, it is the value `undefined` |
+| `never` | no | there is no result |
+
+## Common pitfalls
+
+- **Writing `: void` on a function that returns a value.** If the result matters, give it a real type.
+- **Using the result of a `void` call.** The compiler stops you from testing it. Return a real type if the caller needs the value.
+- **Confusing the function declaration with the function type.** A declared `: void` function cannot return a value, but a function type with `void` accepts functions that do.
+- **Choosing `never` for a function that returns normally.** `never` is only for functions that cannot finish.
+
+<Exercise title="Explain forEach with push">
+
+Fill an array `lengths` with the length of each word in `["a", "bb", "ccc"]`, using `forEach` and a one-expression arrow that calls `push`. Print the array. Expected output: `[ 1, 2, 3 ]`. Why does this type-check, even though `push` returns a number?
+
+<Solution>
+
+```ts title="ex_foreach_proof.ts"
+const lengths: number[] = [];
+["a", "bb", "ccc"].forEach((word) => lengths.push(word.length));
+console.log(lengths);
+```
+
+```text
+[ 1, 2, 3 ]
+```
+
+`forEach` expects a callback whose return type is `void`. In a function type, `void` means the result is ignored, so a callback that returns the number from `push` is allowed.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Declare a void function correctly">
+
+This function is declared `: void` but returns a string, which gives `TS2322`:
+
+```ts
+function announce(message: string): void {
+  return `>> ${message}`;
+}
+console.log(announce("deploy started"));
+```
+
+Fix it so that it prints `>> deploy started` and keeps the `void` return type. Expected output: `>> deploy started`.
+
+<Solution>
+
+```ts title="ex_void_fix.ts"
+function announce(message: string): void {
+  console.log(`>> ${message}`);
+}
+
+announce("deploy started");
+```
+
+```text
+>> deploy started
+```
+
+The function now prints the message itself and returns nothing. The alternative is to change the return type to `string` and print outside the function, which is the better design if callers need the text.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Return undefined without return">
+
+Write `logOnce(message: string): undefined` that prints the message and has no `return` statement. Print the result of calling it. Expected output: `hello` followed by `undefined`.
+
+<Solution>
+
+```ts title="ex_undefined_fn.ts"
+function logOnce(message: string): undefined {
+  console.log(message);
+}
+
+console.log(logOnce("hello"));
+```
+
+```text
+hello
+undefined
+```
+
+The compiler accepts the missing `return` from TypeScript 5.1 onwards. In earlier versions you had to write `return undefined;`.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- A function declared to return `void` returns nothing useful, and the compiler stops you from using its result.
+- In a function type, `void` means "the caller ignores the result", so a callback may return a value. That is why `forEach(x => arr.push(x))` compiles.
+- `undefined` is a real value. Since TypeScript 5.1 a function that returns `undefined` needs no `return` statement.
+- `never` is for functions that cannot return at all.
+
+Next: function overloads.

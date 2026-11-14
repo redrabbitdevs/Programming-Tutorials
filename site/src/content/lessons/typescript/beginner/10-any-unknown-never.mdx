@@ -1,0 +1,321 @@
+---
+language: typescript
+level: beginner
+module: Basic types
+order: 10
+title: any, unknown and never
+description: Choose the right type for values you cannot predict. any switches checking off, unknown forces you to check first, and never marks code that cannot finish.
+minVersion: "6.0"
+objectives:
+  - Explain what `any` turns off and why it is dangerous
+  - Use `unknown` for values of unknown shape and narrow them with `typeof`
+  - Write a function that returns `never`
+  - Know that `noImplicitAny` is part of `strict`, which is on by default since TypeScript 6.0
+estimatedMinutes: 30
+fundamentals: []
+---
+
+Sometimes you do not know what a value is. It comes from `JSON.parse`, a form field, or a library you cannot change. TypeScript has three special types for these situations, and the difference between two of them is among the most useful things to learn in the language. This lesson builds on [typeof](../../../javascript/beginner/primitives-and-typeof/) from the JavaScript track and on [reading compiler errors](../reading-errors/).
+
+## any: the escape hatch
+
+A value of type `any` can be used in any way, and the compiler does not check it. It is the type of "I have switched TypeScript off for this value."
+
+```ts title="any_hole.ts"
+let data: any = "text";
+
+try {
+  console.log(data.toFixed(2));
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+This compiles without a single complaint, even though a string has no `toFixed` method. The mistake only appears at run time:
+
+```bash frame="terminal"
+node any_hole.ts
+```
+
+```text
+TypeError: data.toFixed is not a function
+```
+
+That is the same bug you would have in plain JavaScript, and the compiler could have caught it. Worse, `any` spreads: the result of calling a method on an `any`, or reading a property of one, is also `any`. One careless `any` can switch off checking for a whole chain of code.
+
+You meet `any` mostly as something you did not ask for. `JSON.parse` returns `any`, so `JSON.parse("1").missing.deeper` compiles and then crashes. Parameters with no annotation and no context are an implicit `any`, which the option `noImplicitAny` reports as error `TS7006`, as in [reading compiler errors](../reading-errors/). `noImplicitAny` belongs to the `strict` group, which has been on by default since TypeScript 6.0.
+
+## unknown: the safe version
+
+`unknown` also means "could be anything", but it does the opposite of `any`: you cannot do anything with the value until you check what it is.
+
+```ts title="unknown_forces.ts"
+const input: unknown = "hello";
+console.log(input.toUpperCase());
+```
+
+The compiler refuses to call a method on a value it knows nothing about.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false unknown_forces.ts
+```
+
+```text
+unknown_forces.ts(2,13): error TS18046: 'input' is of type 'unknown'.
+```
+
+You prove what the value is with a check the compiler understands. Inside an `if` that tests `typeof`, the type is **narrowed**, which means the compiler treats it as the narrower type within that branch.
+
+```ts title="unknown_narrow.ts"
+function describe(value: unknown): string {
+  if (typeof value === "string") {
+    return `text of length ${value.length}`;
+  }
+  if (typeof value === "number") {
+    return `number ${value.toFixed(1)}`;
+  }
+  return "something else";
+}
+
+console.log(describe("hello"));
+console.log(describe(3));
+console.log(describe(true));
+```
+
+Inside the first `if`, `value` is a `string`, so `.length` is allowed. Inside the second it is a `number`. After both, it is still `unknown`.
+
+```bash frame="terminal"
+node unknown_narrow.ts
+```
+
+```text
+text of length 5
+number 3.0
+something else
+```
+
+Narrowing has more tools than `typeof`, and a later module covers them. For now, `typeof` is enough.
+
+This is the right type for data you receive from outside. Declaring the parse result as `unknown` makes the compiler insist on a check:
+
+```ts title="json_unknown.ts"
+const parsed: unknown = JSON.parse("42");
+
+if (typeof parsed === "number") {
+  console.log(parsed * 2);
+}
+```
+
+The multiplication is allowed only inside the check.
+
+```bash frame="terminal"
+node json_unknown.ts
+```
+
+```text
+84
+```
+
+Under `strict`, the variable in a `catch` clause is `unknown` too, which is why the examples in this module print `String(error)` rather than `error.message`.
+
+```ts title="catch_unknown.ts"
+try {
+  JSON.parse("{");
+} catch (error) {
+  console.log(error.message);
+}
+```
+
+The compiler says what you must do first.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false catch_unknown.ts
+```
+
+```text
+catch_unknown.ts(4,15): error TS18046: 'error' is of type 'unknown'.
+```
+
+## never: the type with no values
+
+`never` is the type of something that cannot happen. A function that always throws, or loops forever, never returns a value, so its return type is `never`, which you write as the annotation yourself.
+
+```ts title="never_fail.ts"
+function fail(message: string): never {
+  throw new Error(message);
+}
+
+function half(n: number): number {
+  return n % 2 === 0 ? n / 2 : fail(`${n} is odd`);
+}
+
+console.log(half(8));
+try {
+  half(7);
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+The expression `n % 2 === 0 ? n / 2 : fail(...)` has the type `number`, because a branch that never produces a value adds nothing to the result. This lets `fail` appear anywhere a value is needed.
+
+```bash frame="terminal"
+node never_fail.ts
+```
+
+```text
+4
+Error: 7 is odd
+```
+
+Nothing can be assigned to a `never`, because there are no values of that type.
+
+```ts title="never_assign.ts"
+const impossible: never = 1;
+console.log(impossible);
+```
+
+The number `1` has no place in a type that has no values.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false never_assign.ts
+```
+
+```text
+never_assign.ts(1,7): error TS2322: Type '1' is not assignable to type 'never'.
+```
+
+You will use `never` for error-raising helpers like `fail`, and later to make the compiler prove that every case of a choice was handled. Neither is something you need to write often right now.
+
+## Choosing between them
+
+| Type | You can use the value | Use it when |
+|---|---|---|
+| `any` | in any way, unchecked | almost never: in quick migrations, with a plan to remove it |
+| `unknown` | only after narrowing | you receive data whose shape you do not control |
+| `never` | there is no value | a function cannot return |
+
+## Common pitfalls
+
+- **Reaching for `any` to silence an error.** First ask whether `unknown` plus a check would do.
+- **Letting `any` leak.** Property reads and calls on an `any` value give `any` again, so the unchecked region grows.
+- **Expecting `unknown` to allow property access.** It does not. Narrow first.
+- **Forgetting `strict` is on.** Since TypeScript 6.0 you do not have to enable `noImplicitAny`, but older projects may still have it off.
+
+<Exercise title="Replace any with unknown">
+
+Write `parseAge(input: unknown): number` with no `any` anywhere. If `input` is a number, return it. If it is a string, return `Number(input)`. Otherwise return `0`. Print `parseAge(36)`, `parseAge("42")` and `parseAge(null)`. Expected output: `36`, `42`, `0` on separate lines.
+
+<Solution>
+
+```ts title="ex_parse_age.ts"
+function parseAge(input: unknown): number {
+  if (typeof input === "number") {
+    return input;
+  }
+  if (typeof input === "string") {
+    return Number(input);
+  }
+  return 0;
+}
+
+console.log(parseAge(36));
+console.log(parseAge("42"));
+console.log(parseAge(null));
+```
+
+```text
+36
+42
+0
+```
+
+Each `typeof` test narrows `input` for the `return` inside its own `if`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A helper that never returns">
+
+Write `fail(message: string): never` that throws an `Error`. Use it in `requirePositive(n: number): number`, which calls `fail` when `n <= 0` and otherwise returns `n`. Print `requirePositive(5)`, and print the caught error for `requirePositive(-1)` with `String(error)`. Expected output: `5` then `Error: expected a positive number, got -1`.
+
+<Solution>
+
+```ts title="ex_require.ts"
+function fail(message: string): never {
+  throw new Error(message);
+}
+
+function requirePositive(n: number): number {
+  if (n <= 0) {
+    fail(`expected a positive number, got ${n}`);
+  }
+  return n;
+}
+
+console.log(requirePositive(5));
+try {
+  requirePositive(-1);
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+```text
+5
+Error: expected a positive number, got -1
+```
+
+The `if` branch ends in a call to `fail`, which never returns, so the final `return n` only runs when the check passed.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Make shout safe">
+
+This function compiles but is unsafe, because the parameter is `any`:
+
+```ts
+function shout(value: any): string {
+  return value.toUpperCase();
+}
+console.log(shout(42));
+```
+
+Change `any` to `unknown` and see the error `TS18046`. Then fix the body so that strings are upper-cased and every other value goes through `String(value)`. Expected output: `HI` for `shout("hi")` and `42` for `shout(42)`.
+
+<Solution>
+
+```ts title="ex_any_to_unknown.ts"
+function shout(value: unknown): string {
+  if (typeof value === "string") {
+    return value.toUpperCase();
+  }
+  return String(value);
+}
+
+console.log(shout("hi"));
+console.log(shout(42));
+```
+
+```text
+HI
+42
+```
+
+The original crashes on `shout(42)`, because a number has no `toUpperCase`. The `unknown` version cannot compile until the check is written, so the bug cannot reach run time.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- `any` turns checking off for a value and spreads to everything derived from it.
+- `unknown` accepts any value but allows no use until you narrow it, with `typeof` for example.
+- `never` is the type of code that cannot finish normally, such as a function that always throws.
+- `strict` includes `noImplicitAny` and is on by default since TypeScript 6.0.
+
+Next: literal types and `as const`.
