@@ -1,0 +1,328 @@
+---
+language: typescript
+level: beginner
+module: Unions and narrowing
+order: 17
+title: Union types
+description: Accept several kinds of value in one parameter or variable, see which operations a union allows, and learn why the compiler will not let you use a member that only some of the types have.
+minVersion: "5.0"
+objectives:
+  - Write a union type with `|` for a parameter, variable or return value
+  - Explain why only members shared by every part of a union can be used
+  - Predict how assignment affects the type of a union variable
+  - Tell `string[] | number[]` apart from `(string | number)[]`
+estimatedMinutes: 25
+fundamentals: ["fundamentals/beginner/07-conditionals"]
+---
+
+JavaScript values often come in more than one shape: an ID that is sometimes a number and sometimes a string, a name that may be `null`. A **union type** says exactly that. It is written with `|` between the allowed types, and it means "a value of this type or that type". You have already used unions of literals in the [literal types lesson](../literal-types/); this lesson uses them with ordinary types, and the next one shows how to take them apart. The branching code that follows is plain JavaScript, covered in [conditionals](../../../javascript/beginner/conditionals-js/).
+
+## Writing a union
+
+Put `|` between the types. The parameter below accepts either a string or a number, and the function treats both the same way.
+
+```ts title="union_basic.ts"
+function formatId(id: string | number): string {
+  return `ID-${id}`;
+}
+
+console.log(formatId(7));
+console.log(formatId("A7"));
+```
+
+The template literal turns either kind of value into text.
+
+```bash frame="terminal"
+node union_basic.ts
+```
+
+```text
+ID-7
+ID-A7
+```
+
+A value outside the union is rejected at the call. Here `true` and `null` are not a `string` or a `number`:
+
+```ts title="union_bad_arg.ts"
+function formatId(id: string | number): string {
+  return `ID-${id}`;
+}
+
+console.log(formatId(true));
+console.log(formatId(null));
+```
+
+The error names the whole union, so you can see what would have been accepted.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false union_bad_arg.ts
+```
+
+```text
+
+```
+
+(With `strictNullChecks`, which is part of `strict` and on by default in TypeScript 6.0 and later, `null` is not a member of every type. [Handling missing values](../null-and-undefined-strict/) covers that.)
+
+## Only shared members are allowed
+
+A union stands for "one of these, and I do not know which yet". So the compiler lets you use only what every member has in common. Both strings and arrays have `slice` and `length`, and both strings and numbers have `toString`, so these functions compile:
+
+```ts title="union_shared.ts"
+function firstTwo(value: string | number[]): string | number[] {
+  return value.slice(0, 2);
+}
+
+function label(value: string | number): string {
+  return value.toString();
+}
+
+console.log(firstTwo("hello"), firstTwo([1, 2, 3]));
+console.log(label(4.5), label("x"));
+```
+
+Each call works for either kind of input. The result of `slice` is itself a union, because the compiler cannot know which kind came in.
+
+```bash frame="terminal"
+node union_shared.ts
+```
+
+```text
+he [ 1, 2 ]
+4.5 x
+```
+
+`toFixed` exists on numbers only, so the same trick fails on `string | number`:
+
+```ts title="union_member.ts"
+function show(value: string | number): string {
+  return value.toFixed(2);
+}
+
+console.log(show(1.5));
+```
+
+The message lists the member that lacks the property, which tells you which part of the union to deal with.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false union_member.ts
+```
+
+```text
+
+```
+
+The fix is to check what you have before using it. That is called narrowing, and the [next lesson](../narrowing-basics/) covers it properly. As a preview, a `typeof` check makes the compiler treat the value as one member inside each branch:
+
+```ts title="union_narrowed.ts"
+function show(value: string | number): string {
+  if (typeof value === "number") {
+    return value.toFixed(2);
+  }
+  return value.toUpperCase();
+}
+
+console.log(show(1.5), show("done"));
+```
+
+Inside the `if`, `value` is a `number`. After it returns, only `string` is left.
+
+```bash frame="terminal"
+node union_narrowed.ts
+```
+
+```text
+1.50 DONE
+```
+
+## Assignment narrows a variable
+
+A variable declared with a union type starts as the whole union, but the compiler remembers what you last assigned to it. After assigning a string, the variable is treated as a string until it is assigned again.
+
+```ts title="union_assign.ts"
+let id: string | number = "A7";
+console.log(id.toUpperCase());
+
+id = 42;
+console.log(id.toFixed(1));
+```
+
+`toUpperCase` is allowed right after the string assignment, and `toFixed` right after the number one.
+
+```bash frame="terminal"
+node union_assign.ts
+```
+
+```text
+A7
+42.0
+```
+
+The declared type still limits what you may assign, so a boolean is rejected:
+
+```ts title="union_assign_bad.ts"
+let id: string | number = "A7";
+id = true;
+console.log(id);
+```
+
+The error mentions the declared union, not the narrowed type.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false union_assign_bad.ts
+```
+
+```text
+
+```
+
+## Unions and overloads
+
+A union parameter is usually simpler than an [overload](../overloads/) when the function returns the same kind of result for every input. Reach for overloads only when the return type changes with the argument type.
+
+## Where the bar goes: arrays of unions
+
+`(string | number)[]` is one array whose elements are each a string or a number. `string[] | number[]` is either an array of strings or an array of numbers, never a mix. The first accepts `push("four")`. The second does not, because the compiler cannot tell which array it holds.
+
+```ts title="union_array.ts"
+const mixed: (string | number)[] = [1, "two", 3];
+mixed.push("four");
+
+const either: string[] | number[] = ["a", "b"];
+
+console.log(mixed, either);
+```
+
+`mixed` accepts both kinds of element. `either` was assigned an array of strings, so it is narrowed to that, as in the previous section.
+
+```bash frame="terminal"
+node union_array.ts
+```
+
+```text
+[ 1, 'two', 3, 'four' ] [ 'a', 'b' ]
+```
+
+When the type comes in through a parameter, nothing narrows it. Now `push` has no safe argument at all:
+
+```ts title="union_array_bad.ts"
+function add(list: string[] | number[]): void {
+  list.push("c");
+}
+
+const letters = ["a", "b"];
+add(letters);
+console.log(letters);
+```
+
+A string would be wrong for a number array and a number would be wrong for a string array, so the compiler asks for something that is both: `never`, which has no values.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false union_array_bad.ts
+```
+
+```text
+
+```
+
+## Common pitfalls
+
+- **Calling a method that only some members have.** Narrow first, or use only the shared members.
+- **Mixing up `A[] | B[]` and `(A | B)[]`.** The first is one kind of array, the second a mixed array.
+- **Expecting a declared union to stay wide.** After an assignment, the variable is narrowed to the assigned type until the next assignment.
+- **Reaching for `any` instead of a union.** `any` turns checking off. A union keeps it on and lists the cases you must handle.
+
+<Exercise title="Describe three kinds of input">
+
+Write `describeInput(input: string | number | boolean)`. A string gives `text of length N`, a number gives `number` and the value to one decimal place, and a boolean gives `yes` or `no`. Print the results for `"hello"`, `3` and `false`. Expected output: three lines, `text of length 5`, `number 3.0`, `no`.
+
+<Solution>
+
+```ts title="ex_describe_input.ts"
+function describeInput(input: string | number | boolean): string {
+  if (typeof input === "string") {
+    return `text of length ${input.length}`;
+  }
+  if (typeof input === "number") {
+    return `number ${input.toFixed(1)}`;
+  }
+  return input ? "yes" : "no";
+}
+
+console.log(describeInput("hello"));
+console.log(describeInput(3));
+console.log(describeInput(false));
+```
+
+```text
+text of length 5
+number 3.0
+no
+```
+
+Two `typeof` checks remove `string` and `number`, so the last line only has a `boolean` to deal with.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Pad an ID">
+
+Name the type `string | number` as `Id` with a type alias. Write `padId(id: Id)` that returns the ID as a string of at least five characters, padded on the left with `0`. Print `padId(42)` and `padId("7")`. Expected output: `00042 00007`.
+
+<Solution>
+
+```ts title="ex_pad_id.ts"
+type Id = string | number;
+
+function padId(id: Id): string {
+  return String(id).padStart(5, "0");
+}
+
+console.log(padId(42), padId("7"));
+```
+
+```text
+00042 00007
+```
+
+`String(id)` works for both members, so no narrowing is needed. `padStart` is a standard string method.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A name that may be missing">
+
+Write `greet(name: string | null)`. It returns `Hello, guest` for `null` and `Hello, ` plus the name otherwise. Print the result for `"Ada"` and for `null`. Expected output: `Hello, Ada` then `Hello, guest`.
+
+<Solution>
+
+```ts title="ex_nullable_name.ts"
+function greet(name: string | null): string {
+  return name === null ? "Hello, guest" : `Hello, ${name}`;
+}
+
+console.log(greet("Ada"));
+console.log(greet(null));
+```
+
+```text
+Hello, Ada
+Hello, guest
+```
+
+Comparing with `null` removes it from the union, so `name` is a plain `string` in the other branch.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- `A | B` accepts a value of either type. Every part of the program that receives it must handle both.
+- Only members shared by every part of the union can be used without checking first.
+- Assigning to a union variable narrows it to the assigned type until the next assignment.
+- `string[] | number[]` and `(string | number)[]` are different types.
+
+Next: narrowing with `typeof`, truthiness and equality.

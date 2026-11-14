@@ -1,0 +1,403 @@
+---
+language: typescript
+level: beginner
+module: Unions and narrowing
+order: 18
+title: Narrowing with typeof, truthiness and equality
+description: Turn a union into one specific type with typeof checks, equality and truthiness tests, and learn which checks quietly give the wrong answer for 0, empty strings and null.
+minVersion: "5.0"
+objectives:
+  - Explain how control-flow analysis narrows a variable after a check
+  - Narrow a union with `typeof`, `===` and `!=`
+  - Avoid the truthiness trap for `0` and the empty string
+  - Read the errors for always-true conditions and for `typeof x === "object"` on a value that may be null
+estimatedMinutes: 30
+fundamentals: []
+---
+
+A union is only useful if you can get from "one of these" to "this one". **Narrowing** is how: you test the value in ordinary JavaScript, and the compiler follows the test and treats the variable as a more specific type in the code that depends on it. No special syntax is involved. The tests are the ones from [coercion](../../../javascript/beginner/coercion/), [equality](../../../javascript/beginner/equality/) and `typeof` in [primitives and typeof](../../../javascript/beginner/primitives-and-typeof/). This lesson follows [union types](../union-types/).
+
+## The compiler follows your branches
+
+The compiler reads the function from top to bottom, tracking what each variable can be at every point. This is called **control-flow analysis**. A `typeof` check inside an `if` narrows the variable in the body, and, because the body returns, in everything after it.
+
+```ts title="narrow_flow.ts"
+function toNumber(input: string | number): number {
+  if (typeof input === "string") {
+    return Number(input.trim());
+  }
+  return input * 1;
+}
+
+console.log(toNumber(" 12 "), toNumber(5));
+```
+
+Inside the `if`, `input` is a `string`, so `trim` is allowed. After it, only `number` is left.
+
+```bash frame="terminal"
+node narrow_flow.ts
+```
+
+```text
+12 5
+```
+
+The same works for `undefined`. Checking for it and returning early leaves the rest of the function with the plain type:
+
+```ts title="narrow_early_return.ts"
+function shout(text: string | undefined): string {
+  if (text === undefined) {
+    return "(nothing)";
+  }
+  return text.toUpperCase() + "!";
+}
+
+console.log(shout("hi"), shout(undefined));
+```
+
+After the early return, `text` is a `string`.
+
+```bash frame="terminal"
+node narrow_early_return.ts
+```
+
+```text
+HI! (nothing)
+```
+
+The values `typeof` can produce are `"string"`, `"number"`, `"bigint"`, `"boolean"`, `"symbol"`, `"undefined"`, `"object"` and `"function"`. The compiler understands each of them as a narrowing test.
+
+## typeof null is "object"
+
+JavaScript has an old quirk: `typeof null` is `"object"`. The compiler knows, so a `typeof x === "object"` check keeps `null` in the union:
+
+```ts title="narrow_typeof_null.ts"
+function count(value: string[] | null): number {
+  if (typeof value === "object") {
+    return value.length;
+  }
+  return 0;
+}
+
+try {
+  console.log(count(["a", "b"]), count(null));
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+`typeof null` is `"object"` too, so `value` is still `string[] | null` in the branch.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false narrow_typeof_null.ts
+```
+
+```text
+
+```
+
+At run time the same mistake is a crash, because `null.length` throws:
+
+```bash frame="terminal"
+node narrow_typeof_null.ts
+```
+
+```text
+TypeError: Cannot read properties of null (reading 'length')
+```
+
+Compare with `null` directly instead:
+
+```ts title="narrow_typeof_null_fixed.ts"
+function count(value: string[] | null): number {
+  if (value !== null) {
+    return value.length;
+  }
+  return 0;
+}
+
+console.log(count(["a", "b"]), count(null));
+```
+
+Now the compiler knows `value` is the array in the branch.
+
+```bash frame="terminal"
+node narrow_typeof_null_fixed.ts
+```
+
+```text
+2 0
+```
+
+## Truthiness narrows, and lies about zero
+
+An `if (value)` check removes `undefined`, `null` and `false` from a type, and the compiler allows it. But it also removes `0`, `""` and `NaN`, which are often valid values. The compiler cannot warn you, because the code is correct for the types. It is wrong for your intent.
+
+```ts title="truthy_bug.ts"
+function show(count: number | undefined): string {
+  if (count) {
+    return `${count} items`;
+  }
+  return "no count";
+}
+
+console.log(show(3), show(0), show(undefined));
+```
+
+`show(0)` should say `0 items`. The count is valid, but `0` is falsy.
+
+```bash frame="terminal"
+node truthy_bug.ts
+```
+
+```text
+3 items no count no count
+```
+
+Test for the value you mean. Here that is `undefined`:
+
+```ts title="truthy_fixed.ts"
+function show(count: number | undefined): string {
+  if (count !== undefined) {
+    return `${count} items`;
+  }
+  return "no count";
+}
+
+console.log(show(3), show(0), show(undefined));
+```
+
+Now `0` takes the first branch.
+
+```bash frame="terminal"
+node truthy_fixed.ts
+```
+
+```text
+3 items 0 items no count
+```
+
+Use truthiness only when every falsy value really means "missing". For optional text, `""` often counts as present, so test `!== undefined` there too.
+
+## Equality narrows both sides
+
+`===` between two values narrows each of them to the types they have in common. Here the only shared member of `string | number` and `string | boolean` is `string`:
+
+```ts title="narrow_equality.ts"
+function sameKind(a: string | number, b: string | boolean): string {
+  if (a === b) {
+    return a.toUpperCase();
+  }
+  return "different";
+}
+
+console.log(sameKind("x", "x"), sameKind(1, true));
+```
+
+Inside the `if`, `a` is a `string`, so `toUpperCase` compiles.
+
+```bash frame="terminal"
+node narrow_equality.ts
+```
+
+```text
+X different
+```
+
+The loose form `!= null` is the one common use of `!=`. It is true for neither `null` nor `undefined`, so it removes both in one test, and the compiler follows:
+
+```ts title="narrow_nullish_eq.ts"
+function length(text: string | null | undefined): number {
+  if (text != null) {
+    return text.length;
+  }
+  return 0;
+}
+
+console.log(length("abc"), length(null), length(undefined));
+```
+
+`text` is a `string` in the body. The [missing values lesson](../null-and-undefined-strict/) returns to this.
+
+```bash frame="terminal"
+node narrow_nullish_eq.ts
+```
+
+```text
+3 0 0
+```
+
+## Always-true checks
+
+Some conditions can never be false. <Since v="5.6" /> The compiler reports ones it can see from the syntax alone: a regular expression, an object or function literal, and similar expressions. The usual cause is forgetting to call something:
+
+```ts title="always_truthy.ts"
+function isHex(text: string): boolean {
+  if (/^0x[0-9a-f]+$/i) {
+    return true;
+  }
+  return false;
+}
+
+console.log(isHex("0xff"), isHex("hello"));
+```
+
+The author meant `/^0x.../i.test(text)`. A bare regular expression is always truthy.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false always_truthy.ts
+```
+
+```text
+
+```
+
+The fix is to call `test`:
+
+```ts title="always_truthy_fixed.ts"
+function isHex(text: string): boolean {
+  return /^0x[0-9a-f]+$/i.test(text);
+}
+
+console.log(isHex("0xff"), isHex("hello"));
+```
+
+Now the function tests its argument.
+
+```bash frame="terminal"
+node always_truthy_fixed.ts
+```
+
+```text
+true false
+```
+
+An older check catches a function name used as a condition, which is always truthy because a function is always defined:
+
+```ts title="uncalled_function.ts"
+function isReady(): boolean {
+  return false;
+}
+
+if (isReady) {
+  console.log("ready");
+} else {
+  console.log("not ready");
+}
+```
+
+The message suggests the fix: call it.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false uncalled_function.ts
+```
+
+```text
+
+```
+
+## Common pitfalls
+
+- **`typeof x === "object"` for objects.** It is also true for `null`, so check `x !== null` as well.
+- **`if (x)` for numbers and strings.** It treats `0` and `""` as missing. Compare with `undefined` or `null` instead.
+- **A condition that is always true.** A bare regular expression or a function name where a call was meant.
+- **Expecting a check to work somewhere else.** Narrowing applies to the code the check controls, in the same function.
+
+<Exercise title="Sold out or unknown">
+
+Write `describeStock(stock: number | undefined)`. For `undefined` it returns `unknown`. For `0` it returns `sold out`. Otherwise it returns the number followed by ` left`. Print the results for `4`, `0` and `undefined`. Expected output: `4 left`, `sold out`, `unknown`, one per line.
+
+<Solution>
+
+```ts title="ex_zero_count.ts"
+function describeStock(stock: number | undefined): string {
+  if (stock === undefined) {
+    return "unknown";
+  }
+  return stock === 0 ? "sold out" : `${stock} left`;
+}
+
+console.log(describeStock(4));
+console.log(describeStock(0));
+console.log(describeStock(undefined));
+```
+
+```text
+4 left
+sold out
+unknown
+```
+
+The `undefined` check comes first and uses `===`, so `0` is not mistaken for a missing value.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Three kinds of count">
+
+Write `parseCount(input: string | number | undefined): number`. A string is converted with `Number`, a number is returned as it is, and `undefined` gives `0`. Print `parseCount("8")`, `parseCount(3)` and `parseCount(undefined)`. Expected output: `8 3 0`.
+
+<Solution>
+
+```ts title="ex_parse_count.ts"
+function parseCount(input: string | number | undefined): number {
+  if (input === undefined) {
+    return 0;
+  }
+  if (typeof input === "string") {
+    return Number(input);
+  }
+  return input;
+}
+
+console.log(parseCount("8"), parseCount(3), parseCount(undefined));
+```
+
+```text
+8 3 0
+```
+
+Each check removes one member. After the two returns, only `number` remains, so `return input` has the right type.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="First word of maybe-text">
+
+Write `firstWord(text: string | null)`. It returns the part before the first space, or an empty string for `null`. Use `typeof` in the check. Print `firstWord("hello world")` and `JSON.stringify(firstWord(null))`. Expected output: `hello`, then `""`.
+
+<Solution>
+
+```ts title="ex_first_word.ts"
+function firstWord(text: string | null): string {
+  if (typeof text !== "string") {
+    return "";
+  }
+  return text.split(" ")[0];
+}
+
+console.log(firstWord("hello world"));
+console.log(JSON.stringify(firstWord(null)));
+```
+
+```text
+hello
+""
+```
+
+`typeof text !== "string"` is true exactly when `text` is `null`, so after the return `text` is a `string`. `JSON.stringify` makes the empty string visible.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- The compiler tracks the type of each variable through your `if` statements and early returns. Ordinary JavaScript tests narrow.
+- `typeof`, `===`, `!==` and `!= null` all narrow. `typeof null` is `"object"`, so compare with `null` for that case.
+- Truthiness removes `0`, `""` and `NaN` along with `null` and `undefined`. Compare with the missing value you mean.
+- <Since v="5.6" /> The compiler reports conditions that are always true or always nullish when the syntax makes that obvious.
+
+Next: narrowing with `in` and `instanceof`.

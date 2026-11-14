@@ -1,0 +1,371 @@
+---
+language: typescript
+level: beginner
+module: Interfaces, type aliases and classes
+order: 24
+title: Index signatures and Record
+description: Type dictionaries whose keys are not known in advance with index signatures, Record and Map, and see why reading a missing key is the weak spot that noUncheckedIndexedAccess closes.
+minVersion: "5.0"
+objectives:
+  - Write an index signature and a `Record` type for a dictionary
+  - Use `Record` with a union of literal keys to require every key
+  - Explain why reading a missing key is typed as a value and what `noUncheckedIndexedAccess` changes
+  - Choose between a `Record` and a `Map`
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/14-maps-and-sets"]
+---
+
+An object type with named properties fits things like a user or a point. Some objects are dictionaries instead: the keys are not known until the program runs, such as word counts, scores by player name or settings by id. This lesson types those with **index signatures**, the `Record` helper and `Map`. It builds on [object types](../object-types/) and on [`Map` and `Set`](../../../javascript/beginner/map-and-set/) in the JavaScript track; the general idea of a dictionary is in [maps and sets](../../../fundamentals/beginner/maps-and-sets/).
+
+## Index signatures
+
+An index signature says: any property with a key of this type has a value of that type. The key name between the brackets is only documentation.
+
+```ts title="index_sig.ts"
+interface Scores {
+  [player: string]: number;
+}
+
+const scores: Scores = { ada: 90 };
+scores.grace = 85;
+
+console.log(scores);
+console.log(scores.bob);
+```
+
+`Scores` allows any string key with a number value, so `grace` can be added later.
+
+```bash frame="terminal"
+node index_sig.ts
+```
+
+```text
+{ ada: 90, grace: 85 }
+undefined
+```
+
+The last line is the catch. `scores.bob` does not exist, yet the compiler typed it as `number`, and at run time it is `undefined`. The next sections come back to that.
+
+Values are checked against the signature:
+
+```ts title="index_sig_bad.ts"
+interface Scores {
+  [player: string]: number;
+}
+
+const scores: Scores = { ada: 90 };
+scores.grace = "high";
+
+console.log(scores);
+```
+
+A string is not a number.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false index_sig_bad.ts
+```
+
+```text
+
+```
+
+Named properties in the same type must also fit the index signature, because they are reachable through it too:
+
+```ts title="index_conflict.ts"
+interface Profile {
+  [field: string]: number;
+  name: string;
+}
+
+const profile: Profile = { name: "Ada" };
+console.log(profile);
+```
+
+`name` is a string, and the signature promises numbers.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false index_conflict.ts
+```
+
+```text
+
+```
+
+## Record
+
+`Record<K, V>` is a shorter way to write an object type with keys of type `K` and values of type `V`. With `string` as the key type it is the same as an index signature. With a union of literals as the key type it becomes a required property for each member of the union:
+
+```ts title="record_basic.ts"
+type Day = "mon" | "tue" | "wed";
+
+const hours: Record<Day, number> = { mon: 8, tue: 6, wed: 7 };
+const lengths: Record<string, number> = { short: 3, longer: 6 };
+
+console.log(hours.tue, lengths.longer);
+```
+
+`hours` must have exactly the keys `mon`, `tue` and `wed`, and `lengths` may have any. `Record<string, number>` is the usual way to write a dictionary type inline.
+
+```bash frame="terminal"
+node record_basic.ts
+```
+
+```text
+6 6
+```
+
+Leave out a key from the literal version and the compiler names it:
+
+```ts title="record_missing.ts"
+type Day = "mon" | "tue" | "wed";
+
+const hours: Record<Day, number> = { mon: 8, tue: 6 };
+
+console.log(hours);
+```
+
+This is a good way to make sure a lookup table covers every case in a union.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false record_missing.ts
+```
+
+```text
+
+```
+
+## A missing key is not an error
+
+Index signatures and `Record<string, V>` claim that every key has a value. That is rarely true, and by default the compiler believes the claim. This compiles, and crashes:
+
+```ts title="unchecked_runtime.ts"
+const scores: Record<string, number> = { ada: 90 };
+
+try {
+  console.log(scores.bob.toFixed(1));
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+`scores.bob` is typed `number`, so calling `toFixed` on it is allowed. At run time it is `undefined`.
+
+```bash frame="terminal"
+node unchecked_runtime.ts
+```
+
+```text
+TypeError: Cannot read properties of undefined (reading 'toFixed')
+```
+
+The option **`noUncheckedIndexedAccess`** fixes the type. With it, reading through an index signature gives `V | undefined`, and you have to handle the `undefined`. It is not part of `strict`, but `tsc --init` writes it into a new `tsconfig.json` since TypeScript 5.9. <Since v="5.9" /> The same code now fails:
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --noUncheckedIndexedAccess unchecked_runtime.ts
+```
+
+The error is the one from the [missing values lesson](../null-and-undefined-strict/):
+
+```text
+unchecked_runtime.ts(4,15): error TS18048: 'scores.bob' is possibly 'undefined'.
+```
+
+With a check or a default, it compiles under both settings:
+
+```ts title="unchecked_fixed.ts"
+const scores: Record<string, number> = { ada: 90 };
+
+const bob = scores.bob;
+console.log(bob === undefined ? "no score" : bob.toFixed(1));
+console.log((scores.ada ?? 0).toFixed(1));
+```
+
+Use `=== undefined` and `??` as before.
+
+```bash frame="terminal"
+node unchecked_fixed.ts
+```
+
+```text
+no score
+90.0
+```
+
+The option also makes array reads such as `items[0]` return `T | undefined`. Dictionaries are where it helps most.
+
+## A Record has inherited keys
+
+A plain object inherits properties such as `constructor` and `toString` from `Object`. A `Record<string, number>` typed lookup of one of those names is a function, not a number:
+
+```ts title="proto_key.ts"
+const counts: Record<string, number> = {};
+
+console.log(typeof counts["constructor"]);
+console.log(counts["constructor"] === undefined);
+
+const safe = new Map<string, number>();
+console.log(safe.get("constructor"));
+```
+
+The type says `number`, and the value is a function. A word counter that meets the word "constructor" will produce nonsense.
+
+```bash frame="terminal"
+node proto_key.ts
+```
+
+```text
+function
+false
+undefined
+```
+
+A `Map` has no such problem, because its keys live apart from its properties.
+
+## Map
+
+`Map<K, V>` is the other way to build a dictionary, and the type arguments say what goes in and comes out. `get` returns `V | undefined`, because the key may be missing, whether or not `noUncheckedIndexedAccess` is on.
+
+```ts title="map_basic.ts"
+const stock = new Map<string, number>();
+stock.set("apple", 5);
+stock.set("pear", 0);
+
+const apples: number | undefined = stock.get("apple");
+console.log(apples, stock.get("plum"), stock.has("pear"), stock.size);
+
+for (const [item, count] of stock) {
+  console.log(item, count);
+}
+```
+
+`stock.get("apple")` is `number | undefined`, and so the compiler makes you check it before use. `has`, `size` and iteration are as in JavaScript.
+
+```bash frame="terminal"
+node map_basic.ts
+```
+
+```text
+5 undefined true 2
+apple 5
+pear 0
+```
+
+The compiler also checks what you store:
+
+```ts title="map_bad.ts"
+const stock = new Map<string, number>();
+stock.set("apple", "five");
+console.log(stock);
+```
+
+`"five"` is not a number.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false map_bad.ts
+```
+
+```text
+
+```
+
+As a rule: use a `Record` with literal keys for a fixed set of known names, a `Map` when the keys come from data, and a `Record<string, V>` for simple, trusted data such as JSON.
+
+## Common pitfalls
+
+- **Trusting a lookup.** `scores.bob` is typed `number` even when absent. Turn on `noUncheckedIndexedAccess`, or check the value.
+- **Mixed property types with an index signature.** Every named property must fit the signature's value type.
+- **Using a `Record` for user-supplied keys.** Names like `constructor` collide with inherited properties. Use a `Map`.
+- **Using `Record<string, V>` when the keys are known.** Use literal keys so the compiler checks them.
+
+<Exercise title="Word counter with Record">
+
+Write `countWords(text: string): Record<string, number>` that splits on spaces and counts each word. Print the result for `"a b a c a b"`. Expected output: `{ a: 3, b: 2, c: 1 }`.
+
+<Solution>
+
+```ts title="ex_word_record.ts"
+function countWords(text: string): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const word of text.split(" ")) {
+    counts[word] = (counts[word] ?? 0) + 1;
+  }
+  return counts;
+}
+
+console.log(countWords("a b a c a b"));
+```
+
+```text
+{ a: 3, b: 2, c: 1 }
+```
+
+`counts[word] ?? 0` handles a word not seen yet, and it keeps the code correct if `noUncheckedIndexedAccess` is on.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Word counter with Map">
+
+Write the same function returning a `Map<string, number>`. Print the result. Expected output: `Map(3) { 'a' => 3, 'b' => 2, 'c' => 1 }`.
+
+<Solution>
+
+```ts title="ex_word_map.ts"
+function countWords(text: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const word of text.split(" ")) {
+    counts.set(word, (counts.get(word) ?? 0) + 1);
+  }
+  return counts;
+}
+
+console.log(countWords("a b a c a b"));
+```
+
+```text
+Map(3) { 'a' => 3, 'b' => 2, 'c' => 1 }
+```
+
+`get` already returns `number | undefined`, so the `?? 0` is required here, not merely safe.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Every day needs a value">
+
+Define `Day` as `"mon" | "tue" | "wed"` and a `Record<Day, number>` of hours worked: 8, 6 and 7. Add them up with a loop over `["mon", "tue", "wed"] as const` and print the total. Expected output: `21`.
+
+<Solution>
+
+```ts title="ex_hours_record.ts"
+type Day = "mon" | "tue" | "wed";
+
+const hours: Record<Day, number> = { mon: 8, tue: 6, wed: 7 };
+
+let total = 0;
+for (const day of ["mon", "tue", "wed"] as const) {
+  total += hours[day];
+}
+console.log(total);
+```
+
+```text
+21
+```
+
+The `as const` array has literal element types, so `hours[day]` is a known key. Removing a day from the object is a compile error.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- An index signature `{ [key: string]: V }` and `Record<string, V>` describe a dictionary. A `Record` with a union of literal keys requires each key.
+- A read of a missing key is typed `V` unless `noUncheckedIndexedAccess` is on, in which case it is `V | undefined`.
+- Plain-object dictionaries inherit keys such as `constructor`. A `Map` does not.
+- `Map<K, V>` types what you store, and `get` returns `V | undefined`.
+
+Next: classes.

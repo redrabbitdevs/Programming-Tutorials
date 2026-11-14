@@ -1,0 +1,410 @@
+---
+language: typescript
+level: beginner
+module: Interfaces, type aliases and classes
+order: 27
+title: Optional, readonly and exact properties
+description: Use ? and readonly on properties precisely, tell a missing property from one set to undefined with exactOptionalPropertyTypes, and see why readonly is shallow and not a run-time guarantee.
+minVersion: "5.0"
+objectives:
+  - Declare optional properties and explain how they differ from `T | undefined`
+  - Use `exactOptionalPropertyTypes` to separate "unset" from "set to undefined"
+  - Use `readonly` and `Readonly<T>`, and explain that they are shallow
+  - Explain why `readonly` does not stop writes through another reference
+estimatedMinutes: 30
+fundamentals: []
+---
+
+Two small modifiers on a property decide a lot about how an object is used. `?` says the property may be absent, and `readonly` says that it must not be changed. Both appeared briefly in the [object types lesson](../object-types/). This lesson looks at their limits, because the edges are where bugs hide. It builds on [strictNullChecks and `?.`](../null-and-undefined-strict/) and on [interfaces and aliases](../interfaces-vs-aliases/).
+
+## Optional properties
+
+A `?` after the name makes the property optional. Reading it gives the type plus `undefined`, so the compiler makes you handle the missing case.
+
+```ts title="opt_basic.ts"
+interface Settings {
+  theme?: string;
+  fontSize: number;
+}
+
+const minimal: Settings = { fontSize: 14 };
+const full: Settings = { fontSize: 16, theme: "dark" };
+
+function describe(settings: Settings): string {
+  const theme: string | undefined = settings.theme;
+  return `${settings.fontSize}px ${theme ?? "default"}`;
+}
+
+console.log(describe(minimal), describe(full));
+```
+
+`minimal` leaves out `theme`, and `full` has it. Inside `describe`, `settings.theme` is `string | undefined`, and `??` supplies a default.
+
+```bash frame="terminal"
+node opt_basic.ts
+```
+
+```text
+14px default 16px dark
+```
+
+## ? is not the same as | undefined
+
+`{ name?: string }` and `{ name: string | undefined }` look alike when you read `name`, since both give `string | undefined`. They differ when you create the object. The first may leave `name` out. The second must say it, even if the value is `undefined`:
+
+```ts title="opt_required.ts"
+type NameRequired = { name: string | undefined };
+type NameOptional = { name?: string };
+
+const a: NameOptional = {};
+const b: NameRequired = { name: undefined };
+const c: NameRequired = {};
+
+console.log(a, b, c);
+```
+
+`a` is fine. `b` is fine, because `undefined` is a valid value of the type. `c` is missing the property.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false opt_required.ts
+```
+
+```text
+
+```
+
+If a caller may leave something out, use `?`. If a caller must decide, use `| undefined` and make them write it.
+
+## Exact optional properties
+
+By default, an optional property also accepts `undefined` as a value, so `{ theme: undefined }` fits `{ theme?: string }`. In JavaScript, though, the two objects are different: `"theme" in object` is `true` for one and `false` for the other, and code that copies or merges objects can behave differently. The option **`exactOptionalPropertyTypes`** closes the gap, so that `?` means "may be absent", not "may be undefined". It is not part of `strict`, but `tsc --init` turns it on in a new `tsconfig.json` since TypeScript 5.9. <Since v="5.9" />
+
+```ts title="exact_optional.ts"
+interface Settings {
+  theme?: string;
+}
+
+const unset: Settings = {};
+const cleared: Settings = { theme: undefined };
+
+console.log("theme" in unset, "theme" in cleared);
+```
+
+Without the option the file compiles, and the output shows that the two objects really differ.
+
+```bash frame="terminal"
+node exact_optional.ts
+```
+
+```text
+false true
+```
+
+With the option, assigning `undefined` is an error:
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --exactOptionalPropertyTypes exact_optional.ts
+```
+
+The message suggests the fix, which is to say it in the type.
+
+```text
+exact_optional.ts(6,7): error TS2375: Type '{ theme: undefined; }' is not assignable to type 'Settings' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.
+  Types of property 'theme' are incompatible.
+    Type 'undefined' is not assignable to type 'string'.
+```
+
+If `undefined` is a meaningful value, write `theme?: string | undefined`. That compiles with and without the option:
+
+```ts title="exact_optional_fixed.ts"
+interface Settings {
+  theme?: string | undefined;
+}
+
+const unset: Settings = {};
+const cleared: Settings = { theme: undefined };
+
+console.log("theme" in unset, "theme" in cleared);
+```
+
+The type now says what the code does.
+
+```bash frame="terminal"
+node exact_optional_fixed.ts
+```
+
+```text
+false true
+```
+
+This is useful when absence and `undefined` mean different things, as in an update that distinguishes "leave it alone" from "clear it":
+
+```ts title="exact_patch.ts"
+interface Patch {
+  theme?: string | undefined;
+}
+
+function apply(current: string, patch: Patch): string {
+  if (!("theme" in patch)) {
+    return current;
+  }
+  return patch.theme ?? "default";
+}
+
+console.log(apply("dark", {}));
+console.log(apply("dark", { theme: "light" }));
+console.log(apply("dark", { theme: undefined }));
+```
+
+The `in` check from [narrowing with in](../in-instanceof-narrowing/) tells the cases apart.
+
+```bash frame="terminal"
+node exact_patch.ts
+```
+
+```text
+dark
+light
+default
+```
+
+## readonly
+
+`readonly` before a property name forbids assigning to it after the object is created:
+
+```ts title="readonly_prop.ts"
+interface Point {
+  readonly x: number;
+  readonly y: number;
+}
+
+const start: Point = { x: 0, y: 0 };
+start.x = 5;
+console.log(start);
+```
+
+The assignment is an error.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false readonly_prop.ts
+```
+
+```text
+
+```
+
+`Readonly<T>` is a built-in helper that makes every property of `T` read-only, which saves repeating the keyword. The intermediate level covers helpers like it in detail.
+
+```ts title="readonly_utility.ts"
+interface Config {
+  host: string;
+  port: number;
+}
+
+const config: Readonly<Config> = { host: "localhost", port: 80 };
+config.port = 8080;
+
+console.log(config);
+```
+
+Same error, without writing `readonly` on each property.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false readonly_utility.ts
+```
+
+```text
+
+```
+
+## readonly is shallow
+
+`readonly` protects the property, not the value it points to. A read-only property that holds an array still lets you change the array:
+
+```ts title="readonly_shallow.ts"
+interface Team {
+  readonly name: string;
+  readonly members: string[];
+}
+
+const team: Team = { name: "Core", members: ["Ada"] };
+team.members.push("Grace");
+
+console.log(team);
+```
+
+`members` cannot be reassigned, but `push` changes the array it refers to.
+
+```bash frame="terminal"
+node readonly_shallow.ts
+```
+
+```text
+{ name: 'Core', members: [ 'Ada', 'Grace' ] }
+```
+
+To protect the contents, use a read-only type for the value too, such as `readonly string[]`, from the [arrays lesson](../arrays-and-tuples/):
+
+```ts title="readonly_shallow_bad.ts"
+interface Team {
+  readonly name: string;
+  readonly members: readonly string[];
+}
+
+const team: Team = { name: "Core", members: ["Ada"] };
+team.members.push("Grace");
+
+console.log(team);
+```
+
+A read-only array has no `push`, so the compiler stops it.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false readonly_shallow_bad.ts
+```
+
+```text
+
+```
+
+## readonly is only a compile-time rule
+
+The keyword is erased, and it is not part of what makes one type assignable to another. A read-only object can be assigned to a variable whose type is writable, and then changed through that variable:
+
+```ts title="readonly_alias.ts"
+const frozen: { readonly id: number } = { id: 1 };
+const loose: { id: number } = frozen;
+
+loose.id = 2;
+console.log(frozen.id);
+```
+
+This compiles. The change made through `loose` is visible through `frozen`.
+
+```bash frame="terminal"
+node readonly_alias.ts
+```
+
+```text
+2
+```
+
+When you need a guarantee at run time, JavaScript's own `Object.freeze` is the tool, as in [copies and references](../../../javascript/beginner/copies-and-references/). Treat `readonly` as a helpful check for honest code, and not as a lock.
+
+## Common pitfalls
+
+- **Treating `?` and `| undefined` as the same.** One lets the caller leave the property out, the other does not.
+- **Expecting `?` to forbid `undefined`.** It does not, unless `exactOptionalPropertyTypes` is on.
+- **Expecting `readonly` to freeze nested data.** It is shallow. Use `readonly` array types, or copy instead of mutating.
+- **Relying on `readonly` at run time.** It is erased and bypassed by assignment to a writable type.
+
+<Exercise title="Leave alone, clear or set">
+
+Write `describeUpdate(update)` for `{ nickname?: string | undefined }`. It returns `unchanged` when `nickname` is absent, `cleared` when it is present but `undefined`, and `set to ` plus the value otherwise. Print the result for `{}`, `{ nickname: undefined }` and `{ nickname: "Ace" }`. Expected output: `unchanged`, `cleared`, `set to Ace`.
+
+<Solution>
+
+```ts title="ex_unset_vs_undefined.ts"
+interface Update {
+  nickname?: string | undefined;
+}
+
+function describeUpdate(update: Update): string {
+  if (!("nickname" in update)) {
+    return "unchanged";
+  }
+  if (update.nickname === undefined) {
+    return "cleared";
+  }
+  return `set to ${update.nickname}`;
+}
+
+console.log(describeUpdate({}));
+console.log(describeUpdate({ nickname: undefined }));
+console.log(describeUpdate({ nickname: "Ace" }));
+```
+
+```text
+unchanged
+cleared
+set to Ace
+```
+
+The `in` test separates absent from present, and the `undefined` check separates "cleared" from a value.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A playlist you cannot mutate">
+
+Declare `Playlist` with a read-only `title` and a read-only list of tracks that cannot be pushed to. Write `addTrack(playlist, track)` that returns a new playlist with the extra track. Add `"two"` to a playlist holding `["one"]` and print the old and new track lists. Expected output: `[ 'one' ] [ 'one', 'two' ]`.
+
+<Solution>
+
+```ts title="ex_readonly_list.ts"
+interface Playlist {
+  readonly title: string;
+  readonly tracks: readonly string[];
+}
+
+function addTrack(playlist: Playlist, track: string): Playlist {
+  return { title: playlist.title, tracks: [...playlist.tracks, track] };
+}
+
+const first: Playlist = { title: "Mix", tracks: ["one"] };
+const second = addTrack(first, "two");
+console.log(first.tracks, second.tracks);
+```
+
+```text
+[ 'one' ] [ 'one', 'two' ]
+```
+
+`tracks` is a `readonly string[]`, so the only way to change the list is to build a new one with spread.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Defaults for optional properties">
+
+Write `summary(options)` for `{ retries?: number; label?: string }`. Use `3` retries and the label `job` when they are absent. Print the summary of `{}` and of `{ retries: 0, label: "sync" }`. Expected output: `job: 3 retries`, then `sync: 0 retries`.
+
+<Solution>
+
+```ts title="ex_optional_default.ts"
+interface Options {
+  retries?: number;
+  label?: string;
+}
+
+function summary(options: Options): string {
+  const retries = options.retries ?? 3;
+  const label = options.label ?? "job";
+  return `${label}: ${retries} retries`;
+}
+
+console.log(summary({}));
+console.log(summary({ retries: 0, label: "sync" }));
+```
+
+```text
+job: 3 retries
+sync: 0 retries
+```
+
+`??` keeps the `0`. With `||`, the second summary would have said 3 retries.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- `?` makes a property optional, and reads of it include `undefined`. `{ a?: T }` and `{ a: T | undefined }` differ when you create the object.
+- `exactOptionalPropertyTypes` makes `?` mean "may be absent" and no longer "may be undefined". Write `?: T | undefined` when both are valid.
+- `readonly` and `Readonly<T>` forbid assignment to a property, and only to that property. Contents of arrays and objects need read-only types of their own.
+- `readonly` exists only for the compiler. For real immutability, use `Object.freeze`.
+
+Next module: modules and a first project.

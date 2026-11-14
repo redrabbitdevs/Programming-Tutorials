@@ -1,0 +1,336 @@
+---
+language: typescript
+level: beginner
+module: Interfaces, type aliases and classes
+order: 23
+title: Interfaces and type aliases
+description: Name object types with interface or type, compare extends with intersections, see declaration merging, and pick the right one for each job.
+minVersion: "5.0"
+objectives:
+  - Declare the same object shape with `interface` and with `type`
+  - Extend an interface and combine aliases with `&`
+  - Explain declaration merging and why a `type` cannot do it
+  - Choose between `interface` and `type` for a given job
+estimatedMinutes: 30
+fundamentals: []
+---
+
+Writing `{ x: number; y: number }` in every parameter gets old quickly. TypeScript gives you two ways to name an object type: `interface` and `type`. You met `type` aliases for unions in the [literal types lesson](../literal-types/), and inline object types in [object types](../object-types/). For describing an object's shape the two are almost interchangeable, and the differences are worth knowing so that the choice is a decision and not a habit.
+
+## Two spellings of one shape
+
+An `interface` lists the properties of an object. A `type` alias gives any type a name, including an object type written with braces. Both can be used anywhere a type is expected:
+
+```ts title="iface_basic.ts"
+interface Point {
+  x: number;
+  y: number;
+}
+
+type PointAlias = {
+  x: number;
+  y: number;
+};
+
+function distance(a: Point, b: PointAlias): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+console.log(distance({ x: 0, y: 0 }, { x: 3, y: 4 }));
+```
+
+`distance` takes a `Point` and a `PointAlias`. The compiler treats the two as the same shape, and so an object that fits one fits the other.
+
+```bash frame="terminal"
+node iface_basic.ts
+```
+
+```text
+5
+```
+
+Both are erased before the program runs, as is all type information.
+
+## Extending
+
+An interface builds on another with `extends`. An alias builds on another with `&`, the **intersection** operator, which means "both of these at once".
+
+```ts title="iface_extends.ts"
+interface Animal {
+  name: string;
+}
+
+interface Dog extends Animal {
+  bark(): string;
+}
+
+type Cat = Animal & { purr(): string };
+
+const rex: Dog = { name: "Rex", bark: () => "Woof" };
+const tom: Cat = { name: "Tom", purr: () => "Purr" };
+
+console.log(rex.name, rex.bark(), tom.name, tom.purr());
+```
+
+`Dog` and `Cat` both have a `name`, plus a method of their own. The object literals are checked against each.
+
+```bash frame="terminal"
+node iface_extends.ts
+```
+
+```text
+Rex Woof Tom Purr
+```
+
+The two differ when the added property clashes with the existing one. An interface that redefines `id` as an incompatible type is reported at the declaration:
+
+```ts title="iface_conflict.ts"
+interface Base {
+  id: string;
+}
+
+interface Derived extends Base {
+  id: number;
+}
+
+const item: Derived = { id: 1 };
+console.log(item);
+```
+
+The error is where the interface is written, which is the place to look.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false iface_conflict.ts
+```
+
+```text
+
+```
+
+An intersection does not complain about the clash. It combines `string` and `number` into `never`, and the problem shows up later, when a value is created:
+
+```ts title="alias_conflict.ts"
+type Base = { id: string };
+type Derived = Base & { id: number };
+
+const item: Derived = { id: 1 };
+console.log(item);
+```
+
+No value can be both a string and a number, so the property cannot be given a value.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false alias_conflict.ts
+```
+
+```text
+
+```
+
+That is an advantage of interfaces: mistakes in the shape are reported where you write the shape.
+
+## Declaration merging
+
+Two interfaces with the same name in the same scope become one interface with the properties of both:
+
+```ts title="merge_interface.ts"
+interface Settings {
+  theme: string;
+}
+
+interface Settings {
+  fontSize: number;
+}
+
+const settings: Settings = { theme: "dark", fontSize: 14 };
+console.log(settings);
+```
+
+`Settings` has both `theme` and `fontSize`.
+
+```bash frame="terminal"
+node merge_interface.ts
+```
+
+```text
+{ theme: 'dark', fontSize: 14 }
+```
+
+This is called **declaration merging**. It is mainly useful for adding to types that come from somewhere else, such as a library or the built-in `Window`, and a later lesson uses it for that. Inside your own code, an accidental second declaration may merge silently. Two aliases with the same name are an error instead:
+
+```ts title="merge_alias.ts"
+type Settings = { theme: string };
+type Settings = { fontSize: number };
+
+const settings: Settings = { theme: "dark" };
+console.log(settings);
+```
+
+The compiler reports both declarations.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false merge_alias.ts
+```
+
+```text
+
+```
+
+## What only a type alias can do
+
+An interface describes an object, or something callable. A `type` names any type, so it is the only choice for unions, tuples and primitives:
+
+```ts title="alias_only.ts"
+type Id = string | number;
+type Pair = [number, number];
+type Handler = (message: string) => void;
+type Level = "debug" | "info";
+
+const id: Id = "A7";
+const pair: Pair = [1, 2];
+const handler: Handler = (message) => console.log(message);
+const level: Level = "info";
+
+handler(`${id} ${pair} ${level}`);
+```
+
+Here `Id` is a union, `Pair` is a [tuple](../arrays-and-tuples/), `Handler` is a function type and `Level` is a union of literals. Interfaces cannot express any of these directly.
+
+```bash frame="terminal"
+node alias_only.ts
+```
+
+```text
+A7 1,2 info
+```
+
+## Which one to use
+
+For an object that has a name and properties, such as a user, a point or a config, either works. A simple rule that holds up in practice:
+
+- Use `interface` for object shapes that you will extend, that classes will implement (the [implements lesson](../implements-and-structural/) covers that), or that others might need to add to.
+- Use `type` for everything else: unions, tuples, function types, and names for other types.
+- Pick one for object shapes in a project and stay with it. Mixed styles for the same job make code harder to scan.
+
+Both are written in PascalCase, such as `User` or `FetchState`. Many style guides discourage an `I` prefix such as `IUser`, because the kind of type is already clear from where it is used.
+
+## Common pitfalls
+
+- **Expecting two `type` aliases with one name to merge.** They are a duplicate-name error. Only interfaces merge.
+- **Merging by accident.** Two interfaces with the same name in one scope combine without warning. Give them different names.
+- **Using `&` where `extends` was meant.** A clash silently turns a property into `never`.
+- **Trying to write a union as an interface.** `interface Id = string | number` is a syntax error. Use `type`.
+
+<Exercise title="Interfaces where they fit">
+
+A file declares `User` and `Admin` (a user with `permissions: string[]`), plus `Role` (`"admin" | "guest"`), `Callback` (a function taking a `User`) and `Coordinates` (a pair of numbers). Write `User` and `Admin` as interfaces and the other three as aliases, then create one value of each and print them. Expected output: `Ada`, then `admin [ 'all' ] [ 51.5, -0.12 ]`.
+
+<Solution>
+
+```ts title="ex_rewrite.ts"
+interface User {
+  id: number;
+  name: string;
+}
+
+interface Admin extends User {
+  permissions: string[];
+}
+
+type Role = "admin" | "guest";
+type Callback = (user: User) => void;
+type Coordinates = [number, number];
+
+const admin: Admin = { id: 1, name: "Ada", permissions: ["all"] };
+const role: Role = "admin";
+const show: Callback = (user) => console.log(user.name);
+const home: Coordinates = [51.5, -0.12];
+
+show(admin);
+console.log(role, admin.permissions, home);
+```
+
+```text
+Ada
+admin [ 'all' ] [ 51.5, -0.12 ]
+```
+
+`Role`, `Callback` and `Coordinates` have to stay aliases, because interfaces cannot name a union, a tuple, or a plain function type. `Admin` extends `User`, so it has an `id` and a `name` too.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Two halves of one interface">
+
+Declare an `Options` interface with `verbose: boolean` and then, separately, a second `Options` interface with `retries: number`. Write `run(options: Options)` that returns `verbose=true retries=3` for suitable input, and print the result. Expected output: `verbose=true retries=3`.
+
+<Solution>
+
+```ts title="ex_merge_options.ts"
+interface Options {
+  verbose: boolean;
+}
+
+interface Options {
+  retries: number;
+}
+
+function run(options: Options): string {
+  return `verbose=${options.verbose} retries=${options.retries}`;
+}
+
+console.log(run({ verbose: true, retries: 3 }));
+```
+
+```text
+verbose=true retries=3
+```
+
+Declaration merging gave `Options` both properties, so the object literal needs both.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Extends and intersection side by side">
+
+Declare `Named` with a `name`. Make `Aged` extend it with `age` using `extends`, and `Contact` extend it with `email` using `&`. Create one value of each and print `person.age` and `contact.email`. Expected output: `36 ada@example.org`.
+
+<Solution>
+
+```ts title="ex_extend_vs_and.ts"
+interface Named {
+  name: string;
+}
+
+interface Aged extends Named {
+  age: number;
+}
+
+type Contact = Named & { email: string };
+
+const person: Aged = { name: "Ada", age: 36 };
+const contact: Contact = { name: "Ada", email: "ada@example.org" };
+
+console.log(person.age, contact.email);
+```
+
+```text
+36 ada@example.org
+```
+
+Both versions give a type with `name` and one more property. The interface reports clashes at the declaration, and the intersection does not.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- `interface` and `type` can both name an object shape. They are checked the same way and erased the same way.
+- Interfaces use `extends` and report clashing properties where they are declared. Aliases use `&` and turn a clash into `never`.
+- Interfaces with the same name merge. Aliases with the same name are an error.
+- Only `type` can name unions, tuples and function types. Use `interface` for extensible object shapes and `type` for the rest.
+
+Next: index signatures, `Record` and `Map`.
