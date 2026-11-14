@@ -5,7 +5,7 @@ module: Performance
 order: 10
 title: Allocation-aware and data-oriented code
 description: Measure how much memory a hot path allocates, remove hidden intermediate arrays, reuse objects where a profile justifies it, store numeric data in typed arrays, and know what iterator helpers do and do not save.
-minVersion: "22"
+minVersion: "26"
 objectives:
   - Measure the bytes a piece of code allocates, and confirm it with --trace-gc
   - Remove intermediate arrays from map/filter/reduce chains in hot paths
@@ -18,26 +18,32 @@ fundamentals: []
 
 [The garbage collection lesson](../garbage-collection/) showed that short-lived objects are cheap but not free: each one moves the young generation closer to its next scavenge. In most code that cost is invisible. In a hot path, a loop that runs millions of times per second in a game, a simulation, a parser or a busy server, allocation can be the largest cost left after the algorithm is right. This lesson is about seeing allocation and removing it where it matters, and about laying out data so that there is less to allocate in the first place.
 
-Allocation figures come from Node 26.11.1 and are the same on every run of the same code. Timings are from my machine and labelled.
+The lesson needs Node 26, because its measuring tool is new in that release. Allocation figures come from Node 26.11.1 and are the same on every run of the same code. Timings are from my machine and labelled.
 
 ## Measuring allocation
 
-<Since v="26" /> `v8.getHeapStatistics()` includes `total_allocated_bytes`, the bytes allocated on the JavaScript heap since the process started. Node 24.21 does not report it. The difference before and after a piece of code is what that code allocated. This helper warms the code up first, so that the measurement is of optimised code:
+From Node 26, `v8.getHeapStatistics()` includes `total_allocated_bytes`, the bytes allocated on the JavaScript heap since the process started. The difference before and after a piece of code is what that code allocated. Node 22 and 24 leave the field out, and `undefined - undefined` is `NaN`, which would make every comparison below quietly `false`; `allocatedBytes` throws instead. `allocatedMB` warms the code up first, so that the measurement is of optimised code:
 
 ```javascript title="do_chain.mjs"
 import { getHeapStatistics } from "node:v8";
 
+// Bytes allocated on the JavaScript heap so far. Node 26 and later only.
+function allocatedBytes() {
+  const bytes = getHeapStatistics().total_allocated_bytes;
+  if (bytes === undefined) throw new Error("needs Node 26 or later");
+  return bytes;
+}
+
 // Megabytes allocated while `work` runs, after three warm-up runs.
 function allocatedMB(work) {
   for (let i = 0; i < 3; i++) work();
-  const before = getHeapStatistics().total_allocated_bytes;
+  const before = allocatedBytes();
   const result = work();
-  const after = getHeapStatistics().total_allocated_bytes;
-  return { result, mb: (after - before) / 2 ** 20 };
+  return { result, mb: (allocatedBytes() - before) / 2 ** 20 };
 }
 ```
 
-On Node 22 and 24, count collections instead: `node --trace-gc app.mjs | grep -c Scavenge` grows with the bytes allocated.
+On Node 22 and 24 you can still see allocation indirectly: `node --trace-gc app.mjs | grep -c Scavenge` counts young-generation collections, and the count grows with the bytes allocated.
 
 ## Hidden intermediate arrays
 
@@ -90,7 +96,7 @@ helpers allocate more than chain: true
 
 The measured figures were 38 MB for the chain, 111 MB for the iterator helpers and 0.1 MB for the loop. On my machine they took about 32 ms, 46 ms and 1.7 ms. The chain's 38 MB is its two intermediate arrays. The helpers avoided those arrays, but the iterator protocol produces a result object (`{ value, done }`) for every step of every stage, and here V8 14.6 did not optimise them away: the helpers allocated three times as much as the chain. Iterator helpers save memory when the source is huge or infinite and you stop early; they are not a way to make an array chain faster.
 
-The loop is also the version that allocates nothing because it reads by index. On Node 26.11.1, summing a 500,000-element array 200 times with `for...of` caused 556 scavenges in `--trace-gc` on my machine, and the same loop written with an index caused 1. Engines can remove iteration overhead, and whether they do depends on the code and the version, which is exactly why hot loops are measured rather than assumed.
+The loop is also the version that allocates nothing because it reads by index. On Node 26.11.1, summing a 500,000-element array 200 times with `for...of` caused between about 100 and 550 scavenges in `--trace-gc`, varying from run to run, and the same loop written with an index caused 1 to 3: hundreds against one. Engines can remove iteration overhead, and whether they do depends on the code and the version, which is exactly why hot loops are measured rather than assumed.
 
 ## Reusing objects
 
@@ -99,14 +105,25 @@ When a function returns a new small object on every call, such as a vector, a po
 ```javascript title="do_reuse.mjs"
 import { getHeapStatistics } from "node:v8";
 
+// Bytes allocated on the JavaScript heap so far. Node 26 and later only.
+function allocatedBytes() {
+  const bytes = getHeapStatistics().total_allocated_bytes;
+  if (bytes === undefined) throw new Error("needs Node 26 or later");
+  return bytes;
+}
+
 // Megabytes allocated by one run of `work`, after three warm-up runs.
 function allocatedMB(work) {
   for (let i = 0; i < 3; i++) work();
-  const before = getHeapStatistics().total_allocated_bytes;
+  const before = allocatedBytes();
   work();
-  return (getHeapStatistics().total_allocated_bytes - before) / 2 ** 20;
+  return (allocatedBytes() - before) / 2 ** 20;
 }
+```
 
+`add` returns a new object on every call; `addInto` writes into the `out` object it is given:
+
+```javascript title="do_reuse.mjs (continued)"
 const add = (a, b) => ({ x: a.x + b.x, y: a.y + b.y });
 
 function addInto(out, a, b) {
@@ -199,7 +216,7 @@ The typed arrays take exactly 8 bytes per number, 16 MB in all. The objects took
 - **Assuming iterator helpers are cheaper than array methods.** They avoid intermediate arrays, not allocation.
 - **Assuming the engine removes allocations** without measuring. It may not, as the reuse example showed.
 - **Leaking pooled objects** to callers who keep them.
-- **Mixing value types in typed arrays.** A `Float64Array` silently converts strings and `undefined` to `NaN`.
+- **Mixing value types in typed arrays.** A `Float64Array` silently converts non-numeric strings and `undefined` to `NaN`, and stores `"3"` as 3.
 - **Measuring allocation before warm-up**, which counts the interpreter's own allocations.
 
 ## Exercises
@@ -215,7 +232,12 @@ import { getHeapStatistics } from "node:v8";
 
 const N = 10_000;
 const STEPS = 100;
-const allocated = () => getHeapStatistics().total_allocated_bytes;
+// Bytes allocated on the JavaScript heap so far. Node 26 and later only.
+function allocatedBytes() {
+  const bytes = getHeapStatistics().total_allocated_bytes;
+  if (bytes === undefined) throw new Error("needs Node 26 or later");
+  return bytes;
+}
 
 // Version 1: an array of particle objects, replaced on every step.
 function simulateObjects() {
@@ -257,9 +279,9 @@ function simulateTyped() {
 
 function measure(simulate) {
   simulate();
-  const before = allocated();
+  const before = allocatedBytes();
   const checksum = simulate();
-  return { checksum, mb: (allocated() - before) / 2 ** 20 };
+  return { checksum, mb: (allocatedBytes() - before) / 2 ** 20 };
 }
 
 const objects = measure(simulateObjects);
@@ -379,12 +401,18 @@ function statsOnePass(xs) {
 The measurement runs each once to warm up:
 
 ```javascript title="do_ex_stats.mjs (continued)"
+// Bytes allocated on the JavaScript heap so far. Node 26 and later only.
+function allocatedBytes() {
+  const bytes = getHeapStatistics().total_allocated_bytes;
+  if (bytes === undefined) throw new Error("needs Node 26 or later");
+  return bytes;
+}
+
 function allocatedMB(work) {
   work();
-  const before = getHeapStatistics().total_allocated_bytes;
+  const before = allocatedBytes();
   const result = work();
-  const mb = (getHeapStatistics().total_allocated_bytes - before) / 2 ** 20;
-  return { result, mb };
+  return { result, mb: (allocatedBytes() - before) / 2 ** 20 };
 }
 
 const a = allocatedMB(() => statsChained(values));
@@ -411,7 +439,7 @@ The one-pass version is also O(n) instead of the sort's O(n log n). The chained 
 
 ## Summary
 
-- <Since v="26" /> `v8.getHeapStatistics().total_allocated_bytes` measures allocation directly; on older Node, count scavenges with `--trace-gc`.
+- `v8.getHeapStatistics().total_allocated_bytes` (Node 26) measures allocation directly; check that it exists, and on older Node count scavenges with `--trace-gc`.
 - Array method chains build an intermediate array per step. Iterator helpers avoid those arrays but, on V8 14.6, allocate more in total; a plain indexed loop allocates nothing.
 - Out-parameters and pools remove per-call allocation, at the price of shared mutable state. Keep them inside hot functions.
 - Typed arrays store numbers in 8 bytes each, outside the GC's view; an array of objects can take five times as much.

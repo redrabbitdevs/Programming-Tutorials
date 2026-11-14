@@ -111,6 +111,8 @@ edition contents are from the ES2026 introduction. Baseline is from `web-feature
 | `--test-randomize`, `--test-random-seed` | v24.16.0 (CHANGELOG_V24, #61747) and v26.1.0; absent from 22 (probed 2026-11-13) | [cli.html](https://nodejs.org/api/cli.html#--test-randomize), CHANGELOG_V24.md |
 | `AsyncLocalStorage` (`node:async_hooks`) | Stable since v16.4.0; the lessons use `run`, `getStore` and `AsyncLocalStorage.bind` (stable since v23.11.0 / v22.15.0). The 07 example gives the same output on 22.23.4, 24.21.0 and 26.11.1. TC39 AsyncContext is Stage 2: do not teach. | [async_context.html](https://nodejs.org/api/async_context.html) |
 | Temporal | On by default in Node 26 | v26.0.0 release post |
+| WebAssembly tiering in V8 | Liftoff baseline on, dynamic tier-up to TurboFan on, lazy compilation on in 22, 24 and 26. `wasm_deopt` (deopt of optimised Wasm): absent from 22 (V8 12.4), off in 24 (V8 13.6, `--no-wasm-deopt`), on in 26 (V8 14.6, `--wasm-deopt`) on x64/arm64 | [flag-definitions.h at 14.6.202](https://github.com/v8/v8/blob/14.6.202/src/flags/flag-definitions.h); `node --v8-options` on 22.23.4, 24.21.0, 26.11.1 (probed 2026-11-14) |
+| `v8.getHeapStatistics().total_allocated_bytes` | Present in 26.11.1; `undefined` in 22.23.4 and 24.21.0 (probed 2026-11-14) | [v8.html](https://nodejs.org/api/v8.html#v8getheapstatistics) |
 
 ## Deprecated or removed: do not teach as current
 

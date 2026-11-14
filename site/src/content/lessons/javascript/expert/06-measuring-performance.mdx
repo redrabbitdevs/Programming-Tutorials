@@ -153,7 +153,7 @@ p99:    250
 max:    900
 ```
 
-The mean, 24.1 ms, describes no request at all: it is twice the typical time and far below the slow ones. The **median** (p50) is the typical case. A high percentile such as **p99** is what the unluckiest 1% experience, and for a page that makes 50 requests, most visitors meet it. For micro-benchmarks the **minimum** is also useful: noise only ever adds time, so the fastest sample is closest to the code's real cost.
+The mean, 24.1 ms, describes no request at all: it is twice the typical time and far below the slow ones. The **median** (p50) is the typical case. A high percentile such as **p99** is what the unluckiest 1% experience, and it is not rare for users: a page that makes 100 requests has a 63% chance (1 − 0.99¹⁰⁰) that at least one of them is that slow, so most visitors meet it. For micro-benchmarks the **minimum** is also useful: noise only ever adds time, so the fastest sample is closest to the code's real cost.
 
 ## Timing a real program
 

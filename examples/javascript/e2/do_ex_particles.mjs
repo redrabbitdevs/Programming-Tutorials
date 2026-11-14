@@ -2,7 +2,12 @@ import { getHeapStatistics } from "node:v8";
 
 const N = 10_000;
 const STEPS = 100;
-const allocated = () => getHeapStatistics().total_allocated_bytes;
+// Bytes allocated on the JavaScript heap so far. Node 26 and later only.
+function allocatedBytes() {
+  const bytes = getHeapStatistics().total_allocated_bytes;
+  if (bytes === undefined) throw new Error("needs Node 26 or later");
+  return bytes;
+}
 
 // Version 1: an array of particle objects, replaced on every step.
 function simulateObjects() {
@@ -40,9 +45,9 @@ function simulateTyped() {
 
 function measure(simulate) {
   simulate();
-  const before = allocated();
+  const before = allocatedBytes();
   const checksum = simulate();
-  return { checksum, mb: (allocated() - before) / 2 ** 20 };
+  return { checksum, mb: (allocatedBytes() - before) / 2 ** 20 };
 }
 
 const objects = measure(simulateObjects);

@@ -278,7 +278,7 @@ console.log("flat regex, 100,000 characters, under 50 ms:", flatTime < 50);
 flat regex, 100,000 characters, under 50 ms: true
 ```
 
-On my machine the 27-character string took about half a second with Node 26.11.1, and each extra `a` doubles it. The flat pattern matches the same strings and handled 100,000 characters in well under a millisecond. Look for nested quantifiers and for alternatives that can match the same text, such as `(a|a)*` or `(\w+\s?)+`. Rewrite them flat, limit the input length before matching, and never build a pattern from user text without [`RegExp.escape`](../../intermediate/regex-advanced/#regexpescape).
+On my machine the 27-character string took about half a second with Node 26.11.1, and each extra `a` doubles it. The flat pattern matches the same strings and handled 100,000 characters in well under a millisecond. Look for nested quantifiers and for alternatives that can match the same text, such as `(a|a)*` or `(\w+\s?)+`. Rewrite them flat, limit the input length before matching, and never build a pattern from user text without [`RegExp.escape`](../../intermediate/regex-advanced/#regexpescape) <Since v="24" />.
 
 ## Common pitfalls
 

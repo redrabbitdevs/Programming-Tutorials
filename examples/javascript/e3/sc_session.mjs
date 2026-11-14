@@ -22,5 +22,10 @@ session(join(import.meta.dirname, "sc_app"), [
   "npm ci --ignore-scripts --silent",
   "ls",
   "node app.mjs",
-  "rm -r node_modules greet-1.0.0.tgz",
+  "echo ignore-scripts=true > .npmrc",
+  "npm rebuild greet",
+  "ls postinstall-ran.txt",
+  "npm rebuild greet --ignore-scripts=false",
+  "cat postinstall-ran.txt",
+  "rm -r node_modules greet-1.0.0.tgz .npmrc postinstall-ran.txt",
 ], offline);

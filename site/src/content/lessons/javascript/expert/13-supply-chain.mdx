@@ -95,9 +95,24 @@ $ node app.mjs
 Hello, supply chain!
 ```
 
-No `postinstall-ran.txt` this time, and the package still works. Put `ignore-scripts=true` in the project's `.npmrc` so that every install, on every machine, behaves the same way, and run `npm rebuild <name>` for a package you have decided to trust.
+No `postinstall-ran.txt` this time, and the package still works. Put `ignore-scripts=true` in the project's `.npmrc` so that every install, on every machine, behaves the same way. To build one package you have decided to trust, run `npm rebuild` with the setting overridden. `npm rebuild` obeys `ignore-scripts` as well, so without the flag it reports success and runs nothing:
 
-The npm CLI is moving to this as a default. Since npm 11.16 the root `package.json` can hold an `allowScripts` policy, which `npm install-scripts approve` and `deny` maintain, and `--strict-allow-scripts` turns the warning above into an error. npm 12.0.0 (July 2026) blocks dependency install scripts unless `allowScripts` allows them ([npm changelog](https://github.com/npm/cli/blob/latest/CHANGELOG.md)). Node 26.11.1 still bundles npm 11.20.0 and Node 22.23.4 bundles npm 10.9.9, which has neither the field nor the warning, so set `ignore-scripts` yourself until your Node ships npm 12.
+```text frame="terminal"
+$ echo ignore-scripts=true > .npmrc
+$ npm rebuild greet
+rebuilt dependencies successfully
+$ ls postinstall-ran.txt
+ls: cannot access 'postinstall-ran.txt': No such file or directory
+$ npm rebuild greet --ignore-scripts=false
+npm warn rebuild 1 package has install scripts not yet covered by allowScripts.…
+rebuilt dependencies successfully
+$ cat postinstall-ran.txt
+greet postinstall ran
+```
+
+npm 10.9 prints the same without the warning line, which npm 11 cuts short here.
+
+The npm CLI is moving to this as a default. Since npm 11.16 the root `package.json` can hold an `allowScripts` policy, and since npm 11.18 `npm install-scripts approve` and `deny` maintain it; on those versions an approval is the lasting way to trust one package, and `--strict-allow-scripts` turns the warning above into an error. npm 12.0.0 (July 2026) blocks dependency install scripts unless `allowScripts` allows them ([npm changelog](https://github.com/npm/cli/blob/latest/CHANGELOG.md)). Node 26.11.1 still bundles npm 11.20.0 and Node 22.23.4 bundles npm 10.9.9, which has neither the field nor the warning, so set `ignore-scripts` yourself until your Node ships npm 12.
 
 ## Install what was reviewed
 
@@ -381,7 +396,7 @@ A caret range such as `^3.0.1` is fine here because the lockfile pins the exact 
 
 ## Summary
 
-- Install scripts run with your rights before any review. Use `--ignore-scripts` (or `ignore-scripts=true` in `.npmrc`) and allow the few packages that need them; npm 12 blocks them by default.
+- Install scripts run with your rights before any review. Use `--ignore-scripts` (or `ignore-scripts=true` in `.npmrc`) and build the few packages that need them with `npm rebuild <name> --ignore-scripts=false`; npm 12 blocks them by default.
 - `npm ci` installs exactly the lockfile. Review lockfile diffs for new hosts, git sources and `hasInstallScript`.
 - `npm audit` lists reported vulnerabilities; `--audit-level` sets what fails CI. It cannot see malware that nobody has reported yet.
 - `npm audit signatures` checks registry signatures and provenance; publish your own packages with `--provenance` from CI.
