@@ -1,0 +1,564 @@
+---
+language: typescript
+level: beginner
+module: Interfaces, type aliases and classes
+order: 25
+title: Classes in TypeScript
+description: "Declare typed fields, choose between private and #private, and use readonly, protected, override and abstract, while keeping to syntax that Node.js can strip, which rules out parameter properties."
+minVersion: "5.8"
+objectives:
+  - Declare typed fields and get a compile error for fields that are never set
+  - Explain the difference between `private` and `#private`
+  - Use `readonly`, `protected`, `override` and `abstract`
+  - Write constructors without parameter properties and say why
+estimatedMinutes: 35
+fundamentals: []
+---
+
+A TypeScript class is a JavaScript class with types added. The syntax for classes, `extends`, `super`, getters and static members is the same as in [classes](../../../javascript/intermediate/classes/) and [private and static members](../../../javascript/intermediate/private-and-static/). What TypeScript adds is field types, access modifiers and a few keywords that exist only for the compiler. This lesson covers those. Everything here is erasable, meaning that Node.js can run it by stripping the types, as in [running TypeScript](../running-typescript/).
+
+## Typed fields
+
+A class lists its fields with types, above the constructor. The compiler checks that each one has a value after construction.
+
+```ts title="class_fields.ts"
+class Account {
+  readonly owner: string;
+  #balance: number;
+
+  constructor(owner: string, balance: number) {
+    this.owner = owner;
+    this.#balance = balance;
+  }
+
+  get balance(): number {
+    return this.#balance;
+  }
+}
+
+const account = new Account("Ada", 100);
+console.log(account.owner, account.balance);
+```
+
+`owner` is a public, read-only string. `#balance` is a private number. The constructor assigns both, and the `balance` getter reads `#balance`. The class name is also a type, so `Account` can be used in annotations.
+
+```bash frame="terminal"
+node class_fields.ts
+```
+
+```text
+Ada 100
+```
+
+A field that is never assigned is an error under `strictPropertyInitialization`, part of `strict`:
+
+```ts title="class_uninit.ts"
+class Counter {
+  count: number;
+
+  increment(): void {
+    this.count += 1;
+  }
+}
+
+const counter = new Counter();
+console.log(counter);
+```
+
+`count` would be `undefined` after `new Counter()`, even though its type says `number`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false class_uninit.ts
+```
+
+```text
+
+```
+
+Give the field a value where it is declared, or make its type allow `undefined` with `?`:
+
+```ts title="class_defaults.ts"
+class Counter {
+  count = 0;
+  label?: string;
+
+  increment(): void {
+    this.count += 1;
+  }
+}
+
+const counter = new Counter();
+counter.increment();
+console.log(counter.count, counter.label);
+```
+
+`count = 0` is inferred as `number`. `label?: string` may be left unset, and is `string | undefined`.
+
+```bash frame="terminal"
+node class_defaults.ts
+```
+
+```text
+1 undefined
+```
+
+## private and #private
+
+TypeScript has two ways to hide a member. The `private` keyword is checked by the compiler and erased. `#name` is JavaScript's own private field, and the engine enforces it at run time.
+
+```ts title="class_private.ts"
+class Vault {
+  private secret = "ts-private";
+  #hidden = "hash-private";
+}
+
+const vault = new Vault();
+console.log(vault["secret"]);
+console.log(Object.keys(vault));
+```
+
+The first line shows that `private` is a compile-time promise: reading `vault["secret"]` with brackets is allowed, and works at run time. The second shows that only `secret` is a real property, because `#hidden` is truly private.
+
+```bash frame="terminal"
+node class_private.ts
+```
+
+```text
+ts-private
+[ 'secret' ]
+```
+
+Both are errors when used from outside with dot syntax:
+
+```ts title="class_private_bad.ts"
+class Vault {
+  private secret = "ts-private";
+  #hidden = "hash-private";
+}
+
+const vault = new Vault();
+console.log(vault.secret);
+console.log(vault.hidden);
+```
+
+`secret` exists but is private. `hidden` does not exist, because `#hidden` has a different name from `hidden`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false class_private_bad.ts
+```
+
+```text
+
+```
+
+Prefer `#name` when the data really must be hidden. Use `private` when you want a lightweight convention that costs nothing at run time.
+
+## protected and readonly
+
+`protected` allows access in the class and its subclasses, but not outside them. This is checked by the compiler only.
+
+```ts title="class_protected.ts"
+class Shape {
+  protected name: string;
+
+  constructor(name: string) {
+    this.name = name;
+  }
+}
+
+class Circle extends Shape {
+  describe(): string {
+    return `a ${this.name}`;
+  }
+}
+
+console.log(new Circle("circle").describe());
+```
+
+`Circle` reads `this.name`, which `Shape` declared `protected`.
+
+```bash frame="terminal"
+node class_protected.ts
+```
+
+```text
+a circle
+```
+
+From outside, the same property is off limits:
+
+```ts title="class_protected_bad.ts"
+class Shape {
+  protected name = "shape";
+}
+
+class Circle extends Shape {}
+
+const circle = new Circle();
+console.log(circle.name);
+```
+
+`circle.name` is not reachable from the top level.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false class_protected_bad.ts
+```
+
+```text
+
+```
+
+`readonly` allows assignment in the constructor and the field's declaration, and nowhere else:
+
+```ts title="class_readonly_bad.ts"
+class User {
+  readonly id: number;
+
+  constructor(id: number) {
+    this.id = id;
+  }
+
+  rename(): void {
+    this.id = 0;
+  }
+}
+
+console.log(new User(1).id);
+```
+
+`rename` tries to change `id`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false class_readonly_bad.ts
+```
+
+```text
+
+```
+
+## override and abstract
+
+The `override` keyword says that a method replaces one from the base class. If there is no such method in the base class, the compiler reports it, which catches typos and renames:
+
+```ts title="class_override.ts"
+class Animal {
+  speak(): string {
+    return "...";
+  }
+}
+
+class Dog extends Animal {
+  override speak(): string {
+    return "Woof";
+  }
+}
+
+console.log(new Animal().speak(), new Dog().speak());
+```
+
+`Dog.speak` replaces `Animal.speak`.
+
+```bash frame="terminal"
+node class_override.ts
+```
+
+```text
+... Woof
+```
+
+With a misspelt name, the compiler looks for the method in `Animal` and does not find it:
+
+```ts title="class_override_typo.ts"
+class Animal {
+  speak(): string {
+    return "...";
+  }
+}
+
+class Dog extends Animal {
+  override spek(): string {
+    return "Woof";
+  }
+}
+
+console.log(new Dog().speak());
+```
+
+It even suggests the right name.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false class_override_typo.ts
+```
+
+```text
+
+```
+
+The `noImplicitOverride` option, which is not part of `strict`, goes further and requires `override` on every overriding method.
+
+An `abstract` class is a base that cannot be instantiated. It may declare `abstract` methods without a body, and each concrete subclass must supply them.
+
+```ts title="class_abstract_square.ts"
+abstract class Shape {
+  abstract area(): number;
+
+  describe(): string {
+    return `area ${this.area().toFixed(2)}`;
+  }
+}
+
+class Square extends Shape {
+  side = 3;
+
+  area(): number {
+    return this.side ** 2;
+  }
+}
+
+console.log(new Square().describe());
+```
+
+`Shape.describe` calls `area`, which `Square` supplies.
+
+```bash frame="terminal"
+node class_abstract_square.ts
+```
+
+```text
+area 9.00
+```
+
+Creating an abstract class directly is an error:
+
+```ts title="class_abstract_new.ts"
+abstract class Shape {
+  abstract area(): number;
+}
+
+const shape = new Shape();
+console.log(shape);
+```
+
+Only subclasses can be instantiated.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false class_abstract_new.ts
+```
+
+```text
+
+```
+
+## Why there are no parameter properties
+
+TypeScript has a shortcut that declares a field and assigns it in the constructor header, called a **parameter property**:
+
+```ts title="param_property.ts"
+class Point {
+  constructor(
+    public x: number,
+    public y: number,
+  ) {}
+}
+
+console.log(new Point(1, 2));
+```
+
+Many older code samples use it. It is not erasable: it needs code to be generated, so Node.js cannot just strip types.
+
+```bash frame="terminal"
+node param_property.ts
+```
+
+```text
+SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript parameter property is not supported in strip-only mode
+```
+
+With `erasableSyntaxOnly` <Since v="5.8" /> on, as in this course's configuration, the compiler reports it first, as error TS1294. Write the field and the assignment out instead:
+
+```ts title="class_explicit_fields.ts"
+class Point {
+  x: number;
+  y: number;
+
+  constructor(x: number, y: number) {
+    this.x = x;
+    this.y = y;
+  }
+}
+
+console.log(new Point(1, 2));
+```
+
+It is a few lines longer and works everywhere.
+
+```bash frame="terminal"
+node class_explicit_fields.ts
+```
+
+```text
+Point { x: 1, y: 2 }
+```
+
+A later lesson lists everything else that is off limits, such as `enum` and runtime `namespace`.
+
+## Common pitfalls
+
+- **Treating `private` as security.** It is erased. Use `#name` for real privacy.
+- **Fields with no value.** Initialise them, assign them in the constructor, or mark them `?`.
+- **Parameter properties.** Node.js cannot run them. Declare the field and assign it.
+- **Forgetting `override` and renaming in the base class.** The subclass silently becomes a new method. Use `override` so the compiler notices.
+
+<Exercise title="A bank account">
+
+Write an abstract `Account` with a private `#balance`, `deposit`, `withdraw` (which throws `Insufficient funds` when the amount is too large) and a `balance` getter. Add an abstract read-only `kind` and a `Savings` subclass with kind `savings`. Deposit 100, withdraw 30 and print the kind and balance, then try to withdraw 500 and print the error. Expected output: `savings 70`, then `Error: Insufficient funds`.
+
+<Solution>
+
+```ts title="ex_account.ts"
+abstract class Account {
+  #balance = 0;
+
+  abstract readonly kind: string;
+
+  deposit(amount: number): void {
+    this.#balance += amount;
+  }
+
+  withdraw(amount: number): void {
+    if (amount > this.#balance) {
+      throw new Error("Insufficient funds");
+    }
+    this.#balance -= amount;
+  }
+
+  get balance(): number {
+    return this.#balance;
+  }
+}
+
+class Savings extends Account {
+  readonly kind = "savings";
+}
+
+const savings = new Savings();
+savings.deposit(100);
+savings.withdraw(30);
+console.log(savings.kind, savings.balance);
+try {
+  savings.withdraw(500);
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+```text
+savings 70
+Error: Insufficient funds
+```
+
+Outside code can neither read nor write `#balance`, and cannot create an `Account` directly.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Shapes with an abstract base">
+
+Write an abstract `Shape` with an abstract `area(): number`, and `Circle` and `Rect` subclasses that use `override`. Put one of each (radius 1, then 2 by 3) in a `Shape[]` and print each area to two decimals. Expected output: `3.14`, then `6.00`.
+
+<Solution>
+
+```ts title="ex_shapes.ts"
+abstract class Shape {
+  abstract area(): number;
+}
+
+class Circle extends Shape {
+  radius: number;
+
+  constructor(radius: number) {
+    super();
+    this.radius = radius;
+  }
+
+  override area(): number {
+    return Math.PI * this.radius ** 2;
+  }
+}
+
+class Rect extends Shape {
+  width: number;
+  height: number;
+
+  constructor(width: number, height: number) {
+    super();
+    this.width = width;
+    this.height = height;
+  }
+
+  override area(): number {
+    return this.width * this.height;
+  }
+}
+
+const shapes: Shape[] = [new Circle(1), new Rect(2, 3)];
+for (const shape of shapes) {
+  console.log(shape.area().toFixed(2));
+}
+```
+
+```text
+3.14
+6.00
+```
+
+The array has type `Shape[]`, so the loop can only use what `Shape` promises. Each `area` call runs the subclass's code.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Remove the parameter properties">
+
+A class `Pair` was written as `constructor(public first: string, public second: string) {}` with a method `swap()` that returns a new `Pair` with the values exchanged. Rewrite it so Node.js can run it. Print the `first` and `second` of `new Pair("a", "b").swap()`. Expected output: `b a`.
+
+<Solution>
+
+```ts title="ex_rewrite_point.ts"
+class Pair {
+  first: string;
+  second: string;
+
+  constructor(first: string, second: string) {
+    this.first = first;
+    this.second = second;
+  }
+
+  swap(): Pair {
+    return new Pair(this.second, this.first);
+  }
+}
+
+const swapped = new Pair("a", "b").swap();
+console.log(swapped.first, swapped.second);
+```
+
+```text
+b a
+```
+
+The fields are declared, and the constructor assigns them. The behaviour is the same.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Class fields have types, and `strictPropertyInitialization` requires each to be set. Use an initialiser or `?`.
+- `private`, `protected` and `readonly` are compile-time checks. `#name` is enforced at run time.
+- `override` catches methods that do not match the base class. `abstract` makes a base class that cannot be instantiated.
+- Parameter properties are not erasable. Declare the field and assign it in the constructor.
+
+Next: `implements` and structural typing.

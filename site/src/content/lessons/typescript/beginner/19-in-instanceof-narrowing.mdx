@@ -1,0 +1,357 @@
+---
+language: typescript
+level: beginner
+module: Unions and narrowing
+order: 19
+title: Narrowing with in and instanceof
+description: Tell object types apart with the in operator and instanceof, handle caught errors safely, and use switch (true) and Symbol.hasInstance as narrowing tools.
+minVersion: "5.0"
+objectives:
+  - Narrow a union of object types with `in`
+  - Narrow to a class with `instanceof`, including `Error` in a `catch` block
+  - Use `in` to read a property that an `object` type does not list
+  - Narrow inside the cases of `switch (true)`
+estimatedMinutes: 30
+fundamentals: []
+---
+
+`typeof` can tell a string from a number, but every object is just `"object"`. To tell one kind of object from another, JavaScript offers two tests: `in`, which asks whether a property exists, and `instanceof`, which asks whether a value was made by a given class or constructor. The compiler understands both. This lesson builds on [narrowing basics](../narrowing-basics/) and uses `in` and `instanceof` as covered in [objects](../../../javascript/beginner/objects-js/) and [classes](../../../javascript/intermediate/classes/).
+
+## in: does the property exist?
+
+When the members of a union have different property names, `"name" in value` narrows to the members that could have that property. Below, only `Fish` has `swim`.
+
+```ts title="in_basic.ts"
+type Fish = { swim: () => string };
+type Bird = { fly: () => string };
+
+function move(pet: Fish | Bird): string {
+  if ("swim" in pet) {
+    return pet.swim();
+  }
+  return pet.fly();
+}
+
+console.log(move({ swim: () => "splash" }));
+console.log(move({ fly: () => "flap" }));
+```
+
+In the `if`, `pet` is a `Fish`. After the return, only `Bird` is left. (The `type` aliases name the two object shapes; the [next module](../interfaces-vs-aliases/) covers them properly.)
+
+```bash frame="terminal"
+node in_basic.ts
+```
+
+```text
+splash
+flap
+```
+
+## in on a type that does not list the property
+
+An `object` type says nothing about properties, so `value.name` is an error. Since TypeScript 4.9, an `in` check also works there: inside the check, the compiler adds the property with type `unknown`. First the error:
+
+```ts title="in_unlisted_bad.ts"
+function readName(value: object): unknown {
+  return value.name;
+}
+
+console.log(readName({ name: "Ada" }));
+```
+
+`object` has no `name`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false in_unlisted_bad.ts
+```
+
+```text
+
+```
+
+With the `in` check, the property exists, and a `typeof` test narrows its `unknown` type further:
+
+```ts title="in_unlisted.ts"
+function readName(value: object): string {
+  if ("name" in value && typeof value.name === "string") {
+    return value.name;
+  }
+  return "(no name)";
+}
+
+console.log(readName({ name: "Ada" }));
+console.log(readName({ id: 1 }));
+```
+
+Both `value.name` uses are allowed because they come after `"name" in value`, and the second check makes the value a `string`.
+
+```bash frame="terminal"
+node in_unlisted.ts
+```
+
+```text
+Ada
+(no name)
+```
+
+This is the pattern for reading data whose shape you only partly know, such as parsed JSON.
+
+## instanceof: made by this class?
+
+`value instanceof Date` is true when `value` was created by the `Date` constructor, and the compiler narrows to `Date`. It works with any class, including built-in ones such as `Date`, `Error` and `Map`.
+
+```ts title="instanceof_basic.ts"
+function format(value: Date | string): string {
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+  return value.trim();
+}
+
+console.log(format(new Date("2026-03-05T12:00:00Z")));
+console.log(format("  plain text  "));
+```
+
+The first branch calls a `Date` method and the second a `string` method.
+
+```bash frame="terminal"
+node instanceof_basic.ts
+```
+
+```text
+2026-03-05
+plain text
+```
+
+The most common use is in a `catch` block. With `strict`, which is on by default since TypeScript 6.0, the caught value has type `unknown`, because JavaScript lets you throw anything. This fails to compile:
+
+```ts title="catch_unknown_bad.ts"
+try {
+  JSON.parse("{oops");
+} catch (error) {
+  console.log(error.message);
+}
+```
+
+The compiler refuses to use `error` before you know what it is.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false catch_unknown_bad.ts
+```
+
+```text
+
+```
+
+Check with `instanceof Error` first:
+
+```ts title="instanceof_catch.ts"
+function risky(): never {
+  throw new RangeError("out of range");
+}
+
+try {
+  risky();
+} catch (error) {
+  if (error instanceof Error) {
+    console.log(error.name, "-", error.message);
+  } else {
+    console.log("not an Error:", String(error));
+  }
+}
+```
+
+Inside the `if`, `error` is an `Error`, so `name` and `message` are available. The `else` branch handles a thrown string, number or anything else.
+
+```bash frame="terminal"
+node instanceof_catch.ts
+```
+
+```text
+RangeError - out of range
+```
+
+Remember that `instanceof` works on objects made by a constructor. It is `false` for primitives in JavaScript (`"abc" instanceof String` is `false`), and the compiler rejects a primitive on the left with error TS2358. Use `typeof` for those.
+
+## switch (true)
+
+A `switch` can compare against `true`, so each `case` holds a condition. <Since v="5.3" /> The compiler narrows inside each case, as it would in an `if` chain.
+
+```ts title="switch_true.ts"
+function classify(value: string | number | null): string {
+  switch (true) {
+    case typeof value === "string":
+      return `text of ${value.length}`;
+    case typeof value === "number":
+      return `number ${value.toFixed(1)}`;
+    default:
+      return "nothing";
+  }
+}
+
+console.log(classify("hey"), classify(2), classify(null));
+```
+
+In the first case `value` is a `string`, in the second a `number`.
+
+```bash frame="terminal"
+node switch_true.ts
+```
+
+```text
+text of 3 number 2.0 nothing
+```
+
+This reads well when there are several different kinds of test. A plain `if` chain does the same.
+
+## Custom instanceof with Symbol.hasInstance
+
+Any object with a `[Symbol.hasInstance]` method can stand on the right of `instanceof`, as covered under [symbols](../../../javascript/intermediate/symbols/). <Since v="5.3" /> If that method is declared as a type guard, as `value is string[]` below, the compiler narrows by it.
+
+```ts title="has_instance.ts"
+const StringArray = {
+  [Symbol.hasInstance](value: unknown): value is string[] {
+    return Array.isArray(value) && value.every((x) => typeof x === "string");
+  },
+};
+
+function joinAll(value: unknown): string {
+  if (value instanceof StringArray) {
+    return value.join("+");
+  }
+  return "not a list of strings";
+}
+
+console.log(joinAll(["a", "b"]), joinAll([1, 2]));
+```
+
+The method returns `true` for arrays of strings only. Inside the `if`, `value` is `string[]`.
+
+```bash frame="terminal"
+node has_instance.ts
+```
+
+```text
+a+b not a list of strings
+```
+
+You will rarely write this yourself. It matters because it explains why `instanceof` can narrow things that are not classes.
+
+## Common pitfalls
+
+- **Using `in` on a primitive.** The right-hand side must be an object. `"length" in "abc"` is an error in both JavaScript and TypeScript.
+- **Using `in` when members share the property.** If both types have `name`, the check cannot tell them apart. Add a tag property, as the next lesson does.
+- **Assuming a caught value is an `Error`.** It may be anything. Check with `instanceof Error`.
+- **Using `instanceof` for primitives.** Use `typeof`.
+
+<Exercise title="Errors, responses and text">
+
+A function receives `Error | Response | string`. Write `describe` so that an `Error` gives `error: ` plus its message, a `Response` gives `response: ` plus its `status`, and a string gives `text: ` plus the string. Call it with `new Error("boom")`, `new Response("ok", { status: 201 })` and `"plain"`. Expected output, one per line: `error: boom`, `response: 201`, `text: plain`.
+
+<Solution>
+
+```ts title="ex_results.ts"
+type Result = Error | Response | string;
+
+function describe(result: Result): string {
+  if (result instanceof Error) {
+    return `error: ${result.message}`;
+  }
+  if (result instanceof Response) {
+    return `response: ${result.status}`;
+  }
+  return `text: ${result}`;
+}
+
+console.log(describe(new Error("boom")));
+console.log(describe(new Response("ok", { status: 201 })));
+console.log(describe("plain"));
+```
+
+```text
+error: boom
+response: 201
+text: plain
+```
+
+`Response` is a global class in Node.js, so `instanceof` works with it. After the two checks only `string` is left.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Area of two shapes">
+
+Given `Circle = { radius: number }` and `Rectangle = { width: number; height: number }`, write `area(shape: Circle | Rectangle)` using `in`. Print the area of a circle with radius 1 to two decimals, then of a 3 by 4 rectangle. Expected output: `3.14` then `12`.
+
+<Solution>
+
+```ts title="ex_area.ts"
+type Circle = { radius: number };
+type Rectangle = { width: number; height: number };
+
+function area(shape: Circle | Rectangle): number {
+  if ("radius" in shape) {
+    return Math.PI * shape.radius ** 2;
+  }
+  return shape.width * shape.height;
+}
+
+console.log(area({ radius: 1 }).toFixed(2));
+console.log(area({ width: 3, height: 4 }));
+```
+
+```text
+3.14
+12
+```
+
+Only `Circle` has `radius`, so the `if` narrows to it and the rest is a `Rectangle`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A safe error message">
+
+Write `messageOf(thrown: unknown): string` that returns the message of an `Error` and the string form of anything else. Throw `new Error("first")` and then the string `"second"`, catch each, and print `messageOf` of what you caught. Expected output: `first`, then `second`.
+
+<Solution>
+
+```ts title="ex_error_message.ts"
+function messageOf(thrown: unknown): string {
+  return thrown instanceof Error ? thrown.message : String(thrown);
+}
+
+try {
+  throw new Error("first");
+} catch (error) {
+  console.log(messageOf(error));
+}
+
+try {
+  throw "second";
+} catch (error) {
+  console.log(messageOf(error));
+}
+```
+
+```text
+first
+second
+```
+
+A parameter of type `unknown` accepts the caught value. `instanceof Error` narrows it, and `String` handles the rest.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- `"key" in value` narrows a union to the members that can have `key`. On an `object`, it adds the property as `unknown`.
+- `value instanceof Class` narrows to that class. Use it on caught errors, which are `unknown`.
+- <Since v="5.3" /> `switch (true)` narrows inside each case, and a `Symbol.hasInstance` type guard lets `instanceof` narrow to non-class types.
+- `typeof` is for primitives, `in` and `instanceof` are for objects.
+
+Next: discriminated unions, which use a tag property to tell object types apart.

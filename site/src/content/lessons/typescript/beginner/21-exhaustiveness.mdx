@@ -1,0 +1,418 @@
+---
+language: typescript
+level: beginner
+module: Unions and narrowing
+order: 21
+title: Exhaustiveness checking with never
+description: Make the compiler report every switch that forgets a case after a union grows, using a never-typed default branch, an assertNever helper, satisfies never, or the function's return type.
+minVersion: "5.0"
+objectives:
+  - Explain why the value in a `default` branch has type `never` once all cases are handled
+  - Write an `assertNever` function and a `satisfies never` check
+  - Read the error that appears when a case is missing
+  - Know what a missing case does at run time when the data came from outside
+estimatedMinutes: 30
+fundamentals: []
+---
+
+A union is a promise about all the values that can arrive. When someone adds a new member, every `switch` over that union needs a new case. In plain JavaScript you find the ones you missed by testing. In TypeScript you can make the compiler find them. The tool is `never`, the type with no values, from [any, unknown and never](../any-unknown-never/). This lesson applies it to the unions of the [previous lesson](../discriminated-unions/).
+
+## never in the default branch
+
+Each `case` removes one member from the union. When every member has been handled, nothing is left, and the compiler types the value in `default` as `never`. Assigning it to a `never` variable therefore compiles.
+
+```ts title="exh_never_default.ts"
+type Shape =
+  | { kind: "circle"; radius: number }
+  | { kind: "square"; side: number };
+
+function area(shape: Shape): number {
+  switch (shape.kind) {
+    case "circle":
+      return Math.PI * shape.radius ** 2;
+    case "square":
+      return shape.side ** 2;
+    default: {
+      const unreachable: never = shape;
+      return unreachable;
+    }
+  }
+}
+
+console.log(area({ kind: "square", side: 4 }));
+```
+
+Both members of `Shape` have a case, so `shape` in `default` is `never`. The branch is dead code that costs nothing.
+
+```bash frame="terminal"
+node exh_never_default.ts
+```
+
+```text
+16
+```
+
+Now add a third shape and forget the case. The value that reaches `default` is no longer `never`, so the assignment fails:
+
+```ts title="exh_missing.ts"
+type Shape =
+  | { kind: "circle"; radius: number }
+  | { kind: "square"; side: number }
+  | { kind: "triangle"; base: number; height: number };
+
+function area(shape: Shape): number {
+  switch (shape.kind) {
+    case "circle":
+      return Math.PI * shape.radius ** 2;
+    case "square":
+      return shape.side ** 2;
+    default: {
+      const unreachable: never = shape;
+      return unreachable;
+    }
+  }
+}
+```
+
+The error names the member nobody handled.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false exh_missing.ts
+```
+
+```text
+
+```
+
+If a program has ten `switch` statements over `Shape`, each with this `default`, adding `"triangle"` produces ten errors, one at each place that needs a new case. That list is your to-do list.
+
+## assertNever
+
+The `never` variable works but is clumsy. A small helper expresses the same idea in one line. It takes a `never` and throws:
+
+```ts title="exh_assert_never.ts"
+function assertNever(value: never): never {
+  throw new Error(`Unexpected value: ${JSON.stringify(value)}`);
+}
+
+type Light = "red" | "yellow" | "green";
+
+function next(light: Light): Light {
+  switch (light) {
+    case "red":
+      return "green";
+    case "green":
+      return "yellow";
+    case "yellow":
+      return "red";
+    default:
+      return assertNever(light);
+  }
+}
+
+console.log(next("red"), next("green"), next("yellow"));
+```
+
+`assertNever(light)` compiles only if `light` is `never` at that point. The helper is also a function that never returns, so the `return` is accepted as returning a `Light`.
+
+```bash frame="terminal"
+node exh_assert_never.ts
+```
+
+```text
+green yellow red
+```
+
+If a case is missing, the argument is not `never`, and the call is the error:
+
+```ts title="exh_assert_never_missing.ts"
+function assertNever(value: never): never {
+  throw new Error(`Unexpected value: ${JSON.stringify(value)}`);
+}
+
+type Light = "red" | "yellow" | "green";
+
+function next(light: Light): Light {
+  switch (light) {
+    case "red":
+      return "green";
+    case "green":
+      return "yellow";
+    default:
+      return assertNever(light);
+  }
+}
+
+console.log(next("red"));
+```
+
+The message shows exactly which value would slip through.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false exh_assert_never_missing.ts
+```
+
+```text
+
+```
+
+An `if` chain works as well as a `switch`, and the helper also protects you at run time. TypeScript checks only what it can see, and data from a network or a file may be anything. Here a value that is not in the union gets through because `as "red"` tells the compiler to trust you that the value has that type. It is a type assertion, and it is the reason data from outside needs this safety net:
+
+```ts title="exh_runtime.ts"
+function assertNever(value: never): never {
+  throw new Error(`Unexpected value: ${JSON.stringify(value)}`);
+}
+
+function signal(light: "red" | "green"): string {
+  if (light === "red") return "stop";
+  if (light === "green") return "go";
+  return assertNever(light);
+}
+
+const fromOutside: unknown = JSON.parse('"blue"');
+try {
+  console.log(signal(fromOutside as "red"));
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+Without the last line, the function would quietly return `undefined`. With it, the bad value fails loudly:
+
+```bash frame="terminal"
+node exh_runtime.ts
+```
+
+```text
+Error: Unexpected value: "blue"
+```
+
+## satisfies never
+
+The `satisfies` operator checks that an expression fits a type without changing the type of the expression. `value satisfies never` is therefore an assertion that `value` is `never`, and it needs no helper function.
+
+```ts title="exh_satisfies.ts"
+type Light = "red" | "yellow" | "green";
+
+function delay(light: Light): number {
+  switch (light) {
+    case "red":
+      return 30;
+    case "yellow":
+      return 3;
+    case "green":
+      return 25;
+    default:
+      light satisfies never;
+      throw new Error("unreachable");
+  }
+}
+
+console.log(delay("red"), delay("yellow"), delay("green"));
+```
+
+The statement does nothing at run time, since `satisfies` is erased. The `throw` is there for the case the compiler says can't happen.
+
+```bash frame="terminal"
+node exh_satisfies.ts
+```
+
+```text
+30 3 25
+```
+
+With a missing case, the check fails:
+
+```ts title="exh_satisfies_missing.ts"
+type Light = "red" | "yellow" | "green";
+
+function delay(light: Light): number {
+  switch (light) {
+    case "red":
+      return 30;
+    case "green":
+      return 25;
+    default:
+      light satisfies never;
+      throw new Error("unreachable");
+  }
+}
+
+console.log(delay("red"));
+```
+
+Same idea, different wording from the compiler.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false exh_satisfies_missing.ts
+```
+
+```text
+
+```
+
+## The return type already checks
+
+You get part of this for free. A function whose return type does not include `undefined` must return on every path. A `switch` that does not cover the union lets some value fall out of the end:
+
+```ts title="exh_return_type.ts"
+type Light = "red" | "yellow" | "green";
+
+function delay(light: Light): number {
+  switch (light) {
+    case "red":
+      return 30;
+    case "green":
+      return 25;
+  }
+}
+
+console.log(delay("red"));
+```
+
+No `default` is needed to get the error:
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false exh_return_type.ts
+```
+
+```text
+
+```
+
+That is enough when every case returns. The `never` default is better when cases do not return, and for a function that returns `void`, where nothing else would complain.
+
+## Common pitfalls
+
+- **A `default` that returns a quiet value.** `default: return 0` hides the new case. Use `never` so the compiler objects.
+- **Checking exhaustiveness with `if` and no final `else`.** Add the `never` check at the end too.
+- **Trusting the compiler with outside data.** A value from JSON may be outside the union. The throwing `default` is the safety net.
+- **Forgetting that `never` is only reached when all cases are handled.** An error in `default` always means a member is missing.
+
+<Exercise title="Opposites">
+
+Define `Direction` as `"up" | "down" | "left" | "right"` and write `opposite(direction)` with an `assertNever` in `default`. Print `opposite("up")` and `opposite("left")`. Expected output: `down right`.
+
+<Solution>
+
+```ts title="ex_opposite.ts"
+type Direction = "up" | "down" | "left" | "right";
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected: ${String(value)}`);
+}
+
+function opposite(direction: Direction): Direction {
+  switch (direction) {
+    case "up":
+      return "down";
+    case "down":
+      return "up";
+    case "left":
+      return "right";
+    case "right":
+      return "left";
+    default:
+      return assertNever(direction);
+  }
+}
+
+console.log(opposite("up"), opposite("left"));
+```
+
+```text
+down right
+```
+
+If you comment out one case, the compiler reports the value that reached `assertNever`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Event labels with satisfies">
+
+Model `AppEvent` as `click` (with `x` and `y`), `key` (with `key`) and `scroll` (with `delta`), tagged by `type`. Write `label(event)` with an exhaustive `switch` that ends with `event satisfies never`. Print the label of one event of each type. Expected output: `click at 3,4`, `key a`, `scroll -2`.
+
+<Solution>
+
+```ts title="ex_event_label.ts"
+type AppEvent =
+  | { type: "click"; x: number; y: number }
+  | { type: "key"; key: string }
+  | { type: "scroll"; delta: number };
+
+function label(event: AppEvent): string {
+  switch (event.type) {
+    case "click":
+      return `click at ${event.x},${event.y}`;
+    case "key":
+      return `key ${event.key}`;
+    case "scroll":
+      return `scroll ${event.delta}`;
+    default:
+      event satisfies never;
+      throw new Error("unreachable");
+  }
+}
+
+console.log(label({ type: "click", x: 3, y: 4 }));
+console.log(label({ type: "key", key: "a" }));
+console.log(label({ type: "scroll", delta: -2 }));
+```
+
+```text
+click at 3,4
+key a
+scroll -2
+```
+
+Add a fourth member, `{ type: "close" }`, and the `satisfies never` line is where the compiler stops.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Grow a union">
+
+Start with `Fruit = "apple" | "pear" | "plum"` and a `color` function that returns `red`, `green` and `purple` in a `switch` with no `default`. Add `"cherry"`. Let the compiler tell you what is wrong, then add the case returning `dark red`. Print `color("apple")` and `color("cherry")`. Expected output: `red dark red`.
+
+<Solution>
+
+```ts title="ex_missing_case.ts"
+type Fruit = "apple" | "pear" | "plum" | "cherry";
+
+function color(fruit: Fruit): string {
+  switch (fruit) {
+    case "apple":
+      return "red";
+    case "pear":
+      return "green";
+    case "plum":
+      return "purple";
+    case "cherry":
+      return "dark red";
+  }
+}
+
+console.log(color("apple"), color("cherry"));
+```
+
+```text
+red dark red
+```
+
+After adding `"cherry"` to the union and before adding the case, the compiler reports that the function lacks an ending return statement. The return type was the check.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- When every member has been handled, the remaining type is `never`, and any value of that type is impossible.
+- Assign the value to `never`, pass it to `assertNever`, or write `value satisfies never` in the `default` branch. A missing case becomes a compile error.
+- A function with a non-`undefined` return type and no `default` is checked by its return type.
+- At run time, a throwing `default` catches values that the types did not predict.
+
+Next: `strictNullChecks`, `?.`, `??` and the non-null assertion.

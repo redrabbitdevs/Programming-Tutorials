@@ -1,0 +1,370 @@
+---
+language: typescript
+level: beginner
+module: Unions and narrowing
+order: 20
+title: Discriminated unions
+description: Model values that come in several states by giving each object type a literal tag property, so that checking the tag tells the compiler exactly which fields exist.
+minVersion: "5.0"
+objectives:
+  - Write a union of object types that share a literal-typed tag property
+  - Narrow with `switch` or `if` on the tag
+  - Model states so that impossible combinations cannot be written
+  - Recognise the cases where the tag is too wide to discriminate
+estimatedMinutes: 30
+fundamentals: []
+---
+
+The previous lesson narrowed objects by testing for a property. That gets awkward when several shapes share property names. A cleaner pattern is to give every member of the union one property with a fixed literal value, a **tag**, and to test that. This is a **discriminated union**, and it is probably the most useful pattern in everyday TypeScript. It builds on [union types](../union-types/), [literal types](../literal-types/) and [narrowing basics](../narrowing-basics/).
+
+## A tag per variant
+
+Each member of the union below has a `kind` property whose type is a single string literal. The other properties differ.
+
+```ts title="disc_basic.ts"
+type Shape =
+  | { kind: "circle"; radius: number }
+  | { kind: "square"; side: number };
+
+function area(shape: Shape): number {
+  switch (shape.kind) {
+    case "circle":
+      return Math.PI * shape.radius ** 2;
+    case "square":
+      return shape.side ** 2;
+  }
+}
+
+console.log(area({ kind: "circle", radius: 1 }).toFixed(2));
+console.log(area({ kind: "square", side: 3 }));
+```
+
+Inside `case "circle"` the compiler knows `shape` is the circle member, so `radius` exists. In `case "square"` it is the square. The function needs no `default`, because the two cases cover the whole union. (A `default` that proves the cases are complete is the [next lesson](../exhaustiveness/).)
+
+```bash frame="terminal"
+node disc_basic.ts
+```
+
+```text
+3.14
+9
+```
+
+Without a check, only the shared property `kind` is available, so the compiler stops you from reading `radius` early:
+
+```ts title="disc_no_check.ts"
+type Shape =
+  | { kind: "circle"; radius: number }
+  | { kind: "square"; side: number };
+
+function radiusOf(shape: Shape): number {
+  return shape.radius;
+}
+
+console.log(radiusOf({ kind: "circle", radius: 2 }));
+```
+
+The error tells you which member lacks the property.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false disc_no_check.ts
+```
+
+```text
+
+```
+
+An `if` works the same way as a `switch`, and the type of the tag property decides everything. That property can have any name, and `kind`, `type`, `status` and `tag` are common.
+
+## Modelling states
+
+Discriminated unions fit anything with a handful of states, each carrying different data. A request that is idle, loading, finished or failed is the classic example:
+
+```ts title="disc_state.ts"
+type FetchState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "success"; data: string[] }
+  | { status: "error"; message: string };
+
+function render(state: FetchState): string {
+  if (state.status === "success") {
+    return `${state.data.length} items`;
+  }
+  if (state.status === "error") {
+    return `failed: ${state.message}`;
+  }
+  return state.status;
+}
+
+console.log(render({ status: "success", data: ["a", "b"] }));
+console.log(render({ status: "error", message: "timeout" }));
+console.log(render({ status: "loading" }));
+```
+
+The `success` state has `data` and the `error` state has `message`. Each is only readable after its tag check. After the two `if` statements, the state is `idle` or `loading`, so returning `state.status` is a string that is one of those two words.
+
+```bash frame="terminal"
+node disc_state.ts
+```
+
+```text
+2 items
+failed: timeout
+loading
+```
+
+## Make impossible states unrepresentable
+
+The usual alternative is one object with optional fields and flags. It allows combinations that make no sense, such as "loading, with data, and also an error":
+
+```ts title="disc_flags.ts"
+type LooseState = {
+  loading: boolean;
+  data?: string[];
+  error?: string;
+};
+
+const impossible: LooseState = {
+  loading: true,
+  data: ["a"],
+  error: "also failed",
+};
+
+console.log(impossible);
+```
+
+The compiler accepts it, because every property is optional.
+
+```bash frame="terminal"
+node disc_flags.ts
+```
+
+```text
+{ loading: true, data: [ 'a' ], error: 'also failed' }
+```
+
+Code that reads this object has to guess which field wins. With a tagged union, the contradiction is a compile error:
+
+```ts title="disc_impossible.ts"
+type FetchState =
+  | { status: "loading" }
+  | { status: "success"; data: string[] }
+  | { status: "error"; message: string };
+
+const both: FetchState = {
+  status: "success",
+  data: ["a"],
+  message: "also failed",
+};
+
+const empty: FetchState = { status: "success" };
+
+console.log(both, empty);
+```
+
+The first object mixes `success` with a field from the `error` state. The second leaves out the `data` that `success` needs.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false disc_impossible.ts
+```
+
+```text
+
+```
+
+Design the union so that every valid state can be written and every invalid one cannot. Then the compiler checks your logic for you.
+
+## When the tag is too wide
+
+Narrowing works because the tag has a literal type. If the tag is widened to `string`, the compiler can no longer tell the members apart. This happens when you build the object in a variable without a type annotation:
+
+```ts title="disc_widened.ts"
+type Shape =
+  | { kind: "circle"; radius: number }
+  | { kind: "square"; side: number };
+
+function perimeter(shape: Shape): number {
+  return shape.kind === "circle" ? 2 * Math.PI * shape.radius : shape.side * 4;
+}
+
+const unit = { kind: "square", side: 1 };
+console.log(perimeter(unit));
+```
+
+In a `const` object, the property `kind` is typed `string`, as the [literal types lesson](../literal-types/) explained. The argument no longer fits `Shape`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false disc_widened.ts
+```
+
+```text
+
+```
+
+Annotate the variable with the union type, and the literal is kept:
+
+```ts title="disc_widened_fixed.ts"
+type Shape =
+  | { kind: "circle"; radius: number }
+  | { kind: "square"; side: number };
+
+function perimeter(shape: Shape): number {
+  return shape.kind === "circle" ? 2 * Math.PI * shape.radius : shape.side * 4;
+}
+
+const unit: Shape = { kind: "square", side: 1 };
+console.log(perimeter(unit));
+```
+
+The same holds for `as const` on the object. Objects written directly in a call are fine, because the expected type is already known.
+
+```bash frame="terminal"
+node disc_widened_fixed.ts
+```
+
+```text
+4
+```
+
+## Common pitfalls
+
+- **A tag typed as `string`.** Narrowing needs a literal type, such as `"circle"`.
+- **Two members with the same tag value.** The compiler then cannot tell them apart.
+- **Building an object in a variable first.** Annotate the variable or use `as const`.
+- **Optional fields instead of variants.** `{ data?: T; error?: string }` allows both at once.
+
+<Exercise title="A result type">
+
+Define `ParseResult` as either `{ ok: true; value: number }` or `{ ok: false; error: string }`. Write `parseNumber(text: string): ParseResult` using `Number` and `Number.isNaN`. For `"42"` and `"abc"`, print double the value on success and the error message on failure. Expected output: `84`, then `"abc" is not a number`.
+
+<Solution>
+
+```ts title="ex_parse_result.ts"
+type ParseResult =
+  | { ok: true; value: number }
+  | { ok: false; error: string };
+
+function parseNumber(text: string): ParseResult {
+  const value = Number(text);
+  if (Number.isNaN(value)) {
+    return { ok: false, error: `"${text}" is not a number` };
+  }
+  return { ok: true, value };
+}
+
+for (const text of ["42", "abc"]) {
+  const result = parseNumber(text);
+  console.log(result.ok ? result.value * 2 : result.error);
+}
+```
+
+```text
+84
+"abc" is not a number
+```
+
+The tag here is the boolean `ok`. Booleans are literal types too (`true` and `false`), so they work as tags.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Payment methods">
+
+Model a `Payment` that is `card` (with `last4`), `cash` (no extra data) or `transfer` (with `iban`). Write `describe(payment)` that returns `card ending 4242`, `cash` and `transfer to DE00 1234` for suitable inputs. Print all three. Expected output: those three strings, one per line.
+
+<Solution>
+
+```ts title="ex_payment.ts"
+type Payment =
+  | { method: "card"; last4: string }
+  | { method: "cash" }
+  | { method: "transfer"; iban: string };
+
+function describe(payment: Payment): string {
+  switch (payment.method) {
+    case "card":
+      return `card ending ${payment.last4}`;
+    case "cash":
+      return "cash";
+    case "transfer":
+      return `transfer to ${payment.iban}`;
+  }
+}
+
+console.log(describe({ method: "card", last4: "4242" }));
+console.log(describe({ method: "cash" }));
+console.log(describe({ method: "transfer", iban: "DE00 1234" }));
+```
+
+```text
+card ending 4242
+cash
+transfer to DE00 1234
+```
+
+Each `case` can use the fields of its own variant and no others.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fetch states">
+
+Model `Fetch` as `idle`, `loading`, `success` (with a string `data`) and `error` (with a `message`). Write `label` returning `Press start`, `Loading...`, `Got ` plus the data, or `Error: ` plus the message. Print the label of all four states in a loop over an array typed `Fetch[]`. Expected output: `Press start`, `Loading...`, `Got 42 rows`, `Error: offline`.
+
+<Solution>
+
+```ts title="ex_fetch_state.ts"
+type Fetch =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "success"; data: string }
+  | { status: "error"; message: string };
+
+function label(state: Fetch): string {
+  switch (state.status) {
+    case "idle":
+      return "Press start";
+    case "loading":
+      return "Loading...";
+    case "success":
+      return `Got ${state.data}`;
+    case "error":
+      return `Error: ${state.message}`;
+  }
+}
+
+const states: Fetch[] = [
+  { status: "idle" },
+  { status: "loading" },
+  { status: "success", data: "42 rows" },
+  { status: "error", message: "offline" },
+];
+for (const state of states) {
+  console.log(label(state));
+}
+```
+
+```text
+Press start
+Loading...
+Got 42 rows
+Error: offline
+```
+
+The array is annotated `Fetch[]`, which keeps each `status` literal and avoids the widening problem above.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- A discriminated union is a union of object types that share a property with a literal type, the tag.
+- Testing the tag with `switch` or `if` narrows the value to one member and unlocks that member's fields.
+- Model each state as its own member and impossible combinations disappear.
+- The tag must have a literal type. Annotate the variable or use `as const` to stop it widening.
+
+Next: exhaustiveness checking, which makes the compiler tell you when a case is missing.

@@ -1,0 +1,398 @@
+---
+language: typescript
+level: beginner
+module: Unions and narrowing
+order: 22
+title: strictNullChecks, ?. and ??
+description: See how strictNullChecks makes null and undefined part of the type, handle missing values with narrowing, optional chaining and nullish coalescing, and why the non-null assertion is a last resort.
+minVersion: "6.0"
+objectives:
+  - Explain what `strictNullChecks` changes and that `strict` turns it on
+  - Read the types of `?.` and `??` expressions
+  - Choose `??` over `||` when `0` or `""` are valid values
+  - Replace a non-null assertion `!` with a check, a default or an error
+  - Fix a "used before being assigned" error
+estimatedMinutes: 30
+fundamentals: []
+---
+
+The most common JavaScript crash is `Cannot read properties of undefined`. TypeScript's answer is the compiler option **`strictNullChecks`**. When it is on, `null` and `undefined` are not secretly allowed in every type: a `string` is always a string, and "a string or nothing" is the union `string | null` or `string | undefined`. The compiler then makes you handle the "nothing" case before you use the value. The option is part of `strict`, which is on by default since TypeScript 6.0, as the [tsconfig lesson](../tsconfig-first-look/) shows. The operators in this lesson are plain JavaScript, covered in [null, undefined and nullish values](../../../javascript/beginner/null-undefined-nullish/).
+
+## What the option changes
+
+With the option on, `null` is not assignable to `string`, and a value that may be `null` cannot be used as a string:
+
+```ts title="null_strict.ts"
+function textLength(text: string | null): number {
+  return text.length;
+}
+
+const label: string = null;
+console.log(textLength("abc"), label);
+```
+
+Both mistakes are reported.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false null_strict.ts
+```
+
+```text
+
+```
+
+With the option turned off on the command line, the same file compiles without complaint, and then crashes at run time when it meets a `null`:
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --strictNullChecks false null_strict.ts
+```
+
+That is why every project in this course keeps it on. The fix is the narrowing from the [previous lessons](../narrowing-basics/):
+
+```ts title="null_handled.ts"
+function textLength(text: string | null): number {
+  return text === null ? 0 : text.length;
+}
+
+console.log(textLength("abc"), textLength(null));
+```
+
+The `null` check removes `null`, so `text.length` is safe.
+
+```bash frame="terminal"
+node null_handled.ts
+```
+
+```text
+3 0
+```
+
+## Optional chaining: ?.
+
+`a?.b` reads `b` if `a` is not `null` or `undefined`, and otherwise gives `undefined` without throwing. The compiler adds `undefined` to the type of the result.
+
+```ts title="optional_chain.ts"
+type User = {
+  name: string;
+  address?: { city: string; zip?: string };
+};
+
+const ada: User = { name: "Ada", address: { city: "London" } };
+const bob: User = { name: "Bob" };
+
+const city: string | undefined = bob.address?.city;
+console.log(ada.address?.city, city);
+console.log(ada.address?.zip?.length);
+```
+
+`ada.address?.city` is `string | undefined`, and so is `city`. The chain stops at the first missing link, so `zip?.length` is `undefined` for Ada, whose address has no `zip`.
+
+```bash frame="terminal"
+node optional_chain.ts
+```
+
+```text
+London undefined
+undefined
+```
+
+The same operator works for calling a function that may be missing, and for indexing:
+
+```ts title="optional_chain_forms.ts"
+type Handlers = { onSave?: (id: number) => string };
+
+const handlers: Handlers = {};
+const withSave: Handlers = { onSave: (id) => `saved ${id}` };
+
+function firstOf(list: string[] | undefined): string | undefined {
+  return list?.[0];
+}
+
+console.log(handlers.onSave?.(1), withSave.onSave?.(2));
+console.log(firstOf(["x", "y"]), firstOf(undefined));
+```
+
+`onSave?.(1)` calls only if `onSave` exists. `list?.[0]` reads an element only if the list exists.
+
+```bash frame="terminal"
+node optional_chain_forms.ts
+```
+
+```text
+undefined saved 2
+x undefined
+```
+
+## Nullish coalescing: ??
+
+`a ?? b` gives `a` unless it is `null` or `undefined`, in which case it gives `b`. It removes those two members from the type, so the result of `number | undefined ?? number` is just `number`.
+
+```ts title="nullish_vs_or.ts"
+function pageSize(requested: number | undefined): number {
+  return requested ?? 20;
+}
+
+function pageSizeOr(requested: number | undefined): number {
+  return requested || 20;
+}
+
+console.log(pageSize(0), pageSize(undefined), pageSize(50));
+console.log(pageSizeOr(0));
+```
+
+`||` also replaces `0`, the empty string and `false`, because they are falsy. The first call shows the difference: asking for a page size of `0` returns `0` with `??` and `20` with `||`.
+
+```bash frame="terminal"
+node nullish_vs_or.ts
+```
+
+```text
+0 20 50
+20
+```
+
+Use `??` for "was a value supplied?", and `||` only when every falsy value really should be replaced. This is the same trap as the truthiness check in [narrowing basics](../narrowing-basics/).
+
+## The non-null assertion: !
+
+A postfix `!` tells the compiler "this is not `null` or `undefined`, trust me". It changes only the type, and it is erased. If you are wrong, the program still crashes. `Map.get` returns `V | undefined`, because the key may be absent:
+
+```ts title="nonnull_missing.ts"
+const stock = new Map([["apple", 5]]);
+
+console.log(stock.get("apple").toFixed(1));
+```
+
+The compiler asks you to handle the missing key.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false nonnull_missing.ts
+```
+
+```text
+
+```
+
+Silencing that with `!` compiles, and fails when the key is missing:
+
+```ts title="nonnull_bad.ts"
+const stock = new Map([["apple", 5]]);
+
+try {
+  console.log(stock.get("apple")!.toFixed(1));
+  console.log(stock.get("pear")!.toFixed(1));
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+The first lookup works. The second one takes the bug straight to run time.
+
+```bash frame="terminal"
+node nonnull_bad.ts
+```
+
+```text
+5.0
+TypeError: Cannot read properties of undefined (reading 'toFixed')
+```
+
+Replace each `!` with one of three real answers. Provide a default with `??`, check and do something else, or throw an error that explains the problem:
+
+```ts title="nonnull_safe.ts"
+const stock = new Map([["apple", 5]]);
+
+function count(item: string): number {
+  return stock.get(item) ?? 0;
+}
+
+const pear = stock.get("pear");
+if (pear === undefined) {
+  console.log("no pears");
+}
+
+console.log(count("apple"), count("pear"));
+```
+
+`count` turns "missing" into `0`. The `if` handles the missing value explicitly.
+
+```bash frame="terminal"
+node nonnull_safe.ts
+```
+
+```text
+no pears
+5 0
+```
+
+A `!` is sometimes justified, when you know something the compiler cannot. Then a comment should say what. Most of the time it is a bug waiting for an input.
+
+## Definite assignment
+
+A variable declared without a value is `undefined` until assigned. The compiler tracks assignments, and complains when some path reaches a use without one:
+
+```ts title="definite_bad.ts"
+let total: number;
+const items = [1, 2, 3];
+
+if (items.length > 0) {
+  total = items[0];
+}
+
+console.log(total);
+```
+
+The `if` might not run, so `total` may be unset. (The compiler cannot tell that the array is never empty.)
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false definite_bad.ts
+```
+
+```text
+
+```
+
+Give the variable a value at the declaration:
+
+```ts title="definite_fixed.ts"
+const items = [1, 2, 3];
+let total = 0;
+
+if (items.length > 0) {
+  total = items[0];
+}
+
+console.log(total);
+```
+
+Now every path has a value.
+
+```bash frame="terminal"
+node definite_fixed.ts
+```
+
+```text
+1
+```
+
+There is a `let total!: number` form, a **definite assignment assertion**, that skips this check. It is the same promise as `!` and carries the same risk.
+
+## Common pitfalls
+
+- **`||` for defaults.** It replaces `0`, `""` and `false`. Use `??`.
+- **`!` to silence an error.** It does not change behaviour, only what the compiler can see.
+- **Long `?.` chains with no plan for `undefined`.** The result is still `T | undefined`. Say what happens next with `??` or a check.
+- **Using `strictNullChecks: false` to "fix" errors.** It hides every missing-value bug in the project.
+
+<Exercise title="Find a user safely">
+
+Given an array of `{ id, name }` users, write `nameOf(id)` that returns the user's name, or `unknown` when no user has that id. Use `find` with `?.` and `??`. Print `nameOf(2)` and `nameOf(9)`. Expected output: `Grace`, then `unknown`.
+
+<Solution>
+
+```ts title="ex_find_user.ts"
+type User = { id: number; name: string };
+
+const users: User[] = [
+  { id: 1, name: "Ada" },
+  { id: 2, name: "Grace" },
+];
+
+function nameOf(id: number): string {
+  return users.find((user) => user.id === id)?.name ?? "unknown";
+}
+
+console.log(nameOf(2));
+console.log(nameOf(9));
+```
+
+```text
+Grace
+unknown
+```
+
+`find` returns `User | undefined`. `?.name` is `string | undefined` and `?? "unknown"` makes it a `string`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Remove the bang">
+
+A function adds up prices from a `Map<string, number>` for a list of item names. A first version wrote `prices.get(item)!`. Rewrite it without `!`, so a missing price throws `Error: No price for juice`. Print the total for `["tea", "coffee"]` with prices 2.5 and 3, then the caught error for `["tea", "juice"]`. Expected output: `5.5`, then `Error: No price for juice`.
+
+<Solution>
+
+```ts title="ex_no_bang.ts"
+const prices = new Map([
+  ["tea", 2.5],
+  ["coffee", 3],
+]);
+
+function total(items: string[]): number {
+  let sum = 0;
+  for (const item of items) {
+    const price = prices.get(item);
+    if (price === undefined) {
+      throw new Error(`No price for ${item}`);
+    }
+    sum += price;
+  }
+  return sum;
+}
+
+console.log(total(["tea", "coffee"]));
+try {
+  total(["tea", "juice"]);
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+```text
+5.5
+Error: No price for juice
+```
+
+The `if` removes `undefined`, so `sum += price` is a number, and a missing price becomes an error with a message.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Port 0 is a port">
+
+Write `address(config)` for `{ host: string; port?: number }`, returning `host:port` with `80` when there is no port. Print the address of `{ host: "example.org" }` and of `{ host: "localhost", port: 0 }`. Expected output: `example.org:80`, then `localhost:0`.
+
+<Solution>
+
+```ts title="ex_default_port.ts"
+type Config = { host: string; port?: number };
+
+function address(config: Config): string {
+  return `${config.host}:${config.port ?? 80}`;
+}
+
+console.log(address({ host: "example.org" }));
+console.log(address({ host: "localhost", port: 0 }));
+```
+
+```text
+example.org:80
+localhost:0
+```
+
+With `||`, the second address would have come out as `localhost:80`.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- With `strictNullChecks` (part of `strict`), `null` and `undefined` are separate types. Anything that may be missing says so in its type.
+- Narrowing, `?.` and `??` handle the missing case. `?.` adds `undefined` to a result and `??` removes it.
+- Prefer `??` to `||` for defaults, so `0` and `""` survive.
+- `!` only silences the compiler. Replace it with a default, a check or an error.
+
+Next module: interfaces, type aliases and classes.

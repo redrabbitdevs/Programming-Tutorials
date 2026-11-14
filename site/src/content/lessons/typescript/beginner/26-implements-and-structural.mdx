@@ -1,0 +1,439 @@
+---
+language: typescript
+level: beginner
+module: Interfaces, type aliases and classes
+order: 26
+title: implements and structural typing
+description: Make a class promise to satisfy an interface with implements, understand why any object with the right members fits an interface anyway, and see how private fields make classes incompatible.
+minVersion: "5.0"
+objectives:
+  - Declare that a class `implements` one or more interfaces
+  - Explain that `implements` checks a class but does not change its type
+  - Describe structural typing and what it allows
+  - Use a `#private` field to make two classes with the same shape incompatible
+estimatedMinutes: 30
+fundamentals: []
+---
+
+"Program to an interface, not to a class" is old advice. In TypeScript it is cheap to follow, because an interface costs nothing at run time and a function that asks for an interface accepts anything that fits. This lesson shows the keyword that makes a class promise to fit, and the rule that makes the keyword optional. It builds on [interfaces and aliases](../interfaces-vs-aliases/) and [classes](../classes-in-typescript/).
+
+## implements
+
+`class X implements Y` asks the compiler to check that `X` has everything `Y` describes. Two classes can implement the same interface and share no base class:
+
+```ts title="impl_basic.ts"
+interface Logger {
+  log(message: string): void;
+}
+
+class ConsoleLogger implements Logger {
+  log(message: string): void {
+    console.log(`[console] ${message}`);
+  }
+}
+
+class ListLogger implements Logger {
+  lines: string[] = [];
+
+  log(message: string): void {
+    this.lines.push(message);
+  }
+}
+```
+
+`ConsoleLogger` prints. `ListLogger` stores lines in an array. The loop below calls `log` on each without knowing which one it has, because the array type is the common interface.
+
+```ts title="impl_basic.ts (continued)"
+const list = new ListLogger();
+for (const logger of [new ConsoleLogger(), list]) {
+  logger.log("started");
+}
+console.log(list.lines);
+```
+
+```bash frame="terminal"
+node impl_basic.ts
+```
+
+```text
+[console] started
+[ 'started' ]
+```
+
+If a class leaves something out, the error is at the class, naming the missing member:
+
+```ts title="impl_missing.ts"
+interface Logger {
+  log(message: string): void;
+  flush(): void;
+}
+
+class ConsoleLogger implements Logger {
+  log(message: string): void {
+    console.log(message);
+  }
+}
+
+new ConsoleLogger().log("hi");
+```
+
+The compiler would otherwise only notice at the first place that calls `flush`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false impl_missing.ts
+```
+
+```text
+
+```
+
+A class can implement several interfaces at once, separated by commas:
+
+```ts title="impl_multiple.ts"
+interface Named {
+  name: string;
+}
+
+interface Greeter {
+  greet(): string;
+}
+
+class Person implements Named, Greeter {
+  name = "Ada";
+
+  greet(): string {
+    return `Hi, I am ${this.name}`;
+  }
+}
+
+console.log(new Person().greet());
+```
+
+`Person` has to provide both `name` and `greet`.
+
+```bash frame="terminal"
+node impl_multiple.ts
+```
+
+```text
+Hi, I am Ada
+```
+
+## implements is only a check
+
+The keyword does not copy anything from the interface into the class. In particular, it does not give types to the class's method parameters. This code lists `Formatter` but still leaves `value` untyped:
+
+```ts title="impl_no_infer.ts"
+interface Formatter {
+  format(value: number): string;
+}
+
+class Fixed implements Formatter {
+  format(value) {
+    return value.toFixed(2);
+  }
+}
+
+console.log(new Fixed().format(3));
+```
+
+The parameter `value` gets no type from the interface. The compiler treats it as an implicit `any`, which `strict` rejects.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false impl_no_infer.ts
+```
+
+```text
+
+```
+
+Write the types in the class:
+
+```ts title="impl_no_infer_fixed.ts"
+interface Formatter {
+  format(value: number): string;
+}
+
+class Fixed implements Formatter {
+  format(value: number): string {
+    return value.toFixed(2);
+  }
+}
+
+console.log(new Fixed().format(3));
+```
+
+Now the method is checked against `Formatter` and against its own signature.
+
+```bash frame="terminal"
+node impl_no_infer_fixed.ts
+```
+
+```text
+3.00
+```
+
+Remember that `implements` runs at compile time only. It is erased, so Node.js sees an ordinary class.
+
+## Structural typing
+
+TypeScript decides whether one type fits another by looking at their members, not at their names or at how they were declared. This is **structural typing**, and you have used it since the [object types lesson](../object-types/). It means a class does not need `implements` to be accepted where an interface is expected, and neither does a plain object:
+
+```ts title="structural_fit.ts"
+interface Logger {
+  log(message: string): void;
+}
+
+class PlainLogger {
+  log(message: string): void {
+    console.log(`plain: ${message}`);
+  }
+}
+
+const objectLogger = {
+  log: (message: string) => console.log(`object: ${message}`),
+  level: "info",
+};
+
+const loggers: Logger[] = [new PlainLogger(), objectLogger];
+for (const logger of loggers) {
+  logger.log("hello");
+}
+```
+
+`PlainLogger` never mentions `Logger`. `objectLogger` is not even a class, and has an extra `level`. Both have a `log` method of the right type, so both fit.
+
+```bash frame="terminal"
+node structural_fit.ts
+```
+
+```text
+plain: hello
+object: hello
+```
+
+So why write `implements` at all? It records your intent and reports a broken promise at the class instead of at a distant call. Structural fit is what makes interfaces light enough to use everywhere.
+
+The class name also works as a type, and the same rule applies to it. An object literal with the same members is a `Point`:
+
+```ts title="structural_class_type.ts"
+class Point {
+  x = 0;
+  y = 0;
+}
+
+const plain: Point = { x: 1, y: 2 };
+
+function norm(point: Point): number {
+  return Math.hypot(point.x, point.y);
+}
+
+console.log(norm(plain), norm({ x: 3, y: 4 }));
+```
+
+`plain` is not made by `new Point()`, and the compiler does not care.
+
+```bash frame="terminal"
+node structural_class_type.ts
+```
+
+```text
+2.23606797749979 5
+```
+
+## When the same shape is a problem
+
+Structural typing is sometimes too generous. Two different kinds of ID that are both `{ value: number }` can be passed in each other's place:
+
+```ts title="structural_plain_ids.ts"
+class UserId {
+  value = 0;
+}
+
+class OrderId {
+  value = 0;
+}
+
+function loadUser(id: UserId): void {
+  console.log("loading", id.value);
+}
+
+loadUser(new OrderId());
+```
+
+`loadUser` accepts an `OrderId`. The compiler sees two identical shapes. Nothing is reported.
+
+```bash frame="terminal"
+node structural_plain_ids.ts
+```
+
+```text
+loading 0
+```
+
+A class with a `#private` field behaves differently. Private members belong to one particular declaration, and a second class cannot supply them, even if the names and types match:
+
+```ts title="structural_private.ts"
+class UserId {
+  #value = 0;
+}
+
+class OrderId {
+  #value = 0;
+}
+
+function loadUser(id: UserId): void {
+  console.log("loading", id);
+}
+
+loadUser(new OrderId());
+```
+
+Now the two classes are different types.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false structural_private.ts
+```
+
+```text
+
+```
+
+This is the nearest TypeScript gets to nominal typing, where a name matters and not only the shape. It is a trick to know about, and you will rarely need it. The intermediate level covers other ways to brand a type.
+
+## Common pitfalls
+
+- **Expecting `implements` to supply types.** It only checks. Annotate the parameters in the class.
+- **Thinking a class must say `implements`.** Any value with the right members fits.
+- **Passing the wrong kind of ID.** Two classes with the same public members are interchangeable. Add a private field when that is wrong.
+- **Adding to the interface and forgetting the classes.** Every `implements` clause then reports the missing member, which is the point. Update each one.
+
+<Exercise title="Two loggers, one interface">
+
+Declare `Logger` with a `log(message: string): void` method. Write `TimestampLogger` (prints `T0 ` before the message) and `UpperLogger` (prints the message in upper case). Neither may extend a base class. Put both in a `Logger[]` and call `log("saved")` on each. Expected output: `T0 saved`, then `SAVED`.
+
+<Solution>
+
+```ts title="ex_loggers.ts"
+interface Logger {
+  log(message: string): void;
+}
+
+class TimestampLogger implements Logger {
+  log(message: string): void {
+    console.log(`T0 ${message}`);
+  }
+}
+
+class UpperLogger implements Logger {
+  log(message: string): void {
+    console.log(message.toUpperCase());
+  }
+}
+
+const loggers: Logger[] = [new TimestampLogger(), new UpperLogger()];
+for (const logger of loggers) {
+  logger.log("saved");
+}
+```
+
+```text
+T0 saved
+SAVED
+```
+
+The array type is `Logger[]`, so the loop only needs the interface's method.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A class and a literal as one interface">
+
+Declare `Shape` with `area(): number`. Write a `Square` class that implements it, and a plain object `unitCircle` of type `Shape` whose `area` returns `Math.PI`. Put a square of side 2 and the circle in an array and print each area to two decimals, as an array. Expected output: `[ '4.00', '3.14' ]`.
+
+<Solution>
+
+```ts title="ex_shape_object.ts"
+interface Shape {
+  area(): number;
+}
+
+class Square implements Shape {
+  side: number;
+
+  constructor(side: number) {
+    this.side = side;
+  }
+
+  area(): number {
+    return this.side ** 2;
+  }
+}
+
+const unitCircle: Shape = { area: () => Math.PI };
+
+const shapes: Shape[] = [new Square(2), unitCircle];
+console.log(shapes.map((shape) => shape.area().toFixed(2)));
+```
+
+```text
+[ '4.00', '3.14' ]
+```
+
+The interface does not care whether a value is an instance or an object literal.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Complete the interface">
+
+`Sink` has `write(text: string): void` and `flush(): string`, which returns everything written so far and empties the buffer. A `BufferSink` class declared `implements Sink` but has only `write`. Add `flush`, then write `"a"` and `"b"`, and print the flushed text and then the number of stored parts. Expected output: `ab 0`.
+
+<Solution>
+
+```ts title="ex_add_flush.ts"
+interface Sink {
+  write(text: string): void;
+  flush(): string;
+}
+
+class BufferSink implements Sink {
+  parts: string[] = [];
+
+  write(text: string): void {
+    this.parts.push(text);
+  }
+
+  flush(): string {
+    const all = this.parts.join("");
+    this.parts = [];
+    return all;
+  }
+}
+
+const sink = new BufferSink();
+sink.write("a");
+sink.write("b");
+console.log(sink.flush(), sink.parts.length);
+```
+
+```text
+ab 0
+```
+
+With `flush` missing, the compiler reports that `BufferSink` incorrectly implements `Sink`.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- `class X implements Y` checks at compile time that `X` has everything `Y` describes. A class can implement several interfaces.
+- `implements` does not add members or parameter types. Annotate the class yourself.
+- Types fit by structure: any value with the right members satisfies an interface, with or without `implements`.
+- Classes with `#private` fields are not interchangeable, even when their public shape is the same.
+
+Next: optional, readonly and exact properties.
