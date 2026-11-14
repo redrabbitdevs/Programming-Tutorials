@@ -1,0 +1,295 @@
+---
+language: typescript
+level: beginner
+module: Basic types
+order: 9
+title: Object types
+description: Describe the shape of an object with an inline object type, using optional and readonly properties, and learn how excess property checks and structural typing decide what is accepted.
+minVersion: "5.0"
+objectives:
+  - Write an inline object type with required, optional and readonly properties
+  - Read the errors for a missing property and for an extra property
+  - Explain structural typing and why an object with extra properties can still be passed
+  - Read an optional property safely
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/15-records-and-objects"]
+---
+
+An object in JavaScript is a bundle of named values, and you can add or remove properties at any time. TypeScript lets you state which properties an object must have and what types they hold, and then checks every use of it. The JavaScript lesson on [objects](../../../javascript/beginner/objects-js/) covers the values themselves, and the fundamentals lesson on [records and objects](../../../fundamentals/beginner/records-and-objects/) covers the general idea.
+
+## Describing a shape
+
+An **object type** lists properties in braces, each as `name: Type`, separated by semicolons or commas. This lesson writes the type inline, where it is used. A `type` alias, which gives a shape a name so you do not repeat it, comes in a later module.
+
+```ts title="book.ts"
+const book: { title: string; pages: number; isbn?: string } = {
+  title: "Dune",
+  pages: 412,
+};
+
+function describe(item: { title: string; pages: number }): string {
+  return `${item.title} (${item.pages} pages)`;
+}
+
+console.log(describe(book));
+console.log(book.isbn?.length);
+```
+
+A `?` after a name makes the property optional, as with `isbn`. A property with no `?` is required. The function accepts `book` even though `book` has an extra optional property, which we come back to below.
+
+```bash frame="terminal"
+node book.ts
+```
+
+```text
+Dune (412 pages)
+undefined
+```
+
+An optional property has the type `string | undefined`, which is why the last line reads it with the optional chaining operator `?.` from the [JavaScript lesson on null and undefined](../../../javascript/beginner/null-undefined-nullish/). Reading it directly is an error, because the value may be missing:
+
+```ts title="optional_unchecked.ts"
+const book: { title: string; isbn?: string } = { title: "Dune" };
+
+try {
+  console.log(book.isbn.length);
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+The compiler tells you which property it worries about.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false optional_unchecked.ts
+```
+
+```text
+optional_unchecked.ts(4,15): error TS18048: 'book.isbn' is possibly 'undefined'.
+```
+
+If you ran it, it would crash. That is what the `try` in the example shows:
+
+```bash frame="terminal"
+node optional_unchecked.ts
+```
+
+```text
+TypeError: Cannot read properties of undefined (reading 'length')
+```
+
+Later lessons show how to check the value first, which is called narrowing.
+
+## Missing properties
+
+A required property that you leave out is an error at the object, not at the point where you later use it.
+
+```ts title="missing_prop.ts"
+const book: { title: string; pages: number } = {
+  title: "Dune",
+};
+console.log(book.title);
+```
+
+The message names the missing property and both types.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false missing_prop.ts
+```
+
+```text
+missing_prop.ts(1,7): error TS2741: Property 'pages' is missing in type '{ title: string; }' but required in type '{ title: string; pages: number; }'.
+```
+
+## Excess property checks
+
+When you write an object literal directly where a type is expected, TypeScript also rejects properties the type does not list. This catches typos.
+
+```ts title="excess.ts"
+const book: { title: string; pages: number } = {
+  title: "Dune",
+  pages: 412,
+  price: 9.99,
+};
+console.log(book);
+```
+
+The property `price` is not in the declared type.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false excess.ts
+```
+
+```text
+excess.ts(4,3): error TS2353: Object literal may only specify known properties, and 'price' does not exist in type '{ title: string; pages: number; }'.
+```
+
+## Structural typing
+
+TypeScript compares shapes, not names or origins. A value is acceptable wherever its shape has at least the properties the type requires. This is called **structural typing**.
+
+```ts title="structural.ts"
+function describe(item: { title: string; pages: number }): string {
+  return `${item.title} (${item.pages} pages)`;
+}
+
+const edition = { title: "Dune", pages: 412, price: 9.99 };
+console.log(describe(edition));
+```
+
+`edition` has an extra `price` property, and the call is still fine.
+
+```bash frame="terminal"
+node structural.ts
+```
+
+```text
+Dune (412 pages)
+```
+
+The rule that looks like a contradiction is that the excess property check only applies to a fresh object literal, written right where it is checked. A variable holding an object with extra properties is accepted, because that object might be used elsewhere for its other properties.
+
+## readonly properties
+
+Put `readonly` in front of a property name to forbid assigning to it after creation.
+
+```ts title="readonly_prop.ts"
+const member: { readonly id: number; email: string } = {
+  id: 1,
+  email: "ada@example.com",
+};
+
+member.email = "ada@lovelace.dev";
+member.id = 2;
+console.log(member);
+```
+
+Line 7 is rejected and line 6 is fine.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false readonly_prop.ts
+```
+
+```text
+readonly_prop.ts(7,8): error TS2540: Cannot assign to 'id' because it is a read-only property.
+```
+
+The error is a compile-time one. Node.js ran the program anyway, because types are erased:
+
+```bash frame="terminal"
+node readonly_prop.ts
+```
+
+```text
+{ id: 2, email: 'ada@lovelace.dev' }
+```
+
+The `id` changed at run time to `2`. `readonly` is a promise the compiler holds you to, not protection at run time. The `Object.freeze` function from the [JavaScript track](../../../javascript/beginner/copies-and-references/) is the run-time tool.
+
+## Common pitfalls
+
+- **Expecting extra properties to be rejected everywhere.** Only fresh object literals get the excess check. A variable with extra properties passes.
+- **Reading an optional property directly.** Use `?.` or a check, because it can be `undefined`.
+- **Treating `readonly` as freezing.** It only stops the compiler from letting you assign.
+- **Spelling a property differently on creation.** An excess property error often means a typo, so compare the names.
+
+<Exercise title="A book and a library member">
+
+Declare a `book` with `title: string`, `author: string` and `year: number`, and a `member` with `name: string` and `borrowed: string[]`, whose `borrowed` list holds the book's title. Then add a second book literal with an extra `pages: 474` property, and mark that line with `// @ts-expect-error` so that `tsc` passes. Print the member's name, their borrowed list and the second book's title. Expected output: `Ada [ 'Dune' ] Emma`.
+
+<Solution>
+
+```ts title="ex_library.ts"
+const book: { title: string; author: string; year: number } = {
+  title: "Dune",
+  author: "Frank Herbert",
+  year: 1965,
+};
+
+const member: { name: string; borrowed: string[] } = {
+  name: "Ada",
+  borrowed: [book.title],
+};
+
+const extra: { title: string; author: string; year: number } = {
+  title: "Emma",
+  author: "Jane Austen",
+  year: 1815,
+  // @ts-expect-error: pages is not part of the type
+  pages: 474,
+};
+
+console.log(member.name, member.borrowed, extra.title);
+```
+
+```text
+Ada [ 'Dune' ] Emma
+```
+
+Without the comment, `tsc` reports `TS2353` on `pages`. The comment sits directly above the line with the error.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Make a field readonly">
+
+An `account` has a `readonly id: number` and a `balance: number`. Increase the balance by 50 with `+=`, then try to change `id` to 8, and mark that line with `@ts-expect-error`. Print the account. Expected output: `{ id: 8, balance: 150 }`.
+
+<Solution>
+
+```ts title="ex_readonly.ts"
+const account: { readonly id: number; balance: number } = {
+  id: 7,
+  balance: 100,
+};
+
+account.balance += 50;
+// @ts-expect-error: id is readonly
+account.id = 8;
+console.log(account);
+```
+
+```text
+{ id: 8, balance: 150 }
+```
+
+The output shows `id: 8`: the compiler complained, and the run-time program did what it was told anyway, because the types are erased.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Pass an object with extra properties">
+
+Write `greet(person: { name: string }): string` returning `Hello, ` followed by the name. Create a variable `visitor` with `name: "Ada"` and `age: 36`, and pass it to `greet`. It should compile with no error. Expected output: `Hello, Ada`.
+
+<Solution>
+
+```ts title="ex_structural.ts"
+function greet(person: { name: string }): string {
+  return `Hello, ${person.name}`;
+}
+
+const visitor = { name: "Ada", age: 36 };
+console.log(greet(visitor));
+```
+
+```text
+Hello, Ada
+```
+
+`visitor` has everything `greet` needs, plus `age`. Writing `greet({ name: "Ada", age: 36 })` directly would fail the excess property check, which is the difference between a fresh literal and a variable.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- An object type lists properties as `name: Type`. `?` makes one optional and `readonly` forbids assigning to it.
+- An optional property can be `undefined`, so read it with `?.` or check it.
+- Fresh object literals are checked for extra properties. Other values only need the required ones.
+- Structural typing means the shape matters, not the name or where the value came from.
+
+Next: `any`, `unknown` and `never`.

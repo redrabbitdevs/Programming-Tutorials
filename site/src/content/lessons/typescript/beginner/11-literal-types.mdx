@@ -1,0 +1,280 @@
+---
+language: typescript
+level: beginner
+module: Basic types
+order: 11
+title: Literal types and as const
+description: Use exact values such as "north" or 2 as types, combine them into unions that replace enums, and use as const to keep values exact.
+minVersion: "5.0"
+objectives:
+  - Write string and number literal types
+  - Combine literal types into a union such as "red" | "green"
+  - Explain why a `let` variable widens and a `const` does not
+  - Use `as const` to keep objects and arrays exact and read-only
+estimatedMinutes: 30
+fundamentals: []
+---
+
+So far a type has described a kind of value: any string, any number. A **literal type** describes exactly one value. The type `"north"` has a single member, the string `"north"`, and the type `2` has only the number 2. On their own they are not much use, but combined they let you say "one of these exact choices", which is how TypeScript models states, modes and options. The [lesson on `let` and `const`](../../../javascript/beginner/let-const/) is the JavaScript background, and [type annotations and inference](../annotations-and-inference/) showed you the first hint of literal types.
+
+## Combining literals into a union
+
+You write a **union** with a vertical bar: `"north" | "south"` means "either of these two". Unions get a full lesson in a later module. For now, one reading rule is enough: a value of a union type is one of its members.
+
+```ts title="literals.ts"
+let direction: "north" | "south" = "north";
+direction = "south";
+
+const level: 1 | 2 | 3 = 2;
+console.log(direction, level);
+```
+
+`direction` can be `"north"` or `"south"`, and `level` can be 1, 2 or 3. The compiler checks every assignment.
+
+```bash frame="terminal"
+node literals.ts
+```
+
+```text
+south 2
+```
+
+Anything outside the list is an error, and the message shows the allowed values:
+
+```ts title="literal_wrong.ts"
+let direction: "north" | "south" = "north";
+direction = "up";
+console.log(direction);
+```
+
+The string `"up"` is not one of the allowed members.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false literal_wrong.ts
+```
+
+```text
+literal_wrong.ts(2,1): error TS2322: Type '"up"' is not assignable to type '"north" | "south"'.
+```
+
+This is a useful way to describe a value that has a fixed set of choices. Other languages use an `enum` for that. A union of literals does the same job, with no extra code at run time, which is why it is the usual choice in modern TypeScript. A later lesson compares the two.
+
+## Naming a union with type
+
+Repeating `"red" | "green" | "yellow"` in every signature would be tedious. A **type alias** gives a type a name. It is written `type Name = ...` and is erased like any other type. A later module teaches aliases in full.
+
+```ts title="alias.ts"
+type Light = "red" | "green" | "yellow";
+
+function next(light: Light): Light {
+  switch (light) {
+    case "red":
+      return "green";
+    case "green":
+      return "yellow";
+    case "yellow":
+      return "red";
+  }
+}
+
+console.log(next("red"), next("yellow"));
+```
+
+`next` takes and returns only those three colours.
+
+```bash frame="terminal"
+node alias.ts
+```
+
+```text
+green red
+```
+
+The `switch` handles all three members, so every path returns a value. If you add a fourth colour to `Light` and forget to handle it, the compiler reports that the function can end without returning, and that is how a union helps you keep code complete.
+
+## Widening again
+
+From [annotations and inference](../annotations-and-inference/), you know that `const` keeps the exact value as its type and `let` widens it. That matters as soon as a parameter wants literals:
+
+```ts title="widening.ts"
+function setSpeed(speed: "fast" | "slow"): string {
+  return `speed is ${speed}`;
+}
+
+const a = "fast";
+let b = "fast";
+console.log(setSpeed(a));
+console.log(setSpeed(b));
+```
+
+Line 7 is fine, because `a` has the type `"fast"`. On line 8, `b` was widened to `string`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false widening.ts
+```
+
+```text
+widening.ts(8,22): error TS2345: Argument of type 'string' is not assignable to parameter of type '"fast" | "slow"'.
+```
+
+Declare the variable with `const`, or annotate the `let` with the union, and the call passes. This is a common surprise, and the error message states the fix: the argument is a `string`, and the parameter wants specific strings.
+
+## as const: keep everything exact
+
+Object properties and array elements are always widened, even inside a `const`, because the contents can change. `as const` is an assertion that tells the compiler to keep every value exact and to make the structure read-only. It is erased at run time.
+
+```ts title="as_const.ts"
+const config = { host: "localhost", port: 8080 } as const;
+const directions = ["north", "east"] as const;
+
+const first: "south" = directions[0];
+console.log(config.host, first);
+```
+
+`directions[0]` is known to be `"north"`, so assigning it to `"south"` fails:
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false as_const.ts
+```
+
+```text
+as_const.ts(4,7): error TS2322: Type '"north"' is not assignable to type '"south"'.
+```
+
+The array is now a read-only tuple, `readonly ["north", "east"]`, and an object gets `readonly` properties:
+
+```ts title="as_const_readonly.ts"
+const config = { host: "localhost", port: 8080 } as const;
+config.port = 9090;
+console.log(config);
+```
+
+The assignment to `port` is rejected.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false as_const_readonly.ts
+```
+
+```text
+as_const_readonly.ts(2,8): error TS2540: Cannot assign to 'port' because it is a read-only property.
+```
+
+The readonly marker also stops the array from going to a place that expects a mutable `string[]`:
+
+```ts title="as_const_array.ts"
+const directions = ["north", "east"] as const;
+const copy: string[] = directions;
+console.log(copy);
+```
+
+The compiler spells out the type it inferred.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false as_const_array.ts
+```
+
+```text
+as_const_array.ts(2,7): error TS4104: The type 'readonly ["north", "east"]' is 'readonly' and cannot be assigned to the mutable type 'string[]'.
+```
+
+The same rule as in the [object types lesson](../object-types/) holds here: `readonly` exists only at compile time, and `as const` does not freeze the values at run time.
+
+## Common pitfalls
+
+- **Expecting a `let` to keep its literal type.** It widens. Use `const`, or annotate the variable with the union.
+- **Using `as const` to get a mutable value.** It does the opposite: everything becomes read-only.
+- **Using literal unions for large sets.** A union of fifty strings is hard to read. Past a handful of choices, consider a different structure.
+- **Treating `as` as a conversion.** `as const` changes only what the compiler believes. The value at run time is unchanged.
+
+<Exercise title="Model traffic-light states">
+
+Define `type Light = "red" | "green" | "yellow"`. Write `next(light: Light): Light` that returns the next colour in the cycle red, green, yellow, red. Start with a `let light: Light = "red"` and print four colours in a loop, advancing with `next`. Expected output: `red`, `green`, `yellow`, `red` on separate lines.
+
+<Solution>
+
+```ts title="ex_traffic.ts"
+type Light = "red" | "green" | "yellow";
+
+function next(light: Light): Light {
+  if (light === "red") return "green";
+  if (light === "green") return "yellow";
+  return "red";
+}
+
+let light: Light = "red";
+for (let i = 0; i < 4; i++) {
+  console.log(light);
+  light = next(light);
+}
+```
+
+```text
+red
+green
+yellow
+red
+```
+
+The annotation on `let light` stops it from widening to `string`, so `next(light)` type-checks.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Pick from a const tuple">
+
+Declare `sizes` as `["small", "medium", "large"] as const`. Write `pick(size)` that accepts only those three sizes and returns `you chose` followed by the size. Call it with `sizes[1]`. Expected output: `you chose medium`.
+
+<Solution>
+
+```ts title="ex_const_tuple.ts"
+const sizes = ["small", "medium", "large"] as const;
+
+function pick(size: "small" | "medium" | "large"): string {
+  return `you chose ${size}`;
+}
+
+console.log(pick(sizes[1]));
+```
+
+```text
+you chose medium
+```
+
+Without `as const`, `sizes[1]` would be a `string` and the call to `pick` would fail with `TS2345`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Prove as const makes properties readonly">
+
+Create `const point = { x: 1, y: 2 } as const`. Try to set `point.x = 5`, and mark the line with `// @ts-expect-error` so that `tsc` passes. Print the point. Expected output: `{ x: 5, y: 2 }`.
+
+<Solution>
+
+```ts title="ex_as_const.ts"
+const point = { x: 1, y: 2 } as const;
+// @ts-expect-error: as const makes x readonly
+point.x = 5;
+console.log(point);
+```
+
+```text
+{ x: 5, y: 2 }
+```
+
+The output shows the assignment happened, because `as const` is a compile-time promise only. If you remove the comment, `tsc` reports `TS2540`.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- A literal type is a single exact value: `"north"`, `2`, `true`.
+- A union of literals, written with `|`, says "one of these exact choices". It replaces most uses of `enum`.
+- `type Name = ...` names a type so that you can reuse it.
+- `const` keeps exact values and `let` widens them. `as const` keeps exact values inside objects and arrays and makes them read-only.
+
+Next module: functions.

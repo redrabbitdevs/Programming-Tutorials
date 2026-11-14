@@ -1,0 +1,301 @@
+---
+language: typescript
+level: beginner
+module: Basic types
+order: 8
+title: Arrays and tuples
+description: Type lists with T[] and readonly T[], and type fixed-length records with tuples, including optional elements, rest elements and labels.
+minVersion: "5.0"
+objectives:
+  - Write array types with `T[]` and `Array<T>` and know they are the same
+  - Make an array read-only with `readonly T[]`
+  - Write a tuple type for a fixed-length list with different element types
+  - Use optional, rest and labelled tuple elements
+estimatedMinutes: 30
+fundamentals: ["fundamentals/beginner/13-sequences-and-arrays"]
+---
+
+An array in JavaScript can hold anything, in any quantity. In TypeScript you say what it holds. Most arrays hold values of one kind and have any length, and a few are really short records with a fixed layout, such as a pair `[x, y]`. TypeScript has a type for each. The JavaScript side of this is in [arrays](../../../javascript/beginner/arrays-js/), and the general idea is in the fundamentals lesson on [sequences and arrays](../../../fundamentals/beginner/sequences-and-arrays/).
+
+## Array types
+
+Write the element type followed by `[]`:
+
+```ts title="arrays.ts"
+const scores: number[] = [90, 85, 72];
+const names: Array<string> = ["Ada", "Grace"];
+
+scores.push(100);
+console.log(scores.length, names[0]);
+console.log(scores.map((s) => s / 10));
+```
+
+`Array<string>` means exactly the same as `string[]`. Most code uses `string[]`, because it is shorter. The compiler checks both what goes in and what comes out, and in the last line `s` is known to be a `number`.
+
+```bash frame="terminal"
+node arrays.ts
+```
+
+```text
+4 Ada
+[ 9, 8.5, 7.2, 10 ]
+```
+
+Putting a wrong kind of value in is an error:
+
+```ts title="array_wrong.ts"
+const scores: number[] = [90, 85, 72];
+scores.push("100");
+console.log(scores);
+```
+
+The string `"100"` is not a number.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false array_wrong.ts
+```
+
+```text
+array_wrong.ts(2,13): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
+```
+
+The type `number[]` says nothing about length. Reading past the end is not an error, because the compiler cannot know the length.
+
+```ts title="index_gap.ts"
+const scores: number[] = [90, 85];
+const third: number = scores[2];
+console.log(third);
+```
+
+The compiler accepts this and `third` is `undefined` at run time. The option `noUncheckedIndexedAccess`, which `tsc --init` turns on, makes indexed reads `number | undefined` so this case is caught. It is off by default, and this course keeps it off for now.
+
+```bash frame="terminal"
+node index_gap.ts
+```
+
+```text
+undefined
+```
+
+## Read-only arrays
+
+`readonly string[]` is an array you can read but not change. The methods that modify an array, such as `push`, are missing from the type.
+
+```ts title="readonly_array.ts"
+const days: readonly string[] = ["Mon", "Tue"];
+console.log(days.length, days[0]);
+days.push("Wed");
+```
+
+The error says the method does not exist on that type.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false readonly_array.ts
+```
+
+```text
+readonly_array.ts(3,6): error TS2339: Property 'push' does not exist on type 'readonly string[]'.
+```
+
+This is the way to promise a caller that your function will not modify the array it is given. Copy first if you need to change something. Writing `[...days]` makes a new, ordinary array, as in the [JavaScript lesson on copying arrays](../../../javascript/beginner/copying-arrays/).
+
+```ts title="readonly_copy.ts"
+const days: readonly string[] = ["Wed", "Mon", "Tue"];
+const sorted = [...days].sort();
+console.log(sorted, days);
+```
+
+The original keeps its order, and only the copy is sorted.
+
+```bash frame="terminal"
+node readonly_copy.ts
+```
+
+```text
+[ 'Mon', 'Tue', 'Wed' ] [ 'Wed', 'Mon', 'Tue' ]
+```
+
+The newer method `toSorted()` also works on a `readonly` array, because it returns a copy. The type `readonly string[]` has no `sort`, which mutates, but it does have `toSorted`.
+
+## Tuples
+
+A **tuple** is an array with a fixed length where each position has its own type. You write the positions in square brackets.
+
+```ts title="tuple.ts"
+const point: [number, number] = [3, 4];
+const entry: [string, number] = ["age", 30];
+
+const [x, y] = point;
+const [key, value] = entry;
+console.log(x + y, key, value);
+```
+
+Destructuring a tuple gives each variable the type of its position: `x` and `y` are numbers, `key` is a string and `value` a number.
+
+```bash frame="terminal"
+node tuple.ts
+```
+
+```text
+7 age 30
+```
+
+Tuples check the order, the length and the index:
+
+```ts title="tuple_wrong.ts"
+const point: [number, number] = [3, 4];
+const swapped: [number, number] = ["3", 4];
+const longer: [number, number] = [1, 2, 3];
+console.log(point[2], swapped, longer);
+```
+
+Three lines break three different rules.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false tuple_wrong.ts
+```
+
+```text
+tuple_wrong.ts(2,36): error TS2322: Type 'string' is not assignable to type 'number'.
+tuple_wrong.ts(3,7): error TS2322: Type '[number, number, number]' is not assignable to type '[number, number]'.
+  Source has 3 element(s) but target allows only 2.
+tuple_wrong.ts(4,19): error TS2493: Tuple type '[number, number]' of length '2' has no element at index '2'.
+```
+
+Each of the three lines breaks a different rule. Tuples are useful when a function returns two or three related values. They are not a good fit once the pieces need names, because `result[2]` says little. At that point, use an object.
+
+## Optional, rest and labelled elements
+
+A `?` after an element makes it optional, and a `...` makes the tail a rest element that can repeat. Labels, written as `name:` before the type, do not change what is accepted. They give names to the positions in editor hints and error messages.
+
+```ts title="tuple_forms.ts"
+const user: [string, number?] = ["Ada"];
+const row: [string, ...number[]] = ["Ada", 90, 85];
+const range: [start: number, end: number] = [1, 10];
+const mixed: [name: string, number] = ["Ada", 36];
+
+console.log(user, row, range, mixed);
+```
+
+All four declarations are accepted.
+
+```bash frame="terminal"
+node tuple_forms.ts
+```
+
+```text
+[ 'Ada' ] [ 'Ada', 90, 85 ] [ 1, 10 ] [ 'Ada', 36 ]
+```
+
+Mixing labelled and unlabelled elements in one tuple, as in `mixed`, is allowed from TypeScript 5.2. <Since v="5.2" /> Earlier versions required either all elements labelled or none.
+
+One more trap: `split` returns `string[]`, never a tuple, even when you know there will be two pieces.
+
+```ts title="split_pair.ts"
+function parsePair(text: string): [string, string] {
+  return text.split("=");
+}
+console.log(parsePair("name=Ada"));
+```
+
+The function promises a pair.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false split_pair.ts
+```
+
+```text
+split_pair.ts(2,3): error TS2322: Type 'string[]' is not assignable to type '[string, string]'.
+  Target requires 2 element(s) but source may have fewer.
+```
+
+The program would run fine, but the compiler cannot prove the length, so it refuses. Destructure instead and build the tuple yourself.
+
+## Common pitfalls
+
+- **Treating `number[]` as fixed length.** It says nothing about length, so `scores[5]` compiles.
+- **Using tuples for records with many fields.** Past two or three positions, an object with named properties is clearer.
+- **Forgetting `readonly` on parameters.** A function that only reads an array should accept `readonly T[]`, so that callers can pass either kind.
+- **Assuming a `readonly` array is frozen.** It is a compile-time promise only, and the types are erased at run time.
+
+<Exercise title="Return a labelled tuple">
+
+Write `minMax(values: number[])` returning a labelled tuple `[min: number, max: number]`. Use `Math.min` and `Math.max` with spread (`...values`). Destructure the result of `minMax([4, 9, 1, 7])` and print it. Expected output: `1 9`.
+
+<Solution>
+
+```ts title="ex_min_max.ts"
+function minMax(values: number[]): [min: number, max: number] {
+  return [Math.min(...values), Math.max(...values)];
+}
+
+const [min, max] = minMax([4, 9, 1, 7]);
+console.log(min, max);
+```
+
+```text
+1 9
+```
+
+The labels `min` and `max` appear in your editor when you hover over the call. The result is still an ordinary array at run time.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Sort without changing the input">
+
+Write `sortedCopy(items: readonly number[]): number[]` that returns the numbers in ascending order without modifying `items`. Test it with a `readonly number[]` holding `3, 1, 2`, and print the result and the original. Expected output: `[ 1, 2, 3 ] [ 3, 1, 2 ]`.
+
+<Solution>
+
+```ts title="ex_sorted_copy.ts"
+function sortedCopy(items: readonly number[]): number[] {
+  return [...items].sort((a, b) => a - b);
+}
+
+const original: readonly number[] = [3, 1, 2];
+console.log(sortedCopy(original), original);
+```
+
+```text
+[ 1, 2, 3 ] [ 3, 1, 2 ]
+```
+
+Calling `items.sort(...)` directly would be a compile error, because `sort` is not on the read-only type. Copying with `[...items]` first is what makes it legal. The comparison function is required, because the default sort compares numbers as strings.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Average the marks">
+
+A row is a name followed by any number of marks: `[string, ...number[]]`. Declare the row `["Ada", 90, 85]`, destructure it into `student` and `marks`, and print the student and the average mark. Expected output: `Ada 87.5`.
+
+<Solution>
+
+```ts title="ex_average.ts"
+const row: [string, ...number[]] = ["Ada", 90, 85];
+const [student, ...marks] = row;
+const average = marks.reduce((sum, m) => sum + m, 0) / marks.length;
+console.log(student, average);
+```
+
+```text
+Ada 87.5
+```
+
+After `...marks` collects the rest, `marks` has the type `number[]`, so `reduce` and `marks.length` work as usual.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- `T[]` and `Array<T>` are the same type. `readonly T[]` removes the mutating methods.
+- A tuple has a fixed length, with a type for each position. Optional (`?`), rest (`...`) and labelled elements are allowed.
+- Reading beyond an array's end is not an error unless `noUncheckedIndexedAccess` is on.
+- Labels in a tuple are documentation. Mixing labelled and unlabelled elements needs TypeScript 5.2.
+
+Next: object types.

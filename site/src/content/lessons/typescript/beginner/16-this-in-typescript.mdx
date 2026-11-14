@@ -1,0 +1,354 @@
+---
+language: typescript
+level: beginner
+module: Functions
+order: 16
+title: Typing this
+description: Catch lost-this bugs at compile time with this parameters, see what noImplicitThis reports, and use arrow-function fields or bind to keep this attached.
+minVersion: "5.0"
+objectives:
+  - Add a `this` parameter to a function and call it correctly
+  - Read the compiler error for a method that lost its `this`
+  - Explain what `noImplicitThis` reports and that it is part of `strict`
+  - Keep `this` attached with an arrow-function field or `bind`
+estimatedMinutes: 30
+fundamentals: []
+---
+
+The value of `this` in JavaScript depends on how a function is called, not where it is written. That makes it a famous source of bugs: copy a method into a variable, call it, and `this` is gone. TypeScript cannot fix the rule, but it can check it. This lesson shows what the compiler catches and what it does not. It assumes [`this` basics](../../../javascript/beginner/this-basics/) and the deeper treatment in [`this` in depth](../../../javascript/intermediate/this-in-depth/).
+
+## A this parameter
+
+A function can declare what `this` must be by listing a parameter named `this` first. It exists only for the compiler. It is not a real parameter, it is erased, and callers do not pass it.
+
+```ts title="this_param.ts"
+function describe(this: { name: string }): string {
+  return `I am ${this.name}`;
+}
+
+const user = { name: "Ada", describe };
+console.log(user.describe());
+console.log(describe.call({ name: "Grace" }));
+```
+
+`describe` says that `this` must be an object with a `name`. Calling it as a method on `user` works, because `this` is `user`. The `call` method, which sets `this` explicitly, is checked too: the object passed first must have a `name`.
+
+```bash frame="terminal"
+node this_param.ts
+```
+
+```text
+I am Ada
+I am Grace
+```
+
+When the method is copied into a variable and called on its own, `this` is not `user` any more. The compiler sees that:
+
+```ts title="this_lost.ts"
+function describe(this: { name: string }): string {
+  return `I am ${this.name}`;
+}
+
+const user = { name: "Ada", describe };
+const lost = user.describe;
+
+try {
+  console.log(lost());
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+The call `lost()` has no object before the dot, so `this` would be `void`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false this_lost.ts
+```
+
+```text
+this_lost.ts(9,15): error TS2684: The 'this' context of type 'void' is not assignable to method's 'this' of type '{ name: string; }'.
+```
+
+At run time the same call fails, which the `try` catches:
+
+```bash frame="terminal"
+node this_lost.ts
+```
+
+```text
+TypeError: Cannot read properties of undefined (reading 'name')
+```
+
+The compiler found the bug before the program ran.
+
+## noImplicitThis
+
+If a function uses `this` but says nothing about its type, `this` is an implicit `any`, and the compiler cannot help. The option `noImplicitThis` reports that case. It belongs to `strict`, which has been on by default since TypeScript 6.0.
+
+```ts title="implicit_this.ts"
+function show() {
+  return this.name;
+}
+
+console.log(typeof show);
+```
+
+The fix is a `this` parameter, as above.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false implicit_this.ts
+```
+
+```text
+implicit_this.ts(2,10): error TS2683: 'this' implicitly has type 'any' because it does not have a type annotation.
+```
+
+## Classes and lost this
+
+A **class** bundles fields and methods under one name. Classes get a full treatment in a later module. For `this`, only one fact matters: inside a method, `this` is the object the method was called on.
+
+Here is the same bug in a class. This version has no `this` parameter, and the compiler accepts it:
+
+```ts title="method_unchecked.ts"
+class Counter {
+  count = 0;
+  increment() {
+    this.count++;
+  }
+}
+
+const counter = new Counter();
+const lost = counter.increment;
+
+try {
+  lost();
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+The program fails at run time, and the compiler said nothing.
+
+```bash frame="terminal"
+node method_unchecked.ts
+```
+
+```text
+TypeError: Cannot read properties of undefined (reading 'count')
+```
+
+TypeScript does not flag every lost `this`. It checks the ones where you have declared what `this` must be. Adding `this: Counter` to the method makes the same extraction an error:
+
+```ts title="method_checked.ts"
+class Counter {
+  count = 0;
+  increment(this: Counter) {
+    this.count++;
+  }
+}
+
+const counter = new Counter();
+counter.increment();
+const lost = counter.increment;
+
+try {
+  lost();
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+The method now declares its `this`, so the lost call on line 13 is reported.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false method_checked.ts
+```
+
+```text
+method_checked.ts(13,3): error TS2684: The 'this' context of type 'void' is not assignable to method's 'this' of type 'Counter'.
+```
+
+## Keeping this attached
+
+There are two common ways to make a method safe to pass around. The first is an **arrow function stored in a field**. An arrow function has no `this` of its own. It uses the `this` of the place where it was written, which here is the new object:
+
+```ts title="arrow_field.ts"
+class Counter {
+  count = 0;
+  increment = () => {
+    this.count++;
+  };
+}
+
+const counter = new Counter();
+const increment = counter.increment;
+increment();
+increment();
+console.log(counter.count);
+```
+
+Extracted and called twice, it still updates the right counter.
+
+```bash frame="terminal"
+node arrow_field.ts
+```
+
+```text
+2
+```
+
+The cost is that each object gets its own copy of the function, instead of sharing one.
+
+The second way is `bind`, which returns a copy of a function with `this` fixed. With `strict` on, TypeScript checks that the object you bind matches the `this` parameter:
+
+```ts title="bind_fix.ts"
+class Counter {
+  count = 0;
+  increment(this: Counter) {
+    this.count++;
+  }
+}
+
+const counter = new Counter();
+const increment = counter.increment.bind(counter);
+increment();
+increment();
+console.log(counter.count);
+```
+
+The bound copy updates `counter` each time it is called.
+
+```bash frame="terminal"
+node bind_fix.ts
+```
+
+```text
+2
+```
+
+Use the arrow field when you control the class and expect the method to be passed around, for example as a callback. Use `bind` at the place where you hand the method over.
+
+## Common pitfalls
+
+- **Assuming the compiler catches every lost `this`.** It only checks methods whose `this` type is declared.
+- **Writing a `this` parameter and passing an argument for it.** It is not a real parameter. Callers pass nothing.
+- **Using an arrow function as an object-literal method that needs its own `this`.** An arrow takes `this` from the surrounding scope, not from the object.
+- **Binding the wrong object.** With `strict`, `bind` and `call` check the object against the `this` type.
+
+<Exercise title="Add a this parameter">
+
+Write `addToTotal(this: { total: number }, amount: number): void` that adds `amount` to `this.total`. Put it on an object `cart` with `total: 10`, call `cart.addToTotal(5)`, then use `addToTotal.call(cart, 20)`. Print `cart.total`. Expected output: `35`. What error would a bare `addToTotal(5)` give?
+
+<Solution>
+
+```ts title="ex_this_total.ts"
+function addToTotal(this: { total: number }, amount: number): void {
+  this.total += amount;
+}
+
+const cart = { total: 10, addToTotal };
+cart.addToTotal(5);
+addToTotal.call(cart, 20);
+console.log(cart.total);
+```
+
+```text
+35
+```
+
+A bare `addToTotal(5)` has no object before the dot, so `this` would be `void`, and the compiler reports `TS2684`, as in the lesson.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="An arrow field that survives extraction">
+
+This `Timer` class has a method that loses `this` when it is extracted:
+
+```ts
+class Timer {
+  seconds = 0;
+  tick() {
+    this.seconds += 1;
+  }
+}
+```
+
+Change it so that `tick` is an arrow-function field, then extract `tick` into a variable and call it three times. Print `timer.seconds`. Expected output: `3`.
+
+<Solution>
+
+```ts title="ex_this_arrow.ts"
+class Timer {
+  seconds = 0;
+  tick = () => {
+    this.seconds += 1;
+  };
+}
+
+const timer = new Timer();
+const tick = timer.tick;
+tick();
+tick();
+tick();
+console.log(timer.seconds);
+```
+
+```text
+3
+```
+
+The arrow function captured `this` when the object was created, so the extracted copy still updates the same `Timer`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Find three lost-this bugs">
+
+Write a class `Account` with `balance = 100` and three methods that each declare `this: Account`: `deposit(amount)`, `withdraw(amount)` and `report()`, which returns `balance ` followed by the balance. Extract all three into variables without binding, so that `tsc` reports `TS2684` three times. Then fix each with `bind`. After depositing 50 and withdrawing 30, print the report. Expected output: `balance 120`.
+
+<Solution>
+
+```ts title="ex_three_lost.ts"
+class Account {
+  balance = 100;
+  deposit(this: Account, amount: number) {
+    this.balance += amount;
+  }
+  withdraw(this: Account, amount: number) {
+    this.balance -= amount;
+  }
+  report(this: Account) {
+    return `balance ${this.balance}`;
+  }
+}
+
+const account = new Account();
+const deposit = account.deposit.bind(account);
+const withdraw = account.withdraw.bind(account);
+const report = account.report.bind(account);
+deposit(50);
+withdraw(30);
+console.log(report());
+```
+
+```text
+balance 120
+```
+
+Without the `bind` calls, each extraction reports `TS2684` when the extracted function is called. With them, the compiler checks that `account` matches `Account` and the calls are safe.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- A `this` parameter declares what `this` must be. It is erased, and callers do not pass it.
+- The compiler catches a lost `this` only where `this` has a declared type, so add `this: T` to methods that depend on it.
+- `noImplicitThis`, part of `strict`, reports a `this` with no type.
+- An arrow-function field or `bind` keeps `this` attached to the right object.
+
+Next module: unions and narrowing.

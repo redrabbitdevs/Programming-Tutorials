@@ -1,0 +1,296 @@
+---
+language: typescript
+level: beginner
+module: Functions
+order: 15
+title: Function overloads
+description: Give one function several call signatures so that the return type depends on the argument types, and learn when a union type is the simpler choice.
+minVersion: "5.0"
+objectives:
+  - Write overload signatures followed by one implementation
+  - Explain why callers cannot see the implementation signature
+  - Order overloads from specific to general
+  - Choose a union parameter instead of overloads when the result type does not change
+estimatedMinutes: 30
+fundamentals: []
+---
+
+Some JavaScript functions behave differently depending on what you give them: pass a string and get a number, pass an array of strings and get an array of numbers. A single signature cannot say that. **Overloads** can: they list each allowed way to call the function, with the return type that goes with it. This lesson builds on [typing functions](../function-types/), [unions](../literal-types/) from the literal types lesson, and `typeof` narrowing from [any, unknown and never](../any-unknown-never/).
+
+## Overload signatures and the implementation
+
+You write the signatures one after another, each ending in a semicolon instead of a body, and then the real function once, with a signature that covers all of them.
+
+```ts title="parse_overloads.ts"
+function parse(input: string): number;
+function parse(input: string[]): number[];
+function parse(input: string | string[]): number | number[] {
+  return Array.isArray(input) ? input.map(Number) : Number(input);
+}
+
+const one = parse("42");
+const many = parse(["1", "2", "3"]);
+console.log(one + 1, many);
+```
+
+The first two lines are the **overload signatures**. They are what callers see. The third is the **implementation signature**, with the body. `Array.isArray` is a standard JavaScript function, and the compiler understands it as a check that narrows `input` to an array. The signatures are erased like all types, so Node.js runs the file with no extra steps.
+
+```bash frame="terminal"
+node parse_overloads.ts
+```
+
+```text
+43 [ 1, 2, 3 ]
+```
+
+Each call picks the signature that matches its argument and gets that signature's return type. You can see which one the compiler chose by assigning the result to the wrong type:
+
+```ts title="overload_types.ts"
+function parse(input: string): number;
+function parse(input: string[]): number[];
+function parse(input: string | string[]): number | number[] {
+  return Array.isArray(input) ? input.map(Number) : Number(input);
+}
+
+const one: string = parse("42");
+const many: string = parse(["1", "2"]);
+console.log(one, many);
+```
+
+The two errors name two different return types.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false overload_types.ts
+```
+
+```text
+overload_types.ts(7,7): error TS2322: Type 'number' is not assignable to type 'string'.
+overload_types.ts(8,7): error TS2322: Type 'number[]' is not assignable to type 'string'.
+```
+
+`parse("42")` is a `number` and `parse(["1", "2"])` is a `number[]`. With a single signature taking `string | string[]`, the result would have had to be `number | number[]` every time, and callers would have to check it.
+
+## The implementation signature is hidden
+
+The implementation signature has to be compatible with every overload, but callers cannot use it. Only the overloads count. A call that matches none of them is an error, even if the implementation would accept it:
+
+```ts title="overload_bad_call.ts"
+function parse(input: string): number;
+function parse(input: string[]): number[];
+function parse(input: string | string[]): number | number[] {
+  return Array.isArray(input) ? input.map(Number) : Number(input);
+}
+
+function parseEither(value: string | string[]) {
+  return parse(value);
+}
+
+console.log(parseEither("7"));
+console.log(parse(42));
+```
+
+A function that takes `string | string[]` cannot call `parse` with that union, because there is no overload for the union as a whole. The `42` fails for the same reason.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false overload_bad_call.ts
+```
+
+```text
+overload_bad_call.ts(8,16): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type 'string | string[]' is not assignable to parameter of type 'string[]'.
+      Type 'string' is not assignable to type 'string[]'.
+overload_bad_call.ts(12,19): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type 'number' is not assignable to parameter of type 'string[]'.
+```
+
+The usual fix for the first case is to add a third overload that takes the union, or to make the function take a union and drop the overloads.
+
+## Order matters
+
+When a call could match more than one signature, TypeScript uses the first one that fits, top to bottom. Put the specific signatures first and the general ones last. This example has them the wrong way round:
+
+```ts title="overload_order.ts"
+function describe(value: unknown): "anything";
+function describe(value: string): "text";
+function describe(value: unknown): string {
+  return typeof value === "string" ? "text" : "anything";
+}
+
+const label: "text" = describe("hello");
+console.log(label);
+```
+
+Every string is also an `unknown`, so the first signature always wins and the answer is `"anything"`.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false overload_order.ts
+```
+
+```text
+overload_order.ts(7,7): error TS2322: Type '"anything"' is not assignable to type '"text"'.
+```
+
+Swapping the two lines fixes it:
+
+```ts title="overload_order_fixed.ts"
+function describe(value: string): "text";
+function describe(value: unknown): "anything";
+function describe(value: unknown): string {
+  return typeof value === "string" ? "text" : "anything";
+}
+
+const label: "text" = describe("hello");
+console.log(label, describe(3));
+```
+
+Now strings match the first signature, and everything else falls through to the second.
+
+```bash frame="terminal"
+node overload_order_fixed.ts
+```
+
+```text
+text anything
+```
+
+## When a union is better
+
+Overloads are only worth the extra lines when the return type depends on the argument. If every case returns the same type, one signature with a union parameter is shorter and easier to read.
+
+```ts title="length_union.ts"
+function isEmpty(value: string | unknown[]): boolean {
+  return value.length === 0;
+}
+
+console.log(isEmpty(""), isEmpty([1, 2]));
+```
+
+The function returns a `boolean` for both kinds of input, so there is nothing to overload. A later module introduces generics, which handle many "result depends on input" cases without a list of overloads. As a rule, reach for a union first, then a generic, and overloads last.
+
+```bash frame="terminal"
+node length_union.ts
+```
+
+```text
+true false
+```
+
+## Overloads in JavaScript files
+
+JavaScript files that TypeScript checks can declare overloads with the `@overload` tag in JSDoc comments. One comment per overload comes before the comment that documents the implementation:
+
+```js
+/**
+ * @overload
+ * @param {string} input
+ * @returns {number}
+ */
+/**
+ * @overload
+ * @param {string[]} input
+ * @returns {number[]}
+ */
+/**
+ * @param {string | string[]} input
+ * @returns {number | number[]}
+ */
+export function parse(input) {
+  return Array.isArray(input) ? input.map(Number) : Number(input);
+}
+```
+
+This is the same function as above. With `checkJs` on, a call such as `parse("42")` is typed as `number`. A later module covers JavaScript and TypeScript together.
+
+## Common pitfalls
+
+- **Expecting callers to see the implementation signature.** Only the overload signatures count.
+- **Putting a general overload first.** The first match wins, so list specific signatures before general ones.
+- **Overloading when a union would do.** If the return type is the same for every case, use a union.
+- **Writing an implementation that does not cover every overload.** The compiler reports an overload that the implementation cannot satisfy.
+
+<Exercise title="First of a string or an array">
+
+Write `first` with two overloads: a string gives back its first character (a `string`), and a `number[]` gives back its first element (a `number`). Call it with `"hello"` and `[10, 20]`, upper-case the letter, and add 1 to the number. Expected output: `H 11`.
+
+<Solution>
+
+```ts title="ex_first.ts"
+function first(input: string): string;
+function first(input: number[]): number;
+function first(input: string | number[]): string | number {
+  return typeof input === "string" ? input.charAt(0) : input[0];
+}
+
+const letter = first("hello");
+const number = first([10, 20]);
+console.log(letter.toUpperCase(), number + 1);
+```
+
+```text
+H 11
+```
+
+`letter` is a `string` so `toUpperCase` is allowed, and `number` is a `number` so `+ 1` is arithmetic. The overloads gave each call the right result type.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Double a number or a list">
+
+Write `double` so that `double(4)` returns a `number` and `double([1, 2, 3])` returns a `number[]` of doubled values. Use overloads. Print both. Expected output: `8 [ 2, 4, 6 ]`.
+
+<Solution>
+
+```ts title="ex_double.ts"
+function double(input: number): number;
+function double(input: number[]): number[];
+function double(input: number | number[]): number | number[] {
+  return Array.isArray(input) ? input.map((n) => n * 2) : input * 2;
+}
+
+console.log(double(4), double([1, 2, 3]));
+```
+
+```text
+8 [ 2, 4, 6 ]
+```
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Replace overloads with a union">
+
+Someone wrote `size(value: string): number;` and `size(value: unknown[]): number;` as two overloads, plus an implementation. Replace them with one signature that takes `string | unknown[]`. Print `size("hello")` and `size([1, 2, 3])`. Expected output: `5 3`.
+
+<Solution>
+
+```ts title="ex_union_instead.ts"
+function size(value: string | unknown[]): number {
+  return value.length;
+}
+
+console.log(size("hello"), size([1, 2, 3]));
+```
+
+```text
+5 3
+```
+
+Both overloads returned `number`, so the union is enough. Overloads would only earn their place if the two cases had different result types.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Overload signatures list the allowed calls, each with its own return type. One implementation follows them and is invisible to callers.
+- A call is matched against the overloads from top to bottom, so write specific signatures first.
+- A call with a union argument does not match overloads for its members separately.
+- If the return type does not change, use a union parameter instead. In JavaScript files, `@overload` in JSDoc does the same job.
+
+Next: typing `this`.

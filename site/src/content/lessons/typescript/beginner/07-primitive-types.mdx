@@ -1,0 +1,269 @@
+---
+language: typescript
+level: beginner
+module: Basic types
+order: 7
+title: Primitive types
+description: Type JavaScript's primitive values with string, number, bigint, boolean, symbol, null and undefined, and avoid the wrapper types String, Number and Boolean.
+minVersion: "5.0"
+objectives:
+  - Name the TypeScript type for each JavaScript primitive
+  - Explain why null and undefined are rejected by other types in strict mode
+  - Keep number and bigint apart
+  - Use the lowercase primitive types instead of the wrapper types
+estimatedMinutes: 25
+fundamentals: ["fundamentals/beginner/03-values-and-types"]
+---
+
+JavaScript has seven primitive kinds of value, and TypeScript has one type for each. If you know [primitives and typeof](../../../javascript/beginner/primitives-and-typeof/), you already know this list. This lesson attaches a type name to each one and shows the mistakes the compiler catches for you. The general idea of types as sets of values is in the fundamentals lesson on [values and types](../../../fundamentals/beginner/values-and-types/).
+
+## The seven primitive types
+
+| JavaScript value | TypeScript type |
+|---|---|
+| `"text"` | `string` |
+| `42`, `3.14`, `NaN` | `number` |
+| `9007199254740993n` | `bigint` |
+| `true`, `false` | `boolean` |
+| `Symbol("id")` | `symbol` |
+| `null` | `null` |
+| `undefined` | `undefined` |
+
+The names are lowercase. There is one `number` type for integers and decimals alike, as in JavaScript.
+
+```ts title="primitives.ts"
+const title: string = "Dune";
+const pages: number = 412;
+const views: bigint = 9007199254740993n;
+const published: boolean = true;
+const tag: symbol = Symbol("tag");
+const nothing: null = null;
+const missing: undefined = undefined;
+
+console.log(typeof title, typeof pages, typeof views);
+console.log(typeof published, typeof tag);
+console.log(typeof nothing, typeof missing);
+```
+
+Each annotation here is optional, since the compiler would infer the same types from the values. They are written out so that you can see every name once. `typeof` is a JavaScript operator that reports the kind of a value at run time, and the output matches the type names, apart from one old quirk: `typeof null` is `"object"`.
+
+```bash frame="terminal"
+node primitives.ts
+```
+
+```text
+string number bigint
+boolean symbol
+object undefined
+```
+
+## null and undefined are not in every type
+
+In JavaScript, any variable can hold `null` or `undefined`. In TypeScript with `strict` on (the default since TypeScript 6.0), a `string` is a string and nothing else.
+
+```ts title="null_strict.ts"
+const nickname: string = null;
+console.log(nickname);
+```
+
+The compiler rejects the assignment.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false null_strict.ts
+```
+
+```text
+null_strict.ts(1,7): error TS2322: Type 'null' is not assignable to type 'string'.
+```
+
+This is deliberate. Most of the "cannot read properties of undefined" crashes you have seen in JavaScript start from a value that was `null` or `undefined` when someone expected something else. A variable that really can be missing must say so in its type. The tool for that is a **union** type, written `string | null` and read as "a string or null". [Literal types](../literal-types/) shows unions in use, and a later module teaches them in full.
+
+## number and bigint do not mix
+
+`bigint` holds integers of any size and `number` holds floating-point values. JavaScript refuses to add one to the other, and so does TypeScript, one step earlier.
+
+```ts title="bigint_mix.ts"
+const whole: number = 2;
+const huge: bigint = 3n;
+
+try {
+  console.log(whole + huge);
+} catch (error) {
+  console.log(String(error));
+}
+```
+
+The compiler reports the mix before the program runs. At run time, the same line throws, and the example catches the exception to print its message.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false bigint_mix.ts
+```
+
+```text
+bigint_mix.ts(5,15): error TS2365: Operator '+' cannot be applied to types 'number' and 'bigint'.
+```
+
+Run it anyway and the `try` block fails:
+
+```bash frame="terminal"
+node bigint_mix.ts
+```
+
+```text
+TypeError: Cannot mix BigInt and other types, use explicit conversions
+```
+
+To combine them, convert one side explicitly with `Number(huge)` or `BigInt(whole)`. Be aware that `Number` loses precision for large values. The [JavaScript lesson on numbers](../../../javascript/beginner/numbers-js/) explains why.
+
+## Wrapper types: use the lowercase names
+
+JavaScript has object wrappers called `String`, `Number` and `Boolean`, which you almost never create by hand. TypeScript also has types with those capitalised names, and they mean the wrapper objects, not the primitives. They are easy to type by accident:
+
+```ts title="wrapper.ts"
+function shout(text: string): string {
+  return text.toUpperCase() + "!";
+}
+
+const boxed: String = new String("hi");
+console.log(shout(boxed));
+```
+
+A value typed `String` is not accepted where `string` is required. The compiler even explains the difference.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false wrapper.ts
+```
+
+```text
+wrapper.ts(6,19): error TS2345: Argument of type 'String' is not assignable to parameter of type 'string'.
+  'string' is a primitive, but 'String' is a wrapper object. Prefer using 'string' when possible.
+```
+
+The fix is to use the lowercase type everywhere:
+
+```ts title="wrapper_fixed.ts"
+function shout(text: string): string {
+  return text.toUpperCase() + "!";
+}
+
+const plain: string = "hi";
+console.log(shout(plain));
+```
+
+Now the call passes.
+
+```bash frame="terminal"
+node wrapper_fixed.ts
+```
+
+```text
+HI!
+```
+
+Primitive values like `"hi"` can be given to a parameter typed `String` too, but the other direction fails. So the lowercase name is correct both ways, and there is no reason to ever write the capitalised one.
+
+## Common pitfalls
+
+- **Capitalised type names.** Write `string`, `number`, `boolean`, never `String`, `Number`, `Boolean`.
+- **Expecting `null` to be allowed everywhere.** With `strict` on it is not. Say `string | null` when a value can be absent.
+- **Mixing `number` and `bigint`.** Convert one of them first.
+- **Using `bigint` by default.** Ordinary counts and prices are `number`. Reach for `bigint` only for integers beyond 2^53, such as the factorial below.
+
+<Exercise title="Type a unit converter">
+
+Write `celsiusToFahrenheit(celsius)` and `kmToMiles(km)`, both taking and returning a `number`. Print `celsiusToFahrenheit(100)` and `kmToMiles(10)` rounded to two decimals with `toFixed(2)`. The factor is 0.621371. Expected output: `212` then `6.21`.
+
+<Solution>
+
+```ts title="ex_celsius.ts"
+function celsiusToFahrenheit(celsius: number): number {
+  return celsius * 9 / 5 + 32;
+}
+
+function kmToMiles(km: number): number {
+  return km * 0.621371;
+}
+
+console.log(celsiusToFahrenheit(100));
+console.log(kmToMiles(10).toFixed(2));
+```
+
+```text
+212
+6.21
+```
+
+`toFixed` returns a string, which `console.log` prints without quotes.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A bigger factorial">
+
+Write `factorial(n: bigint): bigint` with recursion, and print `factorial(20n)` and `factorial(25n)`. Expected output: `2432902008176640000n` and `15511210043330985984000000n`. The trailing `n` is how Node.js prints a `bigint`.
+
+<Solution>
+
+```ts title="ex_factorial.ts"
+function factorial(n: bigint): bigint {
+  return n <= 1n ? 1n : n * factorial(n - 1n);
+}
+
+console.log(factorial(20n));
+console.log(factorial(25n));
+```
+
+```text
+2432902008176640000n
+15511210043330985984000000n
+```
+
+`25!` is far beyond 2^53, which is where a `number` stops being exact. The literals `1n` and `20n` are `bigint` values, and every operand in the arithmetic is one too, so nothing needs converting.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fix the wrapper type">
+
+This program fails with `TS2345`. Fix it so that it prints `U`, changing types only.
+
+```ts
+function initial(name: string): string {
+  return name.charAt(0);
+}
+
+const author: String = new String("Ursula");
+console.log(initial(author));
+```
+
+<Solution>
+
+```ts title="ex_boxed_fixed.ts"
+function initial(name: string): string {
+  return name.charAt(0);
+}
+
+const author: string = "Ursula";
+console.log(initial(author));
+```
+
+```text
+U
+```
+
+Declaring `author` as a plain `string`, with no `new String`, removes the wrapper object entirely.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- JavaScript's primitives map to `string`, `number`, `bigint`, `boolean`, `symbol`, `null` and `undefined`.
+- With `strict` on, `null` and `undefined` belong only to their own types, so absent values must be declared with a union such as `string | null`.
+- `number` and `bigint` cannot be combined without an explicit conversion.
+- `String`, `Number` and `Boolean` are wrapper types. Always use the lowercase names.
+
+Next: arrays and tuples.
