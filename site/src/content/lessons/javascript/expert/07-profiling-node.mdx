@@ -86,6 +86,8 @@ over 10% self time: findUser pr_slow.mjs:11
 over 10% self time: (anonymous) pr_slow.mjs:12
 ```
 
+That output is from Node 26. On Node 22.23 and 24.21, V8 inlines `findUser` into the `map` callback, and part of its time is charged to the callback instead, so the list also has `(anonymous) pr_slow.mjs:16`; on Node 22 it often has `handleOrdersRequest pr_slow.mjs:15` as well. The hot spot is the same: the `find` on line 12 and its caller. Adding `--no-turbo-inlining` does not reliably restore the Node 26 picture on either version, so read the profile as it is.
+
 A check like this can run in CI to catch a regression that moves the hot spot. Names in parentheses, such as `(garbage collector)`, `(program)` and `(idle)`, are V8's own categories rather than functions.
 
 ## The fix
@@ -253,7 +255,7 @@ A server whose utilisation stays near 100% has no spare capacity: more traffic o
 
 <Exercise title="Total time from the profile">
 
-Write a script that takes a `.cpuprofile` and a function name, computes each node's total time (its own samples plus all its descendants'), adds the totals of every node with that name, and prints whether they exceed 90% of the profile. Run it on the `pr_slow.mjs` profile for `handleOrdersRequest` and for `findUser`. The expected output is `true` for both.
+Write a script that takes a `.cpuprofile` and a function name, computes each node's total time (its own samples plus all its descendants'), adds the totals of every node with that name, and prints whether they exceed 90% of the profile. Run it on the `pr_slow.mjs` profile for `handleOrdersRequest` and for `findUser`. The expected output on Node 26 is `true` for both; the solution explains why Node 22 and 24 print `false` for `findUser`.
 
 <Solution>
 
@@ -292,7 +294,7 @@ $ node pr_ex_total.mjs prof/*.cpuprofile findUser
 findUser total time over 90%: true
 ```
 
-Both are over 90% because `findUser` runs inside `handleOrdersRequest`. Total time tells you which branch of the tree to look in; self time tells you which function in it to fix.
+Both are over 90% on Node 26 because `findUser` runs inside `handleOrdersRequest`. On Node 22 and 24 the second command prints `false`: `findUser` was inlined into the `map` callback, and the samples taken in its inlined code belong to the callback's node, not to a `findUser` node. A profile records the code that ran, after the optimiser has rearranged it; when a total looks too small, look for the caller it was inlined into. Total time tells you which branch of the tree to look in; self time tells you which function in it to fix.
 
 </Solution>
 

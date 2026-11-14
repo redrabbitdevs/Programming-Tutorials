@@ -171,7 +171,7 @@ Load it with `<script type="module" src="wa_browser.mjs">` from a page with an e
 ## When WebAssembly helps
 
 - **Reusing a library written in another language**: an image codec, a database such as SQLite, a physics engine, a compression library. This is the most common and most convincing reason.
-- **Long numeric kernels** that do a lot of work per call on data already in linear memory. Wasm code gives predictable performance without warm-up or deoptimization.
+- **Long numeric kernels** that do a lot of work per call on data already in linear memory. Wasm's types are fixed when it is compiled, so its speed is more predictable than JavaScript's, but it still warms up: V8 compiles each function first with Liftoff, its fast baseline compiler, and tiers hot functions up to TurboFan. On Node 26 (V8 14.6) optimised Wasm can also deoptimize after speculative inlining; Node 24 ships with `--no-wasm-deopt`. Benchmark it with the same warm-up rules as [the measuring lesson](../measuring-performance/) ([V8 flag definitions](https://github.com/v8/v8/blob/14.6.202/src/flags/flag-definitions.h): `liftoff`, `wasm_dynamic_tiering` and `wasm_deopt` are on).
 - **Not for code that is mostly calls across the boundary.** Each call converts arguments, and strings and objects must be encoded into memory and back. A function that does a little arithmetic on each of a million JavaScript objects is usually faster in JavaScript, which V8 optimises well, as the previous lessons showed.
 - **Not for working with the DOM**, which Wasm can reach only through imported JavaScript functions.
 - **Not as a first resort for speed.** Profile first. A better algorithm or less allocation in JavaScript is cheaper to build and maintain than a second language and a build step.

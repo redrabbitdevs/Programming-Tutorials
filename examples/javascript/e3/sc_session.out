@@ -20,4 +20,14 @@ package-lock.json
 package.json
 $ node app.mjs
 Hello, supply chain!
-$ rm -r node_modules greet-1.0.0.tgz
+$ echo ignore-scripts=true > .npmrc
+$ npm rebuild greet
+rebuilt dependencies successfully
+$ ls postinstall-ran.txt
+ls: cannot access 'postinstall-ran.txt': No such file or directory
+$ npm rebuild greet --ignore-scripts=false
+npm warn rebuild 1 package has install scripts not yet covered by allowScripts. Run `npm install-scripts ls` to review.
+rebuilt dependencies successfully
+$ cat postinstall-ran.txt
+greet postinstall ran
+$ rm -r node_modules greet-1.0.0.tgz .npmrc postinstall-ran.txt

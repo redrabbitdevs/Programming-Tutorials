@@ -85,6 +85,7 @@ Each kind of access has a flag. File system grants take a path, relative to the 
 | `--allow-child-process` | starting other programs |
 | `--allow-worker` | worker threads |
 | `--allow-addons`, `--allow-wasi` | native addons, WASI |
+| `--allow-ffi` | the `node:ffi` module <Since v="26.1" /> |
 
 `*` grants everything for that flag, and a path that ends in `*` matches anything that starts with it. Grant the input folder for reading and the output folder for writing:
 

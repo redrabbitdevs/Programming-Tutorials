@@ -24,12 +24,18 @@ function statsOnePass(xs) {
   return { min, max, mean: sum / xs.length, over900 };
 }
 
+// Bytes allocated on the JavaScript heap so far. Node 26 and later only.
+function allocatedBytes() {
+  const bytes = getHeapStatistics().total_allocated_bytes;
+  if (bytes === undefined) throw new Error("needs Node 26 or later");
+  return bytes;
+}
+
 function allocatedMB(work) {
   work();
-  const before = getHeapStatistics().total_allocated_bytes;
+  const before = allocatedBytes();
   const result = work();
-  const mb = (getHeapStatistics().total_allocated_bytes - before) / 2 ** 20;
-  return { result, mb };
+  return { result, mb: (allocatedBytes() - before) / 2 ** 20 };
 }
 
 const a = allocatedMB(() => statsChained(values));

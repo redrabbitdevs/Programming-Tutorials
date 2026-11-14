@@ -1,11 +1,18 @@
 import { getHeapStatistics } from "node:v8";
 
+// Bytes allocated on the JavaScript heap so far. Node 26 and later only.
+function allocatedBytes() {
+  const bytes = getHeapStatistics().total_allocated_bytes;
+  if (bytes === undefined) throw new Error("needs Node 26 or later");
+  return bytes;
+}
+
 // Megabytes allocated by one run of `work`, after three warm-up runs.
 function allocatedMB(work) {
   for (let i = 0; i < 3; i++) work();
-  const before = getHeapStatistics().total_allocated_bytes;
+  const before = allocatedBytes();
   work();
-  return (getHeapStatistics().total_allocated_bytes - before) / 2 ** 20;
+  return (allocatedBytes() - before) / 2 ** 20;
 }
 
 const add = (a, b) => ({ x: a.x + b.x, y: a.y + b.y });
