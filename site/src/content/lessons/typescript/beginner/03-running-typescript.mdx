@@ -1,0 +1,201 @@
+---
+language: typescript
+level: beginner
+module: Getting started with TypeScript
+order: 3
+title: "Running TypeScript: type stripping vs compiling"
+description: Run a .ts file directly with Node.js, check it separately with tsc, and learn which TypeScript syntax Node.js cannot run.
+minVersion: "5.8"
+objectives:
+  - Run a .ts file with node and explain what Node.js does to the types
+  - Pair node with tsc --noEmit so that both running and checking happen
+  - Name the TypeScript syntax that Node.js cannot strip
+  - Choose between node, tsc and tsx for a given file
+estimatedMinutes: 25
+fundamentals: ["fundamentals/beginner/02-tools-of-the-trade"]
+---
+
+Two different tools touch your TypeScript, and they do different jobs. **Node.js** runs it. **`tsc`** checks it. You almost always want both, and mixing up which one does what is the most common beginner confusion. This lesson separates them.
+
+## Node.js strips the types and runs the rest
+
+Since Node.js 22.18 (and 23.6), `node` runs a `.ts` file with no flags and no extra install. It was marked stable in Node.js 24.12 and 25.2. Node.js 22 is the oldest line this track supports, and it works the same as 26 here. The mechanism is called **type stripping**: Node.js replaces every type annotation with blank space, then runs the JavaScript that remains. The source for these details is the [Node.js TypeScript documentation](https://nodejs.org/api/typescript.html).
+
+```ts title="double.ts"
+function double(n: number): number {
+  return n * 2;
+}
+
+console.log(double(21));
+```
+
+```bash frame="terminal"
+node double.ts
+```
+
+```text
+42
+```
+
+Because Node.js only blanks out the annotations, the code keeps its line and column positions, so error messages and stack traces point at the right place in your `.ts` file.
+
+## Node.js does not check types
+
+Node.js never asks whether the types are right. Here is a file with a wrong type:
+
+```ts title="price_string.ts"
+const price: number = "12.50";
+
+console.log(price + 1);
+```
+
+```bash frame="terminal"
+node price_string.ts
+```
+
+```text
+12.501
+```
+
+It runs, and it prints a wrong answer: `price` is really a string, so `+ 1` joined the digits instead of adding. The compiler sees the problem:
+
+```bash frame="terminal"
+npx tsc --noEmit price_string.ts
+```
+
+```text
+price_string.ts:1:7 - error TS2322: Type 'string' is not assignable to type 'number'.
+
+1 const price: number = "12.50";
+        ~~~~~
+
+Found 1 error in price_string.ts:1
+```
+
+That is the working pattern for the whole track: **`tsc --noEmit` to check, `node` to run.** Do the check first, as the project lesson at the end of this level does. The `--noEmit` flag matters because by default `tsc` also writes `.js` files next to your sources. That is the other thing `tsc` can do: turn TypeScript into JavaScript for a runtime that cannot read `.ts` files. You will not need it to run code in this track.
+
+## What Node.js cannot strip
+
+Stripping only works when the types can be removed and the remaining code is still correct. A few TypeScript features generate code, so removing them is not enough. The most common is `enum`:
+
+```ts
+enum Color { Red, Green }
+console.log(Color.Red);
+```
+
+```text
+SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript enum is not supported in strip-only mode
+```
+
+Node.js refuses and exits with an error. The same applies to `namespace` blocks that contain code, constructor parameter properties, `import x = require()` aliases and angle-bracket assertions like `<string>value`. Decorators are a syntax error in Node.js. This subset that can be removed cleanly is called **erasable syntax**, and a later lesson covers it in detail. Plain annotations, `type` and `interface` declarations are erasable, and so are generics and `as` assertions, which later modules teach.
+
+The compiler can warn you before Node.js does. The option `--erasableSyntaxOnly` (added in TypeScript 5.8) reports every construct that is not erasable:
+
+```text
+en.ts(1,6): error TS1294: This syntax is not allowed when 'erasableSyntaxOnly' is enabled.
+```
+
+This track writes erasable TypeScript, so examples run with plain `node`.
+
+## File extensions
+
+Node.js decides how to load a file from its extension and the nearest `package.json`:
+
+| Extension | Loaded as |
+|---|---|
+| `.ts` | what `"type"` in `package.json` says: ES module or CommonJS |
+| `.mts` | always an ES module |
+| `.cts` | always CommonJS |
+| `.tsx` | not supported by Node.js |
+
+If you are unsure, `.mts` gives a predictable result. The [JavaScript modules lesson](../../../javascript/beginner/es-modules/) explains the two module systems.
+
+## When you need more than stripping
+
+Node.js ignores `tsconfig.json`, performs no type checking and does not run enums or decorators. For a file that needs those, two options remain. Compile with `tsc` and run the emitted JavaScript, or use `tsx`, a separate runner that Node.js's own documentation names for full TypeScript syntax. You install it as a development dependency. Prefer erasable code so you need neither.
+
+Node.js also refuses `.ts` files inside `node_modules`. Libraries publish JavaScript plus `.d.ts` declaration files, covered in the advanced level.
+
+## Common pitfalls
+
+- **Believing that a run means the types are fine.** Node.js runs a file with type errors. Always run `tsc --noEmit` too.
+- **Putting an `enum` in a file you run with `node`.** It fails with `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`. Use the alternatives from the later enum lesson.
+- **Expecting `tsconfig.json` to affect `node`.** Node.js never reads it.
+- **Forgetting `--noEmit`.** Without it `tsc` writes `.js` files into your source folder.
+
+<Exercise title="Run it, then check it">
+
+Write `half_string.ts`: a function `half(n: number): number` that returns `n / 2`, and a call `half("8")` that prints its result. Run it with `node`, then check it with `tsc --noEmit`. Expected: Node.js prints `4`, and `tsc` reports error `TS2345`.
+
+<Solution>
+
+```ts title="half_string.ts"
+function half(n: number): number {
+  return n / 2;
+}
+
+console.log(half("8"));
+```
+
+```text
+4
+```
+
+The `/` operator converts the string `"8"` to a number, so Node.js prints a plausible answer. The compiler still rejects the call, because the parameter is declared as a number.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A file that passes both tools">
+
+Write `distance.ts` with a `string` named `unit` set to `"km"` and a `number` named `distance` set to `42`, and print them as `42 km` with a template literal. Both `node distance.ts` and `npx tsc --noEmit distance.ts` should succeed, and `tsc` should print nothing.
+
+<Solution>
+
+```ts title="distance.ts"
+const unit: string = "km";
+const distance: number = 42;
+
+console.log(`${distance} ${unit}`);
+```
+
+```text
+42 km
+```
+
+When `tsc` prints nothing and exits with code 0, the check passed.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Make Node.js refuse a file">
+
+Write a two-line file `color.ts` that declares `enum Color { Red, Green }` and prints `Color.Red`. Run it with `node color.ts`. Expected: an error whose code is `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`.
+
+<Solution>
+
+```ts
+enum Color { Red, Green }
+console.log(Color.Red);
+```
+
+```text
+SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript enum is not supported in strip-only mode
+```
+
+This file is not under `examples/` because the validation script runs every example there with Node.js and would fail on it. The `erasableSyntaxOnly` check from this lesson reports the same file as `TS1294`.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- `node file.ts` strips types and runs the JavaScript left over. It works with no flags on Node.js 22.18 and newer.
+- Node.js never checks types. Run `npx tsc --noEmit` to check.
+- Only erasable syntax runs: `enum`, code-carrying `namespace`, parameter properties, `import =` and `<T>x` do not.
+- `.mts` is always an ES module, `.cts` always CommonJS, and `.ts` follows `package.json`.
+
+Next: [tsconfig.json basics](../tsconfig-first-look/).

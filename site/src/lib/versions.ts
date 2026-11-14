@@ -14,6 +14,8 @@ export const OLDEST_SUPPORTED: Record<string, string> = {
   // JavaScript lessons with minVersion 22 show no badge.
   // Source: research/javascript/sources/node-releases.md
   javascript: '22',
+  // TypeScript 5.0 is the course floor: older features need no tag (research/typescript/facts.md).
+  typescript: '5.0',
 };
 
 const parts = (v: string) => v.split('.').map((n) => parseInt(n, 10) || 0);

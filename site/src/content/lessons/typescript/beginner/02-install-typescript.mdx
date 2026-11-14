@@ -1,0 +1,184 @@
+---
+language: typescript
+level: beginner
+module: Getting started with TypeScript
+order: 2
+title: Installing TypeScript
+description: Add the TypeScript compiler to a project with npm, check its version, and run it on a file.
+minVersion: "7.0"
+objectives:
+  - Install the typescript package as a development dependency of a project
+  - Run the compiler with npx and read its version
+  - Explain why TypeScript is installed per project and not globally
+  - Check a file for type errors with tsc --noEmit
+estimatedMinutes: 20
+fundamentals: ["fundamentals/beginner/02-tools-of-the-trade"]
+---
+
+TypeScript is a program you install, not something built into Node.js. This lesson puts the compiler into a project and runs it for the first time. You need Node.js 22 or newer and npm; the JavaScript track covers [installing Node.js](../../../javascript/beginner/install-node/) and [package.json and npm](../../../javascript/beginner/package-json-npm/).
+
+## Make a project and install the compiler
+
+A project is a folder with a `package.json`. Create one, then install the `typescript` package as a **development dependency**, which means a tool you need while building the project and not something the finished program imports.
+
+```bash frame="terminal"
+mkdir ts-first
+cd ts-first
+npm init -y
+npm install --save-dev typescript
+```
+
+npm prints a short report. The timing is yours to see; the package count is what matters:
+
+```text
+added 2 packages, and audited 3 packages in 2s
+
+found 0 vulnerabilities
+```
+
+Two packages, because the TypeScript 7 compiler is a native program. The `typescript` package is a small launcher, and npm downloads one extra package that holds the compiler built for your operating system and processor (on Linux with an x64 processor it is `@typescript/typescript-linux-x64`). The other platforms are skipped. The package has no install script, so nothing runs during installation.
+
+Open `package.json`. The installed version is recorded under `devDependencies`:
+
+```json
+{
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}
+```
+
+The `^` means npm may later accept newer 7.x releases when you run `npm update`. The exact version that was installed is pinned in `package-lock.json`.
+
+## Run the compiler
+
+Packages installed in a project put their commands in `node_modules/.bin`. `npx` runs one of them for you, so you never type that path.
+
+```bash frame="terminal"
+npx tsc --version
+```
+
+```text
+Version 7.0.2
+```
+
+`tsc` stands for TypeScript compiler. If your output shows a newer 7.x version, that is fine. If it shows `Version 6.0.3` or older, your project has an older compiler, which this track covers only where it says so.
+
+## Check a file
+
+Create `distance.ts`, a file with annotations and no mistakes:
+
+```ts title="distance.ts"
+const unit: string = "km";
+const distance: number = 42;
+
+console.log(`${distance} ${unit}`);
+```
+
+Ask the compiler to check it. `--noEmit` means "check, but do not write any JavaScript files". We run the file with Node.js instead, so we have no use for emitted files.
+
+```bash frame="terminal"
+npx tsc --noEmit distance.ts
+node distance.ts
+```
+
+```text
+42 km
+```
+
+The first command prints nothing. A compiler that finds no errors says nothing, and its exit code is 0. A compiler that finds errors prints each one and exits with a non-zero code, which is what lets a build script stop. The second command is the program itself, run by Node.js, which the [next lesson](../running-typescript/) explains.
+
+## Why per project and not global
+
+You can run `npm install --global typescript` to get one `tsc` for the whole machine. Avoid it. Different projects need different compiler versions, because new releases can report new errors in code that used to pass. With the compiler listed in `package.json`, everyone who clones the project, and your build server, uses the same version. The commands in this track assume `npx tsc` inside a project.
+
+## Types for Node.js
+
+TypeScript does not know about the Node.js API by itself. A program that uses `process.argv` fails the check until you add the type declarations for Node.js, a package called `@types/node`. A later lesson, [configuring a project](../tsconfig-first-look/), shows how to add it and tell the compiler to use it.
+
+## Common pitfalls
+
+- **Running `npx tsc` outside the project.** The compiler is found in the project's `node_modules`, so run the command from the project folder or one of its subfolders.
+- **Installing only globally.** Teammates and servers then get different versions.
+- **Passing a file when a `tsconfig.json` exists.** The compiler stops with error `TS5112`. The [configuration lesson](../tsconfig-first-look/) explains it. For now, work in a folder that has no `tsconfig.json`.
+- **Copying commands from older articles.** Many mention `ts-node`, `--target ES5` or a global `tsc`. This track does not use them.
+
+<Exercise title="Set up a project and print the version">
+
+Create a folder, run `npm init -y`, install `typescript` as a development dependency, and print the compiler version. Expected output on a current install: `Version 7.0.2` (a later 7.x release prints its own number).
+
+<Solution>
+
+```bash frame="terminal"
+mkdir version-check
+cd version-check
+npm init -y
+npm install --save-dev typescript
+npx tsc --version
+```
+
+```text
+Version 7.0.2
+```
+
+This solution is a shell session, so it has no file under `examples/`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Let the compiler reject a file">
+
+In the project from the first exercise, write `sum_strings.ts` with a function `sum(a: number, b: number): number`. Print `sum(1, 2)`, and also print `sum("1", "2")`. Check it with `npx tsc --noEmit sum_strings.ts`. Expected: error `TS2345` on the last line, and exit code 1. Then run it with `node sum_strings.ts` and note what it prints. Expected: `3` and `12`.
+
+<Solution>
+
+```ts title="sum_strings.ts"
+function sum(a: number, b: number): number {
+  return a + b;
+}
+
+console.log(sum(1, 2));
+console.log(sum("1", "2"));
+```
+
+```text
+3
+12
+```
+
+`tsc` rejects the string arguments. At run time `+` joins two strings, so Node.js prints `12`. That is the kind of silent bug the compiler is there to catch.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Find out what is installed">
+
+Ask npm which version of `typescript` your project has. Use `npm ls typescript`. Expected output: a tree that lists `typescript@7.0.2` (or your 7.x version) under your project name.
+
+<Solution>
+
+```bash frame="terminal"
+npm ls typescript
+```
+
+```text
+ts-first@1.0.0 /home/you/ts-first
+`-- typescript@7.0.2
+```
+
+The first line has your own project name and folder. `npm ls` reads `node_modules`, so it reports what is really installed, which can differ from the range in `package.json`.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Install TypeScript per project: `npm install --save-dev typescript`. In version 7 npm also fetches a native compiler package for your platform.
+- `npx tsc --version` prints the compiler version, `Version 7.0.2` at the time of writing.
+- `npx tsc --noEmit file.ts` checks a file. No output and exit code 0 mean no errors.
+- The compiler is a development tool. Pin it in `package.json` so that every machine uses the same one.
+
+Next: [running TypeScript](../running-typescript/).

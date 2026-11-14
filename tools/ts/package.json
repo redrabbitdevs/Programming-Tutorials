@@ -1,0 +1,8 @@
+{
+  "name": "typescript-example-tools",
+  "private": true,
+  "description": "Pinned TypeScript compiler that scripts/validate.sh uses to type-check examples/typescript.",
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

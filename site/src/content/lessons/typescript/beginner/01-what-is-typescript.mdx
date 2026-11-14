@@ -1,0 +1,217 @@
+---
+language: typescript
+level: beginner
+module: Getting started with TypeScript
+order: 1
+title: "TypeScript: JavaScript with types"
+description: See what TypeScript adds to JavaScript, what it never changes, and why the compiler can reject a program that Node.js would happily run.
+minVersion: "5.0"
+objectives:
+  - Explain what TypeScript adds to JavaScript and what it leaves alone
+  - Tell compile-time checks from run-time behaviour
+  - Read a first type error and explain why the program still runs
+  - Describe where TypeScript 7 fits in the history of the compiler
+estimatedMinutes: 25
+fundamentals: ["fundamentals/beginner/03-values-and-types"]
+---
+
+TypeScript is JavaScript plus a type system. You write the same code you would write in JavaScript, add notes that say what kind of value each name holds, and a tool called the **compiler** reads those notes and reports mistakes before the program runs.
+
+This track assumes the [JavaScript beginner track](../../../javascript/beginner/what-is-javascript/). It does not teach variables, functions or modules again. It teaches the types you put on top of them. The fundamentals lesson on [values and types](../../../fundamentals/beginner/values-and-types/) explains the difference between static and dynamic typing, which is the idea this whole language rests on.
+
+## What a type annotation looks like
+
+Here is a small JavaScript function with two additions: `: string` after the parameter, and `: string` after the parentheses. These are **type annotations**.
+
+```ts title="greet.ts"
+function greet(name: string): string {
+  return `Hello, ${name}!`;
+}
+
+console.log(greet("Ada"));
+```
+
+The first annotation says `name` must be a string. The second says the function returns a string. Node.js 22.18 and later runs a `.ts` file directly:
+
+```bash frame="terminal"
+node greet.ts
+```
+
+```text
+Hello, Ada!
+```
+
+Remove the annotations and you have valid JavaScript. That is the design: TypeScript reads JavaScript syntax as it is, and adds only the annotations and a checker. The checker may still report mistakes in code you wrote as plain JavaScript.
+
+## The checker finds mistakes without running anything
+
+Now call `greet` with a number.
+
+```ts title="greet_wrong.ts"
+function greet(name: string): string {
+  return `Hello, ${name}!`;
+}
+
+console.log(greet(42));
+```
+
+In JavaScript this is not an error, because a template literal turns any value into text. The TypeScript compiler, `tsc`, reports it anyway. In a folder with no `tsconfig.json`, check the file. The [next lesson](../install-typescript/) installs `tsc`.
+
+```bash frame="terminal"
+npx tsc --noEmit greet_wrong.ts
+```
+
+```text
+greet_wrong.ts:5:19 - error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+
+5 console.log(greet(42));
+                    ~~
+
+Found 1 error in greet_wrong.ts:5
+```
+
+Your terminal shows this in colour. Read it from left to right: the file, line 5, column 19, the error code `TS2345`, then a sentence. The squiggle marks the argument `42`. The compiler found this by reading the code. It never ran `greet`.
+
+## Types are erased
+
+Run the same file with Node.js:
+
+```bash frame="terminal"
+node greet_wrong.ts
+```
+
+```text
+Hello, 42!
+```
+
+Node.js did not complain, because it does not check types. It removes the annotations and runs what is left, which is ordinary JavaScript. This is what **types are erased** means: the types exist while you write and check code, and they are gone when the program runs.
+
+You can see it from inside a program. `typeof` is a JavaScript operator that reports the kind of a value at run time (the [primitives lesson](../../../javascript/beginner/primitives-and-typeof/) covers it).
+
+```ts title="types_erased.ts"
+const count: number = 3;
+const label: string = "items";
+
+console.log(typeof count, typeof label);
+console.log(count + " " + label);
+```
+
+```text
+number string
+3 items
+```
+
+`typeof` sees real values, not annotations. Nothing in the running program knows that `count` was declared as a `number`. Two consequences follow, and both come back throughout the track:
+
+- A type error does not stop a program. Only the compiler enforces types, so you have to run it.
+- You cannot ask "what is this value's TypeScript type?" at run time. Types are not values.
+
+## What TypeScript never changes
+
+TypeScript does not add new run-time behaviour to ordinary code. It does not change how numbers, strings or objects work, and it does not make `undefined` stop appearing at run time unless your types stop you from writing code that produces it. It does not check data that arrives from outside the program, such as a file or a web request. Those values are whatever they are, whatever you annotated.
+
+What it adds is information for you, your editor and the compiler. Editors use the same information for completion and for showing errors as you type, which is one of the biggest day-to-day benefits.
+
+## Which compiler you are using
+
+`tsc` was written in TypeScript itself until version 6.0, released on 23 March 2026. TypeScript 7.0, whose latest release is 7.0.2 (8 July 2026), is a new compiler written in Go. The command is still `tsc`. The language and the error messages are the same as in 6.0, so what you learn here applies to code written for either. The project describes the details in the [typescript-go repository](https://github.com/microsoft/typescript-go).
+
+One practical difference: the old compiler could be used as a library by other tools with `import ts from "typescript"`. In 7.0 that programming interface is not stable yet, so tools that rely on it stay on 6.0 for now. You will not need it in this track.
+
+This track teaches TypeScript 7.0 with Node.js 26. Features newer than TypeScript 5.0 carry a version marker, such as <Since v="5.8" /> for the `erasableSyntaxOnly` option, because you will meet older codebases.
+
+## Common pitfalls
+
+- **Thinking a passing run means correct types.** `node file.ts` prints results even when `tsc` reports errors. Check with `tsc` as well as running.
+- **Expecting types at run time.** There is no `if (typeof x === "string[]")`. The run-time checks you can write are the JavaScript ones.
+- **Trusting annotations for outside data.** Writing `: number` on a value that came from a file does not make it a number.
+- **Treating TypeScript as a different language to learn from scratch.** Everything from the JavaScript track still applies.
+
+<Exercise title="Add types to a function">
+
+The function below works, but nothing says what it expects. Add annotations so that `width` and `height` are numbers and the function returns a number, then call it with `4` and `2.5` and print the result. Expected output: `10`.
+
+```ts
+function area(width, height) {
+  return width * height;
+}
+```
+
+<Solution>
+
+```ts title="area_typed.ts"
+function area(width: number, height: number): number {
+  return width * height;
+}
+
+console.log(area(4, 2.5));
+```
+
+```text
+10
+```
+
+The annotations follow each name after a colon. The return type goes between the closing parenthesis and the opening brace.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A program the compiler rejects and Node.js runs">
+
+Write a function `shout(text: string): string` that returns the text followed by `!`. Call it once with `"hello"` and once with the number `42`. Run it with `node`, then check it with `tsc --noEmit`. Expected: Node prints `hello!` and `42!`, and `tsc` reports error `TS2345`.
+
+<Solution>
+
+```ts title="wrong_type_runs.ts"
+function shout(text: string): string {
+  return text + "!";
+}
+
+console.log(shout("hello"));
+console.log(shout(42));
+```
+
+```text
+hello!
+42!
+```
+
+`tsc` reports `Argument of type 'number' is not assignable to parameter of type 'string'` on the last line. The `+` operator happily joins a number and a string at run time, so Node.js has nothing to complain about.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Types are gone at run time">
+
+Declare a number named `items`, a string named `title` and a boolean named `done`, each with an annotation. Print `typeof` for all three on one line. Expected output: `number string boolean`.
+
+<Solution>
+
+```ts title="runtime_types.ts"
+const items: number = 3;
+const title: string = "Report";
+const done: boolean = false;
+
+console.log(typeof items, typeof title, typeof done);
+```
+
+```text
+number string boolean
+```
+
+The output is the same as it would be without the annotations. The annotations helped the compiler and left no trace in the running program.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- TypeScript is JavaScript plus type annotations and a checker. Valid JavaScript is valid TypeScript.
+- `tsc` finds type errors by reading code. Node.js does not check types, so an erroring program can still run.
+- Types are erased before the program runs, so they cannot be inspected at run time.
+- TypeScript 7 is a compiler written in Go. It keeps the `tsc` command and the language of 6.0.
+
+Next: [installing TypeScript](../install-typescript/).
