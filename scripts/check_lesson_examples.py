@@ -30,8 +30,8 @@ ALLOW = Path(__file__).with_name("lesson_examples_allow.txt")
 
 FENCE = re.compile(r"^(?P<indent>[ \t]*)```(?P<info>[^\n]*)$")
 CLOSE = re.compile(r"^[ \t]*```\s*$")
-# Fence languages that carry a runnable example (python x.py, js/javascript x.mjs).
-CODE_LANGS = ("python", "js", "javascript")
+# Fence languages that carry a runnable example (python x.py, js/javascript x.mjs, ts/typescript x.ts).
+CODE_LANGS = ("python", "js", "javascript", "ts", "typescript")
 TITLE = re.compile(r'title="([^"]*)"')
 
 

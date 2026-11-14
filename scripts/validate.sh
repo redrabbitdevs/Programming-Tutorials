@@ -15,6 +15,12 @@
 #        In a folder with a .browser marker file (browser lessons; it holds a package.json
 #        with "type": "module" so .js files are modules), *.js and *.mjs files are
 #        syntax-checked only, unless they have a sibling .out: then they run in Node.
+#        TypeScript examples (examples/typescript/**/*.ts): each is run by Node type
+#        stripping against its .out (same .in/.out/.modules rules as JavaScript), and each
+#        folder is type-checked with the pinned tsc (tools/ts; install with
+#        npm ci --ignore-scripts --prefix tools/ts). TSC=/path/to/tsc overrides it. A file
+#        X.ts with a sibling X.tsfail is a deliberate type error: X.tsfail lists the
+#        expected error codes (e.g. TS2322) and tsc must report exactly those. See step 2d.
 set -u -o pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -277,6 +283,89 @@ PYEOF
   if [ $CX_BAD -eq 0 ]; then pass "c extensions: $CX_RUN built twice, imported, compared to .out; lesson c blocks match"
   else fail "c extensions: $CX_BAD failed"; fi
 fi
+
+# 2d. TypeScript examples ----------------------------------------------------
+# Two checks, because Node strips types without checking them and tsc alone does
+# not prove the output a lesson shows.
+#  1. Type-check: for each folder under examples/typescript that holds *.ts files,
+#     a temporary tsconfig extends the shared examples/typescript/tsconfig.json and
+#     includes that folder's files (a folder is one project, so files can import
+#     each other). Files with a sibling .tsfail are left out of that run and checked
+#     alone: tsc must fail, and the set of error codes it prints must equal the
+#     codes written in X.tsfail (whitespace-separated, any order).
+#  2. Run: every *.ts runs with Node (type stripping; no flags on Node 22.18+),
+#     compared with its .out. As for JavaScript, in a folder with a .modules marker
+#     only files with a sibling .out run. Stdin comes from X.in.
+TSC_BIN="${TSC:-$ROOT/tools/ts/node_modules/.bin/tsc}"
+step "ts examples: type-check with tsc, then run examples/typescript/**/*.ts (TSC=$TSC_BIN)"
+TS_RUN=0; TS_BAD=0; TS_CMP=0; TS_CHK=0; TS_FAIL=0
+TS_ROOT="$ROOT/examples/typescript"
+if [ -d "$TS_ROOT" ] && [ -n "$(find "$TS_ROOT" -name '*.ts' -type f -not -path '*/node_modules/*' -print -quit)" ]; then
+  TS_TMP="$(mktemp -d)"
+  if [ ! -x "$TSC_BIN" ]; then
+    echo "  FAIL tsc not found at $TSC_BIN (run: npm ci --ignore-scripts --prefix tools/ts)"
+    TS_BAD=$((TS_BAD + 1))
+  else
+    # Error codes from lines like "a.ts(1,7): error TS2322: ...", sorted and unique.
+    ts_codes() { grep -o 'error TS[0-9]*' | sed 's/error //' | sort -u | tr '\n' ' '; }
+    while IFS= read -r -d '' d; do
+      rel="${d#"$ROOT"/}"
+      ok=(); bad_files=()
+      for f in "$d"/*.ts; do
+        if [ -f "${f%.ts}.tsfail" ]; then bad_files+=("$f"); else ok+=("$f"); fi
+      done
+      if [ ${#ok[@]} -gt 0 ]; then
+        TS_CHK=$((TS_CHK + 1))
+        inc=""; for f in "${ok[@]}"; do inc+="\"$f\","; done
+        printf '{"extends": "%s/tsconfig.json", "include": [%s]}\n' "$TS_ROOT" "${inc%,}" >"$TS_TMP/tsconfig.json"
+        if out="$("$TSC_BIN" -p "$TS_TMP/tsconfig.json" 2>&1)"; then echo "  ok   $rel (tsc, ${#ok[@]} files)"
+        else echo "  FAIL $rel (tsc)"; printf '%s\n' "$out" | head -20 | sed 's/^/       /'; TS_BAD=$((TS_BAD + 1)); fi
+      fi
+      for f in "${bad_files[@]}"; do
+        frel="${f#"$ROOT"/}"; TS_FAIL=$((TS_FAIL + 1))
+        printf '{"extends": "%s/tsconfig.json", "include": ["%s"]}\n' "$TS_ROOT" "$f" >"$TS_TMP/tsconfig.json"
+        out="$("$TSC_BIN" -p "$TS_TMP/tsconfig.json" 2>&1)"; code=$?
+        got="$(printf '%s\n' "$out" | ts_codes)"
+        want="$(tr -s ' \n' '\n\n' <"${f%.ts}.tsfail" | grep -v '^$' | sort -u | tr '\n' ' ')"
+        if [ $code -ne 0 ] && [ "$got" = "$want" ]; then echo "  ok   $frel (tsc fails as expected: $got)"
+        else echo "  FAIL $frel (tsc exit $code, codes [$got], expected [$want])"; TS_BAD=$((TS_BAD + 1)); fi
+      done
+    done < <(find "$TS_ROOT" -name '*.ts' -type f -not -path '*/node_modules/*' -printf '%h\0' | sort -zu)
+  fi
+  rm -rf "$TS_TMP"
+  export NODE_NO_WARNINGS=1 NO_COLOR=1
+  unset FORCE_COLOR
+  TS_ERR="$(mktemp)"
+  while IFS= read -r -d '' f; do
+    rel="${f#"$ROOT"/}"
+    dir="$(cd "$(dirname "$f")" && pwd)"
+    base="$(basename "$f")"
+    expected="${f%.ts}.out"
+    if [ ! -f "$expected" ] && [ -f "$dir/.modules" ]; then continue; fi
+    TS_RUN=$((TS_RUN + 1))
+    stdin_file=/dev/null
+    [ -f "${f%.ts}.in" ] && stdin_file="${f%.ts}.in"
+    actual="$(cd "$dir" && timeout 30 "${NODE:-node}" "$base" 2>"$TS_ERR" <"$stdin_file")"
+    code=$?
+    actual="${actual//"file://$dir"\//}"
+    actual="${actual//"$dir"\//}"
+    if [ $code -ne 0 ]; then
+      echo "  FAIL $rel (exit $code)"; sed 's/^/       /' "$TS_ERR" | head -10
+      TS_BAD=$((TS_BAD + 1)); continue
+    fi
+    if [ -f "$expected" ]; then
+      TS_CMP=$((TS_CMP + 1))
+      if [ "$actual" != "$(cat "$expected")" ]; then
+        echo "  FAIL $rel (stdout differs from ${expected#"$ROOT"/})"
+        diff <(printf '%s\n' "$actual") "$expected" | head -10 | sed 's/^/       /'
+        TS_BAD=$((TS_BAD + 1)); continue
+      fi
+    fi
+    echo "  ok   $rel"
+  done < <(find "$TS_ROOT" -name '*.ts' -type f -not -path '*/node_modules/*' -print0 | sort -z)
+  rm -f "$TS_ERR"
+fi
+if [ $TS_BAD -eq 0 ]; then pass "ts examples: $TS_CHK folders type-checked, $TS_FAIL expected type errors, $TS_RUN run, $TS_CMP compared to .out"; else fail "ts examples: $TS_BAD problems"; fi
 
 # 3. Internal links ----------------------------------------------------------
 step "links: internal links in site/dist against base path $BASE_PATH"

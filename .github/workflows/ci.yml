@@ -34,6 +34,12 @@ jobs:
       # unpinned '3.15' silently moved to 3.15.2 and broke them.
       - name: Install Python 3.15.0
         run: uv python install 3.15.0
+      # TypeScript examples are type-checked with the pinned tsc in tools/ts (7.0.2) and run by Node 26.
+      # The compiler ships as optional per-platform packages and has no install script.
+      - name: Install TypeScript compiler
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix tools/ts
+          echo "TSC=$PWD/tools/ts/node_modules/.bin/tsc" >> "$GITHUB_ENV"
       - name: Validate
         run: |
           export PYTHON="$(uv python find 3.15.0)"

@@ -1,0 +1,256 @@
+---
+language: typescript
+level: beginner
+module: Getting started with TypeScript
+order: 4
+title: tsconfig.json basics
+description: Read and write a minimal tsconfig.json, know which options TypeScript 6 and 7 turn on by default, and fix the most common first configuration error.
+minVersion: "6.0"
+objectives:
+  - Create a tsconfig.json with tsc --init and read what it contains
+  - Name the defaults that changed in TypeScript 6.0 and kept in 7.0
+  - Write the small configuration this course uses
+  - Fix the "Cannot find name 'process'" error and the TS5112 error
+estimatedMinutes: 25
+fundamentals: []
+---
+
+A **`tsconfig.json`** file tells the compiler which options to use and which files belong to the project. With one, you run plain `npx tsc --noEmit` and it checks everything. This lesson covers the file's shape and the few options that matter at the start. The [tsconfig reference](https://www.typescriptlang.org/tsconfig/) lists all of them.
+
+## Create one
+
+In your project folder from the [installation lesson](../install-typescript/), run:
+
+```bash frame="terminal"
+npx tsc --init
+```
+
+```text
+Created a new tsconfig.json
+
+You can learn more at https://aka.ms/tsconfig
+```
+
+Since TypeScript 5.9 the generated file is short. In 7.0.2 it holds these options, and it also contains a few commented-out ones that are left out here:
+
+```json title="tsconfig.json (generated, comments removed)"
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "target": "esnext",
+    "types": [],
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "strict": true,
+    "jsx": "react-jsx",
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true
+  }
+}
+```
+
+The file is JSON with comments allowed. Everything is under `compilerOptions`. You do not need to understand all of this now. Several of these options exist for libraries and for build tools, which come later.
+
+## Defaults that changed in TypeScript 6.0
+
+Before 6.0, a missing option often meant "the permissive old behaviour". The [6.0 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-6-0.html) changed the defaults, and 7.0 keeps them, so an empty `tsconfig.json` now means:
+
+| Option | Default | What it means |
+|---|---|---|
+| `strict` | `true` | The whole family of strict checks is on |
+| `target` | `es2025` | Which JavaScript version the output and built-in types assume |
+| `types` | `[]` | No `@types/*` packages are loaded unless you list them |
+| `module` | `esnext` | ES modules |
+
+`strict` is the important one. It switches on checks such as "no parameter may silently have the type `any`":
+
+```ts title="implicit_any.ts"
+function double(x) {
+  return x * 2;
+}
+
+console.log(double(4));
+```
+
+Checking it with the default options (`--ignoreConfig`, explained below) reports the problem:
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig implicit_any.ts
+```
+
+```text
+implicit_any.ts:1:17 - error TS7006: Parameter 'x' implicitly has an 'any' type.
+
+1 function double(x) {
+                  ~
+
+Found 1 error in implicit_any.ts:1
+```
+
+`any` is a type that switches checking off, which a lesson in the next module explains. Strict mode makes you write the type. Running `npx tsc --noEmit --ignoreConfig --strict false implicit_any.ts` accepts the same file, which shows what the old default allowed. This track always uses `strict`.
+
+## The course configuration
+
+The runnable examples in this track share one small configuration:
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "esnext",
+    "module": "nodenext",
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true
+  }
+}
+```
+
+Each line has a reason:
+
+- `noEmit`: check only, write no `.js` files. Node.js runs the `.ts` files.
+- `target` and `module`: modern JavaScript, and the module rules that Node.js uses (`nodenext`).
+- `erasableSyntaxOnly`: report syntax that Node.js cannot strip, as the [previous lesson](../running-typescript/) showed.
+- `verbatimModuleSyntax`: require `import type` where an import is only a type. A later module covers this.
+- `rewriteRelativeImportExtensions`: allow imports that end in `.ts`, which Node.js needs.
+
+## Checking with and without a config
+
+With a `tsconfig.json` in the folder, `npx tsc --noEmit` checks the whole project. If you also name a file, the compiler refuses:
+
+```bash frame="terminal"
+npx tsc --noEmit implicit_any.ts
+```
+
+```text
+error TS5112: tsconfig.json is present but will not be loaded if files are specified on commandline. Use '--ignoreConfig' to skip this error.
+```
+
+Either drop the file name to check the project, or add `--ignoreConfig` to check one file with default options. This rule arrived in TypeScript 6.0, so older tutorials that run `tsc file.ts` inside a project no longer work as written.
+
+## The most common first error: Cannot find name 'process'
+
+Node.js provides `process`, but TypeScript does not know about it. Here is a file that uses it:
+
+```ts
+const args = process.argv.slice(2);
+console.log(args.length);
+```
+
+```text
+argc.ts(1,14): error TS2591: Cannot find name 'process'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+```
+
+The message says what to do, and both steps are needed. The package `@types/node` holds the declarations. Because `types` defaults to `[]`, you must also list it. Install it, then edit the config:
+
+```bash frame="terminal"
+npm install --save-dev @types/node
+```
+
+```json title="tsconfig.json (excerpt)"
+{
+  "compilerOptions": {
+    "types": ["node"]
+  }
+}
+```
+
+After that, `npx tsc --noEmit` passes, and `node argc.ts a b` prints `2`.
+
+## Common pitfalls
+
+- **Installing `@types/node` and forgetting `"types": ["node"]`.** The error stays. Both steps are needed since 6.0.
+- **Copying an old config.** Options such as `target: "ES5"`, `moduleResolution: "node"` and `baseUrl` were removed in TypeScript 7.0. The compiler reports an error and `ignoreDeprecations` no longer rescues them.
+- **Turning `strict` off to make errors go away.** The errors describe real risks. Fix the code.
+- **Expecting Node.js to read `tsconfig.json`.** It does not. The file configures `tsc` and your editor only.
+
+<Exercise title="Fix a failing configuration">
+
+In a project that has `typescript` but not `@types/node`, a file `argv_count.ts` uses `process.argv` and `tsc` reports `TS2591`. Write the two changes that make `npx tsc --noEmit` pass. Expected: no output from `tsc`, and `node argv_count.ts a b` prints `2`.
+
+<Solution>
+
+```bash frame="terminal"
+npm install --save-dev @types/node
+```
+
+```json title="tsconfig.json (excerpt)"
+{
+  "compilerOptions": {
+    "types": ["node"]
+  }
+}
+```
+
+The package supplies the declarations, and the `types` list tells the compiler to load them. This solution is configuration, so it has no file under `examples/`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Satisfy strict mode">
+
+This function fails under `strict` with `TS7006`. Give the parameter and the return value a type so that `tsc` accepts it, then call it with `4` and print the result. Expected output: `12`.
+
+```ts
+function triple(x) {
+  return x * 3;
+}
+```
+
+<Solution>
+
+```ts title="implicit_any_fixed.ts"
+function triple(x: number): number {
+  return x * 3;
+}
+
+console.log(triple(4));
+```
+
+```text
+12
+```
+
+The annotation removes the implicit `any`. The return annotation is optional here, because the compiler can work it out, which the next module explains.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fix a null assignment">
+
+Under `strict`, `null` is not a valid string. This line fails with `TS2322`: `const nickname: string = null;`. Change the annotation so that it accepts both a string and `null` (the type `string | null`, where `|` means "or"), then print `nickname ?? "no nickname"`. Expected output: `no nickname`. The `??` operator picks the right side when the left is `null` or `undefined`; the [JavaScript lesson](../../../javascript/beginner/null-undefined-nullish/) covers it.
+
+<Solution>
+
+```ts title="null_name.ts"
+const nickname: string | null = null;
+
+console.log(nickname ?? "no nickname");
+```
+
+```text
+no nickname
+```
+
+Unions get their own lesson in the next module. Here it is enough to know that the annotation now admits two kinds of value.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- `npx tsc --init` writes a `tsconfig.json`. Since TypeScript 6.0, an empty config means `strict` on, `target` `es2025` and no automatic `@types` packages.
+- This course uses a small config with `noEmit`, `module: nodenext`, `erasableSyntaxOnly` and `verbatimModuleSyntax`.
+- With a `tsconfig.json` present, `tsc file.ts` fails with `TS5112` unless you add `--ignoreConfig`.
+- Using Node.js APIs needs `@types/node` installed and `"types": ["node"]` in the config.
+
+Next: [reading compiler errors](../reading-errors/).
