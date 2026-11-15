@@ -81,7 +81,7 @@ npx tsc --noEmit --ignoreConfig --pretty false exh_missing.ts
 ```
 
 ```text
-
+exh_missing.ts(13,13): error TS2322: Type '{ kind: "triangle"; base: number; height: number; }' is not assignable to type 'never'.
 ```
 
 If a program has ten `switch` statements over `Shape`, each with this `default`, adding `"triangle"` produces ten errors, one at each place that needs a new case. That list is your to-do list.
@@ -153,7 +153,7 @@ npx tsc --noEmit --ignoreConfig --pretty false exh_assert_never_missing.ts
 ```
 
 ```text
-
+exh_assert_never_missing.ts(14,26): error TS2345: Argument of type '"yellow"' is not assignable to parameter of type 'never'.
 ```
 
 An `if` chain works as well as a `switch`, and the helper also protects you at run time. TypeScript checks only what it can see, and data from a network or a file may be anything. Here a value that is not in the union gets through because `as "red"` tells the compiler to trust you that the value has that type. It is a type assertion, and it is the reason data from outside needs this safety net:
@@ -248,7 +248,7 @@ npx tsc --noEmit --ignoreConfig --pretty false exh_satisfies_missing.ts
 ```
 
 ```text
-
+exh_satisfies_missing.ts(10,13): error TS1360: Type '"yellow"' does not satisfy the expected type 'never'.
 ```
 
 ## The return type already checks
@@ -277,7 +277,7 @@ npx tsc --noEmit --ignoreConfig --pretty false exh_return_type.ts
 ```
 
 ```text
-
+exh_return_type.ts(3,31): error TS2366: Function lacks ending return statement and return type does not include 'undefined'.
 ```
 
 That is enough when every case returns. The `never` default is better when cases do not return, and for a function that returns `void`, where nothing else would complain.

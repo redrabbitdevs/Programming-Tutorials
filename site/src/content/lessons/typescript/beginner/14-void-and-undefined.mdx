@@ -123,7 +123,7 @@ The two cases are consistent. A function that you declare with a `void` return t
 
 ## undefined: an actual value
 
-`undefined` is a value, and `undefined` as a return type means the function returns that value. Before TypeScript 5.1, such a function needed an explicit `return undefined;`. <Since v="5.1" /> Now a function whose return type is `undefined` (or includes it) may simply reach the end of its body.
+`undefined` is a value, and `undefined` as a return type means the function returns that value. Before TypeScript [5.1](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-1.html), such a function needed an explicit `return undefined;`. <Since v="5.1" /> Now a function whose return type is `undefined` (or includes it) may simply reach the end of its body.
 
 ```ts title="undefined_return.ts"
 function noop(): undefined {}

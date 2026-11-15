@@ -132,7 +132,7 @@ When Node.js runs your `.ts` files directly, the import must name the file that 
 
 Writing `.ts` raises a question: what happens if you still compile with `tsc` and run the JavaScript it emits? An import of `./point.ts` would then point at a file that is not in the output folder.
 
-The option `rewriteRelativeImportExtensions` <Since v="5.7" /> solves that. Without it, the compiler rejects an import path ending in `.ts` with error TS5097. With it, the path is accepted and then rewritten in the emitted code. This is what `tsc --outDir dist` writes for `main.ts`:
+The option `rewriteRelativeImportExtensions` <Since v="5.7" /> ([TypeScript 5.7 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-7.html)) solves that. Without it, the compiler rejects an import path ending in `.ts` with error TS5097. With it, the path is accepted and then rewritten in the emitted code. This is what `tsc --outDir dist` writes for `main.ts`:
 
 ```js title="dist/main.js"
 import { distance } from "./distance.js";

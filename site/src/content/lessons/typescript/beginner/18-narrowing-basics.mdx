@@ -93,7 +93,7 @@ npx tsc --noEmit --ignoreConfig --pretty false narrow_typeof_null.ts
 ```
 
 ```text
-
+narrow_typeof_null.ts(3,12): error TS18047: 'value' is possibly 'null'.
 ```
 
 At run time the same mistake is a crash, because `null.length` throws:
@@ -229,7 +229,7 @@ node narrow_nullish_eq.ts
 
 ## Always-true checks
 
-Some conditions can never be false. <Since v="5.6" /> The compiler reports ones it can see from the syntax alone: a regular expression, an object or function literal, and similar expressions. The usual cause is forgetting to call something:
+Some conditions can never be false. <Since v="5.6" /> ([TypeScript 5.6 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-6.html)) The compiler reports ones it can see from the syntax alone: a regular expression, an object or function literal, and similar expressions. The usual cause is forgetting to call something:
 
 ```ts title="always_truthy.ts"
 function isHex(text: string): boolean {
@@ -249,7 +249,7 @@ npx tsc --noEmit --ignoreConfig --pretty false always_truthy.ts
 ```
 
 ```text
-
+always_truthy.ts(2,7): error TS2872: This kind of expression is always truthy.
 ```
 
 The fix is to call `test`:
@@ -293,7 +293,7 @@ npx tsc --noEmit --ignoreConfig --pretty false uncalled_function.ts
 ```
 
 ```text
-
+uncalled_function.ts(5,5): error TS2774: This condition will always return true since this function is always defined. Did you mean to call it instead?
 ```
 
 ## Common pitfalls

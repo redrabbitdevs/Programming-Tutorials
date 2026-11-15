@@ -104,7 +104,9 @@ npx tsc --noEmit --ignoreConfig --pretty false iface_conflict.ts
 ```
 
 ```text
-
+iface_conflict.ts(5,11): error TS2430: Interface 'Derived' incorrectly extends interface 'Base'.
+  Types of property 'id' are incompatible.
+    Type 'number' is not assignable to type 'string'.
 ```
 
 An intersection does not complain about the clash. It combines `string` and `number` into `never`, and the problem shows up later, when a value is created:
@@ -124,7 +126,7 @@ npx tsc --noEmit --ignoreConfig --pretty false alias_conflict.ts
 ```
 
 ```text
-
+alias_conflict.ts(4,25): error TS2322: Type 'number' is not assignable to type 'never'.
 ```
 
 That is an advantage of interfaces: mistakes in the shape are reported where you write the shape.
@@ -173,7 +175,8 @@ npx tsc --noEmit --ignoreConfig --pretty false merge_alias.ts
 ```
 
 ```text
-
+merge_alias.ts(1,6): error TS2300: Duplicate identifier 'Settings'.
+merge_alias.ts(2,6): error TS2300: Duplicate identifier 'Settings'.
 ```
 
 ## What only a type alias can do

@@ -70,14 +70,14 @@ npx tsc --noEmit --ignoreConfig --pretty false opt_required.ts
 ```
 
 ```text
-
+opt_required.ts(6,7): error TS2741: Property 'name' is missing in type '{}' but required in type 'NameRequired'.
 ```
 
 If a caller may leave something out, use `?`. If a caller must decide, use `| undefined` and make them write it.
 
 ## Exact optional properties
 
-By default, an optional property also accepts `undefined` as a value, so `{ theme: undefined }` fits `{ theme?: string }`. In JavaScript, though, the two objects are different: `"theme" in object` is `true` for one and `false` for the other, and code that copies or merges objects can behave differently. The option **`exactOptionalPropertyTypes`** closes the gap, so that `?` means "may be absent", not "may be undefined". It is not part of `strict`, but `tsc --init` turns it on in a new `tsconfig.json` since TypeScript 5.9. <Since v="5.9" />
+By default, an optional property also accepts `undefined` as a value, so `{ theme: undefined }` fits `{ theme?: string }`. In JavaScript, though, the two objects are different: `"theme" in object` is `true` for one and `false` for the other, and code that copies or merges objects can behave differently. The option **`exactOptionalPropertyTypes`** closes the gap, so that `?` means "may be absent", not "may be undefined". It is not part of `strict`, but `tsc --init` turns it on in a new `tsconfig.json` since TypeScript [5.9](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-9.html). <Since v="5.9" />
 
 ```ts title="exact_optional.ts"
 interface Settings {
@@ -190,7 +190,7 @@ npx tsc --noEmit --ignoreConfig --pretty false readonly_prop.ts
 ```
 
 ```text
-
+readonly_prop.ts(7,8): error TS2540: Cannot assign to 'id' because it is a read-only property.
 ```
 
 `Readonly<T>` is a built-in helper that makes every property of `T` read-only, which saves repeating the keyword. The intermediate level covers helpers like it in detail.
@@ -214,7 +214,7 @@ npx tsc --noEmit --ignoreConfig --pretty false readonly_utility.ts
 ```
 
 ```text
-
+readonly_utility.ts(7,8): error TS2540: Cannot assign to 'port' because it is a read-only property.
 ```
 
 ## readonly is shallow
@@ -264,7 +264,7 @@ npx tsc --noEmit --ignoreConfig --pretty false readonly_shallow_bad.ts
 ```
 
 ```text
-
+readonly_shallow_bad.ts(7,14): error TS2339: Property 'push' does not exist on type 'readonly string[]'.
 ```
 
 ## readonly is only a compile-time rule

@@ -4,7 +4,7 @@ level: beginner
 module: Unions and narrowing
 order: 19
 title: Narrowing with in and instanceof
-description: Tell object types apart with the in operator and instanceof, handle caught errors safely, and use switch (true) and Symbol.hasInstance as narrowing tools.
+description: Tell object types apart with the in operator and instanceof, handle caught errors safely, and and use switch (true) as a narrowing tool.
 minVersion: "5.0"
 objectives:
   - Narrow a union of object types with `in`
@@ -15,7 +15,7 @@ estimatedMinutes: 30
 fundamentals: []
 ---
 
-`typeof` can tell a string from a number, but every object is just `"object"`. To tell one kind of object from another, JavaScript offers two tests: `in`, which asks whether a property exists, and `instanceof`, which asks whether a value was made by a given class or constructor. The compiler understands both. This lesson builds on [narrowing basics](../narrowing-basics/) and uses `in` and `instanceof` as covered in [objects](../../../javascript/beginner/objects-js/) and [classes](../../../javascript/intermediate/classes/).
+`typeof` can tell a string from a number, but every object is just `"object"`. To tell one kind of object from another, JavaScript offers two tests: `in`, which asks whether a property exists, and `instanceof`, which asks whether a value was made by a given class or constructor. The compiler understands both. This lesson builds on [narrowing basics](../narrowing-basics/) and uses `in` and `instanceof` as covered in [objects](../../../javascript/beginner/objects-js/). The `instanceof` section needs class syntax, a JavaScript intermediate topic, so read [classes](../../../javascript/intermediate/classes/) first.
 
 ## in: does the property exist?
 
@@ -49,7 +49,7 @@ flap
 
 ## in on a type that does not list the property
 
-An `object` type says nothing about properties, so `value.name` is an error. Since TypeScript 4.9, an `in` check also works there: inside the check, the compiler adds the property with type `unknown`. First the error:
+An `object` type says nothing about properties, so `value.name` is an error. Since TypeScript [4.9](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-4-9.html), an `in` check also works there: inside the check, the compiler adds the property with type `unknown`. First the error:
 
 ```ts title="in_unlisted_bad.ts"
 function readName(value: object): unknown {
@@ -66,7 +66,7 @@ npx tsc --noEmit --ignoreConfig --pretty false in_unlisted_bad.ts
 ```
 
 ```text
-
+in_unlisted_bad.ts(2,16): error TS2339: Property 'name' does not exist on type 'object'.
 ```
 
 With the `in` check, the property exists, and a `typeof` test narrows its `unknown` type further:
@@ -140,7 +140,7 @@ npx tsc --noEmit --ignoreConfig --pretty false catch_unknown_bad.ts
 ```
 
 ```text
-
+catch_unknown_bad.ts(4,15): error TS18046: 'error' is of type 'unknown'.
 ```
 
 Check with `instanceof Error` first:
@@ -175,7 +175,7 @@ Remember that `instanceof` works on objects made by a constructor. It is `false`
 
 ## switch (true)
 
-A `switch` can compare against `true`, so each `case` holds a condition. <Since v="5.3" /> The compiler narrows inside each case, as it would in an `if` chain.
+A `switch` can compare against `true`, so each `case` holds a condition. <Since v="5.3" /> ([TypeScript 5.3 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-3.html)) The compiler narrows inside each case, as it would in an `if` chain.
 
 ```ts title="switch_true.ts"
 function classify(value: string | number | null): string {
@@ -203,39 +203,6 @@ text of 3 number 2.0 nothing
 ```
 
 This reads well when there are several different kinds of test. A plain `if` chain does the same.
-
-## Custom instanceof with Symbol.hasInstance
-
-Any object with a `[Symbol.hasInstance]` method can stand on the right of `instanceof`, as covered under [symbols](../../../javascript/intermediate/symbols/). <Since v="5.3" /> If that method is declared as a type guard, as `value is string[]` below, the compiler narrows by it.
-
-```ts title="has_instance.ts"
-const StringArray = {
-  [Symbol.hasInstance](value: unknown): value is string[] {
-    return Array.isArray(value) && value.every((x) => typeof x === "string");
-  },
-};
-
-function joinAll(value: unknown): string {
-  if (value instanceof StringArray) {
-    return value.join("+");
-  }
-  return "not a list of strings";
-}
-
-console.log(joinAll(["a", "b"]), joinAll([1, 2]));
-```
-
-The method returns `true` for arrays of strings only. Inside the `if`, `value` is `string[]`.
-
-```bash frame="terminal"
-node has_instance.ts
-```
-
-```text
-a+b not a list of strings
-```
-
-You will rarely write this yourself. It matters because it explains why `instanceof` can narrow things that are not classes.
 
 ## Common pitfalls
 
@@ -351,7 +318,7 @@ A parameter of type `unknown` accepts the caught value. `instanceof Error` narro
 
 - `"key" in value` narrows a union to the members that can have `key`. On an `object`, it adds the property as `unknown`.
 - `value instanceof Class` narrows to that class. Use it on caught errors, which are `unknown`.
-- <Since v="5.3" /> `switch (true)` narrows inside each case, and a `Symbol.hasInstance` type guard lets `instanceof` narrow to non-class types.
+- <Since v="5.3" /> `switch (true)` narrows inside each case.
 - `typeof` is for primitives, `in` and `instanceof` are for objects.
 
 Next: discriminated unions, which use a tag property to tell object types apart.

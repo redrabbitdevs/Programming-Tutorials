@@ -105,7 +105,7 @@ If you do not want the file loaded at all, use `import type`.
 
 ## verbatimModuleSyntax
 
-You do not need to remember which names are types. The option **`verbatimModuleSyntax`** <Since v="5.0" /> makes the compiler check it. Its rule is simple: what you write is what you get. An import without `type` is kept, and an import with `type` is erased. So an import without `type` of something that is only a type is an error, found at compile time and not at start-up:
+You do not need to remember which names are types. The option **`verbatimModuleSyntax`** <Since v="5.0" /> ([TypeScript 5.0 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-0.html)) makes the compiler check it. Its rule is simple: what you write is what you get. An import without `type` is kept, and an import with `type` is erased. So an import without `type` of something that is only a type is an error, found at compile time and not at start-up:
 
 ```bash frame="terminal"
 npx tsc --noEmit --ignoreConfig --pretty false --module nodenext \
@@ -163,7 +163,7 @@ node use_index.ts
 
 ## export type *
 
-A module that re-exports everything from another one can use a star. Writing `export type *` re-exports all the names from the other file as types only, which makes a file that can only ever be used for types. <Since v="5.0" /> There is also a namespace form, `export type * as shapes from "./shapes.ts"`.
+A module that re-exports everything from another one can use a star. Writing `export type *` re-exports all the names from the other file as types only, which makes a file that can only ever be used for types. <Since v="5.0" /> ([TypeScript 5.0 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-0.html)) There is also a namespace form, `export type * as shapes from "./shapes.ts"`.
 
 ```ts title="shapes_types.ts"
 export type * from "./shapes.ts";

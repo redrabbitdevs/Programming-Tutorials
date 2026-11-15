@@ -71,7 +71,8 @@ npx tsc --noEmit --ignoreConfig --pretty false disc_no_check.ts
 ```
 
 ```text
-
+disc_no_check.ts(6,16): error TS2339: Property 'radius' does not exist on type 'Shape'.
+  Property 'radius' does not exist on type '{ kind: "square"; side: number; }'.
 ```
 
 An `if` works the same way as a `switch`, and the type of the tag property decides everything. That property can have any name, and `kind`, `type`, `status` and `tag` are common.
@@ -170,7 +171,9 @@ npx tsc --noEmit --ignoreConfig --pretty false disc_impossible.ts
 ```
 
 ```text
-
+disc_impossible.ts(9,3): error TS2353: Object literal may only specify known properties, and 'message' does not exist in type '{ status: "success"; data: string[]; }'.
+disc_impossible.ts(12,7): error TS2322: Type '{ status: "success"; }' is not assignable to type 'FetchState'.
+  Property 'data' is missing in type '{ status: "success"; }' but required in type '{ status: "success"; data: string[]; }'.
 ```
 
 Design the union so that every valid state can be written and every invalid one cannot. Then the compiler checks your logic for you.
@@ -199,7 +202,10 @@ npx tsc --noEmit --ignoreConfig --pretty false disc_widened.ts
 ```
 
 ```text
-
+disc_widened.ts(10,23): error TS2345: Argument of type '{ kind: string; side: number; }' is not assignable to parameter of type 'Shape'.
+  Type '{ kind: string; side: number; }' is not assignable to type '{ kind: "square"; side: number; }'.
+    Types of property 'kind' are incompatible.
+      Type 'string' is not assignable to type '"square"'.
 ```
 
 Annotate the variable with the union type, and the literal is kept:

@@ -36,7 +36,7 @@ added 2 packages, and audited 3 packages in 2s
 found 0 vulnerabilities
 ```
 
-Two packages, because the TypeScript 7 compiler is a native program. The `typescript` package is a small launcher, and npm downloads one extra package that holds the compiler built for your operating system and processor (on Linux with an x64 processor it is `@typescript/typescript-linux-x64`). The other platforms are skipped. The package has no install script, so nothing runs during installation.
+Two packages, because the TypeScript 7 compiler is a native program ([TypeScript 7 README](https://github.com/microsoft/typescript-go/blob/main/README.md)). The `typescript` package is a small launcher, and npm downloads one extra package that holds the compiler built for your operating system and processor (on Linux with an x64 processor it is `@typescript/typescript-linux-x64`). The other platforms are skipped. The package has no install script, so nothing runs during installation.
 
 Open `package.json`. The installed version is recorded under `devDependencies`:
 

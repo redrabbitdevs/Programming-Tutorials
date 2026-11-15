@@ -16,6 +16,9 @@ Add "#2" to the title for the second block with that title in a lesson.
 An allowlist entry that no longer matches a mismatch is an error, so the list
 cannot go stale.
 
+Every untitled `text` block must have content: an empty output box (a command
+with nothing under it) fails, in every lesson of every language.
+
 Usage: scripts/check_lesson_examples.py [-v]     (standard library only)
 """
 import difflib
@@ -122,6 +125,11 @@ def main():
     checked = failures = allowed = unmatched = 0
     for lesson in sorted(LESSONS.rglob("*.mdx")):
         rel = lesson.relative_to(LESSONS).as_posix()
+        for line, lang, title, rest, code in parse_blocks(lesson):
+            if lang == "text" and title is None and not rest and not code.strip():
+                failures += 1
+                print(f"FAIL {lesson.relative_to(ROOT)}:{line}: empty text "
+                      "(output) block")
         seen = {}
         for it in collect(lesson):
             seen[it["title"]] = seen.get(it["title"], 0) + 1
