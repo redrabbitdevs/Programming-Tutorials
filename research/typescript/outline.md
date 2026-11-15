@@ -27,7 +27,7 @@ Columns: slug | title | objectives | key concepts | minVersion | exercise idea
 
 ## Beginner (32 lessons)
 
-Assumes the JavaScript Beginner level (modules B1 to B6) and the shared fundamentals F1 to F3.
+Assumes the JavaScript Beginner level (modules B1 to B6), plus the JavaScript Intermediate lessons `this-in-depth`, `classes` and `private-and-static` before module B5 (lessons 16, 19, 25, 26 link to them) and the shared fundamentals F1 to F3.
 
 ### Module B1 - Getting started with TypeScript (5)
 
@@ -66,7 +66,7 @@ Assumes the JavaScript Beginner level (modules B1 to B6) and the shared fundamen
 |---|---|---|---|---|---|
 | `union-types` | Union types | Accept several kinds of value safely | `A \| B`, what you can do with a union, unions vs overloads [F:conditionals] | TS 5.0 / Node 22 | `formatId(id: string \| number)` |
 | `narrowing-basics` | Narrowing with typeof, truthiness and equality | Make a union specific | control-flow analysis, `typeof`, truthiness pitfalls with `0`/`""` [JS:coercion], `===`, 5.6 errors on always-truthy checks | TS 5.6 / Node 22 | Fix 5 narrowing bugs the compiler reports |
-| `in-instanceof-narrowing` | Narrowing with in and instanceof | Narrow objects and classes | `in` (unlisted properties, 4.9), `instanceof`, `Symbol.hasInstance` (5.3), `switch (true)` (5.3) | TS 5.3 / Node 22 | Handle `Error \| Response \| string` results |
+| `in-instanceof-narrowing` | Narrowing with in and instanceof | Narrow objects and classes | `in` (unlisted properties, 4.9), `instanceof`, `switch (true)` (5.3); `Symbol.hasInstance` narrowing moves to the intermediate `type-predicates` lesson | TS 5.3 / Node 22 | Handle `Error \| Response \| string` results |
 | `discriminated-unions` | Discriminated unions | Model states with a tag field | `kind` tags, `switch` on the tag, impossible states made unrepresentable | TS 5.0 / Node 22 | Model a fetch state: idle, loading, success, error |
 | `exhaustiveness` | Exhaustiveness checking with never | Make the compiler find missing cases | `never` in `default`, `assertNever`, `satisfies never` | TS 5.0 / Node 22 | Add a new shape and let the compiler list every place to update |
 | `null-and-undefined-strict` | strictNullChecks, ?. and ?? | Handle missing values with the compiler's help | `strictNullChecks` (strict), `?.`/`??` types [JS:null-undefined-nullish], non-null `!` and why to avoid it, definite assignment | TS 6.0 / Node 22 | Remove every `!` from a module safely |

@@ -5,7 +5,7 @@ module: Interfaces, type aliases and classes
 order: 25
 title: Classes in TypeScript
 description: "Declare typed fields, choose between private and #private, and use readonly, protected, override and abstract, while keeping to syntax that Node.js can strip, which rules out parameter properties."
-minVersion: "5.8"
+minVersion: "5.0"
 objectives:
   - Declare typed fields and get a compile error for fields that are never set
   - Explain the difference between `private` and `#private`
@@ -15,7 +15,7 @@ estimatedMinutes: 35
 fundamentals: []
 ---
 
-A TypeScript class is a JavaScript class with types added. The syntax for classes, `extends`, `super`, getters and static members is the same as in [classes](../../../javascript/intermediate/classes/) and [private and static members](../../../javascript/intermediate/private-and-static/). What TypeScript adds is field types, access modifiers and a few keywords that exist only for the compiler. This lesson covers those. Everything here is erasable, meaning that Node.js can run it by stripping the types, as in [running TypeScript](../running-typescript/).
+**Before you start:** this lesson assumes class syntax from the JavaScript intermediate lessons [classes](../../../javascript/intermediate/classes/) and [private and static members](../../../javascript/intermediate/private-and-static/). A TypeScript class is a JavaScript class with types added. The syntax for classes, `extends`, `super`, getters and static members is the same as in [classes](../../../javascript/intermediate/classes/) and [private and static members](../../../javascript/intermediate/private-and-static/). What TypeScript adds is field types, access modifiers and a few keywords that exist only for the compiler. This lesson covers those. Everything here is erasable, meaning that Node.js can run it by stripping the types, as in [running TypeScript](../running-typescript/).
 
 ## Typed fields
 
@@ -72,7 +72,7 @@ npx tsc --noEmit --ignoreConfig --pretty false class_uninit.ts
 ```
 
 ```text
-
+class_uninit.ts(2,3): error TS2564: Property 'count' has no initializer and is not definitely assigned in the constructor.
 ```
 
 Give the field a value where it is declared, or make its type allow `undefined` with `?`:
@@ -148,7 +148,8 @@ npx tsc --noEmit --ignoreConfig --pretty false class_private_bad.ts
 ```
 
 ```text
-
+class_private_bad.ts(7,19): error TS2341: Property 'secret' is private and only accessible within class 'Vault'.
+class_private_bad.ts(8,19): error TS2339: Property 'hidden' does not exist on type 'Vault'.
 ```
 
 Prefer `#name` when the data really must be hidden. Use `private` when you want a lightweight convention that costs nothing at run time.
@@ -205,7 +206,7 @@ npx tsc --noEmit --ignoreConfig --pretty false class_protected_bad.ts
 ```
 
 ```text
-
+class_protected_bad.ts(8,20): error TS2445: Property 'name' is protected and only accessible within class 'Shape' and its subclasses.
 ```
 
 `readonly` allows assignment in the constructor and the field's declaration, and nowhere else:
@@ -233,7 +234,7 @@ npx tsc --noEmit --ignoreConfig --pretty false class_readonly_bad.ts
 ```
 
 ```text
-
+class_readonly_bad.ts(9,10): error TS2540: Cannot assign to 'id' because it is a read-only property.
 ```
 
 ## override and abstract
@@ -291,7 +292,7 @@ npx tsc --noEmit --ignoreConfig --pretty false class_override_typo.ts
 ```
 
 ```text
-
+class_override_typo.ts(8,12): error TS4117: This member cannot have an 'override' modifier because it is not declared in the base class 'Animal'. Did you mean 'speak'?
 ```
 
 The `noImplicitOverride` option, which is not part of `strict`, goes further and requires `override` on every overriding method.
@@ -346,7 +347,7 @@ npx tsc --noEmit --ignoreConfig --pretty false class_abstract_new.ts
 ```
 
 ```text
-
+class_abstract_new.ts(5,15): error TS2511: Cannot create an instance of an abstract class.
 ```
 
 ## Why there are no parameter properties
@@ -374,7 +375,7 @@ node param_property.ts
 SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript parameter property is not supported in strip-only mode
 ```
 
-With `erasableSyntaxOnly` <Since v="5.8" /> on, as in this course's configuration, the compiler reports it first, as error TS1294. Write the field and the assignment out instead:
+With `erasableSyntaxOnly` <Since v="5.8" /> ([TypeScript 5.8 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-8.html)) on, as in this course's configuration, the compiler reports it first, as error TS1294. Write the field and the assignment out instead:
 
 ```ts title="class_explicit_fields.ts"
 class Point {

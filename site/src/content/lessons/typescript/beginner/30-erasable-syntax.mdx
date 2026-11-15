@@ -33,7 +33,7 @@ A few TypeScript features do add something. An `enum` creates an object. A `name
 
 ## Finding them: erasableSyntaxOnly
 
-The option `erasableSyntaxOnly` <Since v="5.8" /> reports every non-erasable construct as error TS1294, so you find out while editing and not at start-up. The course configuration turns it on. Here is the first of the five:
+The option `erasableSyntaxOnly` <Since v="5.8" /> ([TypeScript 5.8 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-8.html)) reports every non-erasable construct as error TS1294, so you find out while editing and not at start-up. The course configuration turns it on. Here is the first of the five:
 
 ```ts title="enum_color.ts"
 enum Color {
@@ -65,7 +65,7 @@ npx tsc --noEmit --ignoreConfig --pretty false \
 enum_color.ts(1,6): error TS1294: This syntax is not allowed when 'erasableSyntaxOnly' is enabled.
 ```
 
-Node.js used to offer a flag, `--experimental-transform-types`, that generated the missing code. Node.js 26 removed it, and this course does not use it. If you need an `enum` in a project, a compile step with `tsc` or a tool such as `tsx` handles it. For new code, the replacements below are simpler.
+Node.js used to offer a flag, `--experimental-transform-types`, that generated the missing code. Node.js 26 removed it ([Node.js TypeScript documentation](https://nodejs.org/api/typescript.html)), and this course does not use it. If you need an `enum` in a project, a compile step with `tsc` or a tool such as `tsx` handles it. For new code, the replacements below are simpler.
 
 ## Replacing enum
 

@@ -38,7 +38,7 @@ npx tsc --noEmit --ignoreConfig --pretty false null_strict.ts
 ```
 
 ```text
-
+null_strict.ts(1,7): error TS2322: Type 'null' is not assignable to type 'string'.
 ```
 
 With the option turned off on the command line, the same file compiles without complaint, and then crashes at run time when it meets a `null`:
@@ -170,7 +170,7 @@ npx tsc --noEmit --ignoreConfig --pretty false nonnull_missing.ts
 ```
 
 ```text
-
+nonnull_missing.ts(3,13): error TS2532: Object is possibly 'undefined'.
 ```
 
 Silencing that with `!` compiles, and fails when the key is missing:
@@ -249,7 +249,7 @@ npx tsc --noEmit --ignoreConfig --pretty false definite_bad.ts
 ```
 
 ```text
-
+definite_bad.ts(8,13): error TS2454: Variable 'total' is used before being assigned.
 ```
 
 Give the variable a value at the declaration:

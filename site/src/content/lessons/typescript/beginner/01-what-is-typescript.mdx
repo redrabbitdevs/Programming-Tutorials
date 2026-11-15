@@ -17,7 +17,7 @@ fundamentals: ["fundamentals/beginner/03-values-and-types"]
 
 TypeScript is JavaScript plus a type system. You write the same code you would write in JavaScript, add notes that say what kind of value each name holds, and a tool called the **compiler** reads those notes and reports mistakes before the program runs.
 
-This track assumes the [JavaScript beginner track](../../../javascript/beginner/what-is-javascript/). It does not teach variables, functions or modules again. It teaches the types you put on top of them. The fundamentals lesson on [values and types](../../../fundamentals/beginner/values-and-types/) explains the difference between static and dynamic typing, which is the idea this whole language rests on.
+This track assumes the [JavaScript beginner track](../../../javascript/beginner/what-is-javascript/). It does not teach variables, functions or modules again. It teaches the types you put on top of them. Lessons 16, 19, 25 and 26 also build on classes and `this`, which JavaScript teaches at the intermediate level, so read [`this` in depth](../../../javascript/intermediate/this-in-depth/), [classes](../../../javascript/intermediate/classes/) and [private and static members](../../../javascript/intermediate/private-and-static/) before module B5. Each of those lessons repeats the link in its opening paragraph. The fundamentals lesson on [values and types](../../../fundamentals/beginner/values-and-types/) explains the difference between static and dynamic typing, which is the idea this whole language rests on.
 
 ## What a type annotation looks like
 
@@ -118,7 +118,7 @@ What it adds is information for you, your editor and the compiler. Editors use t
 
 One practical difference: the old compiler could be used as a library by other tools with `import ts from "typescript"`. In 7.0 that programming interface is not stable yet, so tools that rely on it stay on 6.0 for now. You will not need it in this track.
 
-This track teaches TypeScript 7.0 with Node.js 26. Features newer than TypeScript 5.0 carry a version marker, such as <Since v="5.8" /> for the `erasableSyntaxOnly` option, because you will meet older codebases.
+This track teaches TypeScript 7.0 with Node.js 26. Features newer than TypeScript 5.0 carry a version marker, such as <Since v="5.8" /> for the `erasableSyntaxOnly` option ([TypeScript 5.8 release notes](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-8.html)), because you will meet older codebases.
 
 ## Common pitfalls
 

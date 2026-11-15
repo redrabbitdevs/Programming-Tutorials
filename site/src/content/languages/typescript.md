@@ -2,7 +2,7 @@
 slug: "typescript"
 name: "TypeScript"
 tier: 1
-paradigm: ["multi-paradigm", "functional", "generic", "imperative", "object-oriented"]
+paradigm: ["object-oriented", "functional", "imperative", "generic"]
 firstAppeared: 2012
 latestVersion: "7.0.2"
 latestVersionDate: "2026-07-08"

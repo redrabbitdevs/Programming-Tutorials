@@ -15,7 +15,7 @@ estimatedMinutes: 30
 fundamentals: []
 ---
 
-"Program to an interface, not to a class" is old advice. In TypeScript it is cheap to follow, because an interface costs nothing at run time and a function that asks for an interface accepts anything that fits. This lesson shows the keyword that makes a class promise to fit, and the rule that makes the keyword optional. It builds on [interfaces and aliases](../interfaces-vs-aliases/) and [classes](../classes-in-typescript/).
+"Program to an interface, not to a class" is old advice. In TypeScript it is cheap to follow, because an interface costs nothing at run time and a function that asks for an interface accepts anything that fits. This lesson shows the keyword that makes a class promise to fit, and the rule that makes the keyword optional. It builds on [interfaces and aliases](../interfaces-vs-aliases/) and [classes](../classes-in-typescript/), and so on the JavaScript intermediate lesson on [classes](../../../javascript/intermediate/classes/).
 
 ## implements
 
@@ -84,7 +84,8 @@ npx tsc --noEmit --ignoreConfig --pretty false impl_missing.ts
 ```
 
 ```text
-
+impl_missing.ts(6,7): error TS2420: Class 'ConsoleLogger' incorrectly implements interface 'Logger'.
+  Property 'flush' is missing in type 'ConsoleLogger' but required in type 'Logger'.
 ```
 
 A class can implement several interfaces at once, separated by commas:
@@ -144,7 +145,7 @@ npx tsc --noEmit --ignoreConfig --pretty false impl_no_infer.ts
 ```
 
 ```text
-
+impl_no_infer.ts(6,10): error TS7006: Parameter 'value' implicitly has an 'any' type.
 ```
 
 Write the types in the class:
@@ -296,7 +297,8 @@ npx tsc --noEmit --ignoreConfig --pretty false structural_private.ts
 ```
 
 ```text
-
+structural_private.ts(13,10): error TS2345: Argument of type 'OrderId' is not assignable to parameter of type 'UserId'.
+  Property '#value' in type 'OrderId' refers to a different member that cannot be accessed from within type 'UserId'.
 ```
 
 This is the nearest TypeScript gets to nominal typing, where a name matters and not only the shape. It is a trick to know about, and you will rarely need it. The intermediate level covers other ways to brand a type.

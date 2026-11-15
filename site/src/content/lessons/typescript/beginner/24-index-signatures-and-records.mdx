@@ -66,7 +66,7 @@ npx tsc --noEmit --ignoreConfig --pretty false index_sig_bad.ts
 ```
 
 ```text
-
+index_sig_bad.ts(6,1): error TS2322: Type 'string' is not assignable to type 'number'.
 ```
 
 Named properties in the same type must also fit the index signature, because they are reachable through it too:
@@ -88,7 +88,10 @@ npx tsc --noEmit --ignoreConfig --pretty false index_conflict.ts
 ```
 
 ```text
-
+index_conflict.ts(3,3): error TS2411: Property 'name' of type 'string' is not assignable to 'string' index type 'number'.
+index_conflict.ts(6,7): error TS2322: Type '{ name: string; }' is not assignable to type 'Profile'.
+  Property 'name' is incompatible with index signature.
+    Type 'string' is not assignable to type 'number'.
 ```
 
 ## Record
@@ -131,7 +134,7 @@ npx tsc --noEmit --ignoreConfig --pretty false record_missing.ts
 ```
 
 ```text
-
+record_missing.ts(3,7): error TS2741: Property 'wed' is missing in type '{ mon: number; tue: number; }' but required in type 'Record<Day, number>'.
 ```
 
 ## A missing key is not an error
@@ -158,7 +161,7 @@ node unchecked_runtime.ts
 TypeError: Cannot read properties of undefined (reading 'toFixed')
 ```
 
-The option **`noUncheckedIndexedAccess`** fixes the type. With it, reading through an index signature gives `V | undefined`, and you have to handle the `undefined`. It is not part of `strict`, but `tsc --init` writes it into a new `tsconfig.json` since TypeScript 5.9. <Since v="5.9" /> The same code now fails:
+The option **`noUncheckedIndexedAccess`** fixes the type. With it, reading through an index signature gives `V | undefined`, and you have to handle the `undefined`. It is not part of `strict`, but `tsc --init` writes it into a new `tsconfig.json` since TypeScript [5.9](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-9.html). <Since v="5.9" /> The same code now fails:
 
 ```bash frame="terminal"
 npx tsc --noEmit --ignoreConfig --noUncheckedIndexedAccess unchecked_runtime.ts
@@ -265,7 +268,7 @@ npx tsc --noEmit --ignoreConfig --pretty false map_bad.ts
 ```
 
 ```text
-
+map_bad.ts(2,20): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.
 ```
 
 As a rule: use a `Record` with literal keys for a fixed set of known names, a `Map` when the keys come from data, and a `Record<string, V>` for simple, trusted data such as JSON.
