@@ -1,0 +1,382 @@
+---
+language: typescript
+level: beginner
+module: Modules and a first project
+order: 30
+title: Erasable syntax only
+description: Know which TypeScript syntax Node.js can strip and which it cannot, find the rest with erasableSyntaxOnly, and rewrite enums, namespaces, parameter properties, import equals and angle-bracket assertions.
+minVersion: "5.8"
+objectives:
+  - Explain what makes TypeScript syntax erasable
+  - List the five constructs that are not erasable
+  - Find them with `erasableSyntaxOnly` and recognise the Node.js error
+  - Rewrite each construct with erasable syntax
+estimatedMinutes: 30
+fundamentals: []
+---
+
+When Node.js runs a `.ts` file, it does not compile it. It replaces the type annotations with blank space and runs what is left, which is JavaScript. This works only if everything TypeScript-specific in the file can be removed without changing what the program does. Syntax like that is called **erasable**. The [running TypeScript lesson](../running-typescript/) introduced the idea. This lesson lists the exceptions and shows the replacement for each.
+
+## What can be erased
+
+Take a typed function:
+
+```ts
+function double(n: number): number {
+  return n * 2;
+}
+```
+
+Blank out `: number` twice and what remains is a valid JavaScript function. The same holds for `interface` and `type` declarations, `as` assertions, generics, `import type` and the access keywords on class members. All of them describe the code and add nothing to it.
+
+A few TypeScript features do add something. An `enum` creates an object. A `namespace` with code creates a function that fills an object. These cannot be stripped, because something must be generated in their place, and Node.js only deletes. It refuses them.
+
+## Finding them: erasableSyntaxOnly
+
+The option `erasableSyntaxOnly` <Since v="5.8" /> reports every non-erasable construct as error TS1294, so you find out while editing and not at start-up. The course configuration turns it on. Here is the first of the five:
+
+```ts title="enum_color.ts"
+enum Color {
+  Red,
+  Green,
+}
+
+console.log(Color.Green);
+```
+
+Node.js refuses to run it:
+
+```bash frame="terminal"
+node enum_color.ts
+```
+
+```text
+SyntaxError [ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX]: TypeScript enum is not supported in strip-only mode
+```
+
+The compiler reports the same file earlier, and its message points at the construct:
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false \
+  --erasableSyntaxOnly enum_color.ts
+```
+
+```text
+enum_color.ts(1,6): error TS1294: This syntax is not allowed when 'erasableSyntaxOnly' is enabled.
+```
+
+Node.js used to offer a flag, `--experimental-transform-types`, that generated the missing code. Node.js 26 removed it, and this course does not use it. If you need an `enum` in a project, a compile step with `tsc` or a tool such as `tsx` handles it. For new code, the replacements below are simpler.
+
+## Replacing enum
+
+A union of literal types, from the [literal types lesson](../literal-types/), does the same job as an enum for most purposes, and it has no run-time code:
+
+```ts title="union_color.ts"
+type Color = "red" | "green";
+
+function paint(color: Color): string {
+  return `painting ${color}`;
+}
+
+console.log(paint("green"));
+```
+
+The union type is checked like any other.
+
+```bash frame="terminal"
+node union_color.ts
+```
+
+```text
+painting green
+```
+
+If you also need the names as values, for example to loop over them, keep them in an `as const` array. The intermediate level shows how to derive the union type from such an array.
+
+```ts title="as_const_levels.ts"
+const levels = ["low", "medium", "high"] as const;
+
+for (const level of levels) {
+  console.log(level.toUpperCase());
+}
+
+const first: "low" | "medium" | "high" = levels[0];
+console.log(first);
+```
+
+The array exists at run time, and its elements keep their exact types.
+
+```bash frame="terminal"
+node as_const_levels.ts
+```
+
+```text
+LOW
+MEDIUM
+HIGH
+low
+```
+
+`const enum` is also non-erasable, and the replacement is the same.
+
+## Replacing namespace
+
+A `namespace` that holds only types is erasable and runs, because there is nothing to generate. One that holds code is not:
+
+```ts title="namespace_code.ts"
+namespace Geometry {
+  export const pi = 3.14;
+}
+
+console.log(Geometry.pi);
+```
+
+This gives TS1294 and, in Node.js, `TypeScript namespace declaration is not supported in strip-only mode`. Namespaces were TypeScript's way of grouping code before ES modules existed. A module does the same job, so put the code in its own file and use `import * as geometry from "./geometry.ts"`. For something small, a plain object is enough:
+
+```ts title="geometry_object.ts"
+const pi = 3.14159;
+
+const geometry = {
+  pi,
+  area: (radius: number): number => pi * radius * radius,
+};
+
+console.log(geometry.area(2));
+```
+
+```bash frame="terminal"
+node geometry_object.ts
+```
+
+```text
+12.56636
+```
+
+## Replacing parameter properties
+
+A constructor parameter with an access keyword, such as `constructor(public x: number)`, declares a field and assigns it. Generating that assignment is code, so it is not erasable. The [classes lesson](../classes-in-typescript/) showed the fix: declare the field, and assign it in the constructor body.
+
+## Replacing import equals and export equals
+
+`import path = require("node:path")` and `export = value` are the TypeScript spellings for CommonJS modules. Node.js rejects both (`import equals declaration` and `export assignment`). Use the ES module syntax from the [modules lesson](../modules-in-typescript/):
+
+```ts title="import_default.ts"
+import path from "node:path";
+
+console.log(path.basename("/notes/today.txt"));
+```
+
+`path` is a Node.js built-in module, and the [next lesson](../types-for-node/) covers how TypeScript knows its types. For `export =`, write `export default value`, or export names.
+
+```bash frame="terminal"
+node import_default.ts
+```
+
+```text
+today.txt
+```
+
+## Replacing angle-bracket assertions
+
+TypeScript has two spellings for an assertion: `value as string`, and the older `<string>value`. Node.js does not accept the second. It reports `The angle-bracket syntax for type assertions, <T>expr, is not supported in type strip mode`. Use `as`:
+
+```ts title="as_assertion.ts"
+const input: unknown = "hello";
+const text = input as string;
+
+console.log(text.length);
+```
+
+```bash frame="terminal"
+node as_assertion.ts
+```
+
+```text
+5
+```
+
+## The list
+
+| Not erasable | Erasable replacement |
+|---|---|
+| `enum`, `const enum` | union of literals, or an `as const` array |
+| `namespace` with code | a module, or a plain object |
+| `constructor(public x: number)` | field declaration and assignment |
+| `import x = require()`, `export =` | `import x from`, `export default` |
+| `<T>value` | `value as T` |
+
+Decorators are not on the list because Node.js does not support them at all. A decorator is a syntax error there.
+
+## Common pitfalls
+
+- **Turning `erasableSyntaxOnly` off to silence TS1294.** The code then compiles and still fails in Node.js.
+- **Assuming every `namespace` is a problem.** One with only types is erasable.
+- **Copying an `enum` from an older tutorial.** Use a union of literals.
+- **Using `<T>value` out of habit.** Write `value as T`.
+
+<Exercise title="Rewrite five constructs">
+
+The file below uses five non-erasable constructs. `tsc --erasableSyntaxOnly` reports TS1294 for them. Rewrite the file so that it passes `tsc` and `node` runs it. Expected output: `[today.txt] UP`.
+
+```ts
+import path = require("node:path");
+
+enum Direction {
+  Up = "UP",
+  Down = "DOWN",
+}
+
+namespace Format {
+  export function label(text: string): string {
+    return `[${text}]`;
+  }
+}
+
+class Tag {
+  constructor(public name: string) {}
+}
+
+const raw: unknown = "notes/today.txt";
+const file = <string>raw;
+const tag = new Tag(Direction.Up);
+
+console.log(Format.label(path.basename(file)), tag.name);
+```
+
+<Solution>
+
+```ts title="ex_five.ts"
+import path from "node:path";
+
+type Direction = "UP" | "DOWN";
+
+const format = {
+  label(text: string): string {
+    return `[${text}]`;
+  },
+};
+
+class Tag {
+  name: string;
+
+  constructor(name: string) {
+    this.name = name;
+  }
+}
+
+const raw: unknown = "notes/today.txt";
+const file = raw as string;
+const up: Direction = "UP";
+const tag = new Tag(up);
+
+console.log(format.label(path.basename(file)), tag.name);
+```
+
+```text
+[today.txt] UP
+```
+
+Each construct has one replacement from the table, and the output is unchanged.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Replace a status enum">
+
+Rewrite this file without the `enum`, keeping the `switch` so that the compiler still checks that every status is handled. Expected output: `suspended`.
+
+```ts
+enum Status {
+  Active,
+  Suspended,
+  Closed,
+}
+
+function describe(status: Status): string {
+  switch (status) {
+    case Status.Active:
+      return "active";
+    case Status.Suspended:
+      return "suspended";
+    case Status.Closed:
+      return "closed";
+  }
+}
+
+console.log(describe(Status.Suspended));
+```
+
+<Solution>
+
+```ts title="ex_status.ts"
+type Status = "active" | "suspended" | "closed";
+
+function describe(status: Status): string {
+  switch (status) {
+    case "active":
+      return "active";
+    case "suspended":
+      return "suspended";
+    case "closed":
+      return "closed";
+  }
+}
+
+console.log(describe("suspended"));
+```
+
+```text
+suspended
+```
+
+The function still returns a `string` on every path. If you add a fourth status to the union and forget a case, `tsc` reports TS2366, a function that lacks a return on some path, which is the check from the [exhaustiveness lesson](../exhaustiveness/).
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Loop over the values">
+
+This file loops over the values of an enum. Replace the enum with something that still gives a list to loop over. Expected output: `H`, then `S`.
+
+```ts
+enum Suit {
+  Hearts = "H",
+  Spades = "S",
+}
+
+for (const suit of [Suit.Hearts, Suit.Spades]) {
+  console.log(suit);
+}
+```
+
+<Solution>
+
+```ts title="ex_suits.ts"
+const suits = ["H", "S"] as const;
+
+for (const suit of suits) {
+  console.log(suit);
+}
+```
+
+```text
+H
+S
+```
+
+A read-only array of exact values is a list at run time and a set of exact types for the compiler.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Erasable syntax is syntax that Node.js can blank out and leave valid JavaScript. Annotations, `interface`, `type`, `as`, and `import type` qualify.
+- Five constructs generate code and are refused: `enum`, `namespace` with code, parameter properties, `import =` and `export =`, and `<T>value`.
+- `erasableSyntaxOnly` <Since v="5.8" /> reports them as TS1294. Node.js reports `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`.
+- Use unions of literals or `as const` arrays, modules or objects, explicit fields, ES module syntax, and `as`.
+
+Next: [typing Node.js code](../types-for-node/).

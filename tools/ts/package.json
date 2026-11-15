@@ -3,6 +3,7 @@
   "private": true,
   "description": "Pinned TypeScript compiler that scripts/validate.sh uses to type-check examples/typescript.",
   "devDependencies": {
+    "@types/node": "26.6.6",
     "typescript": "7.0.2"
   }
 }

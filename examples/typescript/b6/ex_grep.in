@@ -1,0 +1,4 @@
+ok: started
+error: disk full
+ok: retrying
+error: timeout
