@@ -1,0 +1,2 @@
+{ verbose: true, files: [ 'a.txt', 'b.txt' ] }
+{ verbose: false, files: [] }

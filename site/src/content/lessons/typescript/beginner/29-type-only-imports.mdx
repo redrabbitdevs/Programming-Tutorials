@@ -1,0 +1,299 @@
+---
+language: typescript
+level: beginner
+module: Modules and a first project
+order: 29
+title: Type-only imports and verbatimModuleSyntax
+description: Import and export types so they erase cleanly, with import type, inline type specifiers, export type and export type *, and let verbatimModuleSyntax catch the mistakes that crash Node.js.
+minVersion: "5.0"
+objectives:
+  - Import a type with `import type` and with an inline `type` specifier
+  - Explain why Node.js crashes on a type imported without `type`
+  - Re-export types with `export type` and `export type *`
+  - Explain what `verbatimModuleSyntax` checks
+estimatedMinutes: 30
+fundamentals: []
+---
+
+A TypeScript file mixes two kinds of names. Values such as functions exist at run time. Types such as interfaces exist only for the compiler, and they vanish when the types are stripped. An import statement can bring in either kind, and when it brings in a type, something has to remove it before Node.js sees it. This lesson shows who does that and why you now tell them explicitly. It continues from [modules and file extensions](../modules-in-typescript/).
+
+## The crash
+
+Here is a module with a type and a function:
+
+```ts title="shapes.ts"
+export interface Shape {
+  w: number;
+}
+
+export type Id = number;
+
+export function area(shape: Shape): number {
+  return shape.w * shape.w;
+}
+```
+
+A second file imports both names in one braces list:
+
+```ts title="crash_import.ts"
+import { Shape, area } from "./shapes.ts";
+
+const square: Shape = { w: 3 };
+console.log(area(square));
+```
+
+To the compiler this looks fine, as long as it is configured the way older projects were, with no `verbatimModuleSyntax`. In that mode `tsc` quietly drops imports that are used only as types.
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --module nodenext \
+  --rewriteRelativeImportExtensions crash_import.ts
+```
+
+There is no output. Node.js does not drop anything, though. It removes the type annotations and keeps the import line as written. At that point `Shape` does not exist in `shapes.ts`, because the interface was removed too:
+
+```bash frame="terminal"
+node crash_import.ts
+```
+
+```text
+file:///home/you/type_only/crash_import.ts:1
+import { Shape, area } from "./shapes.ts";
+         ^^^^^
+SyntaxError: The requested module './shapes.ts' does not provide an export named 'Shape'
+```
+
+The type check passed, and the program crashed on start. Node.js strips syntax one file at a time and does not know which names in another file are types. The fix is to say it in the import.
+
+## import type and inline type
+
+There are two spellings. `import type` marks the whole statement as type-only:
+
+```ts title="import_type.ts"
+import type { Shape } from "./shapes.ts";
+import { area } from "./shapes.ts";
+
+const square: Shape = { w: 4 };
+console.log(area(square));
+```
+
+An inline `type` before a name marks just that name. This keeps one statement per module:
+
+```ts title="inline_type.ts"
+import { type Shape, area } from "./shapes.ts";
+
+const square: Shape = { w: 3 };
+console.log(area(square));
+```
+
+Both run, because the marked names are erased and the rest stays.
+
+```bash frame="terminal"
+node inline_type.ts
+```
+
+```text
+9
+```
+
+The two spellings differ in one detail. A statement that is entirely `import type` is removed completely. A statement whose names are all inline `type` is kept as an empty import, which still loads the file for its side effects. After compiling `import { type Shape } from "./shapes.ts"` the emitted JavaScript is:
+
+```js
+import {} from "./shapes.js";
+```
+
+If you do not want the file loaded at all, use `import type`.
+
+## verbatimModuleSyntax
+
+You do not need to remember which names are types. The option **`verbatimModuleSyntax`** <Since v="5.0" /> makes the compiler check it. Its rule is simple: what you write is what you get. An import without `type` is kept, and an import with `type` is erased. So an import without `type` of something that is only a type is an error, found at compile time and not at start-up:
+
+```bash frame="terminal"
+npx tsc --noEmit --ignoreConfig --pretty false --module nodenext \
+  --rewriteRelativeImportExtensions --verbatimModuleSyntax crash_import.ts
+```
+
+```text
+crash_import.ts(1,10): error TS1484: 'Shape' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+```
+
+The message names the name and the fix. The course configuration turns the option on, as the [tsconfig lesson](../tsconfig-first-look/) showed, so every example in this course passes through this check before Node.js sees it. The older options that tried to control this, `importsNotUsedAsValues` and `preserveValueImports`, no longer exist in TypeScript 7.
+
+## export type
+
+The same rule applies when a file re-exports. Re-exporting a name that is only a type with a plain `export` is an error, and `export type` is the fix:
+
+```ts title="reexport_bad.ts"
+export { Shape, area } from "./shapes.ts";
+```
+
+The compiler reports TS1205:
+
+```bash frame="terminal"
+npx tsc --noEmit --pretty false
+```
+
+```text
+reexport_bad.ts(1,10): error TS1205: Re-exporting a type when 'verbatimModuleSyntax' is enabled requires using 'export type'.
+```
+
+Split the statement, and keep the function as a normal export:
+
+```ts title="shapes_index.ts"
+export type { Id, Shape } from "./shapes.ts";
+export { area } from "./shapes.ts";
+```
+
+A file that imports from `shapes_index.ts` uses the same marks as before:
+
+```ts title="use_index.ts"
+import { area, type Id, type Shape } from "./shapes_index.ts";
+
+const id: Id = 7;
+const square: Shape = { w: 2 };
+console.log(id, area(square));
+```
+
+```bash frame="terminal"
+node use_index.ts
+```
+
+```text
+7 4
+```
+
+## export type *
+
+A module that re-exports everything from another one can use a star. Writing `export type *` re-exports all the names from the other file as types only, which makes a file that can only ever be used for types. <Since v="5.0" /> There is also a namespace form, `export type * as shapes from "./shapes.ts"`.
+
+```ts title="shapes_types.ts"
+export type * from "./shapes.ts";
+```
+
+Everything that comes through is type-only, including functions. Importing `area` from this file as a value is an error, because the function was exported "as a type":
+
+```ts title="types_only_use.ts"
+import { area, type Shape } from "./shapes_types.ts";
+
+const square: Shape = { w: 2 };
+console.log(area(square));
+```
+
+The compiler reports the import and the call:
+
+```bash frame="terminal"
+npx tsc --noEmit --pretty false
+```
+
+```text
+types_only_use.ts(1,10): error TS1485: 'area' resolves to a type-only declaration and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+types_only_use.ts(4,13): error TS1362: 'area' cannot be used as a value because it was exported using 'export type'.
+```
+
+Use `export type *` for a file that collects types, and import values from the module that defines them.
+
+## Common pitfalls
+
+- **Trusting an old `tsc` setup.** Without `verbatimModuleSyntax`, `tsc` hides the missing `type` and Node.js crashes. Keep the option on.
+- **Marking a class as `type`.** A class is both a type and a value. If you call `new` on it, import it normally. If you only use it in annotations, `type` is correct.
+- **Re-exporting a type with a plain `export`.** Use `export type`.
+- **Expecting an all-inline import to disappear.** It stays as an empty import. Use `import type` to remove it.
+- **Importing a value through an `export type *` file.** Import it from the real module.
+
+<Exercise title="Fix a project that crashes">
+
+`inventory.ts` exports an interface `Item`, a type `Cart` and a function `total`. The file `ex_fix_types_start.ts` below imports all three without `type`, so `node` crashes while a compile without `verbatimModuleSyntax` passes. Change only the import so that the program type-checks with `verbatimModuleSyntax` and prints `7`.
+
+```ts
+import { Cart, Item, total } from "./inventory.ts";
+
+const tea: Item = { name: "tea", price: 3 };
+const cart: Cart = [tea, { name: "cake", price: 4 }];
+console.log(total(cart));
+```
+
+<Solution>
+
+```ts title="ex_fix_types.ts"
+import { type Cart, type Item, total } from "./inventory.ts";
+
+const tea: Item = { name: "tea", price: 3 };
+const cart: Cart = [tea, { name: "cake", price: 4 }];
+console.log(total(cart));
+```
+
+```text
+7
+```
+
+`Cart` and `Item` are types and get `type`. `total` is a function and is imported as before.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A barrel with types and a function">
+
+A file `user.ts` exports an interface `User`, a type `Role` and a function `makeUser(name, role)`. Write `index.ts` that re-exports all three, and a main file that imports them from `./index.ts`, builds a user named `Ada` with the role `admin` and prints it. Expected output: `{ name: 'Ada', role: 'admin' }`.
+
+<Solution>
+
+```ts title="index.ts"
+export type { Role, User } from "./user.ts";
+export { makeUser } from "./user.ts";
+```
+
+```ts title="ex_type_barrel_main.ts"
+import { makeUser, type Role, type User } from "./index.ts";
+
+const role: Role = "admin";
+const user: User = makeUser("Ada", role);
+console.log(user);
+```
+
+```text
+{ name: 'Ada', role: 'admin' }
+```
+
+The types use `export type` and the function a plain `export`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A types-only file">
+
+`model.ts` exports an interface `Light` with `on: boolean` and a function `toggle(light)` that returns the opposite light. Write `model_types.ts` with one line that re-exports everything from `model.ts` as types. In a main file, import `Light` from `model_types.ts` and `toggle` from `model.ts`, then print `toggle({ on: false })`. Expected output: `{ on: true }`. Then try importing `toggle` from `model_types.ts` and name the two error codes.
+
+<Solution>
+
+```ts title="model_types.ts"
+export type * from "./model.ts";
+```
+
+```ts title="ex_types_only_main.ts"
+import { toggle } from "./model.ts";
+import type { Light } from "./model_types.ts";
+
+const light: Light = { on: false };
+console.log(toggle(light));
+```
+
+```text
+{ on: true }
+```
+
+Importing `toggle` from `model_types.ts` gives TS1485 on the import and TS1362 at the call, as in the lesson. The function was exported as a type, so it has no value there.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Types have no run-time existence. Node.js strips them, so it must be told which imported names are types.
+- `import type { T }` marks a whole statement, and `import { type T, f }` marks one name. A statement of only inline `type` names stays as an empty import.
+- `verbatimModuleSyntax` <Since v="5.0" /> keeps what you write and reports TS1484 when a type is imported without `type`.
+- Re-export types with `export type { T }` or `export type *`. A plain `export` of a type is TS1205.
+- The next lesson looks at the other half of "Node.js strips types": syntax that cannot be stripped.
+
+Next: [erasable syntax only](../erasable-syntax/).

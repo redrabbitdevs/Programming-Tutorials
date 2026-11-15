@@ -5,6 +5,8 @@
     "module": "nodenext",
     "rewriteRelativeImportExtensions": true,
     "erasableSyntaxOnly": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "types": ["node"],
+    "typeRoots": ["../../tools/ts/node_modules/@types"]
   }
 }

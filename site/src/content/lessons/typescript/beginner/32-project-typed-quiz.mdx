@@ -1,0 +1,707 @@
+---
+language: typescript
+level: beginner
+module: Modules and a first project
+order: 32
+title: "Project: a typed command-line quiz"
+description: Build a quiz in five checked stages with a discriminated union for questions, typed JSON data, validation of unknown input, small modules, and tsc before node.
+minVersion: "6.0"
+objectives:
+  - Model two kinds of question as a discriminated union
+  - Turn untyped JSON into typed data by narrowing `unknown`
+  - Split a program into modules and check each stage with `tsc --noEmit` and `node`
+  - Extend a finished program and let the compiler show what to change
+estimatedMinutes: 60
+fundamentals: ["fundamentals/beginner/12-errors-and-exceptions"]
+---
+
+This project ports the [JavaScript command-line quiz](../../../javascript/beginner/project-cli-quiz/) and uses most of the beginner level: unions and narrowing, interfaces, modules, type-only imports, `@types/node` and JSON modules. The ideas behind handling errors are in the [fundamentals lesson on errors and exceptions](../../../fundamentals/beginner/errors-and-exceptions/).
+
+The program asks questions from a data file, one at a time, and keeps asking until it gets a valid answer. At the end it prints a score. This version has two kinds of question: **choice** questions with numbered options, and **text** questions where you type a word. Two kinds make the types worth having, because every function that touches a question must handle both.
+
+## The plan
+
+- `types.ts` describes a question. `questions.json` holds the data, and `load.ts` checks it.
+- `grade.ts` judges an answer, `show.ts` formats text and `score.ts` does the arithmetic. None of them reads input.
+- `main.ts` reads the keyboard and joins everything.
+- After each stage, run `npx tsc --noEmit` and then a small demo with `node`. Types and behaviour are different checks, and a stage is done when both pass.
+
+Make a folder `quiz`, and set it up as in the earlier lessons:
+
+```bash frame="terminal"
+npm init -y
+npm pkg set type=module
+npm install --save-dev typescript @types/node
+```
+
+The configuration is the course configuration, with `types` set for Node.js:
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "esnext",
+    "module": "nodenext",
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "types": ["node"]
+  }
+}
+```
+
+## Stage 1: types, data and a loader
+
+A question has a `kind` that tells the two shapes apart, as in the [discriminated unions lesson](../discriminated-unions/).
+
+```ts title="types.ts"
+export interface ChoiceQuestion {
+  kind: "choice";
+  prompt: string;
+  choices: string[];
+  answer: number;
+}
+
+export interface TextQuestion {
+  kind: "text";
+  prompt: string;
+  answer: string;
+}
+
+export type Question = ChoiceQuestion | TextQuestion;
+```
+
+The data file lists five questions of both kinds.
+
+```json title="questions.json"
+[
+  {
+    "kind": "choice",
+    "prompt": "Which keyword declares a constant?",
+    "choices": ["var", "let", "const", "def"],
+    "answer": 2
+  },
+  {
+    "kind": "text",
+    "prompt": "Which keyword creates a type alias? (one word)",
+    "answer": "type"
+  },
+  {
+    "kind": "choice",
+    "prompt": "Which option reports syntax that Node.js cannot strip?",
+    "choices": ["noEmit", "erasableSyntaxOnly", "strict", "target"],
+    "answer": 1
+  },
+  {
+    "kind": "text",
+    "prompt": "Which type fits a value you have not checked yet? (one word)",
+    "answer": "unknown"
+  },
+  {
+    "kind": "choice",
+    "prompt": "Does Node.js check types when it runs a .ts file?",
+    "choices": ["yes", "no"],
+    "answer": 1
+  }
+]
+```
+
+Now a trap. Importing the JSON and calling it `Question[]` looks natural. Try this in a scratch file, and do not keep it in the project:
+
+```ts title="json_direct.ts"
+import raw from "./questions.json" with { type: "json" };
+import type { Question } from "./types.ts";
+
+const questions: Question[] = raw;
+console.log(questions.length);
+```
+
+It does not compile. TypeScript reads each `kind` in the JSON as a plain `string`, because JSON has no literal types:
+
+```bash frame="terminal"
+npx tsc --noEmit --pretty false
+```
+
+```text
+json_direct.ts(4,7): error TS2322: Type '({ kind: string; prompt: string; choices: string[]; answer: number; } | { choices?: undefined; kind: string; prompt: string; answer: string; })[]' is not assignable to type 'Question[]'.
+  ...
+          Type 'string' is not assignable to type '"choice"'.
+```
+
+The compiler is right to refuse. Someone can edit the file and write `"kind": "chocie"`, and no type could know. A cast with `as Question[]` would hide that. The loader instead treats the data as `unknown` and checks it, as in the [any, unknown and never lesson](../any-unknown-never/), so a bad file stops the program with a clear message. It is built from three functions. The first checks a list of choices:
+
+```ts title="load.ts"
+import raw from "./questions.json" with { type: "json" };
+import type { Question } from "./types.ts";
+
+function readChoices(value: unknown, where: string): string[] {
+  if (!Array.isArray(value) || value.length < 2) {
+    throw new Error(`${where}: needs at least two choices`);
+  }
+  const choices: string[] = [];
+  for (const choice of value) {
+    if (typeof choice !== "string") {
+      throw new Error(`${where}: every choice must be text`);
+    }
+    choices.push(choice);
+  }
+  return choices;
+}
+```
+
+`Array.isArray` narrows the value to an array, and the loop narrows each element with `typeof`, so `choices` really is a `string[]`. The second function checks one question. Its first half uses `in` narrowing, from the [narrowing lesson](../in-instanceof-narrowing/), to make sure the properties exist. It returns early for a text question.
+
+```ts title="load.ts (continued)"
+function parseQuestion(item: unknown, where: string): Question {
+  if (typeof item !== "object" || item === null) {
+    throw new Error(`${where}: must be an object`);
+  }
+  if (!("prompt" in item) || typeof item.prompt !== "string") {
+    throw new Error(`${where}: prompt must be text`);
+  }
+  if (!("kind" in item) || !("answer" in item)) {
+    throw new Error(`${where}: needs a kind and an answer`);
+  }
+  const prompt = item.prompt;
+  if (item.kind === "text" && typeof item.answer === "string") {
+    return { kind: "text", prompt, answer: item.answer };
+  }
+```
+
+The second half handles a choice question, and refuses anything else. Each `throw` names the question and the problem.
+
+```ts title="load.ts (continued)"
+  if (item.kind === "choice" && "choices" in item) {
+    const choices = readChoices(item.choices, where);
+    const answer = item.answer;
+    if (typeof answer === "number" && Number.isInteger(answer)) {
+      if (answer >= 0 && answer < choices.length) {
+        return { kind: "choice", prompt, choices, answer };
+      }
+    }
+    throw new Error(`${where}: answer is not one of the choices`);
+  }
+  throw new Error(`${where}: unknown kind or wrong answer type`);
+}
+```
+
+The last two functions check the whole list and expose the loader. `validate` is exported so that a demo can try it with bad data.
+
+```ts title="load.ts (continued)"
+export function validate(data: unknown): Question[] {
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new Error("The quiz needs at least one question");
+  }
+  return data.map((item, i) => parseQuestion(item, `question ${i + 1}`));
+}
+
+export function loadQuestions(): Question[] {
+  return validate(raw);
+}
+```
+
+A demo checks the loader:
+
+```ts title="check_data.ts"
+import { loadQuestions, validate } from "./load.ts";
+
+const questions = loadQuestions();
+console.log(`${questions.length} questions loaded`);
+console.log(questions.map((q) => q.kind).join(" "));
+
+const bad: unknown[] = [
+  [{ kind: "choice", prompt: "?", choices: ["only one"], answer: 0 }],
+  [{ kind: "text", prompt: "?", answer: 42 }],
+  [{ kind: "choice", prompt: "?", choices: ["a", "b"], answer: 5 }],
+];
+for (const data of bad) {
+  try {
+    validate(data);
+  } catch (error) {
+    console.log(error instanceof Error ? error.message : String(error));
+  }
+}
+```
+
+Run `npx tsc --noEmit`, which prints nothing, then `node check_data.ts`:
+
+```text
+5 questions loaded
+choice text choice text choice
+question 1: needs at least two choices
+question 1: unknown kind or wrong answer type
+question 1: answer is not one of the choices
+```
+
+The data loads, and each kind of mistake is reported by question number. Stage 1 is done.
+
+## Stage 2: grading
+
+`grade` takes a question and the typed text, and answers with one of three words. A union of literals says which.
+
+```ts title="grade.ts"
+import type { Question } from "./types.ts";
+
+export type Grade = "correct" | "wrong" | "invalid";
+
+export function grade(question: Question, text: string): Grade {
+  const typed = text.trim();
+  if (typed === "") {
+    return "invalid";
+  }
+```
+
+The `switch` is the important part. Inside `case "choice"`, `question` is a `ChoiceQuestion`, so `question.choices` exists. Inside `case "text"` it is a `TextQuestion`, and `question.answer` is a `string`, not a number.
+
+```ts title="grade.ts (continued)"
+  switch (question.kind) {
+    case "choice": {
+      const number = Number(typed);
+      if (!Number.isInteger(number)) return "invalid";
+      if (number < 1 || number > question.choices.length) return "invalid";
+      return number - 1 === question.answer ? "correct" : "wrong";
+    }
+    case "text": {
+      const same = typed.toLowerCase() === question.answer.toLowerCase();
+      return same ? "correct" : "wrong";
+    }
+  }
+}
+```
+
+There is no `default`, and no `return` after the `switch`. The compiler accepts that because both kinds are handled, and it will not accept it if a kind is missing. That is the check from the [exhaustiveness lesson](../exhaustiveness/). A demo covers both kinds:
+
+```ts title="grade_demo.ts"
+import { grade } from "./grade.ts";
+import type { Question } from "./types.ts";
+
+const pick: Question = {
+  kind: "choice",
+  prompt: "Pick the second one",
+  choices: ["a", "b", "c"],
+  answer: 1,
+};
+const word: Question = { kind: "text", prompt: "Say hi", answer: "hi" };
+
+console.log(grade(pick, "2"), grade(pick, "3"), grade(pick, "4"));
+console.log(grade(pick, "abc"), grade(pick, ""), grade(pick, "1.5"));
+console.log(grade(word, " HI "), grade(word, "hello"), grade(word, "  "));
+```
+
+Run `node grade_demo.ts`:
+
+```text
+correct wrong invalid
+invalid invalid invalid
+correct wrong invalid
+```
+
+Picking 2 is right, 3 is wrong, and 4 is outside the three choices. Text, an empty line and `1.5` are invalid for a choice question. A text answer ignores case and surrounding spaces. Stage 2 is done.
+
+## Stage 3: showing questions and scoring
+
+These two modules are as plain as the grading. `lines` builds the text of a question. After the early return for a text question, the compiler knows `question` is a choice question, so `question.choices` is allowed.
+
+```ts title="show.ts"
+import type { Question } from "./types.ts";
+
+export function lines(question: Question, number: number): string[] {
+  const head = `Question ${number}: ${question.prompt}`;
+  if (question.kind === "text") {
+    return [head];
+  }
+  const options = question.choices.map((c, i) => `  ${i + 1}) ${c}`);
+  return [head, ...options];
+}
+```
+
+`hint` and `answerText` also branch on `kind`:
+
+```ts title="show.ts (continued)"
+export function hint(question: Question): string {
+  if (question.kind === "choice") {
+    return `Please type a number from 1 to ${question.choices.length}.`;
+  }
+  return "Please type an answer.";
+}
+
+export function answerText(question: Question): string {
+  return question.kind === "choice"
+    ? question.choices[question.answer]
+    : question.answer;
+}
+```
+
+`score.ts` is the arithmetic from the JavaScript version with types added:
+
+```ts title="score.ts"
+export interface Summary {
+  correct: number;
+  total: number;
+  percent: number;
+}
+
+export function summarise(results: boolean[]): Summary {
+  const correct = results.filter(Boolean).length;
+  const total = results.length;
+  const percent = total === 0 ? 0 : Math.round((correct / total) * 100);
+  return { correct, total, percent };
+}
+
+export function verdict(percent: number): string {
+  if (percent >= 80) return "Excellent!";
+  if (percent >= 50) return "Good effort.";
+  return "Keep practising.";
+}
+```
+
+The demo prints one question of each kind and some scores:
+
+```ts title="show_demo.ts"
+import { answerText, hint, lines } from "./show.ts";
+import { summarise, verdict } from "./score.ts";
+import type { Question } from "./types.ts";
+
+const pick: Question = {
+  kind: "choice",
+  prompt: "Pick the second one",
+  choices: ["a", "b", "c"],
+  answer: 1,
+};
+const word: Question = { kind: "text", prompt: "Say hi", answer: "hi" };
+
+console.log(lines(pick, 1).join("\n"));
+console.log(lines(word, 2).join("\n"));
+console.log(hint(pick), hint(word));
+console.log(answerText(pick), answerText(word));
+console.log(summarise([true, false, true, true]), summarise([]));
+console.log(verdict(100), verdict(50), verdict(0));
+```
+
+Run `node show_demo.ts`:
+
+```text
+Question 1: Pick the second one
+  1) a
+  2) b
+  3) c
+Question 2: Say hi
+Please type a number from 1 to 3. Please type an answer.
+b hi
+{ correct: 3, total: 4, percent: 75 } { correct: 0, total: 0, percent: 0 }
+Excellent! Good effort. Keep practising.
+```
+
+Stage 3 is done.
+
+## Stage 4: the main program
+
+Reading a line is event-driven, as in the JavaScript project: `rl.on("line", fn)` calls `fn` for every line, and `rl.on("close", fn)` runs when input ends. `@types/node` types `createInterface`, and the callback parameter `text` is a `string` without an annotation. First the imports and a helper that shows a question:
+
+```ts title="main.ts"
+import { createInterface } from "node:readline";
+import { grade } from "./grade.ts";
+import { loadQuestions } from "./load.ts";
+import { summarise, verdict } from "./score.ts";
+import { answerText, hint, lines } from "./show.ts";
+import type { Question } from "./types.ts";
+
+function show(question: Question, number: number): void {
+  console.log(`\n${lines(question, number).join("\n")}`);
+  process.stdout.write("Your answer: ");
+}
+```
+
+Then the start of `runQuiz`. The `results` array lives outside the line listener, because the listener runs once per line.
+
+```ts title="main.ts (continued)"
+function runQuiz(questions: Question[]): void {
+  const rl = createInterface({ input: process.stdin });
+  const results: boolean[] = [];
+
+  console.log(`TypeScript quiz: ${questions.length} questions`);
+  show(questions[0], 1);
+```
+
+The listener grades each line. An invalid line gets a hint and a new prompt.
+
+```ts title="main.ts (continued)"
+  rl.on("line", (text) => {
+    if (results.length === questions.length) return;
+
+    const question = questions[results.length];
+    const outcome = grade(question, text);
+    if (outcome === "invalid") {
+      console.log(hint(question));
+      process.stdout.write("Your answer: ");
+      return;
+    }
+```
+
+A valid line is scored, and the quiz either ends or shows the next question.
+
+```ts title="main.ts (continued)"
+    const right = outcome === "correct";
+    const miss = `Not quite. It is ${answerText(question)}.`;
+    console.log(right ? "Correct!" : miss);
+    results.push(right);
+
+    if (results.length === questions.length) {
+      rl.close();
+    } else {
+      show(questions[results.length], results.length + 1);
+    }
+  });
+```
+
+The `close` listener prints the score, and covers input that ends early.
+
+```ts title="main.ts (continued)"
+  rl.on("close", () => {
+    if (results.length < questions.length) console.log("\nInput ended early.");
+    const { correct, total, percent } = summarise(results);
+    console.log(`\nScore: ${correct}/${total} (${percent}%)`);
+    console.log(verdict(percent));
+  });
+}
+```
+
+Finally the start of the program. A bad data file throws inside `loadQuestions`, and the `catch` reports it and sets a failure exit code.
+
+```ts title="main.ts (continued)"
+try {
+  runQuiz(loadQuestions());
+} catch (error) {
+  const reason = error instanceof Error ? error.message : String(error);
+  console.error(`Quiz failed: ${reason}`);
+  process.exitCode = 1;
+}
+```
+
+Check, then run:
+
+```bash frame="terminal"
+npx tsc --noEmit && node main.ts
+```
+
+Typing `abc` and `9` first shows the retry. The transcript, with the typed answers after each prompt:
+
+```text frame="terminal"
+TypeScript quiz: 5 questions
+
+Question 1: Which keyword declares a constant?
+  1) var
+  2) let
+  3) const
+  4) def
+Your answer: abc
+Please type a number from 1 to 4.
+Your answer: 9
+Please type a number from 1 to 4.
+Your answer: 3
+Correct!
+
+Question 2: Which keyword creates a type alias? (one word)
+Your answer:  TYPE
+Correct!
+
+Question 3: Which option reports syntax that Node.js cannot strip?
+  1) noEmit
+  2) erasableSyntaxOnly
+  3) strict
+  4) target
+Your answer: 1
+Not quite. It is erasableSyntaxOnly.
+
+Question 4: Which type fits a value you have not checked yet? (one word)
+Your answer: any
+Not quite. It is unknown.
+
+Question 5: Does Node.js check types when it runs a .ts file?
+  1) yes
+  2) no
+Your answer: 2
+Correct!
+
+Score: 3/5 (60%)
+Good effort.
+```
+
+Stage 4 is done. To try the error path, change one `answer` in `questions.json` to `9`. The program prints `Quiz failed: question 1: answer is not one of the choices` and exits with status 1.
+
+## Stage 5: let the compiler find the work
+
+The point of the union is what happens when it grows. Suppose a third kind arrives, a number question:
+
+```ts title="extended_kind.ts"
+import type { Question } from "./types.ts";
+
+interface NumberQuestion {
+  kind: "number";
+  prompt: string;
+  answer: number;
+}
+
+function expected(question: Question | NumberQuestion): string {
+  switch (question.kind) {
+    case "choice":
+      return question.choices[question.answer];
+    case "text":
+      return question.answer;
+  }
+}
+
+console.log(expected({ kind: "number", prompt: "?", answer: 3 }));
+```
+
+The function handles two of the three kinds, and `tsc` says so:
+
+```bash frame="terminal"
+npx tsc --noEmit --pretty false
+```
+
+```text
+extended_kind.ts(9,57): error TS2366: Function lacks ending return statement and return type does not include 'undefined'.
+```
+
+Try it in a scratch file as well. In the real project you would add `NumberQuestion` to `Question` in `types.ts`, and `tsc --noEmit` would report `grade`, `lines` and `answerText`, the three functions that cannot yet handle the new kind. `hint` still compiles, because its fallback sentence fits any kind, so read each function that mentions `kind` and not only the errors. Node.js alone would say nothing, and the quiz would fail at the first number question. This is why the habit of this module is `tsc --noEmit` first and `node` second.
+
+## Common pitfalls
+
+- **Casting JSON with `as Question[]`.** It silences the compiler and checks nothing. Validate `unknown` data.
+- **Skipping the check before `node`.** Node.js strips types without looking at them. Only `tsc` finds type errors.
+- **Showing 1-based numbers and storing 0-based indexes.** Convert in one place, `grade`.
+- **Keeping state inside the line listener.** It runs once per line, so keep `results` outside.
+- **Adding `default` to the `switch`.** It makes a missing case compile quietly.
+- **Putting everything in `main.ts`.** The small modules were checked without typing any answers.
+
+## Exercises
+
+<Exercise title="Shuffle the questions">
+
+Write `shuffle(list, random)` that returns a shuffled copy of a read-only list of questions and does not change the original. The `random` parameter defaults to `Math.random`, so that a test can pass `() => 0`. Use the Fisher-Yates method: walk backwards through a copy and swap each item with a random earlier one. Show it on three text questions with the prompts `A`, `B` and `C`. Expected output with `() => 0`: `B C A`, then `A B C` for the original.
+
+<Solution>
+
+```ts title="ex_shuffle.ts"
+import type { Question } from "../quiz/types.ts";
+
+function shuffle(
+  list: readonly Question[],
+  random: () => number = Math.random,
+): Question[] {
+  const copy = [...list];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+const original: Question[] = [
+  { kind: "text", prompt: "A", answer: "a" },
+  { kind: "text", prompt: "B", answer: "b" },
+  { kind: "text", prompt: "C", answer: "c" },
+];
+
+const fixed = shuffle(original, () => 0);
+console.log(fixed.map((q) => q.prompt).join(" "));
+console.log(original.map((q) => q.prompt).join(" "));
+```
+
+```text
+B C A
+A B C
+```
+
+`readonly Question[]` tells callers the function will not change their list, and the spread makes the copy. To use it in the quiz, call `shuffle(loadQuestions())` in `main.ts`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Count the kinds">
+
+Write `countKinds(questions)` that returns an object with the number of `choice` and `text` questions, and print it for the real questions from `loadQuestions()`. Expected output: `{ choice: 3, text: 2 }`.
+
+<Solution>
+
+```ts title="ex_count_kinds.ts"
+import { loadQuestions } from "../quiz/load.ts";
+import type { Question } from "../quiz/types.ts";
+
+interface KindCounts {
+  choice: number;
+  text: number;
+}
+
+function countKinds(questions: readonly Question[]): KindCounts {
+  const counts: KindCounts = { choice: 0, text: 0 };
+  for (const question of questions) {
+    counts[question.kind] += 1;
+  }
+  return counts;
+}
+
+console.log(countKinds(loadQuestions()));
+```
+
+```text
+{ choice: 3, text: 2 }
+```
+
+`question.kind` is `"choice" | "text"`, and both are keys of `KindCounts`, so the compiler accepts `counts[question.kind]`.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="A question limit">
+
+Write `limitFrom(args, fallback)` that finds `--count` in a list of arguments and returns the number after it. It returns `fallback` when the flag is missing, has no value, or the value is not a whole number above 0. Print the results for `["--count", "3"]`, `["--count", "x"]`, `["--count"]` and `[]`, with a fallback of 5. Expected output: `3`, `5`, `5`, `5`, one per line. To use it, pass `process.argv.slice(2)` and take that many questions with `slice`.
+
+<Solution>
+
+```ts title="ex_limit.ts"
+function limitFrom(args: string[], fallback: number): number {
+  const at = args.indexOf("--count");
+  const value = at === -1 ? undefined : args[at + 1];
+  if (value === undefined) {
+    return fallback;
+  }
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : fallback;
+}
+
+console.log(limitFrom(["--count", "3"], 5));
+console.log(limitFrom(["--count", "x"], 5));
+console.log(limitFrom(["--count"], 5));
+console.log(limitFrom([], 5));
+```
+
+```text
+3
+5
+5
+5
+```
+
+`args[at + 1]` is typed `string`, but it is missing at the end of the list, so the code checks for `undefined` anyway. The function takes the list as a parameter, so it can be run without touching `process`.
+
+</Solution>
+
+</Exercise>
+
+## Going further
+
+Pick one and build it. Add a `category` to each question and report the score per category. Load a second question file named on the command line. Add the number kind from stage 5, and let `tsc` list the places to change.
+
+## Recap
+
+- A discriminated union models questions of different shapes, and a `switch` on `kind` narrows each branch.
+- JSON is typed by its text, so literal fields become `string`. Validate data from files as `unknown` and build the typed value yourself.
+- A `switch` with no `default` and a declared return type is an exhaustiveness check: adding a union member produces errors in every function that must change.
+- Small modules with `import type` and `.ts` paths can be checked and run one stage at a time.
+- Run `tsc --noEmit` before `node`. Node.js runs the program and tsc checks it.
+
+This completes the TypeScript beginner level. The intermediate level begins with generics.

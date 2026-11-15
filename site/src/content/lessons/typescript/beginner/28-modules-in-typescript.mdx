@@ -1,0 +1,288 @@
+---
+language: typescript
+level: beginner
+module: Modules and a first project
+order: 28
+title: Modules, imports and file extensions
+description: Split a TypeScript program into modules that both Node.js and tsc accept, with .ts extensions in import paths, module nodenext and the right module type for each file.
+minVersion: "5.7"
+objectives:
+  - Split a program into modules with `import` and `export`
+  - Write relative imports with the `.ts` extension, and say why Node.js needs it
+  - Explain what `rewriteRelativeImportExtensions` does
+  - "Choose between `\"type\": \"module\"` and the `.mts` extension"
+estimatedMinutes: 30
+fundamentals: []
+---
+
+Until now each example was one file. Real programs are many files, and each file is a **module**: it keeps its names private until it exports them, and other files import what they need. The JavaScript rules are in the [ES modules lesson](../../../javascript/beginner/es-modules/), and TypeScript uses the same syntax. What TypeScript adds is a second reader of your imports, the compiler, and the two readers must agree about file names. This lesson is about making them agree.
+
+## Three files, one program
+
+A small geometry program in a folder called `geometry`:
+
+```text
+geometry/
+  package.json
+  tsconfig.json
+  point.ts
+  distance.ts
+  main.ts
+```
+
+`point.ts` exports a type and a function. A type can be exported like any other declaration.
+
+```ts title="point.ts"
+export interface Point {
+  x: number;
+  y: number;
+}
+
+export function origin(): Point {
+  return { x: 0, y: 0 };
+}
+```
+
+`distance.ts` imports the `Point` type. The words `import type` mean "this name exists only for the compiler", so the import is erased before Node.js runs the file. The [next lesson](../type-only-imports/) explains why the course configuration requires it.
+
+```ts title="distance.ts"
+import type { Point } from "./point.ts";
+
+export function distance(a: Point, b: Point): number {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+```
+
+`main.ts` imports the functions and runs the program.
+
+```ts title="main.ts"
+import { distance } from "./distance.ts";
+import { origin } from "./point.ts";
+
+console.log(distance(origin(), { x: 3, y: 4 }));
+```
+
+Run it with Node.js, then check it with the compiler. Both commands are fine with this layout.
+
+```bash frame="terminal"
+node main.ts
+npx tsc --noEmit
+```
+
+```text
+5
+```
+
+`node` prints the distance. `tsc` prints nothing, which means no errors. The `package.json` holds `{ "type": "module" }`, and `tsconfig.json` is the one from the [tsconfig lesson](../tsconfig-first-look/).
+
+## The extension is part of the name
+
+Look at the import paths: `"./point.ts"`, with the extension. In ES modules a path names a file, and Node.js does no searching. It does not add `.ts`, and it does not look for `point/index.ts`. If you write `"./point"`, Node.js cannot find a file by that name:
+
+```ts title="missing_ext.ts"
+import { distance } from "./distance";
+import { origin } from "./point";
+
+console.log(distance(origin(), { x: 3, y: 4 }));
+```
+
+Node.js stops at the first import:
+
+```bash frame="terminal"
+node missing_ext.ts
+```
+
+```text
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/you/geometry/distance' imported from /home/you/geometry/missing_ext.ts
+```
+
+The compiler agrees. With `module: nodenext` it applies the same rules as Node.js and reports TS2835 on each import:
+
+```bash frame="terminal"
+npx tsc --noEmit --pretty false
+```
+
+```text
+missing_ext.ts(1,26): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './distance.js'?
+missing_ext.ts(2,24): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './point.js'?
+```
+
+The suggestion says `.js`, which leads to a long-standing habit. Because TypeScript was meant to be compiled, people wrote the name of the **output** file, `./point.js`, even though the source is `point.ts`. The compiler maps it back, so this passes `tsc`:
+
+```ts title="old_js_ext.ts"
+import { distance } from "./distance.js";
+import { origin } from "./point.js";
+
+console.log(distance(origin(), { x: 3, y: 4 }));
+```
+
+But Node.js running the source finds no `point.js` on disk:
+
+```bash frame="terminal"
+node old_js_ext.ts
+```
+
+```text
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/you/geometry/distance.js' imported from /home/you/geometry/old_js_ext.ts
+```
+
+When Node.js runs your `.ts` files directly, the import must name the file that exists, which is the `.ts` file.
+
+## rewriteRelativeImportExtensions
+
+Writing `.ts` raises a question: what happens if you still compile with `tsc` and run the JavaScript it emits? An import of `./point.ts` would then point at a file that is not in the output folder.
+
+The option `rewriteRelativeImportExtensions` <Since v="5.7" /> solves that. Without it, the compiler rejects an import path ending in `.ts` with error TS5097. With it, the path is accepted and then rewritten in the emitted code. This is what `tsc --outDir dist` writes for `main.ts`:
+
+```js title="dist/main.js"
+import { distance } from "./distance.js";
+import { origin } from "./point.js";
+console.log(distance(origin(), { x: 3, y: 4 }));
+```
+
+The `.ts` extensions became `.js`, so the compiled program runs too. Only relative paths are rewritten. This is why the course configuration has the option on even though it never emits. Before TypeScript 5.7 the only way to write `.ts` paths was `allowImportingTsExtensions`, which refuses to combine with emitting JavaScript, so it suited only projects that never compile.
+
+## Which kind of module is each file?
+
+Node.js must decide whether a file is an ES module or CommonJS, and it uses the same rule for `.ts` files as for `.js` files:
+
+- A `.ts` file follows the `"type"` field of the nearest `package.json`. `"type": "module"` makes it an ES module.
+- A `.mts` file is always an ES module, and a `.cts` file is always CommonJS.
+
+With `module: nodenext`, `tsc` applies the same rule. Take away `"type": "module"` and keep `verbatimModuleSyntax` on, and `tsc` reports that the `import` and `export` lines are written in a CommonJS file (TS1295 and TS1287). Node.js still runs the program, because it detects the module syntax, but it prints a warning:
+
+```text
+[MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/you/geometry/main.ts is not specified and it doesn't parse as CommonJS.
+```
+
+Set `"type": "module"` in `package.json` and both the error and the warning go away. For a single file that must be an ES module whatever the folder says, name it `main.mts` and import `./point.mts`. A new project should use the `package.json` field, so that `.ts` is the normal extension.
+
+## Two more rules from Node.js
+
+Node.js does not open a folder to find its `index.ts`. `import "./lib"` fails with `ERR_UNSUPPORTED_DIR_IMPORT` even when `lib/index.ts` exists, so write `"./lib/index.ts"`. Names of packages from `node_modules` carry no extension, because the package decides what they point to: `import { x } from "some-package"`.
+
+## Common pitfalls
+
+- **Leaving the extension off.** It works in many bundlers and older tutorials. It fails in Node.js and under `nodenext`.
+- **Writing `.js` in an import of a `.ts` file.** It passes `tsc` and fails in Node.js when you run the source.
+- **Forgetting `"type": "module"`.** `tsc` reports TS1295, and Node.js warns.
+- **Expecting `import "./lib"` to find `lib/index.ts`.** Name the file.
+- **Importing a type without `type`.** The next lesson covers the crash this causes.
+
+<Exercise title="Split a script into modules">
+
+This script is one file. Split it into `stats.ts` for `average`, `format.ts` for `report`, and a small main file that imports both and prints the line. Check it with `tsc --noEmit` and run the main file with `node`. Expected output: `Ada: 81.7`.
+
+```ts
+const grades: number[] = [70, 85, 90];
+
+function average(list: number[]): number {
+  const sum = list.reduce((total, n) => total + n, 0);
+  return sum / list.length;
+}
+
+function report(name: string, value: number): string {
+  return `${name}: ${value.toFixed(1)}`;
+}
+
+console.log(report("Ada", average(grades)));
+```
+
+<Solution>
+
+```ts title="stats.ts"
+export function average(list: number[]): number {
+  const sum = list.reduce((total, n) => total + n, 0);
+  return sum / list.length;
+}
+```
+
+```ts title="format.ts"
+export function report(name: string, value: number): string {
+  return `${name}: ${value.toFixed(1)}`;
+}
+```
+
+```ts title="ex_split_main.ts"
+import { report } from "./format.ts";
+import { average } from "./stats.ts";
+
+const grades: number[] = [70, 85, 90];
+
+console.log(report("Ada", average(grades)));
+```
+
+```text
+Ada: 81.7
+```
+
+Each function is exported, and each import names the `.ts` file. Only `ex_split_main.ts` is run.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Fix the missing extension">
+
+`ex_fix_ext_start.ts` imports `shout` from a sibling file `util.ts`. The compiler reports TS2835. Change the import so that `tsc --noEmit` passes, then run it. Expected output: `HELLO!`.
+
+```ts
+import { shout } from "./util";
+
+console.log(shout("hello"));
+```
+
+<Solution>
+
+```ts title="ex_fix_ext.ts"
+import { shout } from "./util.ts";
+
+console.log(shout("hello"));
+```
+
+```text
+HELLO!
+```
+
+Name the real file, `./util.ts`. Changing the configuration is not the fix, because Node.js needs the extension too.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="One entry point">
+
+A folder has `add.ts` exporting `add` and `times.ts` exporting `times`. Write `index.ts` that re-exports both with `export { name } from "..."`, so that a third file can import them from one place. In that file, print `add(2, 3)` and `times(2, 3)`. Expected output: `5 6`.
+
+<Solution>
+
+```ts title="index.ts"
+export { add } from "./add.ts";
+export { times } from "./times.ts";
+```
+
+```ts title="ex_barrel_main.ts"
+import { add, times } from "./index.ts";
+
+console.log(add(2, 3), times(2, 3));
+```
+
+```text
+5 6
+```
+
+The import names `./index.ts` in full, since Node.js will not look inside a folder for it. A file like `index.ts` that only re-exports is called a barrel.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Every file with `import` or `export` is a module. Imports are file paths, and the extension is part of the path.
+- Write the real extension, `./point.ts`. `.js` passes `tsc` but fails when Node.js runs the source, and no extension fails in both.
+- `rewriteRelativeImportExtensions` lets `tsc` accept `.ts` paths and rewrite them to `.js` in emitted code.
+- `.ts` follows the `"type"` field of `package.json`, while `.mts` is always an ES module and `.cts` always CommonJS.
+- Folder imports are not resolved. Name `index.ts`.
+
+Next: [type-only imports](../type-only-imports/).

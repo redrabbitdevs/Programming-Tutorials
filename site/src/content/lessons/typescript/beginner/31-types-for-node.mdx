@@ -1,0 +1,334 @@
+---
+language: typescript
+level: beginner
+module: Modules and a first project
+order: 31
+title: Typing Node.js code
+description: "Use Node.js APIs with types: @types/node and the types option, node: imports, process.argv, standard input and typed JSON modules, then build a small wc clone."
+minVersion: "6.0"
+objectives:
+  - "Install `@types/node` and enable it with `\"types\": [\"node\"]`"
+  - Import Node.js built-in modules with the `node:` prefix and read their types
+  - Read command-line arguments and standard input with types
+  - Import a JSON file with an import attribute and get its type
+estimatedMinutes: 35
+fundamentals: []
+---
+
+TypeScript knows the JavaScript language and, with the default libraries, the browser's globals. It does not know Node.js. Functions such as `readFileSync` and objects such as `process` come from the runtime, so their types must come from a package. This lesson connects the two and ends with a working command-line tool. The [JavaScript package lesson](../../../javascript/beginner/package-json-npm/) covers `npm` and `process.argv` on the JavaScript side.
+
+## @types/node
+
+The package `@types/node` holds type declarations for the Node.js API. It contains no code. Install it as a development dependency, then list it in the configuration. Since TypeScript 6.0 the `types` option defaults to an empty list, so nothing under `@types` loads unless you name it, as the [tsconfig lesson](../tsconfig-first-look/) showed.
+
+```bash frame="terminal"
+npm install --save-dev @types/node
+```
+
+```json title="tsconfig.json (excerpt)"
+{
+  "compilerOptions": {
+    "types": ["node"]
+  }
+}
+```
+
+Without both steps, a file such as this one fails the check:
+
+```ts title="read_text.ts"
+import { readFileSync } from "node:fs";
+
+const text: string = readFileSync("notes.txt", "utf8");
+console.log(text.length);
+```
+
+The error names the module, and says what to do:
+
+```bash frame="terminal"
+npx tsc --noEmit --pretty false
+```
+
+```text
+read_text.ts(1,30): error TS2591: Cannot find name 'node:fs'. Do you need to install type definitions for node? Try `npm i --save-dev @types/node` and then add 'node' to the types field in your tsconfig.
+```
+
+The major version of `@types/node` follows Node.js. For Node.js 22 install `@types/node@22`, so that the declarations match the APIs you actually have.
+
+## Built-in modules with node:
+
+Node.js built-in modules are imported with a `node:` prefix: `node:fs` for files, `node:path` for file names and `node:readline` for lines of input. The prefix says "this comes from Node.js", and it cannot be confused with a package from npm. With the types installed, the import has a type, and so does each function:
+
+```bash frame="terminal"
+node read_text.ts
+```
+
+```text
+37
+```
+
+`readFileSync(path, "utf8")` returns a `string`. Leave out the encoding and Node.js returns raw bytes, a `Buffer`, and the types follow that. The annotation below is wrong for that call:
+
+```ts title="read_buffer.ts"
+import { readFileSync } from "node:fs";
+
+const text: string = readFileSync("notes.txt");
+console.log(text.length);
+```
+
+The compiler knows which overload you called.
+
+```bash frame="terminal"
+npx tsc --noEmit --pretty false
+```
+
+```text
+read_buffer.ts(3,7): error TS2322: Type 'NonSharedBuffer' is not assignable to type 'string'.
+```
+
+`NonSharedBuffer` is `@types/node`'s name for a plain `Buffer`. The fix is the second argument, `"utf8"`. This is typing paying for itself: in JavaScript, `text.length` would run and give the number of bytes.
+
+## Arguments and standard input
+
+`process.argv` is a `string[]`. Its first two entries are the path of the Node.js program and the path of your script, so the arguments you typed start at index 2:
+
+```ts title="argv_demo.ts"
+const args: string[] = process.argv.slice(2);
+
+console.log(args);
+console.log(args.length);
+```
+
+```bash frame="terminal"
+node argv_demo.ts a b
+```
+
+```text
+[ 'a', 'b' ]
+2
+```
+
+Standard input is file descriptor 0, and `readFileSync` accepts a number in place of a path. `readFileSync(0, "utf8")` reads everything that was piped in. Setting `process.exitCode` to a non-zero number marks the run as failed, and the types say it is a number.
+
+## JSON modules
+
+A JSON file can be imported as a module. Node.js requires an **import attribute**, `with { type: "json" }` (TypeScript 5.3 and later), so that it knows to parse the file as data. TypeScript reads the JSON and gives you its type:
+
+```json title="config.json"
+{
+  "width": 6
+}
+```
+
+```ts title="json_demo.ts"
+import config from "./config.json" with { type: "json" };
+
+const width: number = config.width;
+console.log(width);
+```
+
+The type of `config` is `{ width: number }`, and the annotation agrees.
+
+```bash frame="terminal"
+node json_demo.ts
+```
+
+```text
+6
+```
+
+If the JSON changes shape, the errors appear in your code. Annotate `width` as a `string` and the compiler reports `Type 'number' is not assignable to type 'string'`. TypeScript 7 loads JSON under `module: nodenext` without extra options, and without the attribute it reports TS1543:
+
+```text
+json_no_with.ts(1,20): error TS1543: Importing a JSON file into an ECMAScript module requires a 'type: "json"' import attribute when 'module' is set to 'NodeNext'.
+```
+
+Node.js enforces the same rule at run time with `ERR_IMPORT_ATTRIBUTE_MISSING`. The [JSON modules lesson](../../../javascript/beginner/json-modules-dynamic-import/) explains the attribute. Remember that the type comes from the file as it is today. Data from outside your repository still needs checking, which the project lesson does.
+
+## A typed wc clone
+
+The Unix tool `wc` counts lines, words and bytes. This version has a module for counting, and a main file that reads each file named on the command line, or standard input if there are none. The counting module is pure and needs no Node.js API beyond `Buffer`, which `@types/node` also declares:
+
+```ts title="count.ts"
+export interface Counts {
+  lines: number;
+  words: number;
+  bytes: number;
+}
+
+export function count(text: string): Counts {
+  const lines = text.split("\n").length - 1;
+  const words = text.split(/\s+/).filter((word) => word !== "").length;
+  return { lines, words, bytes: Buffer.byteLength(text) };
+}
+```
+
+The main file starts with its imports and a function that lays out one line of output. The column width comes from `config.json`.
+
+```ts title="wc.ts"
+import { readFileSync } from "node:fs";
+import config from "./config.json" with { type: "json" };
+import { count } from "./count.ts";
+import type { Counts } from "./count.ts";
+
+function format(counts: Counts, label: string): string {
+  const cells = [counts.lines, counts.words, counts.bytes];
+  const padded = cells.map((n) => String(n).padStart(config.width));
+  return `${padded.join("")} ${label}`.trimEnd();
+}
+
+function readText(file: string | undefined): string {
+  return readFileSync(file ?? 0, "utf8");
+}
+```
+
+Then the loop. A file that cannot be read throws, and the `catch` variable is `unknown`, so it is narrowed with `instanceof Error`:
+
+```ts title="wc.ts (continued)"
+const files = process.argv.slice(2);
+const targets = files.length > 0 ? files : [undefined];
+
+for (const file of targets) {
+  try {
+    console.log(format(count(readText(file)), file ?? ""));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error(`wc: ${reason}`);
+    process.exitCode = 1;
+  }
+}
+```
+
+Create `notes.txt` with two lines, `Typed code` and `runs as plain JavaScript.`, then run the tool on it and on `config.json`. A file that is missing gets an error message:
+
+```bash frame="terminal"
+node wc.ts notes.txt config.json
+node wc.ts nofile.txt
+```
+
+```text
+     2     6    37 notes.txt
+     3     4    17 config.json
+wc: ENOENT: no such file or directory, open 'nofile.txt'
+```
+
+The second command also exits with status 1. With no file names, `node wc.ts < notes.txt` reads standard input and prints the same counts with no label.
+
+## Common pitfalls
+
+- **Installing `@types/node` and not listing `node` in `types`.** Both are needed since TypeScript 6.0.
+- **Importing `fs` without the prefix.** It often works, but `node:fs` is clearer, and it cannot clash with an npm package.
+- **Forgetting the encoding.** Without `"utf8"`, `readFileSync` returns a `Buffer`.
+- **Counting `process.argv` from 0.** Your arguments start at index 2.
+- **Importing JSON without `with { type: "json" }`.** TS1543 at compile time, and an error at run time.
+- **Assuming the JSON type is a guarantee.** It describes the file in your project, not data you receive later.
+
+<Exercise title="A grep clone">
+
+Write a program that reads all of standard input and prints the lines that contain a word. The word is the first command-line argument, or `error` if there is none. Put the filtering in a function `matching(text, word)`. Expected result: for the input lines `ok: started`, `error: disk full`, `ok: retrying`, `error: timeout`, the output is `error: disk full` and `error: timeout`.
+
+<Solution>
+
+```ts title="ex_grep.ts"
+import { readFileSync } from "node:fs";
+
+function matching(text: string, word: string): string[] {
+  return text.split("\n").filter((line) => line.includes(word));
+}
+
+const word = process.argv[2] ?? "error";
+for (const line of matching(readFileSync(0, "utf8"), word)) {
+  console.log(line);
+}
+```
+
+```text
+error: disk full
+error: timeout
+```
+
+`process.argv[2]` is typed `string`, but it is `undefined` when no argument was given. `??` supplies the default either way.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Greetings from JSON">
+
+Create `settings.json` with a `greeting` string and a `names` array of strings. Import it with the import attribute and print one greeting per name. Use `Hello` and the names `Ada` and `Grace`. Expected output: `Hello, Ada!` and `Hello, Grace!`.
+
+<Solution>
+
+```json title="settings.json"
+{
+  "greeting": "Hello",
+  "names": ["Ada", "Grace"]
+}
+```
+
+```ts title="ex_json.ts"
+import settings from "./settings.json" with { type: "json" };
+
+for (const name of settings.names) {
+  console.log(`${settings.greeting}, ${name}!`);
+}
+```
+
+```text
+Hello, Ada!
+Hello, Grace!
+```
+
+`settings.names` is a `string[]`, taken from the file, so `name` is a `string` with no annotation.
+
+</Solution>
+
+</Exercise>
+
+<Exercise title="Parse flags">
+
+Write `parseFlags(args: string[])` that returns an object with `verbose: boolean` and `files: string[]`. The argument `-v` sets `verbose`, and every other argument is a file name. Print `parseFlags(["-v", "a.txt", "b.txt"])`, then `parseFlags(process.argv.slice(2))`. Expected output when run with no arguments: `{ verbose: true, files: [ 'a.txt', 'b.txt' ] }`, then `{ verbose: false, files: [] }`.
+
+<Solution>
+
+```ts title="ex_flags.ts"
+interface Flags {
+  verbose: boolean;
+  files: string[];
+}
+
+function parseFlags(args: string[]): Flags {
+  const flags: Flags = { verbose: false, files: [] };
+  for (const arg of args) {
+    if (arg === "-v") {
+      flags.verbose = true;
+    } else {
+      flags.files.push(arg);
+    }
+  }
+  return flags;
+}
+
+console.log(parseFlags(["-v", "a.txt", "b.txt"]));
+console.log(parseFlags(process.argv.slice(2)));
+```
+
+```text
+{ verbose: true, files: [ 'a.txt', 'b.txt' ] }
+{ verbose: false, files: [] }
+```
+
+A function that takes the argument list as a parameter is easy to test with a made-up list, and only the last line touches `process`.
+
+</Solution>
+
+</Exercise>
+
+## Recap
+
+- Node.js APIs have types only through `@types/node`. Install it and list it in `"types"`, since `types` defaults to `[]` from TypeScript 6.0.
+- Import built-in modules with `node:`. Overloads such as `readFileSync` return a `string` or a `Buffer` depending on the arguments.
+- `process.argv` is a `string[]` that starts with the Node.js path and the script path. File descriptor 0 is standard input.
+- Import JSON with `with { type: "json" }`, and TypeScript types it from the file.
+- `catch` variables are `unknown`. Narrow before you use them.
+
+Next: [Project: a typed command-line quiz](../project-typed-quiz/).

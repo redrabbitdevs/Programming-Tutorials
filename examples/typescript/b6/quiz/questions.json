@@ -1,0 +1,30 @@
+[
+  {
+    "kind": "choice",
+    "prompt": "Which keyword declares a constant?",
+    "choices": ["var", "let", "const", "def"],
+    "answer": 2
+  },
+  {
+    "kind": "text",
+    "prompt": "Which keyword creates a type alias? (one word)",
+    "answer": "type"
+  },
+  {
+    "kind": "choice",
+    "prompt": "Which option reports syntax that Node.js cannot strip?",
+    "choices": ["noEmit", "erasableSyntaxOnly", "strict", "target"],
+    "answer": 1
+  },
+  {
+    "kind": "text",
+    "prompt": "Which type fits a value you have not checked yet? (one word)",
+    "answer": "unknown"
+  },
+  {
+    "kind": "choice",
+    "prompt": "Does Node.js check types when it runs a .ts file?",
+    "choices": ["yes", "no"],
+    "answer": 1
+  }
+]
